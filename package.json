@@ -1,0 +1,50 @@
+{
+  "name": "hostella-desktop",
+  "private": true,
+  "version": "0.0.1", 
+  "description": "Hostella Management System",
+  "author": "Your Name",
+  "main": "electron/main.js", 
+  "homepage": "./",
+  "scripts": {
+    "dev": "concurrently -k \"cross-env BROWSER=none npm run react-start\" \"npm run electron-start\"",
+    "react-start": "vite",
+    "electron-start": "wait-on tcp:5173 && electron .",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder build --publish always"
+  },
+  "build": {
+    "appId": "com.hostella.app",
+    "productName": "Hostella",
+    "copyright": "Copyright © 2024",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gulomovff-lgtm",
+        "repo": "hostella-desktop"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/vite.svg" 
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+   "dependencies": {
+     ... ваши зависимости ...
+  },
+  "devDependencies": {
+     ... ваши dev зависимости ...
+  }
+}
