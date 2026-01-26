@@ -5,4 +5,5 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: './', // <--- ВОТ ЭТА СТРОЧКА САМАЯ ВАЖНАЯ
   plugins: [react()],
+  base: './', // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
 })
