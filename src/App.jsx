@@ -17,7 +17,10 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
   increment,
-  writeBatch
+  writeBatch,
+  query,
+  where,
+  orderBy
 } from 'firebase/firestore';
 import { 
   getFunctions, 
@@ -73,7 +76,8 @@ import {
   Merge,
   Square,
   CheckSquare,
-  ScanLine
+  ScanLine,
+  Timer
 } from 'lucide-react';
 
 // --- STYLES ---
@@ -83,7 +87,7 @@ const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracki
 // --- TRANSLATIONS ---
 const TRANSLATIONS = {
   ru: {
-    dashboard: "Дашборд", rooms: "Номера", calendar: "Календарь", reports: "Отчеты", debts: "Долги", tasks: "Задачи", expenses: "Расходы", clients: "Клиенты", staff: "Персонал",
+    dashboard: "Дашборд", rooms: "Номера", calendar: "Календарь", reports: "Отчеты", debts: "Долги", tasks: "Задачи", expenses: "Расходы", clients: "Клиенты", staff: "Персонал", shifts: "Смены",
     logout: "Выйти", login: "Логин", pass: "Пароль", enter: "Войти в систему",
     guests: "Постояльцы", occupancy: "Загрузка", revenue: "Выручка", today: "Сегодня",
     cash: "Наличные", card: "Терминал", qr: "QR",
@@ -136,10 +140,16 @@ const TRANSLATIONS = {
     createDebt: "Создать долг",
     print: "Печать",
     printReport: "Печать отчета",
-    checkinNew: "Заселить нового"
+    checkinNew: "Заселить нового",
+    startShift: "Начать смену",
+    endShift: "Закончить смену",
+    transferShift: "Передать смену",
+    working: "В работе",
+    workedHours: "Часы",
+    salaryCalc: "Расчет ЗП"
   },
   uz: {
-    dashboard: "Boshqaruv", rooms: "Xonalar", calendar: "Kalendar", reports: "Hisobotlar", debts: "Qarzlar", tasks: "Vazifalar", expenses: "Xarajatlar", clients: "Mijozlar", staff: "Xodimlar",
+    dashboard: "Boshqaruv", rooms: "Xonalar", calendar: "Kalendar", reports: "Hisobotlar", debts: "Qarzlar", tasks: "Vazifalar", expenses: "Xarajatlar", clients: "Mijozlar", staff: "Xodimlar", shifts: "Smenalar",
     logout: "Chiqish", login: "Login", pass: "Parol", enter: "Tizimga kirish",
     guests: "Mehmonlar", occupancy: "Bandlik", revenue: "Tushum", today: "Bugun",
     cash: "Naqd", card: "Terminal", qr: "QR",
@@ -192,7 +202,13 @@ const TRANSLATIONS = {
     createDebt: "Qarz yaratish",
     print: "Chop etish",
     printReport: "Hisobotni chop etish",
-    checkinNew: "Yangi mehmon"
+    checkinNew: "Yangi mehmon",
+    startShift: "Smenani boshlash",
+    endShift: "Smenani tugatish",
+    transferShift: "Smenani topshirish",
+    working: "Ishlamoqda",
+    workedHours: "Soat",
+    salaryCalc: "Maosh hisobi"
   }
 };
 
@@ -237,6 +253,9 @@ const db = initializeFirestore(app, {
 
 const APP_ID = 'hostella-multi-v4';
 const PUBLIC_DATA_PATH = ['artifacts', APP_ID, 'public', 'data'];
+
+// --- SALARY CONFIG ---
+const DAILY_SALARY = 266666; // for 24 hours
 
 // --- DEFAULT DATA ---
 const DEFAULT_USERS = [
@@ -338,6 +357,15 @@ const checkCollision = (startA, daysA, startB, daysB) => {
     const endBTime = stayB.end.getTime();
 
     return (startATime < endBTime && endATime > startBTime);
+};
+
+const calculateSalary = (startTime, endTime) => {
+    const start = new Date(startTime);
+    const end = endTime ? new Date(endTime) : new Date();
+    const diffMs = end - start;
+    const hours = diffMs / (1000 * 60 * 60);
+    const hourlyRate = DAILY_SALARY / 24;
+    return Math.round(hours * hourlyRate);
 };
 
 const exportToExcel = (data, filename) => {
@@ -609,7 +637,7 @@ const MobileNavigation = ({ currentUser, activeTab, setActiveTab, pendingTasksCo
        { id: 'rooms', label: t('rooms'), icon: BedDouble, role: 'all' },
        { id: 'calendar', label: t('calendar'), icon: CalendarIcon, role: 'all' },
        { id: 'tasks', label: t('tasks'), icon: Wrench, role: 'all', badge: pendingTasksCount },
-       { id: 'reports', label: t('reports'), icon: FileText, role: 'admin' },
+       { id: 'shifts', label: t('shifts'), icon: Timer, role: 'all' },
     ];
     const roleCheck = (role) => {
         if (currentUser.role === 'super') return true; 
@@ -644,6 +672,7 @@ const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setL
        { id: 'calendar', label: t('calendar'), icon: CalendarIcon, role: 'all' },
        { id: 'reports', label: t('reports'), icon: FileText, role: 'admin' },
        { id: 'debts', label: t('debts'), icon: Coins, role: 'all' },
+       { id: 'shifts', label: t('shifts'), icon: Timer, role: 'all' },
        { id: 'tasks', label: t('tasks'), icon: Wrench, role: 'all', badge: pendingTasksCount },
        { id: 'expenses', label: t('expenses'), icon: Wallet, role: 'admin' },
        { id: 'clients', label: t('clients'), icon: Users, role: 'admin' },
@@ -737,54 +766,98 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang }) => {
     );
 };
 
-const DashboardStats = ({ rooms, guests, payments, lang }) => {
+const DashboardStats = ({ rooms, guests, payments, lang, currentHostelId }) => {
     const t = (k) => TRANSLATIONS[lang][k];
-    const totalCapacity = rooms.reduce((acc, r) => acc + parseInt(r.capacity), 0);
+    
+    const currentHostelInfo = HOSTELS[currentHostelId];
+
+    // 1. Фильтруем комнаты строго по текущему хостелу
+    const relevantRooms = currentHostelId === 'all' ? rooms : rooms.filter(r => r.hostelId === currentHostelId);
+    
+    // 2. Емкость (общее кол-во мест)
+    const totalCapacity = relevantRooms.reduce((acc, r) => acc + parseInt(r.capacity), 0);
     const now = new Date();
     
+    // 3. Активные гости (Загруженность)
+    // ИСПРАВЛЕНИЕ: Считаем только тех, кто физически должен быть в номере СЕЙЧАС.
+    // Если время выезда прошло (прошлые даты), мы их НЕ считаем, даже если статус 'active'.
     const activeGuests = guests.filter(g => {
+        // Фильтр по хостелу
+        if (currentHostelId !== 'all' && g.hostelId !== currentHostelId) return false;
+        
+        // Должен быть активен
         if (g.status !== 'active') return false;
-        const stay = getStayDetails(g.checkInDate || g.checkInDateTime || g.checkIn, g.days);
-        const todayNoTime = new Date();
-        todayNoTime.setHours(0,0,0,0);
-        const guestStart = new Date(stay.startDateNormalized);
-        const guestEnd = new Date(stay.end);
-        guestEnd.setHours(0,0,0,0);
-        return todayNoTime >= guestStart && todayNoTime < guestEnd;
+
+        const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
+        const rawCheckOut = g.checkOutDate;
+        
+        if (!rawCheckIn || !rawCheckOut) return false;
+
+        const checkIn = new Date(rawCheckIn);
+        const checkOut = new Date(rawCheckOut);
+
+        // Нормализуем даты, если они без времени (ставим 12:00)
+        if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) checkIn.setHours(12, 0, 0, 0);
+        if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) checkOut.setHours(12, 0, 0, 0);
+
+        // ГЛАВНОЕ УСЛОВИЕ: Текущее время должно быть внутри периода проживания
+        // CheckIn <= NOW < CheckOut
+        return now >= checkIn && now < checkOut;
     }).length;
     
-    const todayStr = getLocalDateString(new Date());
-    const guestsToday = guests.filter(g => {
-        const d = g.checkInDate || g.checkInDateTime || g.checkIn;
-        return d && d.startsWith(todayStr) && g.status === 'active';
-    });
+    // 4. Выручка за сегодня
+    // Функция для получения локальной даты YYYY-MM-DD (чтобы избежать проблем с UTC)
+    const getLocalYMD = (dateInput) => {
+        if (!dateInput) return '';
+        const d = new Date(dateInput);
+        const offset = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - offset).toISOString().slice(0, 10);
+    };
     
+    const todayYMD = getLocalYMD(new Date());
+
     const revenueToday = payments 
         ? payments
-            .filter(p => p.date && p.date.startsWith(todayStr))
+            .filter(p => {
+                // Фильтр по хостелу
+                if (currentHostelId !== 'all' && p.hostelId !== currentHostelId) return false;
+                
+                // Сравниваем только дату (день)
+                const paymentYMD = getLocalYMD(p.date);
+                return paymentYMD === todayYMD;
+            })
             .reduce((acc, p) => acc + (parseInt(p.amount) || 0), 0)
         : 0;
+        
+    const guestsTodayCount = guests.filter(g => {
+        if (currentHostelId !== 'all' && g.hostelId !== currentHostelId) return false;
+        const checkInYMD = getLocalYMD(g.checkInDate || g.checkIn);
+        return checkInYMD === todayYMD && g.status === 'active';
+    }).length;
+
+    const occupancyPercent = totalCapacity ? Math.round((activeGuests/totalCapacity)*100) : 0;
+    const freeBeds = Math.max(0, totalCapacity - activeGuests);
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Users size={64}/></div>
                 <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('guests')}</div><div className="text-2xl font-bold text-slate-800 mt-1">{activeGuests}</div></div>
-                <div className="text-xs text-slate-400 mt-auto">{t('today')}</div>
+                <div className="text-xs text-slate-400 mt-auto">{t('today')}: +{guestsTodayCount}</div>
             </Card>
             <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><BedDouble size={64}/></div>
-                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('occupancy')}</div><div className="text-2xl font-bold text-indigo-600 mt-1">{totalCapacity ? Math.round((activeGuests/totalCapacity)*100) : 0}%</div></div>
-                <div className="text-xs text-slate-400 mt-auto">{activeGuests} / {totalCapacity}</div>
+                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('occupancy')}</div><div className="text-2xl font-bold text-indigo-600 mt-1">{occupancyPercent}%</div></div>
+                <div className="text-xs text-slate-400 mt-auto">Занято: {activeGuests} / Свободно: {freeBeds}</div>
             </Card>
             <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Wallet size={64}/></div>
                 <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('revenue')} ({t('today')})</div><div className="text-2xl font-bold text-emerald-600 mt-1">{revenueToday.toLocaleString()}</div></div>
-                <div className="text-xs text-slate-400 mt-auto">New: {guestsToday.length}</div>
+                <div className="text-xs text-slate-400 mt-auto">Hostel: {currentHostelInfo?.name || currentHostelId}</div>
             </Card>
             <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
                 <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Building2 size={64}/></div>
-                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('rooms')}</div><div className="text-2xl font-bold text-slate-800 mt-1">{rooms.length}</div></div>
+                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('rooms')}</div><div className="text-2xl font-bold text-slate-800 mt-1">{relevantRooms.length}</div></div>
                 <div className="text-xs text-slate-400 mt-auto">{t('total')}</div>
             </Card>
         </div>
@@ -795,16 +868,32 @@ const ChartsSection = ({ guests, rooms, payments = [], lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [period, setPeriod] = useState(7);
     const totalCapacity = rooms.reduce((acc, r) => acc + parseInt(r.capacity), 0);
+    const now = new Date();
+
     const activeGuests = guests.filter(g => {
         if (g.status !== 'active') return false;
-        const stay = getStayDetails(g.checkInDate || g.checkInDateTime || g.checkIn, g.days);
-        const todayNoTime = new Date();
-        todayNoTime.setHours(0,0,0,0);
-        const guestStart = new Date(stay.startDateNormalized);
-        const guestEnd = new Date(stay.end);
-        guestEnd.setHours(0,0,0,0);
-        return todayNoTime >= guestStart && todayNoTime < guestEnd;
+        
+        // --- FIX START ---
+        const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
+        if (!rawCheckIn) return false;
+
+        const checkIn = new Date(rawCheckIn);
+        if(typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
+             checkIn.setHours(12, 0, 0, 0);
+        }
+
+        const rawCheckOut = g.checkOutDate;
+        if (!rawCheckOut) return false;
+
+        const checkOut = new Date(rawCheckOut);
+        if(typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
+             checkOut.setHours(12, 0, 0, 0);
+        }
+        // --- FIX END ---
+
+        return now >= checkIn && now < checkOut;
     }).length;
+
     const occupancyRate = (totalCapacity > 0) ? (activeGuests / totalCapacity) * 100 : 0;
     
     const chartDays = Array.from({length: period}, (_, i) => {
@@ -1120,6 +1209,7 @@ const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBed
 };
 
 const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest }) => {
+    // ... (весь код до getBlockColorClass без изменений) ...
     const t = (k) => TRANSLATIONS[lang][k]; 
     const [collapsedRooms, setCollapsedRooms] = useState({});
     const [startDate, setStartDate] = useState(new Date());
@@ -1158,60 +1248,31 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     });
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
-
-    // UPDATED: Strict 12:00 PM Logic for visualization
-    const getGuestBlockStyle = (guest) => {
-        // Parse Check-In
-        let checkInDate = new Date(guest.checkInDate || guest.checkInDateTime || guest.checkIn);
-        
-        // Normalize visual start to 12:00 PM of the check-in day
-        checkInDate.setHours(12, 0, 0, 0);
-
-        const calendarStart = new Date(days[0].str);
-        calendarStart.setHours(0,0,0,0);
-        
-        // Calculate standard checkout based on days
-        const guestDurationMs = parseInt(guest.days) * 24 * 60 * 60 * 1000;
-        const checkOutDate = new Date(checkInDate.getTime() + guestDurationMs);
-        
-        // Ensure checkout is visually at 12:00 PM
-        checkOutDate.setHours(12, 0, 0, 0);
-
-        const calendarEnd = new Date(days[days.length-1].str);
-        calendarEnd.setHours(23,59,59,999);
-
-        // If completely outside view
-        if (checkOutDate < calendarStart || checkInDate > calendarEnd) return null;
-
-        const msPerDay = 1000 * 60 * 60 * 24;
-        const totalCalendarMs = msPerDay * calendarDaysCount;
-        
-        // Calculate left offset
-        let startTimeDiff = checkInDate.getTime() - calendarStart.getTime();
-        
-        // Calculate specific width based on precise 12:00 to 12:00 duration
-        let durationMs = checkOutDate.getTime() - checkInDate.getTime();
-
-        // Handle edge cases where bar starts before calendar view
-        if (startTimeDiff < 0) {
-            durationMs += startTimeDiff; // reduce width
-            startTimeDiff = 0; // stick to left
-        }
-
-        const leftPercent = (startTimeDiff / totalCalendarMs) * 100;
-        const widthPercent = (durationMs / totalCalendarMs) * 100;
-
-        // Cap width if it extends beyond calendar
-        const maxRemaining = 100 - leftPercent;
-        const finalWidth = Math.min(widthPercent, maxRemaining);
-
-        return { leftPercent, widthPercent: finalWidth };
-    };
-
+    
+    // --- ВАЖНО: Эта функция обн��влена для серого цвета ---
     const getBlockColorClass = (guest) => {
+        // Если бронь - желтый
         if (guest.status === 'booking') return 'bg-amber-400 border-amber-500';
-        if (guest.status === 'checked_out') return 'bg-slate-400 border-slate-500';
         
+        // Если выселен - серый
+        if (guest.status === 'checked_out') return 'bg-slate-400 border-slate-500';
+
+        // ПРОВЕРКА НА ИСТЕЧЕНИЕ ВРЕМЕНИ (АВТОМАТИЧЕСКИЙ СЕРЫЙ)
+        // Если текущее время больше времени выезда, красим в серый (Expired),
+        // даже если статус все еще 'active'.
+        const now = new Date();
+        const checkOut = new Date(guest.checkOutDate);
+        // Нормализация checkOut если нужно (обычно checkOutDate уже содержит правильное время)
+        if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
+             checkOut.setHours(12, 0, 0, 0);
+        }
+        
+        if (now > checkOut) {
+            // Серый, но немного другой оттенок или стиль, чтобы понимать что это "просрочка"
+            return 'bg-slate-400 border-slate-500 opacity-90'; 
+        }
+        
+        // Логика долгов (только если время не вышло)
         const totalPrice = guest.totalPrice || 0;
         const totalPaid = getTotalPaid(guest);
         const debt = totalPrice - totalPaid;
@@ -1220,6 +1281,45 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         return 'bg-rose-500 border-rose-600';
     };
 
+    // ... (остальной код функции getGuestBlockStyle и return без изменений) ...
+
+    const getGuestBlockStyle = (guest) => {
+        // Parse Check-In
+        let checkInDate = new Date(guest.checkInDate || guest.checkInDateTime || guest.checkIn);
+        // Normalize visual start to 12:00 PM of the check-in day
+        checkInDate.setHours(12, 0, 0, 0);
+
+        const calendarStart = new Date(days[0].str);
+        calendarStart.setHours(0,0,0,0);
+        
+        const guestDurationMs = parseInt(guest.days) * 24 * 60 * 60 * 1000;
+        const checkOutDate = new Date(checkInDate.getTime() + guestDurationMs);
+        checkOutDate.setHours(12, 0, 0, 0);
+
+        const calendarEnd = new Date(days[days.length-1].str);
+        calendarEnd.setHours(23,59,59,999);
+
+        if (checkOutDate < calendarStart || checkInDate > calendarEnd) return null;
+
+        const msPerDay = 1000 * 60 * 60 * 24;
+        const totalCalendarMs = msPerDay * calendarDaysCount;
+        
+        let startTimeDiff = checkInDate.getTime() - calendarStart.getTime();
+        let durationMs = checkOutDate.getTime() - checkInDate.getTime();
+
+        if (startTimeDiff < 0) {
+            durationMs += startTimeDiff; 
+            startTimeDiff = 0; 
+        }
+
+        const leftPercent = (startTimeDiff / totalCalendarMs) * 100;
+        const widthPercent = (durationMs / totalCalendarMs) * 100;
+        const maxRemaining = 100 - leftPercent;
+        const finalWidth = Math.min(widthPercent, maxRemaining);
+
+        return { leftPercent, widthPercent: finalWidth };
+    };
+    
     const handleEmptyCellClick = (room, bedId, dateStr, isRightHalf) => {
         const clickDate = new Date(dateStr);
         if (isRightHalf) {
@@ -1240,7 +1340,6 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden bg-white">
-            {/* Nav Header */}
             <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
                 <div className="flex gap-2">
                     <button onClick={() => shiftDate(-1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><ChevronLeft size={20}/></button>
@@ -1252,11 +1351,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                 </div>
             </div>
 
-            {/* Calendar Grid */}
             <div className="flex-1 overflow-auto relative">
                 <div className="min-w-[1600px]">
-                    
-                    {/* Header Dates */}
                     <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200 shadow-sm h-12">
                         <div className="w-40 p-3 font-bold text-xs text-slate-500 bg-slate-50 border-r border-slate-200 sticky left-0 z-50">
                             {t('room')} / {t('bed')}
@@ -1269,14 +1365,12 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                         ))}
                     </div>
 
-                    {/* Room Rows */}
                     {rooms.map(room => {
                         const isCollapsed = collapsedRooms[room.id];
                         const roomLabel = lang === 'uz' ? `Xona №${room.number}` : `Комната №${room.number}`;
                         
                         return (
                             <div key={room.id} className="border-b border-slate-200">
-                                {/* Room Label */}
                                 <div 
                                     className="flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200 cursor-pointer font-bold text-slate-700 text-sm sticky left-0 z-30 border-r border-slate-200 w-40 border-b border-slate-200"
                                     onClick={() => toggleRoom(room.id)}
@@ -1285,7 +1379,6 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                     {isCollapsed ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
                                 </div>
 
-                                {/* Beds */}
                                 {!isCollapsed && Array.from({length: room.capacity}, (_, i) => i + 1).map(bedId => {
                                     const bedGuests = relevantGuests.filter(g => g.roomId === room.id && String(g.bedId) === String(bedId));
                                     
@@ -1297,26 +1390,15 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                             </div>
 
                                             <div className="flex-1 relative">
-                                                {/* Background Grid */}
                                                 <div className="absolute inset-0 flex">
                                                     {days.map(d => (
-                                                        <div 
-                                                            key={d.str} 
-                                                            className={`flex-1 min-w-[80px] border-r border-slate-100 h-full flex ${['сб','вс'].includes(d.week) ? 'bg-rose-50' : ''}`}
-                                                        >
-                                                            <div 
-                                                                className="w-1/2 h-full cursor-pointer hover:bg-indigo-50 border-r border-slate-200/30" 
-                                                                onClick={() => handleEmptyCellClick(room, bedId, d.str, false)}
-                                                            />
-                                                            <div 
-                                                                className="w-1/2 h-full cursor-pointer hover:bg-indigo-50" 
-                                                                onClick={() => handleEmptyCellClick(room, bedId, d.str, true)}
-                                                            />
+                                                        <div key={d.str} className={`flex-1 min-w-[80px] border-r border-slate-100 h-full flex ${['сб','вс'].includes(d.week) ? 'bg-rose-50' : ''}`}>
+                                                            <div className="w-1/2 h-full cursor-pointer hover:bg-indigo-50 border-r border-slate-200/30" onClick={() => handleEmptyCellClick(room, bedId, d.str, false)}/>
+                                                            <div className="w-1/2 h-full cursor-pointer hover:bg-indigo-50" onClick={() => handleEmptyCellClick(room, bedId, d.str, true)}/>
                                                         </div>
                                                     ))}
                                                 </div>
 
-                                                {/* Guest Blocks */}
                                                 {bedGuests.map(guest => {
                                                     const styleData = getGuestBlockStyle(guest);
                                                     if (!styleData) return null;
@@ -1337,7 +1419,6 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                             onClick={(e) => { e.stopPropagation(); onSlotClick(room, bedId, guest, null); }}
                                                             title={guest.fullName}
                                                         >
-                                                            {/* Sticky Name */}
                                                             <div className="sticky left-0 pl-1 pr-1 flex flex-col justify-center h-full w-full max-w-full z-50">
                                                                 <span className="font-bold text-[10px] text-white whitespace-nowrap overflow-hidden text-ellipsis px-1.5 py-0.5 rounded-sm bg-black/40 w-fit block relative">
                                                                     {guest.status === 'booking' && '🕰 '}{guest.fullName}
@@ -1358,7 +1439,6 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                 )}
                                                             </div>
 
-                                                            {/* Кнопка удаления */}
                                                             {isCheckedOut && isAdmin && (
                                                                 <button 
                                                                     onClick={(e) => handleDeleteGuest(e, guest.id)}
@@ -2224,6 +2304,259 @@ const FillButton = ({ onClick, disabled }) => (
         <Magnet size={16} />
     </button>
 );
+// ... (Вставьте это продолжение сразу после компонента FillButton)
+
+const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTransferShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift }) => {
+    const t = (k) => TRANSLATIONS[lang][k];
+    const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
+
+    // Для Кассира:
+    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+    const allCashiers = users.filter(u => u.role === 'cashier' && u.id !== currentUser.id);
+    const [transferTarget, setTransferTarget] = useState('');
+
+    // Для Админа:
+    const [dateRange, setDateRange] = useState({ 
+        start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0], 
+        end: new Date().toISOString().split('T')[0] 
+    });
+    const [filterCashierId, setFilterCashierId] = useState(''); // Фильтр по кассиру
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [editingShift, setEditingShift] = useState(null);
+    const [shiftForm, setShiftForm] = useState({ staffId: '', startTime: '', endTime: '', hostelId: 'hostel1' });
+
+    // Фильтрация смен
+    const displayedShifts = useMemo(() => {
+        let list = shifts;
+        
+        // 1. Ограничение для кассира
+        if (!isAdmin) {
+            list = list.filter(s => s.staffId === currentUser.id);
+        } else {
+            // 2. Фильтр по дате для админа
+            const start = new Date(dateRange.start); start.setHours(0,0,0,0);
+            const end = new Date(dateRange.end); end.setHours(23,59,59,999);
+            list = list.filter(s => {
+                const sDate = new Date(s.startTime);
+                return sDate >= start && sDate <= end;
+            });
+
+            // 3. Фильтр по кассиру (Добавлено)
+            if (filterCashierId) {
+                list = list.filter(s => s.staffId === filterCashierId);
+            }
+        }
+        return list.sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
+    }, [shifts, isAdmin, currentUser.id, dateRange, filterCashierId]);
+
+    // Подсчет общей зарплаты
+    const totalSalary = useMemo(() => {
+        return displayedShifts.reduce((sum, s) => {
+            if (!s.endTime) return sum;
+            return sum + calculateSalary(s.startTime, s.endTime);
+        }, 0);
+    }, [displayedShifts]);
+
+    const handleExportExcel = () => {
+        // ... (код экспорта Excel без изменений, только использовать displayedShifts) ...
+        const dataForExport = displayedShifts.map(s => {
+            const staff = users.find(u => u.id === s.staffId)?.name || 'Unknown';
+            const start = new Date(s.startTime);
+            const end = s.endTime ? new Date(s.endTime) : null;
+            const duration = end ? ((end - start) / (1000 * 60 * 60)).toFixed(1) : 'Active';
+            const salary = end ? calculateSalary(s.startTime, s.endTime) : 0;
+            return {
+                staff,
+                hostel: HOSTELS[s.hostelId]?.name || s.hostelId,
+                date: start.toLocaleDateString(),
+                start: start.toLocaleTimeString(),
+                end: end ? end.toLocaleTimeString() : 'Active',
+                hours: duration,
+                salary: salary
+            };
+        });
+        
+        let table = `
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body>
+            <h2 style="text-align:center">Табель смен (${dateRange.start} - ${dateRange.end})</h2>
+            <table border="1" style="border-collapse: collapse; width: 100%;">
+                <thead style="background-color: #4f46e5; color: white;">
+                    <tr>
+                        <th style="padding:10px">Сотрудник</th>
+                        <th style="padding:10px">Хостел</th>
+                        <th style="padding:10px">Дата</th>
+                        <th style="padding:10px">Начало</th>
+                        <th style="padding:10px">Конец</th>
+                        <th style="padding:10px">Часы</th>
+                        <th style="padding:10px">Зарплата</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        dataForExport.forEach(row => {
+            table += `
+                <tr>
+                    <td style="padding:5px">${row.staff}</td>
+                    <td style="padding:5px">${row.hostel}</td>
+                    <td style="padding:5px">${row.date}</td>
+                    <td style="padding:5px">${row.start}</td>
+                    <td style="padding:5px">${row.end}</td>
+                    <td style="text-align:center">${row.hours}</td>
+                    <td style="text-align:right;">${row.salary.toLocaleString()}</td>
+                </tr>
+            `;
+        });
+        table += `
+            <tr style="background-color: #f3f4f6; font-weight: bold;">
+                <td colspan="6" style="padding:10px; text-align:right;">ИТОГО:</td>
+                <td style="padding:10px; text-align:right;">${totalSalary.toLocaleString()}</td>
+            </tr>
+        </tbody></table></body></html>`;
+        
+        const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `Shifts_Report.xls`;
+        link.click();
+    };
+
+    const handleSaveShift = () => {
+        const payload = {
+            ...shiftForm,
+            startTime: new Date(shiftForm.startTime).toISOString(),
+            endTime: shiftForm.endTime ? new Date(shiftForm.endTime).toISOString() : null
+        };
+        if (editingShift) { onAdminUpdateShift(editingShift.id, payload); } else { onAdminAddShift(payload); }
+        setIsAddModalOpen(false); setEditingShift(null);
+    };
+
+    const openEdit = (s) => {
+        setEditingShift(s);
+        setShiftForm({
+            staffId: s.staffId,
+            hostelId: s.hostelId || 'hostel1',
+            startTime: getLocalDatetimeString(new Date(s.startTime)),
+            endTime: s.endTime ? getLocalDatetimeString(new Date(s.endTime)) : ''
+        });
+        setIsAddModalOpen(true);
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Timer className="text-indigo-600"/> {t('shifts')}
+                        </h2>
+                    </div>
+                    
+                    {!isAdmin && (
+                        <div className="flex gap-2">
+                            {!myActiveShift && <Button icon={Power} onClick={onStartShift}>{t('startShift')}</Button>}
+                            {myActiveShift && (
+                                <div className="flex gap-2 items-center bg-slate-100 p-1 rounded-xl">
+                                    <select className="bg-white border-0 rounded-lg text-sm py-2 px-3 focus:ring-0" value={transferTarget} onChange={e => setTransferTarget(e.target.value)}>
+                                        <option value="">Передать кому...</option>
+                                        {allCashiers.map(u => <option key={u.id} value={u.id}>{u.name} ({HOSTELS[u.hostelId]?.name})</option>)}
+                                    </select>
+                                    <Button size="sm" variant="secondary" onClick={() => onTransferShift(myActiveShift.id, transferTarget)} disabled={!transferTarget}>{t('transferShift')}</Button>
+                                    <div className="w-px h-6 bg-slate-300 mx-1"></div>
+                                    <Button size="sm" variant="danger" onClick={onEndShift}>{t('endShift')}</Button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {isAdmin && (
+                        <div className="flex flex-wrap gap-2 items-center">
+                            {/* Фильтр по дате */}
+                            <input type="date" className="border rounded-lg px-2 py-2 text-sm" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                            <span>-</span>
+                            <input type="date" className="border rounded-lg px-2 py-2 text-sm" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+                            
+                            {/* Фильтр по кассиру (НОВОЕ) */}
+                            <select className="border rounded-lg px-2 py-2 text-sm max-w-[150px]" value={filterCashierId} onChange={e => setFilterCashierId(e.target.value)}>
+                                <option value="">Все кассиры</option>
+                                {users.filter(u => u.role !== 'super').map(u => (
+                                    <option key={u.id} value={u.id}>{u.name}</option>
+                                ))}
+                            </select>
+
+                            <Button icon={Plus} onClick={() => { setEditingShift(null); setShiftForm({ staffId: users[0]?.id, startTime: '', endTime: '', hostelId: 'hostel1' }); setIsAddModalOpen(true); }}>Добавить</Button>
+                            <Button icon={FileSpreadsheet} variant="secondary" onClick={handleExportExcel}>Excel</Button>
+                        </div>
+                    )}
+                </div>
+
+                <div className="overflow-hidden border rounded-xl">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
+                            <tr>
+                                <th className="p-4">{t('staff')}</th>
+                                <th className="p-4">Хостел</th>
+                                <th className="p-4">Начало</th>
+                                <th className="p-4">Конец</th>
+                                <th className="p-4">{t('workedHours')}</th>
+                                <th className="p-4 text-right">{t('salaryCalc')}</th>
+                                {isAdmin && <th className="p-4 text-right">Edit</th>}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {displayedShifts.map(s => {
+                                const staff = users.find(u => u.id === s.staffId)?.name || 'Unknown';
+                                const hours = s.endTime ? ((new Date(s.endTime) - new Date(s.startTime)) / (1000 * 60 * 60)).toFixed(1) : '-';
+                                const salary = s.endTime ? calculateSalary(s.startTime, s.endTime).toLocaleString() : '...';
+                                
+                                return (
+                                    <tr key={s.id} className={!s.endTime ? "bg-emerald-50" : "hover:bg-slate-50"}>
+                                        <td className="p-4 font-bold">{staff}</td>
+                                        <td className="p-4 text-xs text-slate-500">{HOSTELS[s.hostelId]?.name}</td>
+                                        <td className="p-4">{new Date(s.startTime).toLocaleString()}</td>
+                                        <td className="p-4">{s.endTime ? new Date(s.endTime).toLocaleString() : <span className="text-emerald-600 font-bold">В работе...</span>}</td>
+                                        <td className="p-4 font-mono">{hours}</td>
+                                        <td className="p-4 text-right font-bold text-indigo-600">{salary}</td>
+                                        {isAdmin && (
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => openEdit(s)} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><Edit size={16}/></button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })}
+                            {/* Строка ИТОГО */}
+                            {isAdmin && (
+                                <tr className="bg-slate-100 border-t-2 border-slate-300 font-bold">
+                                    <td colSpan="5" className="p-4 text-right uppercase text-slate-600">Итого за период:</td>
+                                    <td className="p-4 text-right text-emerald-700 text-lg">{totalSalary.toLocaleString()}</td>
+                                    <td className="p-4"></td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {isAddModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+                        <h3 className="font-bold text-lg mb-4">{editingShift ? 'Редактировать смену' : 'Добавить смену'}</h3>
+                        <div className="space-y-3">
+                            <div><label className={labelClass}>Сотрудник</label><select className={inputClass} value={shiftForm.staffId} onChange={e => setShiftForm({...shiftForm, staffId: e.target.value})}>{users.filter(u => u.role !== 'super').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+                            <div><label className={labelClass}>Хостел</label><select className={inputClass} value={shiftForm.hostelId} onChange={e => setShiftForm({...shiftForm, hostelId: e.target.value})}>{Object.keys(HOSTELS).map(k => <option key={k} value={k}>{HOSTELS[k].name}</option>)}</select></div>
+                            <div><label className={labelClass}>Начало</label><input type="datetime-local" className={inputClass} value={shiftForm.startTime} onChange={e => setShiftForm({...shiftForm, startTime: e.target.value})} /></div>
+                            <div><label className={labelClass}>Конец</label><input type="datetime-local" className={inputClass} value={shiftForm.endTime} onChange={e => setShiftForm({...shiftForm, endTime: e.target.value})} /></div>
+                            <Button onClick={handleSaveShift} className="w-full mt-4">Сохранить</Button>
+                            <Button variant="secondary" onClick={() => setIsAddModalOpen(false)} className="w-full">Отмена</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, guests, clients, onClose, onSubmit, notify, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
@@ -2237,14 +2570,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
     
     const now = new Date();
     const todayStr = getLocalDateString(now);
-    
     const yesterdayStr = getLocalDateString(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const minDate = now.getHours() < 12 ? yesterdayStr : todayStr;
+    
+    // Logic: If current time is < 12:00, default date is YESTERDAY
+    const defaultDate = now.getHours() < 12 ? yesterdayStr : todayStr;
 
     const [form, setForm] = useState({
         fullName: '', birthDate: '', passport: '', country: 'Узбекистан',
         bedId: String(preSelectedBedId || '1'),
-        checkInDate: initialDate || todayStr, 
+        checkInDate: initialDate || defaultDate, 
         days: 1, 
         pricePerNight: 0,
         payCash: '', payCard: '', payQR: ''
@@ -2294,7 +2628,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
 
                 try {
                     const scanPassportFn = httpsCallable(functions, 'scanPassport');
-                    console.log("Sending image payload length:", base64Image.length);
                     
                     const response = await scanPassportFn({ image: base64Image });
                     const { success, data, error } = response.data;
@@ -2352,8 +2685,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
         try {
             if (!room) return notify(t('error'), 'error');
             if (!form.fullName.trim()) return notify("Fill Name!", 'error');
-            if (form.checkInDate < minDate) return notify("Date Error!", 'error');
-            if (!isBooking && totalPaid > totalPrice) return notify("Paid > Price!", 'error');
 
             const selectedDate = new Date(form.checkInDate);
             selectedDate.setHours(12, 0, 0, 0);
@@ -2418,7 +2749,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                             <h4 className="font-bold text-slate-800 text-lg">{t('guestName')}</h4>
                         </div>
 
-                        {/* --- НОВАЯ КНОПКА СКАНИРОВАНИЯ --- */}
                         <div className="mb-6">
                             <label className="relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-300 rounded-xl cursor-pointer bg-indigo-50 hover:bg-indigo-100 transition-all group overflow-hidden">
                                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -2431,14 +2761,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                 <input 
                                     type="file" 
                                     accept="image/*" 
-                                    capture="environment" // <-- ЭТО ВКЛЮЧАЕТ КАМЕРУ НА ТЕЛЕФОНЕ
+                                    capture="environment" 
                                     onChange={handlePassportScan}
                                     className="hidden" 
                                     disabled={isScanning}
                                 />
                             </label>
                         </div>
-                        {/* ---------------------------------- */}
 
                         <div className="space-y-5 flex-1">
                             <div className="relative">
@@ -2485,7 +2814,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                     className={inputClass} 
                                     value={form.checkInDate.split('T')[0]} 
                                     onChange={e => setForm({...form, checkInDate: e.target.value})}
-                                    min={minDate}
+                                    
                                 />
                             </div>
                             <div><label className={labelClass}>{t('days')}</label><input type="number" min="1" className={`${inputClass} font-bold text-lg`} value={form.days} onChange={e => setForm({...form, days: e.target.value})} onWheel={disableWheel} /></div>
@@ -2560,7 +2889,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
 const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const totalPaid = getTotalPaid(guest);
+    // Debt for display in header (real DB value)
     const debt = (guest.totalPrice || 0) - totalPaid;
+    
     const [activeAction, setActiveAction] = useState(null);
     const [payCash, setPayCash] = useState('');
     const [payCard, setPayCard] = useState('');
@@ -2580,6 +2911,24 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const isCheckedOut = guest.status === 'checked_out';
     const [magnetActiveField, setMagnetActiveField] = useState(null);
 
+    // --- CHECKOUT CALCULATION FIX ---
+    const today = new Date(); 
+    const checkIn = new Date(guest.checkInDate); 
+    
+    // Calculate raw days passed (rounded up)
+    let daysStayedCalculated = Math.max(1, Math.ceil((today - checkIn) / (1000 * 60 * 60 * 24)));
+    
+    // CRITICAL FIX: When checking out, we cannot calculate more days than were booked/paid for,
+    // otherwise a debt appears and the system blocks checkout.
+    // If the guest overstayed, the admin should use "Extend" first.
+    // If checking out now, we cap the days at the booked amount.
+    const daysStayed = Math.min(daysStayedCalculated, parseInt(guest.days));
+    
+    const actualCost = daysStayed * parseInt(guest.pricePerNight); 
+    
+    // Checkout Balance (Positive = Refund, 0 = OK, Negative = Debt)
+    const balance = totalPaid - actualCost;
+
     const handlePayDebt = () => { const cash = parseInt(payCash) || 0; const card = parseInt(payCard) || 0; const qr = parseInt(payQR) || 0; const sum = cash + card + qr; if(sum <= 0) return notify("Enter Amount", 'error'); onPayment(guest.id, { cash, card, qr }); };
     
     const handleExtend = () => { 
@@ -2594,9 +2943,23 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     };
 
     const handleDoCheckout = () => { 
-        const today = new Date(); const checkIn = new Date(guest.checkInDate); const daysStayed = Math.max(1, Math.ceil((today - checkIn) / (1000 * 60 * 60 * 24))); const actualCost = daysStayed * parseInt(guest.pricePerNight); const balance = totalPaid - actualCost;
-        if (balance < 0) return notify(`Error! Debt: ${Math.abs(balance).toLocaleString()}`, 'error'); const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); const finalData = { totalPrice: actualCost, paidCash: (guest.paidCash || 0) - refund }; onCheckOut(guest, finalData); 
+        // Use the same balance calculation for validation
+        if (balance < 0) return notify(`Ошибка! Долг: ${Math.abs(balance).toLocaleString()}. Сначала оплатите или продлите.`, 'error'); 
+        
+        const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); 
+        
+        // Final logic:
+        // If there was a refund (balance > 0), we reduce paidCash/amountPaid so records match.
+        
+        const finalData = { 
+            totalPrice: actualCost, 
+            paidCash: (guest.paidCash || 0) - refund,
+            amountPaid: (guest.amountPaid || 0) - refund
+        }; 
+        
+        onCheckOut(guest, finalData); 
     };
+
     const handleDoSplit = () => { 
         const iSplitAfter = parseInt(splitAfterDays); 
         const iSplitGap = parseInt(splitGapDays); 
@@ -2614,14 +2977,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const handleMoveBooking = () => {
         const start = new Date(newStartDate);
         start.setHours(12, 0, 0, 0);
-
         const stay = getStayDetails(start.toISOString(), guest.days);
         onUpdate(guest.id, { checkInDate: start.toISOString(), checkOutDate: stay.end.toISOString() });
         notify("Date Changed!");
         setActiveAction(null);
     }
-    const today = new Date(); const checkIn = new Date(guest.checkInDate); const daysStayed = Math.max(1, Math.ceil((today - checkIn) / (1000 * 60 * 60 * 24))); const actualCost = daysStayed * parseInt(guest.pricePerNight); const balance = totalPaid - actualCost;
-
+    
     const applyMagnet = (field) => {
         const currentCash = field === 'payCash' ? 0 : (parseInt(payCash) || 0);
         const currentCard = field === 'payCard' ? 0 : (parseInt(payCard) || 0);
@@ -2638,7 +2999,6 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] overflow-y-auto">
-                {/* --- FIXED HEADER WITHOUT WHITE BOXES --- */}
                 <div className={`${isBooking ? 'bg-amber-500' : (isCheckedOut ? 'bg-slate-500' : 'bg-slate-900')} text-white p-6 flex justify-between items-start`}>
                     <div className="flex-1">
                         {isBooking && <div className="text-xs uppercase font-bold text-white/80 mb-1 flex items-center gap-1"><Clock size={12}/> {t('booking')}</div>}
@@ -2663,7 +3023,6 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                     </div>
                     <button onClick={onClose} className="text-white/50 hover:text-white transition-colors"><XCircle size={32}/></button>
                 </div>
-                {/* ---------------------------------------- */}
 
                 {!isBooking && (
                     <div className={`p-4 flex justify-between items-center ${debt > 0 ? 'bg-rose-50 border-b border-rose-200' : 'bg-emerald-50 border-b border-emerald-200'}`}>
@@ -2699,7 +3058,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-300">
                         {(!activeAction && !isBooking) && (
                             <div className="space-y-4">
-                                {!isCheckedOut && <div className="flex justify-center"><Button variant="ghost" icon={ArrowLeftRight} onClick={onOpenMove}>{t('move')}</Button></div>}
+                                <div className="flex justify-center gap-2">
+                                    {!isCheckedOut && <Button variant="ghost" icon={ArrowLeftRight} onClick={onOpenMove}>{t('move')}</Button>}
+                                    {/* --- ADMIN MOVE DATE BUTTON --- */}
+                                    {!isCheckedOut && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                                        <Button variant="ghost" icon={CalendarDays} onClick={() => setActiveAction('moveDate')}>{t('moveDate')}</Button>
+                                    )}
+                                </div>
                                 {(currentUser.role === 'admin' || currentUser.role === 'super') && (
                                     <>
                                         <div className="border-t border-slate-200 pt-4 flex justify-center gap-4">
@@ -2753,8 +3118,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                         )}
                         {activeAction === 'checkout' && (
                             <div className="space-y-4">
-                                <div className="text-sm space-y-1 pb-3 border-b border-slate-300"><div className="flex justify-between"><span>Days:</span> <b>{daysStayed}</b></div><div className="flex justify-between"><span>Fact:</span> <b>{actualCost.toLocaleString()}</b></div><div className="flex justify-between"><span>Paid:</span> <b>{totalPaid.toLocaleString()}</b></div></div>
-                                {balance < 0 ? (<div className="bg-rose-100 text-rose-800 p-3 rounded-lg text-center font-bold border border-rose-200">Debt: {Math.abs(balance).toLocaleString()} <br/><span className="text-xs font-normal">Pay before checkout.</span></div>) : (<div className="bg-emerald-100 text-emerald-800 p-3 rounded-lg border border-emerald-200"><div className="text-center font-bold mb-2">Refund: {balance.toLocaleString()}</div>{balance > 0 && <div><label className={`${labelClass} mb-1`}>{t('manualRefund')}</label><input type="number" className={inputClass} value={checkoutManualRefund} placeholder={balance} onChange={e => setCheckoutManualRefund(e.target.value)} /></div>}</div>)}
+                                <div className="text-sm space-y-1 pb-3 border-b border-slate-300"><div className="flex justify-between"><span>Прожито (расчет):</span> <b>{daysStayed} дн.</b></div><div className="flex justify-between"><span>Оплачено всего:</span> <b>{totalPaid.toLocaleString()}</b></div><div className="flex justify-between"><span>Стоимость факта:</span> <b>{actualCost.toLocaleString()}</b></div></div>
+                                {balance < 0 ? (<div className="bg-rose-100 text-rose-800 p-3 rounded-lg text-center font-bold border border-rose-200">Долг: {Math.abs(balance).toLocaleString()} <br/><span className="text-xs font-normal">Продлите проживание или оплатите.</span></div>) : (<div className="bg-emerald-100 text-emerald-800 p-3 rounded-lg border border-emerald-200"><div className="text-center font-bold mb-2">К возврату: {balance.toLocaleString()}</div>{balance > 0 && <div><label className={`${labelClass} mb-1`}>{t('manualRefund')}</label><input type="number" className={inputClass} value={checkoutManualRefund} placeholder={balance} onChange={e => setCheckoutManualRefund(e.target.value)} /></div>}</div>)}
                                 <Button variant="danger" className="w-full" onClick={handleDoCheckout} disabled={balance < 0}>{t('checkout')}</Button>
                             </div>
                         )}
@@ -2791,7 +3156,7 @@ const ShiftClosingModal = ({ user, payments = [], expenses, onClose, onLogout, n
     const handleEndShiftWithNotify = () => {
         const msg = `<b>🔔 Закрытие смены</b>\nКассир: ${user.name}\n---\n💵 Наличные: ${income.cash.toLocaleString()}\n💳 Терминал: ${income.card.toLocaleString()}\n📱 QR: ${income.qr.toLocaleString()}\n---\n<b>💰 ИТОГО: ${totalRevenue.toLocaleString()}</b>\n📉 Расходы: ${totalExpenses.toLocaleString()}\n<b>🏦 В КАССЕ: ${cashInHand.toLocaleString()}</b>`;
         sendTelegramMessage(msg);
-        onEndShift();
+        onEndShift(); // This will trigger closing the shift record too
     };
     const copyReport = () => {
         const lines = [ `User: ${user.name}`, `Cash: ${income.cash.toLocaleString()}`, `Card: ${income.card.toLocaleString()}`, `QR: ${income.qr.toLocaleString()}`, `TOTAL: ${totalRevenue.toLocaleString()}`, `Exp: ${totalExpenses.toLocaleString()}`, `HAND: ${cashInHand.toLocaleString()}` ];
@@ -2909,6 +3274,40 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
         </div>
     );
 };
+const ShiftBlockScreen = ({ activeShift, activeUser, currentUser, onLogout, onTransferToMe }) => {
+    return (
+        <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-8 text-center shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-2 bg-rose-500"></div>
+                <div className="mb-6 flex justify-center">
+                    <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center text-rose-600 animate-pulse">
+                        <Lock size={40} />
+                    </div>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">Смена занята</h2>
+                <p className="text-slate-500 mb-6">
+                    В данный момент в этом хостеле работает <b>{activeUser?.name || 'Другой кассир'}</b>.<br/>
+                    Вы не можете войти, пока смена не будет закрыта или передана.
+                </p>
+                
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-left">
+                    <div className="text-xs text-slate-400 uppercase font-bold mb-1">Детали смены:</div>
+                    <div className="font-bold text-slate-700">Начало: {new Date(activeShift.startTime).toLocaleString()}</div>
+                    <div className="text-sm text-emerald-600 font-bold mt-1">Активна сейчас</div>
+                </div>
+
+                <div className="space-y-3">
+                    <Button onClick={() => onTransferToMe(activeShift.id, currentUser.id)} className="w-full py-3" variant="primary" icon={ArrowLeftRight}>
+                        Принять смену (Передача мне)
+                    </Button>
+                    <Button onClick={onLogout} className="w-full py-3" variant="secondary" icon={LogOut}>
+                        Выйти
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
@@ -2930,6 +3329,7 @@ function App() {
   const [payments, setPayments] = useState([]); 
   const [usersList, setUsersList] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [shifts, setShifts] = useState([]);
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null }); 
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
@@ -2943,8 +3343,25 @@ function App() {
     return tasks.filter(t => t.status !== 'done').length;
   }, [tasks]);
 
+  // --- ЛОГИКА БЛОКИРОВКИ СМЕНЫ ---
+  const activeShiftInMyHostel = useMemo(() => {
+      // Админов не блокируем
+      if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
+      
+      // Ищем открытую смену в моем хостеле, но НЕ мою
+      return shifts.find(s => 
+          s.hostelId === currentUser.hostelId && 
+          !s.endTime && 
+          s.staffId !== currentUser.id 
+      );
+  }, [shifts, currentUser]);
+
+  const activeUserForBlock = useMemo(() => {
+      if (!activeShiftInMyHostel) return null;
+      return usersList.find(u => u.id === activeShiftInMyHostel.staffId);
+  }, [activeShiftInMyHostel, usersList]);
+
   useEffect(() => {
-    // ESC Key Global Listener
     const handleEsc = (event) => {
         if (event.key === 'Escape') {
             if (checkInModal.open) setCheckInModal({open: false, room: null, bedId: null, date: null});
@@ -2977,7 +3394,33 @@ function App() {
   
   const handleEndShift = async () => {
       if (currentUser && currentUser.id) { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', currentUser.id), { lastShiftEnd: new Date().toISOString() }); }
+      const myOpenShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+      if (myOpenShift) {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', myOpenShift.id), { endTime: new Date().toISOString() });
+      }
       handleLogout();
+  };
+
+  // --- ФУНКЦИЯ ПЕРЕДАЧИ "НА СЕБЯ" ИЗ БЛОКИРОВКИ ---
+  const handleTransferToMe = async (shiftId) => {
+      if (!currentUser) return;
+      try {
+        const batch = writeBatch(db);
+        // Закрываем чужую смену
+        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', shiftId), { endTime: new Date().toISOString() });
+        // Открываем свою
+        const newShiftRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'));
+        batch.set(newShiftRef, {
+            staffId: currentUser.id,
+            hostelId: currentUser.hostelId,
+            startTime: new Date().toISOString(),
+            endTime: null
+        });
+        await batch.commit();
+        showNotification("Смена принята успешно!", "success");
+      } catch (e) {
+        showNotification("Ошибка передачи смены: " + e.message, "error");
+      }
   };
 
   useEffect(() => {
@@ -2993,6 +3436,7 @@ function App() {
     const clientsCol = collection(db, ...PUBLIC_DATA_PATH, 'clients');
     const paymentsCol = collection(db, ...PUBLIC_DATA_PATH, 'payments');
     const tasksCol = collection(db, ...PUBLIC_DATA_PATH, 'tasks');
+    const shiftsCol = collection(db, ...PUBLIC_DATA_PATH, 'shifts');
 
     const u1 = onSnapshot(roomsCol, { includeMetadataChanges: true }, (snap) => { setPermissionError(false); setRooms(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => parseInt(a.number) - parseInt(b.number))); setIsOnline(!snap.metadata.fromCache); }, (err) => { if (err.code === 'permission-denied') setPermissionError(true); setIsOnline(false); });
     const u2 = onSnapshot(guestsCol, (snap) => setGuests(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.checkInDate) - new Date(a.checkInDate))));
@@ -3000,8 +3444,9 @@ function App() {
     const u4 = onSnapshot(clientsCol, (snap) => setClients(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.fullName.localeCompare(b.fullName))));
     const u5 = onSnapshot(paymentsCol, (snap) => setPayments(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const u6 = onSnapshot(tasksCol, (snap) => setTasks(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+    const u7 = onSnapshot(shiftsCol, (snap) => setShifts(snap.docs.map(d => ({id: d.id, ...d.data()}))));
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); };
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
   }, [firebaseUser, currentUser]);
 
   const seedUsers = async () => { if (usersList.length === DEFAULT_USERS.length && usersList[0].id === undefined) { try { for(const u of DEFAULT_USERS) { await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'users'), u); } alert("Init done"); } catch(e) {} } };
@@ -3036,132 +3481,49 @@ function App() {
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
   const filteredExpenses = useMemo(() => filterByHostel(expenses), [expenses, currentUser, selectedHostelFilter]);
   const filteredTasks = useMemo(() => filterByHostel(tasks), [tasks, currentUser, selectedHostelFilter]);
+  // Смены фильтруем теперь внутри ShiftsView, чтобы админ видел всё
 
   const handleUpdateClient = async (id, d) => { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', id), d); showNotification("Updated"); };
   const handleImportClients = async (newClients) => {
     if (newClients.length === 0) return;
     try {
         const batch = writeBatch(db);
-        let updated = 0;
-        let created = 0;
-
+        let updated = 0; let created = 0;
         newClients.forEach(nc => {
-            const existing = clients.find(c => 
-                (c.passport && nc.passport && c.passport === nc.passport) || 
-                (c.fullName === nc.fullName && c.passport === nc.passport)
-            );
-
+            const existing = clients.find(c => (c.passport && nc.passport && c.passport === nc.passport) || (c.fullName === nc.fullName && c.passport === nc.passport));
             if (existing) {
-                const docRef = doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id);
-                const merged = {
-                    fullName: existing.fullName || nc.fullName,
-                    passport: existing.passport || nc.passport,
-                    birthDate: existing.birthDate || nc.birthDate,
-                    country: existing.country || nc.country,
-                    visits: existing.visits,
-                    lastVisit: existing.lastVisit
-                };
-                batch.update(docRef, merged);
+                batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), { fullName: existing.fullName||nc.fullName, passport: existing.passport||nc.passport, birthDate: existing.birthDate||nc.birthDate, country: existing.country||nc.country });
                 updated++;
             } else {
-                const docRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'clients'));
-                batch.set(docRef, { ...nc, visits: 0, lastVisit: new Date().toISOString() });
+                batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), { ...nc, visits: 0, lastVisit: new Date().toISOString() });
                 created++;
             }
         });
-
-        await batch.commit();
-        showNotification(`Success! New: ${created}, Merged: ${updated}`, 'success');
-    } catch (e) {
-        console.error(e);
-        showNotification("Import failed", 'error');
-    }
+        await batch.commit(); showNotification(`Success! New: ${created}, Merged: ${updated}`, 'success');
+    } catch (e) { console.error(e); showNotification("Import failed", 'error'); }
   };
 
   const handleDeduplicate = async () => {
-    if(!confirm("Start auto deduplication? This will merge clients with same Passport or exact Full Name.")) return;
-    
+    if(!confirm("Start auto deduplication?")) return;
     try {
-        const map = {};
-        const duplicates = [];
-        clients.forEach(c => {
-            const key = c.passport ? `P:${c.passport}` : `N:${c.fullName}`;
-            if (!map[key]) {
-                map[key] = c;
-            } else {
-                duplicates.push({ original: map[key], duplicate: c });
-            }
-        });
-
+        const map = {}; const duplicates = [];
+        clients.forEach(c => { const key = c.passport ? `P:${c.passport}` : `N:${c.fullName}`; if (!map[key]) map[key] = c; else duplicates.push({ original: map[key], duplicate: c }); });
         if (duplicates.length === 0) return showNotification("No duplicates found!");
-
         const batch = writeBatch(db);
-        let count = 0;
-
         duplicates.forEach(({ original, duplicate }) => {
-            const mergedData = {
-                fullName: original.fullName || duplicate.fullName,
-                passport: original.passport || duplicate.passport,
-                birthDate: original.birthDate || duplicate.birthDate,
-                country: original.country || duplicate.country,
-                visits: (original.visits || 0) + (duplicate.visits || 0),
-                lastVisit: new Date(original.lastVisit) > new Date(duplicate.lastVisit) ? original.lastVisit : duplicate.lastVisit
-            };
-
-            const originalRef = doc(db, ...PUBLIC_DATA_PATH, 'clients', original.id);
-            batch.update(originalRef, mergedData);
-            
-            const duplicateRef = doc(db, ...PUBLIC_DATA_PATH, 'clients', duplicate.id);
-            batch.delete(duplicateRef);
-            
-            count++;
+            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', original.id), { visits: (original.visits||0) + (duplicate.visits||0), lastVisit: new Date(original.lastVisit) > new Date(duplicate.lastVisit) ? original.lastVisit : duplicate.lastVisit });
+            batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', duplicate.id));
         });
-
-        await batch.commit();
-        showNotification(`Merged ${count} duplicates!`, 'success');
-
-    } catch(e) {
-        console.error(e);
-        showNotification("Deduplication failed", 'error');
-    }
+        await batch.commit(); showNotification(`Merged ${duplicates.length} duplicates!`, 'success');
+    } catch(e) { console.error(e); showNotification("Deduplication failed", 'error'); }
   };
 
   const handleBulkDeleteClients = async (ids) => {
-      try {
-          const batch = writeBatch(db);
-          ids.forEach(id => {
-              const ref = doc(db, ...PUBLIC_DATA_PATH, 'clients', id);
-              batch.delete(ref);
-          });
-          await batch.commit();
-          showNotification(`Deleted ${ids.length} clients`, 'success');
-      } catch (e) {
-          showNotification("Bulk delete failed", 'error');
-      }
+      try { const batch = writeBatch(db); ids.forEach(id => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', id))); await batch.commit(); showNotification(`Deleted ${ids.length} clients`, 'success'); } catch (e) { showNotification("Bulk delete failed", 'error'); }
   };
   
   const handleNormalizeCountries = async () => {
-      try {
-          const batch = writeBatch(db);
-          let count = 0;
-          clients.forEach(c => {
-              const normalized = getNormalizedCountry(c.country);
-              if (normalized !== c.country) {
-                  const ref = doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id);
-                  batch.update(ref, { country: normalized });
-                  count++;
-              }
-          });
-          
-          if (count > 0) {
-              await batch.commit();
-              showNotification(`Normalized ${count} countries`, 'success');
-          } else {
-              showNotification("All countries are already normalized");
-          }
-      } catch(e) {
-          showNotification("Normalization failed", 'error');
-      }
+      try { const batch = writeBatch(db); let count = 0; clients.forEach(c => { const normalized = getNormalizedCountry(c.country); if (normalized !== c.country) { batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id), { country: normalized }); count++; } }); if (count > 0) { await batch.commit(); showNotification(`Normalized ${count} countries`, 'success'); } else showNotification("All normalized"); } catch(e) { showNotification("Normalization failed", 'error'); }
   };
 
   const handleCreateRoom = async (d) => { setAddRoomModal(false); await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'rooms'), {...d, hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId, occupied: 0}); };
@@ -3173,9 +3535,9 @@ function App() {
       const { cash, card, qr } = amounts;
       const date = new Date().toISOString();
       const batch = [];
-      if(cash > 0) batch.push({ guestId, staffId, amount: cash, method: 'cash', date });
-      if(card > 0) batch.push({ guestId, staffId, amount: card, method: 'card', date });
-      if(qr > 0) batch.push({ guestId, staffId, amount: qr, method: 'qr', date });
+      if(cash > 0) batch.push({ guestId, staffId, amount: cash, method: 'cash', date, hostelId: currentUser.hostelId });
+      if(card > 0) batch.push({ guestId, staffId, amount: card, method: 'card', date, hostelId: currentUser.hostelId });
+      if(qr > 0) batch.push({ guestId, staffId, amount: qr, method: 'qr', date, hostelId: currentUser.hostelId });
       for(const item of batch) { await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), item); }
   };
 
@@ -3194,32 +3556,9 @@ function App() {
   const handleCreateDebt = async (client, amount) => {
       try {
           const safeStaffId = currentUser.id || currentUser.login || 'unknown';
-          const debtData = {
-              fullName: client.fullName,
-              passport: client.passport,
-              country: client.country,
-              birthDate: client.birthDate,
-              staffId: safeStaffId,
-              checkInDate: new Date().toISOString(),
-              days: 0,
-              roomId: 'DEBT_ONLY',
-              roomNumber: '-',
-              bedId: '-',
-              pricePerNight: 0,
-              totalPrice: amount,
-              paidCash: 0,
-              paidCard: 0,
-              paidQR: 0,
-              amountPaid: 0,
-              status: 'active', // Needs to be active to show in debts list
-              hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId
-          };
-          
-          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), debtData);
-          showNotification("Debt created successfully");
-      } catch (e) {
-          showNotification("Error creating debt", 'error');
-      }
+          const debtData = { fullName: client.fullName, passport: client.passport, country: client.country, birthDate: client.birthDate, staffId: safeStaffId, checkInDate: new Date().toISOString(), days: 0, roomId: 'DEBT_ONLY', roomNumber: '-', bedId: '-', pricePerNight: 0, totalPrice: amount, paidCash: 0, paidCard: 0, paidQR: 0, amountPaid: 0, status: 'active', hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId };
+          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), debtData); showNotification("Debt created successfully");
+      } catch (e) { showNotification("Error creating debt", 'error'); }
   };
 
   const handleActivateBooking = async (guest) => {
@@ -3257,87 +3596,36 @@ function App() {
           const remainingDays = totalOriginalDays - firstLegDays;
           if (remainingDays <= 0) return;
           const totalPaid = orig.amountPaid || 0;
-          const paidCash = orig.paidCash || 0;
-          const paidCard = orig.paidCard || 0;
-          const paidQR = orig.paidQR || 0;
-          
-          const ratio1 = firstLegDays / totalOriginalDays;
-          const ratio2 = remainingDays / totalOriginalDays;
-
+          const ratio1 = firstLegDays / totalOriginalDays; const ratio2 = remainingDays / totalOriginalDays;
           const firstLegTotal = firstLegDays * price;
           const stay1 = getStayDetails(orig.checkInDate, firstLegDays);
-          const newCheckOut = stay1.end.toISOString();
-
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), {
-              days: firstLegDays,
-              totalPrice: firstLegTotal,
-              amountPaid: Math.floor(totalPaid * ratio1),
-              paidCash: Math.floor(paidCash * ratio1),
-              paidCard: Math.floor(paidCard * ratio1),
-              paidQR: Math.floor(paidQR * ratio1),
-              checkOutDate: newCheckOut
-          });
+          
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), { days: firstLegDays, totalPrice: firstLegTotal, amountPaid: Math.floor(totalPaid * ratio1), paidCash: Math.floor((orig.paidCash||0) * ratio1), paidCard: Math.floor((orig.paidCard||0) * ratio1), paidQR: Math.floor((orig.paidQR||0) * ratio1), checkOutDate: stay1.end.toISOString() });
 
           const gapStart = new Date(stay1.end);
-          const secondStart = new Date(gapStart);
-          secondStart.setDate(secondStart.getDate() + gap); 
-          secondStart.setHours(12, 0, 0, 0);
-
+          const secondStart = new Date(gapStart); secondStart.setDate(secondStart.getDate() + gap); secondStart.setHours(12, 0, 0, 0);
           const stay2 = getStayDetails(secondStart.toISOString(), remainingDays);
-          const newGuest = {
-              ...orig,
-              checkInDate: secondStart.toISOString(),
-              checkOutDate: stay2.end.toISOString(),
-              days: remainingDays,
-              pricePerNight: price, 
-              totalPrice: remainingDays * price,
-              amountPaid: Math.floor(totalPaid * ratio2),
-              paidCash: Math.floor(paidCash * ratio2),
-              paidCard: Math.floor(paidCard * ratio2),
-              paidQR: Math.floor(paidQR * ratio2),
-              status: 'active', 
-              checkInDateTime: null,
-              checkIn: null 
-          };
+          
+          const newGuest = { ...orig, checkInDate: secondStart.toISOString(), checkOutDate: stay2.end.toISOString(), days: remainingDays, pricePerNight: price, totalPrice: remainingDays * price, amountPaid: Math.floor(totalPaid * ratio2), paidCash: Math.floor((orig.paidCash||0) * ratio2), paidCard: Math.floor((orig.paidCard||0) * ratio2), paidQR: Math.floor((orig.paidQR||0) * ratio2), status: 'active', checkInDateTime: null, checkIn: null };
           delete newGuest.id;
           await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
           showNotification("Split successful!");
-      } catch (e) {
-          console.error(e);
-          showNotification("Split Error", 'error');
-      }
+      } catch (e) { console.error(e); showNotification("Split Error", 'error'); }
   };
 
   const handleMoveGuest = async (g, rid, rnum, bid) => { 
-      try {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
-          setMoveGuestModal({open: false, guest: null});
-          setGuestDetailsModal({open: false, guest: null});
-          showNotification("Moved!");
-      } catch (e) {
-          showNotification("Error: " + e.message, 'error');
-      }
+      try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid }); setMoveGuestModal({open: false, guest: null}); setGuestDetailsModal({open: false, guest: null}); showNotification("Moved!"); } catch (e) { showNotification("Error: " + e.message, 'error'); }
   };
   
   const handleDeleteGuest = async (g) => {
       let guestId = typeof g === 'string' ? g : g.id;
       let guestData = typeof g === 'object' ? g : guests.find(guest => guest.id === guestId);
-
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId));
-      if(guestData && guestData.status==='active' && guestData.roomId !== 'DEBT_ONLY') { 
-          const r=rooms.find(i=>i.id===guestData.roomId); 
-          if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {occupied:Math.max(0,(r.occupied||1)-1)}); 
-      }
-      setGuestDetailsModal({open:false, guest:null});
-      showNotification("Deleted");
+      if(guestData && guestData.status==='active' && guestData.roomId !== 'DEBT_ONLY') { const r=rooms.find(i=>i.id===guestData.roomId); if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {occupied:Math.max(0,(r.occupied||1)-1)}); }
+      setGuestDetailsModal({open:false, guest:null}); showNotification("Deleted");
   };
 
-  const handleDeletePayment = async (id, type) => {
-      if(!confirm("Delete?")) return;
-      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
-      sendTelegramMessage(`⚠️ <b>Delete Record</b>\nID: ${id}\nType: ${type}`);
-      showNotification("Deleted");
-  };
+  const handleDeletePayment = async (id, type) => { if(!confirm("Delete?")) return; await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id)); sendTelegramMessage(`⚠️ <b>Delete Record</b>\nID: ${id}\nType: ${type}`); showNotification("Deleted"); };
 
   const handleAddExpense = async (d) => { setExpenseModal(false); await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {...d, hostelId: currentUser.role==='admin'?selectedHostelFilter:currentUser.hostelId, staffId:currentUser.id||currentUser.login, date:new Date().toISOString()}); };
   const handleAddTask = async (task) => { await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), task); showNotification("Task Added"); };
@@ -3345,78 +3633,77 @@ function App() {
   const handleUpdateTask = async (id, updates) => { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'tasks', id), updates); showNotification("Task Updated"); };
   const handleDeleteTask = async (id) => { await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'tasks', id)); showNotification("Task Deleted"); };
   
+  // SHIFT MANAGEMENT
+  const handleStartShift = async () => {
+      const activeShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+      if(activeShift) return showNotification("Shift already started", 'error');
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), { staffId: currentUser.id, hostelId: currentUser.hostelId, startTime: new Date().toISOString(), endTime: null });
+      showNotification("Shift Started");
+  };
+
+  const handleTransferShift = async (currentShiftId, targetUserId) => {
+      if(!targetUserId) return;
+      const batch = writeBatch(db);
+      const shiftRef = doc(db, ...PUBLIC_DATA_PATH, 'shifts', currentShiftId);
+      batch.update(shiftRef, { endTime: new Date().toISOString() });
+      const targetUser = usersList.find(u => u.id === targetUserId);
+      const newShiftRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'));
+      batch.set(newShiftRef, { staffId: targetUserId, hostelId: targetUser ? targetUser.hostelId : currentUser.hostelId, startTime: new Date().toISOString(), endTime: null });
+      await batch.commit(); showNotification("Shift Transferred");
+  };
+
+  // ADMIN SHIFT MANAGEMENT
+  const handleAdminAddShift = async (shiftData) => {
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), shiftData);
+      showNotification("Смена добавлена вручную");
+  };
+
+  const handleAdminUpdateShift = async (id, data) => {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id), data);
+      showNotification("Смена обновлена");
+  };
+
   const handleAdminReduceDays = async (g, rd) => { 
-      const newDays = parseInt(g.days) - parseInt(rd);
-      const newTotal = newDays * parseInt(g.pricePerNight);
-      const refundAmount = parseInt(rd) * parseInt(g.pricePerNight);
-      
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
-          days: newDays,
-          totalPrice: newTotal,
-          amountPaid: (g.amountPaid || 0) - refundAmount,
-          paidCash: (g.paidCash || 0) - refundAmount 
-      });
-      const stay = getStayDetails(g.checkInDate, newDays);
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { checkOutDate: stay.end.toISOString() });
+      const newDays = parseInt(g.days) - parseInt(rd); const newTotal = newDays * parseInt(g.pricePerNight); const refundAmount = parseInt(rd) * parseInt(g.pricePerNight);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { days: newDays, totalPrice: newTotal, amountPaid: (g.amountPaid || 0) - refundAmount, paidCash: (g.paidCash || 0) - refundAmount });
+      const stay = getStayDetails(g.checkInDate, newDays); await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { checkOutDate: stay.end.toISOString() });
       showNotification("Days reduced");
   };
 
   const handleAdminReduceDaysNoRefund = async (g, rd) => {
-      const newDays = parseInt(g.days) - parseInt(rd);
-      const newTotal = newDays * parseInt(g.pricePerNight);
-      
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
-          days: newDays,
-          totalPrice: newTotal
-      });
-      const stay = getStayDetails(g.checkInDate, newDays);
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { checkOutDate: stay.end.toISOString() });
+      const newDays = parseInt(g.days) - parseInt(rd); const newTotal = newDays * parseInt(g.pricePerNight);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { days: newDays, totalPrice: newTotal });
+      const stay = getStayDetails(g.checkInDate, newDays); await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { checkOutDate: stay.end.toISOString() });
       showNotification("Reduced (No Refund)");
   };
 
   const handlePayDebt = async (targets, amount, methods = { cash: amount, card: 0, qr: 0 }) => {
       try {
-          const safeStaffId = currentUser.id || currentUser.login;
-          let remaining = amount;
+          const safeStaffId = currentUser.id || currentUser.login; let remaining = amount;
           for (const target of targets) {
               if (remaining <= 0) break;
-              const pay = Math.min(remaining, target.currentDebt);
-              
-              const ratio = pay / amount;
-              const cashPay = Math.floor(methods.cash * ratio);
-              const cardPay = Math.floor(methods.card * ratio);
-              const qrPay = Math.floor(methods.qr * ratio);
-              
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), {
-                  paidCash: increment(cashPay), 
-                  paidCard: increment(cardPay),
-                  paidQR: increment(qrPay),
-                  amountPaid: increment(pay)
-              });
-              await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId);
-              remaining -= pay;
+              const pay = Math.min(remaining, target.currentDebt); const ratio = pay / amount;
+              const cashPay = Math.floor(methods.cash * ratio); const cardPay = Math.floor(methods.card * ratio); const qrPay = Math.floor(methods.qr * ratio);
+              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), { paidCash: increment(cashPay), paidCard: increment(cardPay), paidQR: increment(qrPay), amountPaid: increment(pay) });
+              await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId); remaining -= pay;
           }
           showNotification("Debt Paid!");
-      } catch(e) {
-          showNotification("Error paying debt", 'error');
-      }
+      } catch(e) { showNotification("Error paying debt", 'error'); }
   };
 
   const handleAdminAdjustDebt = async (guestId, adjustment) => {
-      try {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-              totalPrice: increment(adjustment)
-          });
-          showNotification("Debt Adjusted");
-      } catch(e) {
-          showNotification("Error adjusting", 'error');
-      }
+      try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { totalPrice: increment(adjustment) }); showNotification("Debt Adjusted"); } catch(e) { showNotification("Error adjusting", 'error'); }
   };
 
   const downloadExpensesCSV = () => { alert("Export feature pending") };
 
   if (isLoadingAuth) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40}/></div>;
   if (!currentUser) return <LoginScreen users={usersList} onLogin={handleLogin} onSeed={seedUsers} lang={lang} setLang={setLang} />;
+
+  // --- БЛОКИРОВКА ЭКРАНА ЕСЛИ СМЕНА ЗАНЯТА ---
+  if (activeShiftInMyHostel) {
+      return <ShiftBlockScreen activeShift={activeShiftInMyHostel} activeUser={activeUserForBlock} currentUser={currentUser} onLogout={handleLogout} onTransferToMe={handleTransferToMe} />;
+  }
 
   const activeUserDoc = usersList.find(u => u.id === currentUser?.id) || currentUser;
   const currentHostelInfo = HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId] || HOSTELS['hostel1'];
@@ -3439,7 +3726,7 @@ function App() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        {activeTab === 'dashboard' ? t('dashboard').toUpperCase() : activeTab === 'rooms' ? t('rooms').toUpperCase() : activeTab === 'calendar' ? t('calendar').toUpperCase() : activeTab === 'reports' ? t('reports').toUpperCase() : activeTab === 'debts' ? t('debts').toUpperCase() : activeTab === 'tasks' ? t('tasks').toUpperCase() : activeTab === 'expenses' ? t('expenses').toUpperCase() : activeTab === 'clients' ? t('clients').toUpperCase() : activeTab === 'staff' ? t('staff').toUpperCase() : ''}
+                        {activeTab === 'dashboard' ? t('dashboard').toUpperCase() : activeTab === 'rooms' ? t('rooms').toUpperCase() : activeTab === 'calendar' ? t('calendar').toUpperCase() : activeTab === 'reports' ? t('reports').toUpperCase() : activeTab === 'debts' ? t('debts').toUpperCase() : activeTab === 'tasks' ? t('tasks').toUpperCase() : activeTab === 'expenses' ? t('expenses').toUpperCase() : activeTab === 'clients' ? t('clients').toUpperCase() : activeTab === 'staff' ? t('staff').toUpperCase() : activeTab === 'shifts' ? t('shifts').toUpperCase() : ''}
                     </h2>
                     <div className="flex items-center gap-4 text-slate-500 text-sm mt-1">
                         <div className="flex items-center gap-1"><MapPin size={14}/> {HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId]?.name || 'All'}</div>
@@ -3447,6 +3734,12 @@ function App() {
                             {isOnline ? <Wifi size={12}/> : <WifiOff size={12}/>}
                             {isOnline ? 'ONLINE' : 'OFFLINE'}
                         </div>
+                        {currentUser.role === 'cashier' && (
+                            <div className="bg-white px-2 py-0.5 rounded border border-slate-200 text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                                <User size={10}/>
+                                Current: {usersList.find(u => shifts.find(s => s.staffId === u.id && !s.endTime))?.name || "Nobody"}
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -3459,14 +3752,19 @@ function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pt-2 pb-20">
-            {activeTab === 'dashboard' && currentUser.role === 'admin' && <div className="space-y-8 animate-in fade-in"><DashboardStats rooms={filteredRooms} guests={filteredGuests} payments={filteredPayments} lang={lang} /><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><ChartsSection guests={filteredGuests} rooms={filteredRooms} payments={filteredPayments} lang={lang} /></div></div>}
+            {activeTab === 'dashboard' && currentUser.role === 'admin' && (
+                <div className="space-y-8 animate-in fade-in">
+                    {/* Передаем currentHostelId для правильной фильтрации */}
+                    <DashboardStats rooms={filteredRooms} guests={guests} payments={payments} lang={lang} currentHostelId={selectedHostelFilter} />
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <ChartsSection guests={filteredGuests} rooms={filteredRooms} payments={filteredPayments} lang={lang} />
+                    </div>
+                </div>
+            )}
             
             {activeTab === 'rooms' && ( <div className="space-y-6"><div className="flex justify-between items-center"><div className="flex items-center gap-2 text-slate-500 text-sm"><CheckCircle2 size={18} /> <span>Click bed for actions</span></div>{(currentUser.role === 'admin' || currentUser.role === 'super') && <Button icon={PlusCircle} onClick={() => setAddRoomModal(true)}>Add Room</Button>}</div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">{filteredRooms.map(room => (<RoomCardChess key={room.id} room={room} guests={filteredGuests.filter(g => g.roomId === room.id)} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super'} onEdit={() => setEditRoomModal({ open: true, room })} onClone={() => handleCloneRoom(room)} onDelete={() => handleDeleteRoom(room)} lang={lang} onBedClick={(bedId, guest, isGhost) => { 
                 if (guest) {
                     if (isGhost) {
-                        // If clicking a ghost, we probably want to check in someone new OR check details
-                        // For now, let's just open details as read-only or allow checkin?
-                        // Let's open details for now to see history
                         setGuestDetailsModal({ open: true, guest });
                     } else {
                         setGuestDetailsModal({ open: true, guest });
@@ -3493,6 +3791,22 @@ function App() {
             {activeTab === 'debts' && <DebtsView guests={filteredGuests} users={usersList} lang={lang} onPayDebt={handlePayDebt} currentUser={currentUser} onAdminAdjustDebt={handleAdminAdjustDebt} clients={clients} onCreateDebt={handleCreateDebt} />}
             
             {activeTab === 'tasks' && <TaskManager tasks={filteredTasks} users={usersList} currentUser={currentUser} onAddTask={handleAddTask} onCompleteTask={handleCompleteTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} lang={lang} selectedHostelFilter={selectedHostelFilter} />}
+
+            {/* ОБНОВЛЕННЫЙ SHIFTS VIEW */}
+            {activeTab === 'shifts' && (
+                <ShiftsView 
+                    shifts={shifts} 
+                    users={usersList} 
+                    currentUser={currentUser} 
+                    onStartShift={handleStartShift} 
+                    onEndShift={handleEndShift} 
+                    onTransferShift={handleTransferShift} 
+                    lang={lang} 
+                    hostelId={currentUser.hostelId} 
+                    onAdminAddShift={handleAdminAddShift} 
+                    onAdminUpdateShift={handleAdminUpdateShift} 
+                />
+            )}
 
             {activeTab === 'clients' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ClientsView clients={clients} onUpdateClient={handleUpdateClient} onImportClients={handleImportClients} onDeduplicate={handleDeduplicate} onBulkDelete={handleBulkDeleteClients} onNormalizeCountries={handleNormalizeCountries} lang={lang} />}
             {activeTab === 'staff' && currentUser.role === 'admin' && <StaffView users={usersList} onAdd={handleAddUser} onDelete={handleDeleteUser} lang={lang} />}
