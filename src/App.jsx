@@ -15,9 +15,15 @@ import {
   onSnapshot,
   initializeFirestore,
   persistentLocalCache,
+  persistentMultipleTabManager,
   increment,
   writeBatch
 } from 'firebase/firestore';
+import { 
+  getFunctions, 
+  httpsCallable 
+} from 'firebase/functions';
+
 import { 
   LayoutDashboard, 
   BedDouble, 
@@ -66,7 +72,8 @@ import {
   FileSpreadsheet,
   Merge,
   Square,
-  CheckSquare
+  CheckSquare,
+  ScanLine
 } from 'lucide-react';
 
 // --- STYLES ---
@@ -128,7 +135,8 @@ const TRANSLATIONS = {
     normalizeCountries: "Нормализация стран",
     createDebt: "Создать долг",
     print: "Печать",
-    printReport: "Печать отчета"
+    printReport: "Печать отчета",
+    checkinNew: "Заселить нового"
   },
   uz: {
     dashboard: "Boshqaruv", rooms: "Xonalar", calendar: "Kalendar", reports: "Hisobotlar", debts: "Qarzlar", tasks: "Vazifalar", expenses: "Xarajatlar", clients: "Mijozlar", staff: "Xodimlar",
@@ -183,7 +191,8 @@ const TRANSLATIONS = {
     normalizeCountries: "Davlatlarni to'g'irlash",
     createDebt: "Qarz yaratish",
     print: "Chop etish",
-    printReport: "Hisobotni chop etish"
+    printReport: "Hisobotni chop etish",
+    checkinNew: "Yangi mehmon"
   }
 };
 
@@ -218,9 +227,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const functions = getFunctions(app);
 
 const db = initializeFirestore(app, {
-  localCache: persistentLocalCache()
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 }, "hostella");
 
 const APP_ID = 'hostella-multi-v4';
@@ -276,7 +288,7 @@ const COUNTRIES = [
   "Канада", "Катар", "Кения", "Кипр", "Китай", "Колумбия", "Корея (Южная)", "Куба", "Кувейт", 
   "Латвия", "Литва", "Малайзия", "Мальдивы", "Марокко", "Мексика", "Молдавия", "Монголия", "Непал", "Нидерланды", 
   "Новая Зеландия", "Норвегия", "ОАЭ", "Пакистан", "Польша", "Португалия", "Румыния", "Саудовская Аравия", "Сербия", "Сингапур", 
-  "Сирия", "Словакия", "Словения", "США", "Таиланд", "Туркмения", "Турция", "Украина", "Филиппины", "Финляндия", 
+  "Сирия", "Словакия", "Словеия", "США", "Таиланд", "Туркмения", "Турция", "Украина", "Филиппины", "Финляндия", 
   "Франция", "Хорватия", "Чехия", "Чили", "Швейцария", "Швеция", "Шри-Ланка", "Эстония", "Япония"
 ];
 
@@ -304,21 +316,12 @@ const getLocalDatetimeString = (dateObj) => {
 
 const getStayDetails = (checkInIsoOrDate, days, now = new Date()) => {
     const start = new Date(checkInIsoOrDate);
-    const hasTime = checkInIsoOrDate.includes('T') && checkInIsoOrDate.length > 10;
-    
-    let arrivalHour = start.getHours();
-    
+    start.setHours(12, 0, 0, 0);
+
     const startDateNormalized = new Date(start);
-    startDateNormalized.setHours(0,0,0,0);
-    
+
     const end = new Date(start);
-    
-    if (hasTime && arrivalHour >= 0 && arrivalHour < 7) {
-         end.setDate(end.getDate() + (parseInt(days) - 1));
-    } else {
-         end.setDate(end.getDate() + parseInt(days));
-    }
-    
+    end.setDate(end.getDate() + parseInt(days));
     end.setHours(12, 0, 0, 0);
 
     return { start, end, startDateNormalized };
@@ -541,12 +544,9 @@ const getNormalizedCountry = (input) => {
     if (!input) return "Узбекистан";
     const clean = input.trim().replace(/['"]/g, '');
     const lower = clean.toLowerCase();
-    // Check map for translation
     if (COUNTRY_MAP[lower]) return COUNTRY_MAP[lower];
-    // Check if it's already a valid Russian country name (case insensitive check)
     const valid = COUNTRIES.find(c => c.toLowerCase() === lower);
     if (valid) return valid;
-    // Default to clean input
     return clean;
 };
 
@@ -617,7 +617,6 @@ const MobileNavigation = ({ currentUser, activeTab, setActiveTab, pendingTasksCo
         return role === currentUser.role;
     };
     
-    // Only show top 5 relevant tabs for mobile to fit screen
     const mobileTabs = tabs.filter(t => roleCheck(t.role)).slice(0, 5);
 
     return (
@@ -705,25 +704,32 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang }) => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 w-screen h-screen bg-slate-50 flex items-center justify-center z-[100] p-4">
             <div className="absolute top-4 right-4 flex gap-2">
                  <button onClick={()=>setLang('ru')} className={`px-3 py-1 rounded ${lang==='ru'?'bg-indigo-600 text-white':'bg-white'}`}>RU</button>
                  <button onClick={()=>setLang('uz')} className={`px-3 py-1 rounded ${lang==='uz'?'bg-indigo-600 text-white':'bg-white'}`}>UZ</button>
             </div>
-            <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md border border-slate-100">
-                <div className="flex flex-col items-center mb-8">
-                    <div className="bg-indigo-600 p-3 rounded-2xl mb-4 shadow-lg shadow-indigo-200">
-                        <Building2 className="text-white" size={32}/>
-                    </div>
-                    <h1 className="text-2xl font-bold text-slate-900">Hostella App</h1>
-                    <p className="text-slate-500">Система управления хостелом</p>
+            
+            <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 flex flex-col items-center">
+                <div className="bg-indigo-600 p-4 rounded-2xl mb-6 shadow-lg shadow-indigo-200">
+                    <Building2 className="text-white" size={40}/>
                 </div>
-                <form onSubmit={handleAuth} className="space-y-5">
-                    <div><label className={labelClass}>{t('login')}</label><input className={inputClass} value={login} onChange={e=>setLogin(e.target.value)} placeholder="..." /></div>
-                    <div><label className={labelClass}>{t('pass')}</label><input type="password" className={inputClass} value={pass} onChange={e=>setPass(e.target.value)} placeholder="•••••••" /></div>
-                    <Button type="submit" className="w-full py-3.5 text-lg shadow-lg shadow-indigo-100">{t('enter')}</Button>
+                <h1 className="text-3xl font-bold text-slate-900 mb-2">Hostella</h1>
+                <p className="text-slate-500 mb-8 text-center">Система управления хостелом</p>
+                
+                <form onSubmit={handleAuth} className="space-y-5 w-full">
+                    <div>
+                        <label className={labelClass}>{t('login')}</label>
+                        <input className={inputClass} value={login} onChange={e=>setLogin(e.target.value)} placeholder="admin" autoFocus />
+                    </div>
+                    <div>
+                        <label className={labelClass}>{t('pass')}</label>
+                        <input type="password" className={inputClass} value={pass} onChange={e=>setPass(e.target.value)} placeholder="•••••••" />
+                    </div>
+                    <Button type="submit" className="w-full py-4 text-lg shadow-xl shadow-indigo-100 mt-4">{t('enter')}</Button>
                 </form>
-                <div className="mt-8 text-center pt-6 border-t border-slate-100">
+                
+                <div className="mt-8 text-center pt-6 border-t border-slate-100 w-full">
                     <button onClick={onSeed} className="text-xs text-slate-400 hover:text-indigo-500 transition-colors">{t('initDb')}</button>
                 </div>
             </div>
@@ -932,6 +938,10 @@ const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBed
     const t = (k) => TRANSLATIONS[lang][k];
     const beds = Array.from({length: room.capacity}, (_, i) => i + 1);
     const now = new Date();
+    
+    // Ghost Logic: Find recent checkouts (last 24-48 hours) for empty beds
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 2);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col hover:shadow-md transition-all">
@@ -961,6 +971,19 @@ const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBed
                         return now >= checkIn && now < checkOut;
                     });
 
+                    // Ghost: If no active guest, find last occupant
+                    let ghostGuest = null;
+                    if (!guest) {
+                        const recent = guests.filter(g => 
+                            String(g.roomId) === String(room.id) && 
+                            String(g.bedId) === String(bedId) &&
+                            g.status === 'checked_out' &&
+                            new Date(g.checkOutDate) > yesterday
+                        ).sort((a,b) => new Date(b.checkOutDate) - new Date(a.checkOutDate));
+                        if(recent.length > 0) ghostGuest = recent[0];
+                    }
+
+                    // Future: Bookings
                     let futureGuest = null;
                     if (!guest) {
                         const upcoming = guests.filter(g => {
@@ -980,9 +1003,11 @@ const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBed
                     let targetDateObj = null;
                     if (guest) {
                          const checkIn = new Date(guest.checkInDate || guest.checkInDateTime || guest.checkIn);
-                         if (!guest.checkInDate.includes('T')) checkIn.setHours(12, 0, 0, 0);
+                         checkIn.setHours(12, 0, 0, 0);
                          targetDateObj = new Date(checkIn.getTime() + (parseInt(guest.days) * 24 * 60 * 60 * 1000));
+                         targetDateObj.setHours(12, 0, 0, 0);
                     }
+                    
                     const isExpired = targetDateObj && targetDateObj < new Date();
 
                     let bgClass = 'bg-white border-slate-100 hover:border-indigo-300 hover:shadow-sm';
@@ -991,10 +1016,17 @@ const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBed
                     let showTimer = false;
 
                     if (guest && !isBooking) {
-                         if (isExpired && debt <= 0) {
-                             bgClass = 'bg-slate-200 border-slate-300';
-                             badgeClass = 'bg-slate-300 text-slate-500';
-                             textClass = 'text-slate-500';
+                         if (isExpired) {
+                             if (debt <= 0) {
+                                 // Expired and paid -> Gray
+                                 bgClass = 'bg-slate-200 border-slate-300';
+                                 badgeClass = 'bg-slate-300 text-slate-500';
+                                 textClass = 'text-slate-500';
+                             } else {
+                                 bgClass = 'bg-rose-50 border-rose-200';
+                                 badgeClass = 'bg-white/50 text-rose-700';
+                                 textClass = 'text-rose-900';
+                             }
                          } else if (debt > 0) {
                              bgClass = 'bg-rose-50 border-rose-200';
                              badgeClass = 'bg-white/50 text-rose-700';
@@ -1007,36 +1039,65 @@ const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBed
                          
                          const diffMs = targetDateObj - now;
                          const twelveHoursMs = 12 * 60 * 60 * 1000;
-                         if (diffMs > 0 && diffMs < twelveHoursMs) {
-                             showTimer = true;
-                         }
+                         if (diffMs > 0 && diffMs < twelveHoursMs) showTimer = true;
                     } else if (isBooking) {
                         bgClass = 'bg-amber-50 border-amber-200';
                         badgeClass = 'bg-white/50 text-amber-600';
                         textClass = 'text-amber-900';
-                    } else if (futureGuest) {
-                        bgClass = 'bg-slate-50 border-slate-200 border-dashed';
+                    } else if (ghostGuest) {
+                        // Ghost styling (Checked out recently)
+                        bgClass = 'bg-slate-50 border-slate-200 opacity-70';
+                        badgeClass = 'bg-slate-200 text-slate-400';
+                        textClass = 'text-slate-400 italic';
                     }
 
                     return (
-                        <div key={bedId} onClick={() => onBedClick(bedId, guest)}
-                             className={`cursor-pointer rounded-xl p-3 border transition-all relative min-h-[90px] flex flex-col justify-between group ${bgClass}`}>
+                        <div key={bedId} onClick={() => onBedClick(bedId, guest || ghostGuest, !!ghostGuest)}
+                             className={`cursor-pointer rounded-xl p-3 border transition-all relative min-h-[90px] flex flex-col justify-between group overflow-hidden ${bgClass}`}>
+                            
+                            {/* HOVER OVERLAY FOR EXPIRED GUESTS OR GHOST GUESTS */}
+                            {((guest && isExpired && debt <= 0) || ghostGuest) && (
+                                <div className="absolute inset-0 bg-slate-800/90 z-10 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity p-2 gap-2">
+                                    <span className="text-white text-[10px] font-bold text-center mb-1">
+                                        {ghostGuest ? 'Checked Out' : 'Time Out'}
+                                    </span>
+                                    <div className="flex flex-col gap-1 w-full">
+                                        {/* If active but expired, show extend. If ghost, show re-book */}
+                                        {guest && (
+                                            <button className="bg-emerald-500 text-white text-[10px] py-1.5 rounded font-bold hover:bg-emerald-600 w-full">
+                                                {t('extend')}
+                                            </button>
+                                        )}
+                                        {/* Action to checkin NEW guest on this spot */}
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); onBedClick(bedId, null, false); }} 
+                                            className="bg-indigo-500 text-white text-[10px] py-1.5 rounded font-bold hover:bg-indigo-600 w-full flex items-center justify-center gap-1"
+                                        >
+                                            <Plus size={12}/> {t('checkinNew')}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex justify-between items-start">
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${badgeClass}`}>
                                     {bedId} {bedId % 2 === 0 ? 'Up' : 'Dn'}
                                 </span>
                                 {guest && (isBooking ? <Clock size={14} className="text-amber-500"/> : <User size={14} className={isExpired && debt <=0 ? 'text-slate-400' : (debt > 0 ? 'text-rose-400' : 'text-emerald-400')}/>)}
+                                {ghostGuest && <History size={14} className="text-slate-300"/>}
                             </div>
-                            {guest ? (
+                            
+                            {guest || ghostGuest ? (
                                 <div className="mt-2 overflow-hidden">
-                                    <div className={`font-bold text-sm leading-tight truncate ${textClass}`}>{guest.fullName}</div>
+                                    <div className={`font-bold text-sm leading-tight truncate ${textClass}`}>{(guest || ghostGuest).fullName}</div>
                                     <div className="flex justify-between items-end mt-1">
                                          <div className="text-[10px] opacity-70">
-                                            {isBooking ? t('booking') : `${guest.days} ${t('days')}`} 
+                                            {isBooking ? t('booking') : `${(guest || ghostGuest).days} ${t('days')}`} 
                                          </div>
                                          {!isBooking && debt > 0 && <div className="text-[10px] font-bold text-rose-600 bg-rose-100 px-1 rounded">-{debt.toLocaleString()}</div>}
                                     </div>
                                     {showTimer && targetDateObj && <CountdownTimer targetDate={targetDateObj} lang={lang} />}
+                                    {isExpired && debt <= 0 && <div className="text-[9px] font-bold text-slate-500 mt-1 uppercase tracking-wide">Time Out</div>}
                                 </div>
                             ) : (
                                 <div className="mt-auto text-center">
@@ -1098,32 +1159,53 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
+    // UPDATED: Strict 12:00 PM Logic for visualization
     const getGuestBlockStyle = (guest) => {
+        // Parse Check-In
         let checkInDate = new Date(guest.checkInDate || guest.checkInDateTime || guest.checkIn);
-        if (guest.checkInDate && !guest.checkInDate.includes('T')) {
-            checkInDate.setHours(12, 0, 0, 0);
-        }
+        
+        // Normalize visual start to 12:00 PM of the check-in day
+        checkInDate.setHours(12, 0, 0, 0);
 
         const calendarStart = new Date(days[0].str);
         calendarStart.setHours(0,0,0,0);
         
-        const calendarEnd = new Date(days[days.length-1].str);
-        calendarEnd.setHours(23,59,59,999);
-        
+        // Calculate standard checkout based on days
         const guestDurationMs = parseInt(guest.days) * 24 * 60 * 60 * 1000;
         const checkOutDate = new Date(checkInDate.getTime() + guestDurationMs);
+        
+        // Ensure checkout is visually at 12:00 PM
+        checkOutDate.setHours(12, 0, 0, 0);
 
+        const calendarEnd = new Date(days[days.length-1].str);
+        calendarEnd.setHours(23,59,59,999);
+
+        // If completely outside view
         if (checkOutDate < calendarStart || checkInDate > calendarEnd) return null;
 
         const msPerDay = 1000 * 60 * 60 * 24;
         const totalCalendarMs = msPerDay * calendarDaysCount;
         
+        // Calculate left offset
         let startTimeDiff = checkInDate.getTime() - calendarStart.getTime();
         
-        const leftPercent = (startTimeDiff / totalCalendarMs) * 100;
-        const widthPercent = (guestDurationMs / totalCalendarMs) * 100;
+        // Calculate specific width based on precise 12:00 to 12:00 duration
+        let durationMs = checkOutDate.getTime() - checkInDate.getTime();
 
-        return { leftPercent, widthPercent };
+        // Handle edge cases where bar starts before calendar view
+        if (startTimeDiff < 0) {
+            durationMs += startTimeDiff; // reduce width
+            startTimeDiff = 0; // stick to left
+        }
+
+        const leftPercent = (startTimeDiff / totalCalendarMs) * 100;
+        const widthPercent = (durationMs / totalCalendarMs) * 100;
+
+        // Cap width if it extends beyond calendar
+        const maxRemaining = 100 - leftPercent;
+        const finalWidth = Math.min(widthPercent, maxRemaining);
+
+        return { leftPercent, widthPercent: finalWidth };
     };
 
     const getBlockColorClass = (guest) => {
@@ -1247,7 +1329,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                     return (
                                                         <div 
                                                             key={guest.id}
-                                                            className={`absolute top-1 bottom-1 z-20 rounded-md shadow-sm cursor-pointer hover:z-50 hover:shadow-lg border group/block overflow-visible ${bgClass} flex items-center`}
+                                                            className={`absolute top-1 bottom-1 z-20 rounded-md shadow-sm cursor-pointer hover:z-50 hover:shadow-lg border group/block overflow-hidden ${bgClass} flex items-center`}
                                                             style={{
                                                                 left: `${styleData.leftPercent}%`,
                                                                 width: `${styleData.widthPercent}%`
@@ -1256,18 +1338,18 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                             title={guest.fullName}
                                                         >
                                                             {/* Sticky Name */}
-                                                            <div className="sticky left-0 pl-1 pr-1 flex flex-col justify-center h-full w-full">
-                                                                <span className="font-bold text-[10px] text-white whitespace-nowrap overflow-visible px-1.5 py-0.5 rounded-sm bg-black/40 w-fit block relative z-50">
+                                                            <div className="sticky left-0 pl-1 pr-1 flex flex-col justify-center h-full w-full max-w-full z-50">
+                                                                <span className="font-bold text-[10px] text-white whitespace-nowrap overflow-hidden text-ellipsis px-1.5 py-0.5 rounded-sm bg-black/40 w-fit block relative">
                                                                     {guest.status === 'booking' && '🕰 '}{guest.fullName}
                                                                 </span>
                                                                 
                                                                 {!isCheckedOut && hasDebt && (
-                                                                    <span className="text-[9px] font-bold mt-0.5 px-1.5 py-px rounded w-fit bg-white text-rose-600 shadow-sm border border-rose-200 relative z-40">
+                                                                    <span className="text-[9px] font-bold mt-0.5 px-1.5 py-px rounded w-fit bg-white text-rose-600 shadow-sm border border-rose-200 relative">
                                                                         -{debt.toLocaleString()}
                                                                     </span>
                                                                 )}
                                                                 {!isCheckedOut && !hasDebt && (
-                                                                    <span className="text-[9px] font-bold mt-0.5 px-1 py-px rounded w-fit bg-white/90 text-emerald-700 shadow-sm relative z-40">
+                                                                    <span className="text-[9px] font-bold mt-0.5 px-1 py-px rounded w-fit bg-white/90 text-emerald-700 shadow-sm relative">
                                                                         ✓ OK
                                                                     </span>
                                                                 )}
@@ -1375,7 +1457,7 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
                     birthDate: r[2]?.replace(/['"]/g, '').trim(),
                     country: getNormalizedCountry(rawCountry)
                 };
-            }).filter(p => p.fullName && p.passport); // Remove empty lines
+            }).filter(p => p.fullName && p.passport); 
             
             setFileData(parsed);
         };
@@ -2036,7 +2118,6 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         const matchesMethod = filters.method ? t.method === filters.method : true;
         const matchesHostel = filters.hostelId ? t.hostelId === filters.hostelId : true;
         
-        // --- FIX: Filter out 0 amounts ---
         if (parseInt(t.amount) === 0) return false;
         
         return matchesDate && matchesStaff && matchesMethod && matchesHostel;
@@ -2152,6 +2233,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
     const [searchTerm, setSearchTerm] = useState('');
     const [showSuggestions, setShowSuggestions] = useState(false);
     
+    const [isScanning, setIsScanning] = useState(false);
+    
     const now = new Date();
     const todayStr = getLocalDateString(now);
     
@@ -2188,6 +2271,65 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
         setForm(prev => ({ ...prev, fullName: client.fullName, passport: client.passport, birthDate: client.birthDate, country: client.country }));
         setShowSuggestions(false);
     };
+    
+    const handlePassportScan = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsScanning(true);
+
+        try {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            
+            reader.onload = async () => {
+                const base64String = reader.result.toString();
+                const base64Image = base64String.split(',')[1];
+
+                if (!base64Image) {
+                    notify("Error processing image file", 'error');
+                    setIsScanning(false);
+                    return;
+                }
+
+                try {
+                    const scanPassportFn = httpsCallable(functions, 'scanPassport');
+                    console.log("Sending image payload length:", base64Image.length);
+                    
+                    const response = await scanPassportFn({ image: base64Image });
+                    const { success, data, error } = response.data;
+
+                    if (success) {
+                        setForm(prev => ({
+                            ...prev,
+                            fullName: data.fullName || prev.fullName,
+                            passport: data.passport || prev.passport,
+                            birthDate: data.birthDate || prev.birthDate,
+                            country: data.country || prev.country
+                        }));
+                        notify("Passport Scanned Successfully!", 'success');
+                    } else {
+                        throw new Error(error || "Unknown server error");
+                    }
+                } catch (apiErr) {
+                    console.error("Cloud Function Error:", apiErr);
+                    notify("Scan failed: " + (apiErr.message || "Server Error"), 'error');
+                } finally {
+                    setIsScanning(false);
+                }
+            };
+            
+            reader.onerror = () => {
+                notify("File Read Error", 'error');
+                setIsScanning(false);
+            };
+
+        } catch (err) {
+            console.error(err);
+            notify("System Error", 'error');
+            setIsScanning(false);
+        }
+    };
 
     const suggestions = searchTerm.length > 1 ? clients.filter(c => c.fullName.includes(searchTerm) || c.passport.includes(searchTerm)).slice(0, 5) : [];
     const totalPrice = (parseInt(form.pricePerNight) || 0) * (parseInt(form.days) || 1);
@@ -2214,17 +2356,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
             if (!isBooking && totalPaid > totalPrice) return notify("Paid > Price!", 'error');
 
             const selectedDate = new Date(form.checkInDate);
-            const now = new Date();
-            if (form.checkInDate === getLocalDateString(now)) {
-                 if (initialDate && initialDate.includes('T')) {
-                     const specificTime = new Date(initialDate);
-                     selectedDate.setHours(specificTime.getHours(), specificTime.getMinutes(), 0, 0);
-                 } else {
-                     selectedDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
-                 }
-            } else {
-                selectedDate.setHours(12,0,0,0);
-            }
+            selectedDate.setHours(12, 0, 0, 0);
             
             const stay = getStayDetails(selectedDate.toISOString(), form.days);
             
@@ -2243,7 +2375,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
 
             onSubmit({
                 ...form,
-                checkInDate: selectedDate.toISOString(), 
+                checkInDate: stay.start.toISOString(), 
                 checkOutDate: stay.end.toISOString(), 
                 roomId: room.id, 
                 roomNumber: room.number, 
@@ -2272,16 +2404,47 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
             <div className="flex-1 overflow-y-auto bg-slate-50/50 p-8">
               <form onSubmit={(e)=>handleAction(e, false)} className="flex flex-col gap-6">
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full">
-                        <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
-                            <User className="text-indigo-600" size={20}/>
-                            <h4 className="font-bold text-slate-800">{t('guestName')}</h4>
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full relative flex flex-col">
+                        {isScanning && (
+                            <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center rounded-2xl animate-in fade-in">
+                                <Loader2 className="animate-spin text-indigo-600 mb-4" size={50} />
+                                <span className="font-bold text-slate-800 text-lg">AI распознавание...</span>
+                                <span className="text-slate-500 text-sm mt-1">Пожалуйста, подождите</span>
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2 mb-4">
+                            <User className="text-indigo-600" size={24}/>
+                            <h4 className="font-bold text-slate-800 text-lg">{t('guestName')}</h4>
                         </div>
-                        <div className="space-y-5">
-                                                        <div className="relative">
+
+                        {/* --- НОВАЯ КНОПКА СКАНИРОВАНИЯ --- */}
+                        <div className="mb-6">
+                            <label className="relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-300 rounded-xl cursor-pointer bg-indigo-50 hover:bg-indigo-100 transition-all group overflow-hidden">
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <div className="bg-white p-3 rounded-full mb-2 shadow-sm group-hover:scale-110 transition-transform">
+                                        <ScanLine className="text-indigo-600" size={24} />
+                                    </div>
+                                    <p className="mb-1 text-sm font-bold text-indigo-700">Снять фото / Загрузить</p>
+                                    <p className="text-xs text-indigo-400">Паспорт или ID карта</p>
+                                </div>
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    capture="environment" // <-- ЭТО ВКЛЮЧАЕТ КАМЕРУ НА ТЕЛЕФОНЕ
+                                    onChange={handlePassportScan}
+                                    className="hidden" 
+                                    disabled={isScanning}
+                                />
+                            </label>
+                        </div>
+                        {/* ---------------------------------- */}
+
+                        <div className="space-y-5 flex-1">
+                            <div className="relative">
                                 <label className={labelClass}>{t('guestName')} (Search DB)</label>
                                 <div className="relative">
-                                    <input className={`${inputClass} pl-10 py-3 text-lg`} value={form.fullName} onChange={handleNameChange} placeholder="IVANOV IVAN" onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} />
+                                    <input className={`${inputClass} pl-10 py-3 text-lg font-bold text-slate-700`} value={form.fullName} onChange={handleNameChange} placeholder="IVANOV IVAN" onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} />
                                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><User size={18}/></div>
                                 </div>
                                 {showSuggestions && suggestions.length > 0 && (
@@ -2295,12 +2458,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                 )}
                             </div>
                             <div className="grid grid-cols-2 gap-5">
-                                <div><label className={labelClass}>{t('passport')}</label><input className={`${inputClass} uppercase font-mono`} value={form.passport} onChange={e => setForm({...form, passport: e.target.value.toUpperCase()})} placeholder="AA1234567" /></div>
+                                <div><label className={labelClass}>{t('passport')}</label><input className={`${inputClass} uppercase font-mono text-lg`} value={form.passport} onChange={e => setForm({...form, passport: e.target.value.toUpperCase()})} placeholder="AA1234567" /></div>
                                 <div><label className={labelClass}>{t('birthDate')}</label><input type="date" className={inputClass} value={form.birthDate} onChange={e => setForm({...form, birthDate: e.target.value})} /></div>
                             </div>
                             <div><label className={labelClass}>{t('country')}</label><select className={inputClass} value={form.country} onChange={e => setForm({...form, country: e.target.value})}>{COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                         </div>
                     </div>
+                    
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full">
                         <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
                             <BedDouble className="text-indigo-600" size={20}/>
@@ -2329,6 +2493,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                         </div>
                     </div>
                  </div>
+                 
                  <div className="bg-slate-50 border border-slate-200 p-6 rounded-3xl w-full">
                     <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-lg"><Wallet className="text-indigo-600"/> {t('payment')}</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -2416,14 +2581,18 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const [magnetActiveField, setMagnetActiveField] = useState(null);
 
     const handlePayDebt = () => { const cash = parseInt(payCash) || 0; const card = parseInt(payCard) || 0; const qr = parseInt(payQR) || 0; const sum = cash + card + qr; if(sum <= 0) return notify("Enter Amount", 'error'); onPayment(guest.id, { cash, card, qr }); };
+    
     const handleExtend = () => { 
         const days = parseInt(extendDays); if(!days) return; 
         const newTotal = (guest.totalPrice || 0) + (days * parseInt(guest.pricePerNight)); 
         const updates = { days: parseInt(guest.days) + days, totalPrice: newTotal, status: 'active' };
+        
         const stay = getStayDetails(guest.checkInDate, updates.days);
         updates.checkOutDate = stay.end.toISOString();
+        
         onUpdate(guest.id, updates); 
     };
+
     const handleDoCheckout = () => { 
         const today = new Date(); const checkIn = new Date(guest.checkInDate); const daysStayed = Math.max(1, Math.ceil((today - checkIn) / (1000 * 60 * 60 * 24))); const actualCost = daysStayed * parseInt(guest.pricePerNight); const balance = totalPaid - actualCost;
         if (balance < 0) return notify(`Error! Debt: ${Math.abs(balance).toLocaleString()}`, 'error'); const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); const finalData = { totalPrice: actualCost, paidCash: (guest.paidCash || 0) - refund }; onCheckOut(guest, finalData); 
@@ -2441,14 +2610,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const handleReduceDaysNoRefund = async () => { const rd = parseInt(reduceDaysNoRefund); if (!rd || rd <= 0) return notify("Error days", 'error'); if (rd >= guest.days) return notify("Can't remove all days", 'error'); onReduceDaysNoRefund(guest, rd); onClose(); };
 
     const handlePrint = (type) => { printDocument(type, guest, hostelInfo); };
+    
     const handleMoveBooking = () => {
         const start = new Date(newStartDate);
-        const now = new Date();
-        if (newStartDate === getLocalDateString(now)) {
-             start.setHours(now.getHours(), now.getMinutes(), 0, 0);
-        } else {
-             start.setHours(12,0,0,0);
-        }
+        start.setHours(12, 0, 0, 0);
+
         const stay = getStayDetails(start.toISOString(), guest.days);
         onUpdate(guest.id, { checkInDate: start.toISOString(), checkOutDate: stay.end.toISOString() });
         notify("Date Changed!");
@@ -2472,6 +2638,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] overflow-y-auto">
+                {/* --- FIXED HEADER WITHOUT WHITE BOXES --- */}
                 <div className={`${isBooking ? 'bg-amber-500' : (isCheckedOut ? 'bg-slate-500' : 'bg-slate-900')} text-white p-6 flex justify-between items-start`}>
                     <div className="flex-1">
                         {isBooking && <div className="text-xs uppercase font-bold text-white/80 mb-1 flex items-center gap-1"><Clock size={12}/> {t('booking')}</div>}
@@ -2486,13 +2653,18 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                             </div>
                         ) : (
                             <>
-                                <div className="flex items-center gap-2"><h2 className="text-xl font-bold">{guest.fullName}</h2><button onClick={() => setIsEditing(true)} className="p-1 hover:bg-white/20 rounded"><Edit size={14}/></button></div>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-xl font-bold">{guest.fullName}</h2>
+                                    <button onClick={() => setIsEditing(true)} className="text-white/50 hover:text-white transition-colors p-1"><Edit size={16}/></button>
+                                </div>
                                 <div className="flex gap-4 text-sm text-white/70 mt-1 flex-wrap"><span>Room {guest.roomNumber}</span><span>Bed {guest.bedId}</span><span>{new Date(guest.checkInDate).toLocaleDateString()}</span><span>{guest.passport}</span></div>
                             </>
                         )}
                     </div>
-                    <button onClick={onClose}><XCircle className="text-white/60 hover:text-white"/></button>
+                    <button onClick={onClose} className="text-white/50 hover:text-white transition-colors"><XCircle size={32}/></button>
                 </div>
+                {/* ---------------------------------------- */}
+
                 {!isBooking && (
                     <div className={`p-4 flex justify-between items-center ${debt > 0 ? 'bg-rose-50 border-b border-rose-200' : 'bg-emerald-50 border-b border-emerald-200'}`}>
                         <div className="flex items-center gap-2">{debt > 0 ? <AlertCircle className="text-rose-600"/> : <CheckCircle2 className="text-emerald-600"/>}<span className={`font-bold ${debt > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{debt > 0 ? `${t('debt')}: ${debt.toLocaleString()}` : t('paid')}</span></div>
@@ -2654,13 +2826,7 @@ const ShiftClosingModal = ({ user, payments = [], expenses, onClose, onLogout, n
 
 const ExpenseModal = ({ onClose, onSubmit, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
-    
-    const EXPENSE_CATEGORIES = {
-        ru: ['Хозтовары', 'Продукты', 'Ремонт', 'Зарплата', 'Коммунальные', 'Прочее'],
-        uz: ['Хўжалик буюмлари', 'Озиқ-овқат', 'Таъмирлаш', 'Иш ҳақи', 'Коммунал', 'Бошқа']
-    };
-    
-    const categories = EXPENSE_CATEGORIES[lang];
+    const categories = lang === 'uz' ? ['Хўжалик буюмлари', 'Озиқ-овқат', 'Таъмирлаш', 'Иш ҳақи', 'Коммунал', 'Бошқа'] : ['Хозтовары', 'Продукты', 'Ремонт', 'Зарплата', 'Коммунальные', 'Прочее'];
     const [form, setForm] = useState({ amount: '', category: categories[0], comment: '' });
     
     return (
@@ -2776,6 +2942,23 @@ function App() {
   const pendingTasksCount = useMemo(() => {
     return tasks.filter(t => t.status !== 'done').length;
   }, [tasks]);
+
+  useEffect(() => {
+    // ESC Key Global Listener
+    const handleEsc = (event) => {
+        if (event.key === 'Escape') {
+            if (checkInModal.open) setCheckInModal({open: false, room: null, bedId: null, date: null});
+            if (guestDetailsModal.open) setGuestDetailsModal({open: false, guest: null});
+            if (moveGuestModal.open) setMoveGuestModal({open: false, guest: null});
+            if (expenseModal) setExpenseModal(false);
+            if (shiftModal) setShiftModal(false);
+            if (addRoomModal) setAddRoomModal(false);
+            if (editRoomModal.open) setEditRoomModal({open: false, room: null});
+        }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [checkInModal, guestDetailsModal, moveGuestModal, expenseModal, shiftModal, addRoomModal, editRoomModal]);
 
   useEffect(() => {
     signInAnonymously(auth).catch(err => console.error(err));
@@ -2990,7 +3173,6 @@ function App() {
       const { cash, card, qr } = amounts;
       const date = new Date().toISOString();
       const batch = [];
-      // --- FIX: Only log amounts > 0 ---
       if(cash > 0) batch.push({ guestId, staffId, amount: cash, method: 'cash', date });
       if(card > 0) batch.push({ guestId, staffId, amount: card, method: 'card', date });
       if(qr > 0) batch.push({ guestId, staffId, amount: qr, method: 'qr', date });
@@ -3241,62 +3423,89 @@ function App() {
   const t = (k) => TRANSLATIONS[lang][k];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row">
-      <Navigation currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} lang={lang} setLang={setLang} pendingTasksCount={pendingTasksCount} />
+    <div className="h-screen w-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row overflow-hidden">
       
+      <div className="flex-shrink-0">
+         <Navigation currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} lang={lang} setLang={setLang} pendingTasksCount={pendingTasksCount} />
+      </div>
+
       <MobileNavigation currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} pendingTasksCount={pendingTasksCount} lang={lang} />
       
       {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
       
-      <main className="flex-1 p-4 md:p-6 pt-6 pb-20 md:pb-6 overflow-y-auto h-screen flex flex-col">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                    {activeTab === 'dashboard' ? t('dashboard').toUpperCase() : activeTab === 'rooms' ? t('rooms').toUpperCase() : activeTab === 'calendar' ? t('calendar').toUpperCase() : activeTab === 'reports' ? t('reports').toUpperCase() : activeTab === 'debts' ? t('debts').toUpperCase() : activeTab === 'tasks' ? t('tasks').toUpperCase() : activeTab === 'expenses' ? t('expenses').toUpperCase() : activeTab === 'clients' ? t('clients').toUpperCase() : activeTab === 'staff' ? t('staff').toUpperCase() : ''}
-                </h2>
-                <div className="flex items-center gap-4 text-slate-500 text-sm mt-1">
-                    <div className="flex items-center gap-1"><MapPin size={14}/> {HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId]?.name || 'All'}</div>
-                    <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border ${isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
-                         {isOnline ? <Wifi size={12}/> : <WifiOff size={12}/>}
-                         {isOnline ? 'ONLINE' : 'OFFLINE'}
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        
+        <div className="flex-shrink-0 p-4 md:p-6 pb-0 bg-slate-50 z-10">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                        {activeTab === 'dashboard' ? t('dashboard').toUpperCase() : activeTab === 'rooms' ? t('rooms').toUpperCase() : activeTab === 'calendar' ? t('calendar').toUpperCase() : activeTab === 'reports' ? t('reports').toUpperCase() : activeTab === 'debts' ? t('debts').toUpperCase() : activeTab === 'tasks' ? t('tasks').toUpperCase() : activeTab === 'expenses' ? t('expenses').toUpperCase() : activeTab === 'clients' ? t('clients').toUpperCase() : activeTab === 'staff' ? t('staff').toUpperCase() : ''}
+                    </h2>
+                    <div className="flex items-center gap-4 text-slate-500 text-sm mt-1">
+                        <div className="flex items-center gap-1"><MapPin size={14}/> {HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId]?.name || 'All'}</div>
+                        <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border ${isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                            {isOnline ? <Wifi size={12}/> : <WifiOff size={12}/>}
+                            {isOnline ? 'ONLINE' : 'OFFLINE'}
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div className="flex items-center gap-3">
-                 {currentUser.role === 'cashier' && (<><Button variant="danger" icon={Wallet} onClick={() => setExpenseModal(true)}>{t('expense')}</Button><Button variant="primary" icon={CheckCircle2} onClick={() => setCheckInModal({ open: true, room: null, bedId: null, date: null })}>{t('checkin')}</Button><Button variant="secondary" icon={Power} onClick={() => setShiftModal(true)}>{t('shift')}</Button></>)}
-                 {(currentUser.role === 'admin' || currentUser.role === 'super') && (
-                    <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">{Object.keys(HOSTELS).map(hid => (<button key={hid} onClick={() => setSelectedHostelFilter(hid)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{HOSTELS[hid].name}</button>))}</div>
-                 )}
+                <div className="flex items-center gap-3">
+                    {currentUser.role === 'cashier' && (<><Button variant="danger" icon={Wallet} onClick={() => setExpenseModal(true)}>{t('expense')}</Button><Button variant="primary" icon={CheckCircle2} onClick={() => setCheckInModal({ open: true, room: null, bedId: null, date: null })}>{t('checkin')}</Button><Button variant="secondary" icon={Power} onClick={() => setShiftModal(true)}>{t('shift')}</Button></>)}
+                    {(currentUser.role === 'admin' || currentUser.role === 'super') && (
+                        <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">{Object.keys(HOSTELS).map(hid => (<button key={hid} onClick={() => setSelectedHostelFilter(hid)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{HOSTELS[hid].name}</button>))}</div>
+                    )}
+                </div>
             </div>
         </div>
 
-        {activeTab === 'dashboard' && currentUser.role === 'admin' && <div className="space-y-8 animate-in fade-in"><DashboardStats rooms={filteredRooms} guests={filteredGuests} payments={filteredPayments} lang={lang} /><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><ChartsSection guests={filteredGuests} rooms={filteredRooms} payments={filteredPayments} lang={lang} /></div></div>}
-        {activeTab === 'rooms' && ( <div className="space-y-6"><div className="flex justify-between items-center"><div className="flex items-center gap-2 text-slate-500 text-sm"><CheckCircle2 size={18} /> <span>Click bed for actions</span></div>{(currentUser.role === 'admin' || currentUser.role === 'super') && <Button icon={PlusCircle} onClick={() => setAddRoomModal(true)}>Add Room</Button>}</div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">{filteredRooms.map(room => (<RoomCardChess key={room.id} room={room} guests={filteredGuests.filter(g => g.roomId === room.id)} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super'} onEdit={() => setEditRoomModal({ open: true, room })} onClone={() => handleCloneRoom(room)} onDelete={() => handleDeleteRoom(room)} lang={lang} onBedClick={(bedId, guest) => { if (guest) setGuestDetailsModal({ open: true, guest }); else { if(currentUser.role === 'admin' || currentUser.role === 'super') alert("Admin cannot check-in"); else setCheckInModal({ open: true, room, bedId, date: null }); } }} />))}</div></div>)}
-        {activeTab === 'calendar' && <div className="flex-1 flex flex-col animate-in fade-in overflow-hidden bg-white rounded-2xl border border-slate-300 shadow-sm relative"><CalendarView rooms={filteredRooms} guests={filteredGuests} onSlotClick={(room, bedId, guest, dateISO) => { 
-            if (guest) setGuestDetailsModal({ open: true, guest }); 
-            else { 
-                if(currentUser.role === 'admin' || currentUser.role === 'super') alert("Admin cannot check-in"); 
-                else {
-                    setCheckInModal({ open: true, room, bedId, date: dateISO }); 
-                }
-            } 
-        }} lang={lang} currentUser={currentUser} onDeleteGuest={handleDeleteGuest} /></div>}
-        
-        {activeTab === 'reports' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ReportsView payments={filteredPayments} expenses={filteredExpenses} users={filteredUsersForReports} guests={filteredGuests} currentUser={currentUser} onDeletePayment={handleDeletePayment} lang={lang} />}
-        {activeTab === 'debts' && <DebtsView guests={filteredGuests} users={usersList} lang={lang} onPayDebt={handlePayDebt} currentUser={currentUser} onAdminAdjustDebt={handleAdminAdjustDebt} clients={clients} onCreateDebt={handleCreateDebt} />}
-        
-        {activeTab === 'tasks' && <TaskManager tasks={filteredTasks} users={usersList} currentUser={currentUser} onAddTask={handleAddTask} onCompleteTask={handleCompleteTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} lang={lang} selectedHostelFilter={selectedHostelFilter} />}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pt-2 pb-20">
+            {activeTab === 'dashboard' && currentUser.role === 'admin' && <div className="space-y-8 animate-in fade-in"><DashboardStats rooms={filteredRooms} guests={filteredGuests} payments={filteredPayments} lang={lang} /><div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><ChartsSection guests={filteredGuests} rooms={filteredRooms} payments={filteredPayments} lang={lang} /></div></div>}
+            
+            {activeTab === 'rooms' && ( <div className="space-y-6"><div className="flex justify-between items-center"><div className="flex items-center gap-2 text-slate-500 text-sm"><CheckCircle2 size={18} /> <span>Click bed for actions</span></div>{(currentUser.role === 'admin' || currentUser.role === 'super') && <Button icon={PlusCircle} onClick={() => setAddRoomModal(true)}>Add Room</Button>}</div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">{filteredRooms.map(room => (<RoomCardChess key={room.id} room={room} guests={filteredGuests.filter(g => g.roomId === room.id)} isAdmin={currentUser.role === 'admin' || currentUser.role === 'super'} onEdit={() => setEditRoomModal({ open: true, room })} onClone={() => handleCloneRoom(room)} onDelete={() => handleDeleteRoom(room)} lang={lang} onBedClick={(bedId, guest, isGhost) => { 
+                if (guest) {
+                    if (isGhost) {
+                        // If clicking a ghost, we probably want to check in someone new OR check details
+                        // For now, let's just open details as read-only or allow checkin?
+                        // Let's open details for now to see history
+                        setGuestDetailsModal({ open: true, guest });
+                    } else {
+                        setGuestDetailsModal({ open: true, guest });
+                    }
+                } else { 
+                    if(currentUser.role === 'admin' || currentUser.role === 'super') alert("Admin cannot check-in"); 
+                    else setCheckInModal({ open: true, room, bedId, date: null }); 
+                } 
+            }} />))}</div></div>)}
+            
+            {activeTab === 'calendar' && (
+                <div className="h-full flex flex-col bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+                    <CalendarView rooms={filteredRooms} guests={filteredGuests} onSlotClick={(room, bedId, guest, dateISO) => { 
+                        if (guest) setGuestDetailsModal({ open: true, guest }); 
+                        else { 
+                            if(currentUser.role === 'admin' || currentUser.role === 'super') alert("Admin cannot check-in"); 
+                            else setCheckInModal({ open: true, room, bedId, date: dateISO }); 
+                        } 
+                    }} lang={lang} currentUser={currentUser} onDeleteGuest={handleDeleteGuest} />
+                </div>
+            )}
+            
+            {activeTab === 'reports' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ReportsView payments={filteredPayments} expenses={filteredExpenses} users={filteredUsersForReports} guests={filteredGuests} currentUser={currentUser} onDeletePayment={handleDeletePayment} lang={lang} />}
+            {activeTab === 'debts' && <DebtsView guests={filteredGuests} users={usersList} lang={lang} onPayDebt={handlePayDebt} currentUser={currentUser} onAdminAdjustDebt={handleAdminAdjustDebt} clients={clients} onCreateDebt={handleCreateDebt} />}
+            
+            {activeTab === 'tasks' && <TaskManager tasks={filteredTasks} users={usersList} currentUser={currentUser} onAddTask={handleAddTask} onCompleteTask={handleCompleteTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} lang={lang} selectedHostelFilter={selectedHostelFilter} />}
 
-        {activeTab === 'clients' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ClientsView clients={clients} onUpdateClient={handleUpdateClient} onImportClients={handleImportClients} onDeduplicate={handleDeduplicate} onBulkDelete={handleBulkDeleteClients} onNormalizeCountries={handleNormalizeCountries} lang={lang} />}
-        {activeTab === 'staff' && currentUser.role === 'admin' && <StaffView users={usersList} onAdd={handleAddUser} onDelete={handleDeleteUser} lang={lang} />}
-        {activeTab === 'expenses' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
-             <div className="animate-in slide-in-from-bottom-2 space-y-6">
-                <div className="flex justify-between items-center"><h3 className="text-lg font-bold">{t('expenses')}</h3><div className="flex gap-2"><Button icon={Download} variant="secondary" onClick={downloadExpensesCSV}>Export</Button><Button icon={Plus} onClick={() => setExpenseModal(true)}>{t('expense')}</Button></div></div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">{filteredExpenses.length > 0 ? filteredExpenses.map(e => (<div key={e.id} className="bg-white p-4 rounded-xl border border-slate-300 shadow-sm flex flex-col justify-between"><div><div className="flex justify-between items-start mb-2"><span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold text-slate-600">{e.category}</span><span className="text-xs text-slate-400">{new Date(e.date).toLocaleDateString()}</span></div><p className="font-medium text-slate-800">{e.comment}</p></div><div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center"><span className="font-bold text-rose-600">-{parseInt(e.amount).toLocaleString()}</span><span className="text-xs text-slate-400">{usersList.find(u => u.id === e.staffId)?.name || 'N/A'}</span></div></div>)) : <div className="text-slate-400 col-span-3 text-center py-10">No Expenses</div>}</div>
-             </div>
-        )}
+            {activeTab === 'clients' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ClientsView clients={clients} onUpdateClient={handleUpdateClient} onImportClients={handleImportClients} onDeduplicate={handleDeduplicate} onBulkDelete={handleBulkDeleteClients} onNormalizeCountries={handleNormalizeCountries} lang={lang} />}
+            {activeTab === 'staff' && currentUser.role === 'admin' && <StaffView users={usersList} onAdd={handleAddUser} onDelete={handleDeleteUser} lang={lang} />}
+            {activeTab === 'expenses' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                <div className="animate-in slide-in-from-bottom-2 space-y-6">
+                    <div className="flex justify-between items-center"><h3 className="text-lg font-bold">{t('expenses')}</h3><div className="flex gap-2"><Button icon={Download} variant="secondary" onClick={downloadExpensesCSV}>Export</Button><Button icon={Plus} onClick={() => setExpenseModal(true)}>{t('expense')}</Button></div></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">{filteredExpenses.length > 0 ? filteredExpenses.map(e => (<div key={e.id} className="bg-white p-4 rounded-xl border border-slate-300 shadow-sm flex flex-col justify-between"><div><div className="flex justify-between items-start mb-2"><span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold text-slate-600">{e.category}</span><span className="text-xs text-slate-400">{new Date(e.date).toLocaleDateString()}</span></div><p className="font-medium text-slate-800">{e.comment}</p></div><div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center"><span className="font-bold text-rose-600">-{parseInt(e.amount).toLocaleString()}</span><span className="text-xs text-slate-400">{usersList.find(u => u.id === e.staffId)?.name || 'N/A'}</span></div></div>)) : <div className="text-slate-400 col-span-3 text-center py-10">No Expenses</div>}</div>
+                </div>
+            )}
+        </div>
       </main>
 
+      {/* Модальные окна */}
       {checkInModal.open && <CheckInModal initialRoom={checkInModal.room} preSelectedBedId={checkInModal.bedId} initialDate={checkInModal.date} allRooms={filteredRooms} guests={filteredGuests} clients={clients} onClose={() => setCheckInModal({open: false, room: null, bedId: null, date: null})} onSubmit={handleCheckIn} notify={showNotification} lang={lang} />}
       {guestDetailsModal.open && <GuestDetailsModal guest={guestDetailsModal.guest} room={filteredRooms.find(r => r.id === guestDetailsModal.guest.roomId)} currentUser={currentUser} onClose={() => setGuestDetailsModal({open: false, guest: null})} onUpdate={handleGuestUpdate} onPayment={handlePayment} onCheckOut={handleCheckOut} onSplit={handleSplitGuest} onOpenMove={() => setMoveGuestModal({ open: true, guest: guestDetailsModal.guest })} onDelete={handleDeleteGuest} notify={showNotification} onReduceDays={handleAdminReduceDays} onActivateBooking={handleActivateBooking} onReduceDaysNoRefund={handleAdminReduceDaysNoRefund} hostelInfo={currentHostelInfo} lang={lang} />}
       {moveGuestModal.open && <MoveGuestModal guest={moveGuestModal.guest} allRooms={filteredRooms} guests={filteredGuests} onClose={() => setMoveGuestModal({open: false, guest: null})} onMove={handleMoveGuest} notify={showNotification} lang={lang} />}

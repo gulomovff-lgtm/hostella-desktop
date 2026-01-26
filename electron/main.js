@@ -1,9 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
-const isDev = require('electron-is-dev');
 
-// Логирование обновлений (опционально, полезно для отладки)
+// Проверка: упаковано приложение или нет (вместо electron-is-dev)
+const isDev = !app.isPackaged; 
+
+// Логирование
 const log = require('electron-log');
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
@@ -14,13 +16,17 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+	autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false, // Упрощаем для примера, в проде лучше true + preload
+      contextIsolation: false, 
+      webSecurity: false // Помогает, если локальные картинки не грузятся
     },
+    // Убедитесь, что иконка существует, или удалите эту строку, если её нет
+    // icon: path.join(__dirname, '../public/icon.ico') 
   });
 
-  // В разработке грузим локальный сервер, в проде - файл index.html
+  // В разработке - localhost, в сборке - файл index.html
   const startUrl = isDev
     ? 'http://localhost:5173'
     : `file://${path.join(__dirname, '../dist/index.html')}`;
@@ -28,8 +34,8 @@ function createWindow() {
   mainWindow.loadURL(startUrl);
 
   mainWindow.on('closed', () => (mainWindow = null));
-
-  // Проверяем обновления сразу после запуска (только в продакшене)
+  
+  // Проверяем обновления только в готовом приложении
   if (!isDev) {
     autoUpdater.checkForUpdatesAndNotify();
   }
@@ -50,24 +56,18 @@ app.on('activate', () => {
 });
 
 // --- ЛОГИКА ОБНОВЛЕНИЙ ---
-
-// Есть обновление
 autoUpdater.on('update-available', () => {
   log.info('Обновление найдено. Скачиваем...');
 });
 
-// Обновление скачано
 autoUpdater.on('update-downloaded', () => {
-  log.info('Обновление скачано');
-
-  // Спрашиваем пользователя
   dialog.showMessageBox({
     type: 'info',
     title: 'Доступно обновление',
-    message: 'Новая версия программы скачана. Перезапустить сейчас для установки?',
+    message: 'Новая версия скачана. Перезапустить и установить?',
     buttons: ['Да', 'Позже']
   }).then((result) => {
-    if (result.response === 0) { // Если нажали "Да"
+    if (result.response === 0) {
       autoUpdater.quitAndInstall(false, true);
     }
   });
