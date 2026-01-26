@@ -1,0 +1,5 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/hostella/public_html/manager/
+    - /bin/cp -R * $DEPLOYPATH
