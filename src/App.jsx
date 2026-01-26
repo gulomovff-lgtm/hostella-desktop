@@ -2889,7 +2889,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
 const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const totalPaid = getTotalPaid(guest);
-    // Debt for display in header (real DB value)
     const debt = (guest.totalPrice || 0) - totalPaid;
     
     const [activeAction, setActiveAction] = useState(null);
@@ -2911,22 +2910,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const isCheckedOut = guest.status === 'checked_out';
     const [magnetActiveField, setMagnetActiveField] = useState(null);
 
-    // --- CHECKOUT CALCULATION FIX ---
     const today = new Date(); 
     const checkIn = new Date(guest.checkInDate); 
-    
-    // Calculate raw days passed (rounded up)
     let daysStayedCalculated = Math.max(1, Math.ceil((today - checkIn) / (1000 * 60 * 60 * 24)));
-    
-    // CRITICAL FIX: When checking out, we cannot calculate more days than were booked/paid for,
-    // otherwise a debt appears and the system blocks checkout.
-    // If the guest overstayed, the admin should use "Extend" first.
-    // If checking out now, we cap the days at the booked amount.
     const daysStayed = Math.min(daysStayedCalculated, parseInt(guest.days));
-    
     const actualCost = daysStayed * parseInt(guest.pricePerNight); 
-    
-    // Checkout Balance (Positive = Refund, 0 = OK, Negative = Debt)
     const balance = totalPaid - actualCost;
 
     const handlePayDebt = () => { const cash = parseInt(payCash) || 0; const card = parseInt(payCard) || 0; const qr = parseInt(payQR) || 0; const sum = cash + card + qr; if(sum <= 0) return notify("Enter Amount", 'error'); onPayment(guest.id, { cash, card, qr }); };
@@ -2935,28 +2923,15 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
         const days = parseInt(extendDays); if(!days) return; 
         const newTotal = (guest.totalPrice || 0) + (days * parseInt(guest.pricePerNight)); 
         const updates = { days: parseInt(guest.days) + days, totalPrice: newTotal, status: 'active' };
-        
         const stay = getStayDetails(guest.checkInDate, updates.days);
         updates.checkOutDate = stay.end.toISOString();
-        
         onUpdate(guest.id, updates); 
     };
 
     const handleDoCheckout = () => { 
-        // Use the same balance calculation for validation
         if (balance < 0) return notify(`Ошибка! Долг: ${Math.abs(balance).toLocaleString()}. Сначала оплатите или продлите.`, 'error'); 
-        
         const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); 
-        
-        // Final logic:
-        // If there was a refund (balance > 0), we reduce paidCash/amountPaid so records match.
-        
-        const finalData = { 
-            totalPrice: actualCost, 
-            paidCash: (guest.paidCash || 0) - refund,
-            amountPaid: (guest.amountPaid || 0) - refund
-        }; 
-        
+        const finalData = { totalPrice: actualCost, paidCash: (guest.paidCash || 0) - refund, amountPaid: (guest.amountPaid || 0) - refund }; 
         onCheckOut(guest, finalData); 
     };
 
@@ -2999,7 +2974,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] overflow-y-auto">
-                <div className={`${isBooking ? 'bg-amber-500' : (isCheckedOut ? 'bg-slate-500' : 'bg-slate-900')} text-white p-6 flex justify-between items-start`}>
+                {/* --- HEADER --- */}
+                <div className={`${isBooking ? 'bg-amber-500' : (isCheckedOut ? 'bg-slate-500' : 'bg-slate-900')} text-white p-6 flex justify-between items-start relative`}>
                     <div className="flex-1">
                         {isBooking && <div className="text-xs uppercase font-bold text-white/80 mb-1 flex items-center gap-1"><Clock size={12}/> {t('booking')}</div>}
                         {isCheckedOut && <div className="text-xs uppercase font-bold text-white/80 mb-1 flex items-center gap-1"><History size={12}/> Checked Out</div>}
@@ -3015,13 +2991,26 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                             <>
                                 <div className="flex items-center gap-2">
                                     <h2 className="text-xl font-bold">{guest.fullName}</h2>
-                                    <button onClick={() => setIsEditing(true)} className="text-white/50 hover:text-white transition-colors p-1"><Edit size={16}/></button>
+                                    {/* --- ИСПРАВЛЕННАЯ КНОПКА РЕДАКТИРОВАНИЯ --- */}
+                                    <button 
+                                        onClick={() => setIsEditing(true)} 
+                                        className="bg-transparent border-none p-1 text-white/60 hover:text-white transition-colors cursor-pointer" 
+                                        title="Редактировать"
+                                    >
+                                        <Edit size={18}/>
+                                    </button>
                                 </div>
                                 <div className="flex gap-4 text-sm text-white/70 mt-1 flex-wrap"><span>Room {guest.roomNumber}</span><span>Bed {guest.bedId}</span><span>{new Date(guest.checkInDate).toLocaleDateString()}</span><span>{guest.passport}</span></div>
                             </>
                         )}
                     </div>
-                    <button onClick={onClose} className="text-white/50 hover:text-white transition-colors"><XCircle size={32}/></button>
+                    {/* --- ИСПРАВЛЕННАЯ КНОПКА ЗАКРЫТИЯ --- */}
+                    <button 
+                        onClick={onClose} 
+                        className="bg-transparent border-none p-2 text-white/60 hover:text-white transition-colors cursor-pointer hover:bg-white/10 rounded-full"
+                    >
+                        <XCircle size={32}/>
+                    </button>
                 </div>
 
                 {!isBooking && (
