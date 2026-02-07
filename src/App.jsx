@@ -736,6 +736,7 @@ const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setL
     const roleCheck = (role) => {
         if (currentUser.role === 'super') return true; 
         if (role === 'all') return true;
+        if (currentUser.role === 'viewer' && (role === 'admin' || role === 'viewer')) return true; // viewer can access admin tabs for viewing
         return role === currentUser.role;
     };
 
@@ -760,7 +761,7 @@ const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setL
                   <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 font-bold uppercase shrink-0">{currentUser.name[0]}</div>
                   <div className="overflow-hidden">
                       <div className="font-bold text-sm truncate text-slate-700">{currentUser.name}</div>
-                      <div className="text-[10px] text-slate-500 capitalize uppercase tracking-wider">{currentUser.role === 'super' ? 'Super Admin' : (currentUser.role === 'admin' ? t('admin') : t('cashier'))}</div>
+                      <div className="text-[10px] text-slate-500 capitalize uppercase tracking-wider">{currentUser.role === 'super' ? 'Super Admin' : (currentUser.role === 'admin' ? t('admin') : (currentUser.role === 'viewer' ? 'Viewer' : t('cashier')))}</div>
                   </div>
               </div>
               <Button variant="ghost" className="w-full justify-start text-orange-600 hover:bg-orange-50 hover:text-orange-700" icon={LogOut} onClick={onLogout}>{t('logout')}</Button>
@@ -3060,6 +3061,9 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const totalPaid = getTotalPaid(guest);
     const debt = (guest.totalPrice || 0) - totalPaid;
     
+    // Check if viewer can modify - only for their own hostel (hostel2)
+    const canModify = currentUser.role === 'viewer' ? guest.hostelId === currentUser.hostelId : true;
+    
     const [activeAction, setActiveAction] = useState(null);
     const [payCash, setPayCash] = useState('');
     const [payCard, setPayCard] = useState('');
@@ -3201,10 +3205,10 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                     )}
                     {!isBooking && (
                         <div className="grid grid-cols-4 gap-2">
-                             <Button variant={activeAction === 'pay' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'pay' ? null : 'pay')} disabled={debt <= 0}>{t('payment')}</Button>
-                             <Button variant={activeAction === 'extend' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'extend' ? null : 'extend')}>{t('extend')}</Button>
-                             {!isCheckedOut && <Button variant={activeAction === 'split' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'split' ? null : 'split')} title="Split"><Split size={18}/></Button>}
-                             {!isCheckedOut && <Button variant={activeAction === 'checkout' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'checkout' ? null : 'checkout')} className="text-rose-600 border-rose-300 hover:bg-rose-50">{t('checkout')}</Button>}
+                             <Button variant={activeAction === 'pay' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'pay' ? null : 'pay')} disabled={debt <= 0 || !canModify}>{t('payment')}</Button>
+                             <Button variant={activeAction === 'extend' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'extend' ? null : 'extend')} disabled={!canModify}>{t('extend')}</Button>
+                             {!isCheckedOut && <Button variant={activeAction === 'split' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'split' ? null : 'split')} title="Split" disabled={!canModify}><Split size={18}/></Button>}
+                             {!isCheckedOut && <Button variant={activeAction === 'checkout' ? 'primary' : 'secondary'} onClick={() => setActiveAction(activeAction === 'checkout' ? null : 'checkout')} className="text-rose-600 border-rose-300 hover:bg-rose-50" disabled={!canModify}>{t('checkout')}</Button>}
                         </div>
                     )}
                     {!isBooking && (
@@ -3615,6 +3619,10 @@ function App() {
   const filterByHostel = (items) => {
     if (!currentUser) return [];
     if (currentUser.role === 'super') return items;
+    // Viewer role can view items from selectedHostelFilter
+    if (currentUser.role === 'viewer') {
+      return items.filter(i => i.hostelId === selectedHostelFilter);
+    }
     const target = currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId;
     return items.filter(i => i.hostelId === target);
   };
@@ -3903,15 +3911,19 @@ function App() {
                 </div>
                 <div className="flex items-center gap-3">
                     {currentUser.role === 'cashier' && (<><Button variant="danger" icon={Wallet} onClick={() => setExpenseModal(true)}>{t('expense')}</Button><Button variant="primary" icon={CheckCircle2} onClick={() => setCheckInModal({ open: true, room: null, bedId: null, date: null })}>{t('checkin')}</Button><Button variant="secondary" icon={Power} onClick={() => setShiftModal(true)}>{t('shift')}</Button></>)}
-                    {(currentUser.role === 'admin' || currentUser.role === 'super') && (
-                        <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">{Object.keys(HOSTELS).map(hid => (<button key={hid} onClick={() => setSelectedHostelFilter(hid)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{HOSTELS[hid].name}</button>))}</div>
+                    {(currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.role === 'viewer') && (
+                        <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">
+                            {(currentUser.role === 'viewer' ? currentUser.viewHostels || [currentUser.hostelId] : Object.keys(HOSTELS)).map(hid => (
+                                <button key={hid} onClick={() => setSelectedHostelFilter(hid)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{HOSTELS[hid].name}</button>
+                            ))}
+                        </div>
                     )}
                 </div>
             </div>
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pt-2 pb-20">
-            {activeTab === 'dashboard' && currentUser.role === 'admin' && (
+            {activeTab === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'viewer') && (
                 <div className="space-y-8 animate-in fade-in">
                     {/* Передаем currentHostelId для правильной фильтрации */}
                     <DashboardStats rooms={filteredRooms} guests={guests} payments={payments} lang={lang} currentHostelId={selectedHostelFilter} />
