@@ -1693,7 +1693,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
     const filtered = useMemo(() => {
         let result = clients;
         
-        // Search filter
+        // Search filter - require at least 2 characters to avoid performance issues with large datasets
         if (search.length > 1) {
             result = result.filter(c => 
                 (c.fullName || '').toLowerCase().includes(search.toLowerCase()) || 
@@ -1764,7 +1764,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                     onChange={e => { setCountryFilter(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                     style={{ minWidth: '200px' }}
                 >
-                    <option value="">{t('allHostels')}</option>
+                    <option value="">All Countries</option>
                     {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <select 
@@ -3061,7 +3061,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const totalPaid = getTotalPaid(guest);
     const debt = (guest.totalPrice || 0) - totalPaid;
     
-    // Check if viewer can modify - only for their own hostel (hostel2)
+    // Permission check - viewers can only modify guests in their assigned hostel (hostel2)
+    // All other roles (admin, super, cashier) have full modification rights
     const canModify = currentUser.role === 'viewer' ? guest.hostelId === currentUser.hostelId : true;
     
     const [activeAction, setActiveAction] = useState(null);
@@ -3102,8 +3103,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     };
 
     const handleDoCheckout = () => { 
-        // Allow admin to checkout guests regardless of balance
-        // Removed: if (balance < 0) return notify(`Ошибка! Долг: ${Math.abs(balance).toLocaleString()}. Сначала оплатите или продлите.`, 'error'); 
+        // Allow checkout regardless of balance - admins can manually resolve debts or negotiate payment outside the system
+        // This flexibility is needed for cases where:
+        // 1. Admin has manually corrected the debt outside the system
+        // 2. Guest agreed to pay later or made alternative payment arrangements
+        // 3. Business decision to write off small debts
         const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); 
         const finalData = { totalPrice: actualCost, paidCash: (guest.paidCash || 0) - refund, amountPaid: (guest.amountPaid || 0) - refund }; 
         onCheckOut(guest, finalData); 
@@ -3913,9 +3917,16 @@ function App() {
                     {currentUser.role === 'cashier' && (<><Button variant="danger" icon={Wallet} onClick={() => setExpenseModal(true)}>{t('expense')}</Button><Button variant="primary" icon={CheckCircle2} onClick={() => setCheckInModal({ open: true, room: null, bedId: null, date: null })}>{t('checkin')}</Button><Button variant="secondary" icon={Power} onClick={() => setShiftModal(true)}>{t('shift')}</Button></>)}
                     {(currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.role === 'viewer') && (
                         <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">
-                            {(currentUser.role === 'viewer' ? currentUser.viewHostels || [currentUser.hostelId] : Object.keys(HOSTELS)).map(hid => (
-                                <button key={hid} onClick={() => setSelectedHostelFilter(hid)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{HOSTELS[hid].name}</button>
-                            ))}
+                            {(() => {
+                                // Determine which hostels to display based on role
+                                const availableHostels = currentUser.role === 'viewer' 
+                                    ? (currentUser.viewHostels || [currentUser.hostelId])
+                                    : Object.keys(HOSTELS);
+                                
+                                return availableHostels.map(hid => (
+                                    <button key={hid} onClick={() => setSelectedHostelFilter(hid)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{HOSTELS[hid].name}</button>
+                                ));
+                            })()}
                         </div>
                     )}
                 </div>
