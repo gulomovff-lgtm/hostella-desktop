@@ -262,7 +262,7 @@ const DEFAULT_USERS = [
   { login: 'admin', pass: 'admin', name: 'Aziz Yuldashev', role: 'admin', hostelId: 'all' },
   { login: 'dilafruz', pass: '123', name: 'Dilafruz', role: 'cashier', hostelId: 'hostel1' },
   { login: 'nargiza', pass: '123', name: 'Nargiza', role: 'cashier', hostelId: 'hostel1' },
-  { login: 'fazliddin', pass: '123', name: 'Fazliddin', role: 'cashier', hostelId: 'hostel2' },
+  { login: 'fazliddin', pass: '123', name: 'Fazliddin', role: 'viewer', hostelId: 'hostel2', viewHostels: ['hostel1', 'hostel2'] },
   { login: 'olimjon', pass: '123', name: 'Olimjon', role: 'cashier', hostelId: 'hostel2' },
 ];
 
@@ -415,7 +415,8 @@ const exportToExcel = (data, filename) => {
 
     tableContent += `</tbody></table></body></html>`;
 
-    const blob = new Blob([tableContent], { type: 'application/vnd.ms-excel' });
+    // Add BOM for proper UTF-8 encoding
+    const blob = new Blob(['\ufeff', tableContent], { type: 'application/vnd.ms-excel; charset=UTF-8' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = filename;
@@ -426,9 +427,63 @@ const exportToExcel = (data, filename) => {
 
 const printDocument = (type, guest, hostel) => {
     const w = window.open('', '', 'width=800,height=600');
-    w.document.write('<html><head><title>Print</title></head><body>');
-    w.document.write(`<h2>${type}</h2><p>Guest: ${guest.fullName}</p>`);
-    w.document.write('</body></html>');
+    let html = '<html><head><meta charset="UTF-8"><title>';
+    
+    if (type === 'check' || type === 'Чек') {
+        html += 'Receipt</title>';
+        html += '<style>body{padding:30px;font-family:Arial;} table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{border:1px solid #000;padding:8px;text-align:left;} .total{font-size:18px;font-weight:bold;margin-top:20px;}</style>';
+        html += '</head><body>';
+        html += `<h2>Чек / Receipt #${guest.id}</h2>`;
+        html += `<p><b>Хостел / Hostel:</b> ${hostel.name}</p>`;
+        html += `<p><b>Адрес / Address:</b> ${hostel.address}</p>`;
+        html += `<hr/>`;
+        html += `<p><b>Гость / Guest:</b> ${guest.fullName}</p>`;
+        html += `<p><b>Паспорт / Passport:</b> ${guest.passport || 'N/A'}</p>`;
+        html += `<p><b>Комната / Room:</b> ${guest.roomNumber}, Койка / Bed: ${guest.bedId}</p>`;
+        html += `<p><b>Заезд / Check-in:</b> ${new Date(guest.checkInDate).toLocaleDateString()}</p>`;
+        html += `<p><b>Дней / Days:</b> ${guest.days}</p>`;
+        html += `<hr/>`;
+        html += `<table><tr><th>Позиция</th><th>Сумма</th></tr>`;
+        html += `<tr><td>Стоимость проживания (${guest.days} дн. × ${(guest.pricePerNight || 0).toLocaleString()})</td><td>${(guest.totalPrice || 0).toLocaleString()}</td></tr>`;
+        html += `<tr><td>Оплачено</td><td>${getTotalPaid(guest).toLocaleString()}</td></tr>`;
+        const balance = (guest.totalPrice || 0) - getTotalPaid(guest);
+        html += `<tr class="total"><td>Баланс</td><td>${balance.toLocaleString()}</td></tr>`;
+        html += `</table>`;
+        html += `<p style="margin-top:30px;text-align:center;color:#666;">Дата печати: ${new Date().toLocaleString()}</p>`;
+    } else if (type === 'regcard' || type === 'Анкета') {
+        html += 'Registration Card</title>';
+        html += '<style>body{padding:40px;font-family:Arial;line-height:1.6;} h1{text-align:center;border-bottom:2px solid #000;padding-bottom:10px;} p{margin:10px 0;} .field{display:inline-block;min-width:300px;border-bottom:1px dotted #000;}</style>';
+        html += '</head><body>';
+        html += `<h1>АНКЕТА ГОСТЯ / GUEST REGISTRATION</h1>`;
+        html += `<p><b>ФИО / Full Name:</b> <span class="field">${guest.fullName}</span></p>`;
+        html += `<p><b>Паспорт / Passport:</b> <span class="field">${guest.passport || 'N/A'}</span></p>`;
+        html += `<p><b>Дата рождения / Birth Date:</b> <span class="field">${guest.birthDate || 'N/A'}</span></p>`;
+        html += `<p><b>Страна / Country:</b> <span class="field">${guest.country || 'N/A'}</span></p>`;
+        html += `<p><b>Хостел / Hostel:</b> <span class="field">${hostel.name}</span></p>`;
+        html += `<p><b>Адрес / Address:</b> <span class="field">${hostel.address}</span></p>`;
+        html += `<p><b>Комната / Room:</b> <span class="field">${guest.roomNumber}</span>, <b>Койка / Bed:</b> <span class="field">${guest.bedId}</span></p>`;
+        html += `<p><b>Заезд / Check-in:</b> <span class="field">${new Date(guest.checkInDate).toLocaleDateString()}</span></p>`;
+        html += `<p><b>Дней / Days:</b> <span class="field">${guest.days}</span></p>`;
+        html += `<p style="margin-top:50px;"><b>Подпись гостя / Guest Signature:</b> _______________________</p>`;
+        html += `<p><b>Дата / Date:</b> ${new Date().toLocaleDateString()}</p>`;
+    } else if (type === 'ref' || type === 'Справка') {
+        html += 'Reference Letter</title>';
+        html += '<style>body{padding:50px;font-family:serif;line-height:1.8;} h2{text-align:center;text-transform:uppercase;} .content{margin-top:40px;text-align:justify;} .signature{margin-top:80px;}</style>';
+        html += '</head><body>';
+        html += `<h2>Справка / Reference Letter</h2>`;
+        html += `<div class="content">`;
+        html += `<p>Настоящим подтверждается, что <b>${guest.fullName}</b> (Паспорт: ${guest.passport || 'N/A'}) проживал(а) в нашем хостеле <b>${hostel.name}</b> по адресу ${hostel.address} с ${new Date(guest.checkInDate).toLocaleDateString()} в течение ${guest.days} дней.</p>`;
+        html += `<p style="margin-top:30px;">This is to certify that <b>${guest.fullName}</b> (Passport: ${guest.passport || 'N/A'}) stayed at our hostel <b>${hostel.name}</b> located at ${hostel.address} from ${new Date(guest.checkInDate).toLocaleDateString()} for ${guest.days} days.</p>`;
+        html += `</div>`;
+        html += `<div class="signature">`;
+        html += `<p><b>Дата / Date:</b> ${new Date().toLocaleDateString()}</p>`;
+        html += `<p><b>Подпись / Signature:</b> _______________________</p>`;
+        html += `<p><b>Печать / Stamp:</b></p>`;
+        html += `</div>`;
+    }
+    
+    html += '</body></html>';
+    w.document.write(html);
     w.document.close();
     w.print();
 };
@@ -1292,9 +1347,16 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         const calendarStart = new Date(days[0].str);
         calendarStart.setHours(0,0,0,0);
         
-        const guestDurationMs = parseInt(guest.days) * 24 * 60 * 60 * 1000;
-        const checkOutDate = new Date(checkInDate.getTime() + guestDurationMs);
-        checkOutDate.setHours(12, 0, 0, 0);
+        // For checked_out guests, use the actual checkout date instead of extending
+        let checkOutDate;
+        if (guest.status === 'checked_out' && guest.checkOutDate) {
+            checkOutDate = new Date(guest.checkOutDate);
+            checkOutDate.setHours(12, 0, 0, 0);
+        } else {
+            const guestDurationMs = parseInt(guest.days) * 24 * 60 * 60 * 1000;
+            checkOutDate = new Date(checkInDate.getTime() + guestDurationMs);
+            checkOutDate.setHours(12, 0, 0, 0);
+        }
 
         const calendarEnd = new Date(days[days.length-1].str);
         calendarEnd.setHours(23,59,59,999);
@@ -1419,6 +1481,34 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                             onClick={(e) => { e.stopPropagation(); onSlotClick(room, bedId, guest, null); }}
                                                             title={guest.fullName}
                                                         >
+                                                            {/* Gradient for paid/unpaid days */}
+                                                            {guest.status !== 'checked_out' && guest.status !== 'booking' && (
+                                                                (() => {
+                                                                    const totalPaid = getTotalPaid(guest);
+                                                                    const pricePerNight = guest.pricePerNight || 0;
+                                                                    const paidDays = pricePerNight > 0 ? Math.floor(totalPaid / pricePerNight) : 0;
+                                                                    const totalDays = parseInt(guest.days) || 0;
+                                                                    const paidPercent = totalDays > 0 ? Math.min((paidDays / totalDays) * 100, 100) : 0;
+                                                                    
+                                                                    return (
+                                                                        <>
+                                                                            {paidPercent > 0 && paidPercent < 100 && (
+                                                                                <div 
+                                                                                    className="bg-emerald-500 h-full absolute left-0 top-0"
+                                                                                    style={{ width: `${paidPercent}%` }}
+                                                                                />
+                                                                            )}
+                                                                            {paidPercent < 100 && (
+                                                                                <div 
+                                                                                    className="bg-rose-500 h-full absolute right-0 top-0"
+                                                                                    style={{ width: `${100 - paidPercent}%` }}
+                                                                                />
+                                                                            )}
+                                                                        </>
+                                                                    );
+                                                                })()
+                                                            )}
+                                                            
                                                             <div className="sticky left-0 pl-1 pr-1 flex flex-col justify-center h-full w-full max-w-full z-50">
                                                                 <span className="font-bold text-[10px] text-white whitespace-nowrap overflow-hidden text-ellipsis px-1.5 py-0.5 rounded-sm bg-black/40 w-fit block relative">
                                                                     {guest.status === 'booking' && '🕰 '}{guest.fullName}
@@ -1596,12 +1686,39 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
     const [editingClient, setEditingClient] = useState(null);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
+    const [pagination, setPagination] = useState({ page: 1, perPage: 25 });
+    const [countryFilter, setCountryFilter] = useState('');
 
-    const filtered = clients.filter(c => (c.fullName || '').toLowerCase().includes(search.toLowerCase()) || (c.passport || '').includes(search.toUpperCase()));
+    const filtered = useMemo(() => {
+        let result = clients;
+        
+        // Search filter
+        if (search.length > 1) {
+            result = result.filter(c => 
+                (c.fullName || '').toLowerCase().includes(search.toLowerCase()) || 
+                (c.passport || '').toLowerCase().includes(search.toLowerCase())
+            );
+        }
+        
+        // Country filter
+        if (countryFilter) {
+            result = result.filter(c => c.country === countryFilter);
+        }
+        
+        return result;
+    }, [clients, search, countryFilter]);
+
+    const paginatedData = useMemo(() => {
+        const start = (pagination.page - 1) * pagination.perPage;
+        const end = start + pagination.perPage;
+        return filtered.slice(start, end);
+    }, [filtered, pagination]);
+
+    const totalPages = Math.ceil(filtered.length / pagination.perPage);
     
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            setSelectedIds(new Set(filtered.map(c => c.id)));
+            setSelectedIds(new Set(paginatedData.map(c => c.id)));
         } else {
             setSelectedIds(new Set());
         }
@@ -1627,6 +1744,12 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
         }
     };
 
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setPagination(prev => ({ ...prev, page: newPage }));
+        }
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex flex-col md:flex-row gap-4">
@@ -1634,6 +1757,25 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20}/>
                     <input className={`${inputClass} pl-10`} placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
+                <select 
+                    className={inputClass} 
+                    value={countryFilter} 
+                    onChange={e => { setCountryFilter(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
+                    style={{ minWidth: '200px' }}
+                >
+                    <option value="">{t('allHostels')}</option>
+                    {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select 
+                    className={inputClass} 
+                    value={pagination.perPage} 
+                    onChange={e => setPagination({ page: 1, perPage: parseInt(e.target.value) })}
+                    style={{ minWidth: '100px' }}
+                >
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
                 <div className="flex gap-2 flex-wrap">
                      <Button icon={Merge} variant="secondary" onClick={onDeduplicate} title="Merge duplicates">{t('deduplicate')}</Button>
                      <Button icon={Globe} variant="secondary" onClick={handleNormalize} title="Fix country names">{t('normalizeCountries')}</Button>
@@ -1646,7 +1788,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                      <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
                          <tr>
                              <th className="p-4 w-10">
-                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIds.size > 0 && selectedIds.size === filtered.length} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
+                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIds.size > 0 && selectedIds.size === paginatedData.length} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
                              </th>
                              <th className="p-4">{t('guestName')}</th>
                              <th className="p-4">{t('passport')}</th>
@@ -1658,7 +1800,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                          </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
-                         {filtered.map(c => (
+                         {paginatedData.map(c => (
                              <tr key={c.id} className={selectedIds.has(c.id) ? 'bg-indigo-50' : ''}>
                                  <td className="p-4">
                                      <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => handleSelect(c.id)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
@@ -1677,6 +1819,33 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                      </tbody>
                  </table>
             </div>
+            
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between px-4 py-3 bg-white rounded-xl shadow-sm border border-slate-200">
+                <div className="text-sm text-slate-600">
+                    Showing {((pagination.page - 1) * pagination.perPage) + 1} to {Math.min(pagination.page * pagination.perPage, filtered.length)} of {filtered.length} results
+                </div>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={() => handlePageChange(pagination.page - 1)} 
+                        disabled={pagination.page === 1}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors font-medium text-sm"
+                    >
+                        <ChevronLeft size={16} className="inline mr-1" />Previous
+                    </button>
+                    <span className="px-4 py-2 text-slate-700 font-medium">
+                        Page {pagination.page} of {totalPages || 1}
+                    </span>
+                    <button 
+                        onClick={() => handlePageChange(pagination.page + 1)} 
+                        disabled={pagination.page >= totalPages}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors font-medium text-sm"
+                    >
+                        Next<ChevronRight size={16} className="inline ml-1" />
+                    </button>
+                </div>
+            </div>
+            
             {editingClient && (
                 <ClientEditModal 
                     client={editingClient} 
@@ -2929,7 +3098,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     };
 
     const handleDoCheckout = () => { 
-        if (balance < 0) return notify(`Ошибка! Долг: ${Math.abs(balance).toLocaleString()}. Сначала оплатите или продлите.`, 'error'); 
+        // Allow admin to checkout guests regardless of balance
+        // Removed: if (balance < 0) return notify(`Ошибка! Долг: ${Math.abs(balance).toLocaleString()}. Сначала оплатите или продлите.`, 'error'); 
         const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); 
         const finalData = { totalPrice: actualCost, paidCash: (guest.paidCash || 0) - refund, amountPaid: (guest.amountPaid || 0) - refund }; 
         onCheckOut(guest, finalData); 
@@ -3109,7 +3279,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
                             <div className="space-y-4">
                                 <div className="text-sm space-y-1 pb-3 border-b border-slate-300"><div className="flex justify-between"><span>Прожито (расчет):</span> <b>{daysStayed} дн.</b></div><div className="flex justify-between"><span>Оплачено всего:</span> <b>{totalPaid.toLocaleString()}</b></div><div className="flex justify-between"><span>Стоимость факта:</span> <b>{actualCost.toLocaleString()}</b></div></div>
                                 {balance < 0 ? (<div className="bg-rose-100 text-rose-800 p-3 rounded-lg text-center font-bold border border-rose-200">Долг: {Math.abs(balance).toLocaleString()} <br/><span className="text-xs font-normal">Продлите проживание или оплатите.</span></div>) : (<div className="bg-emerald-100 text-emerald-800 p-3 rounded-lg border border-emerald-200"><div className="text-center font-bold mb-2">К возврату: {balance.toLocaleString()}</div>{balance > 0 && <div><label className={`${labelClass} mb-1`}>{t('manualRefund')}</label><input type="number" className={inputClass} value={checkoutManualRefund} placeholder={balance} onChange={e => setCheckoutManualRefund(e.target.value)} /></div>}</div>)}
-                                <Button variant="danger" className="w-full" onClick={handleDoCheckout} disabled={balance < 0}>{t('checkout')}</Button>
+                                <Button variant="danger" className="w-full" onClick={handleDoCheckout}>{t('checkout')}</Button>
                             </div>
                         )}
                         {(currentUser.role === 'admin' || currentUser.role === 'super') && !isBooking && !activeAction && (
