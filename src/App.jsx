@@ -1909,18 +1909,18 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                     onChange={e => { setCountryFilter(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                     style={{ minWidth: '200px' }}
                 >
-                    <option value="">All Countries</option>
+                    <option value="">Все страны</option>
                     {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <select 
                     className={inputClass} 
                     value={pagination.perPage} 
                     onChange={e => setPagination({ page: 1, perPage: parseInt(e.target.value) })}
-                    style={{ minWidth: '100px' }}
+                    style={{ minWidth: '120px' }}
                 >
-                    <option value="25">25</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
+                    <option value="25">25 записей</option>
+                    <option value="50">50 записей</option>
+                    <option value="100">100 записей</option>
                 </select>
                 <div className="flex gap-2 flex-wrap">
                      {isAdmin && (
@@ -1977,26 +1977,26 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
             {/* Pagination Controls */}
             <div className="flex items-center justify-between px-4 py-3 bg-white rounded-xl shadow-sm border border-slate-200">
                 <div className="text-sm text-slate-600">
-                    Showing {((pagination.page - 1) * pagination.perPage) + 1} to {Math.min(pagination.page * pagination.perPage, filtered.length)} of {filtered.length} results
+                    Показано {((pagination.page - 1) * pagination.perPage) + 1} - {Math.min(pagination.page * pagination.perPage, filtered.length)} из {filtered.length}
                 </div>
                 <div className="flex gap-2">
-                    <button 
-                        onClick={() => handlePageChange(pagination.page - 1)} 
+                    <Button 
+                        variant="secondary" 
+                        onClick={() => handlePageChange(pagination.page - 1)}
                         disabled={pagination.page === 1}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors font-medium text-sm"
-                    >
-                        <ChevronLeft size={16} className="inline mr-1" />Previous
-                    </button>
-                    <span className="px-4 py-2 text-slate-700 font-medium">
-                        Page {pagination.page} of {totalPages || 1}
+                        icon={ChevronLeft}
+                        size="sm"
+                    />
+                    <span className="px-4 py-2 text-sm font-bold text-slate-700">
+                        {pagination.page} / {totalPages || 1}
                     </span>
-                    <button 
-                        onClick={() => handlePageChange(pagination.page + 1)} 
+                    <Button 
+                        variant="secondary" 
+                        onClick={() => handlePageChange(pagination.page + 1)}
                         disabled={pagination.page >= totalPages}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors font-medium text-sm"
-                    >
-                        Next<ChevronRight size={16} className="inline ml-1" />
-                    </button>
+                        icon={ChevronRight}
+                        size="sm"
+                    />
                 </div>
             </div>
             
