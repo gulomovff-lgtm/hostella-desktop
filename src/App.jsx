@@ -118,6 +118,7 @@ const TRANSLATIONS = {
     moveDate: "Перенос даты", newDate: "Новая дата", manualRefund: "Сумма возврата",
     payDebt: "Погасить долг", addDebt: "Изменить долг", history: "История",
     reduceNoRefund: "Сократить (Без возврата)",
+    debtRemaining: "Остался долг. Требуется админ.",
     allCashiers: "Все кассиры",
     selectCashier: "Выбрать кассира",
     assignTo: "Назначить",
@@ -180,6 +181,7 @@ const TRANSLATIONS = {
     moveDate: "Sanani ko'chirish", newDate: "Yangi sana", manualRefund: "Qaytarish summasi",
     payDebt: "Qarzni to'lash", addDebt: "Qarzni o'zgartirish", history: "Tarix",
     reduceNoRefund: "Qisqartirish (Qaytim yo'q)",
+    debtRemaining: "Qarz qoldi. Admin kerak.",
     allCashiers: "Barcha kassirlar",
     selectCashier: "Kassirni tanlash",
     assignTo: "Tayinlash",
@@ -478,7 +480,7 @@ const printDocument = (type, guest, hostel) => {
             <div class="header">
                 <h2>${hostel.name}</h2>
                 <p>${hostel.address}</p>
-                <p>ЧЕК №${guest.id.slice(0, 8).toUpperCase()}</p>
+                <p>ЧЕК №${(guest.id || '').toString().slice(0, 8).toUpperCase()}</p>
                 <p>${new Date().toLocaleString('ru-RU')}</p>
             </div>
             
@@ -3261,7 +3263,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
         
         // ✅ ИСПРАВЛЕНО: админ может выселять принудительно, даже если есть долг
         if (debt > 0 && !isAdmin) {
-            return notify("Debt remaining. Admin required.", 'error');
+            return notify(t('debtRemaining'), 'error');
         }
         
         // Остальная логика выселения
