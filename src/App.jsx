@@ -368,7 +368,9 @@ const calculateSalary = (startTime, endTime) => {
     return Math.round(hours * hourlyRate);
 };
 
-const exportToExcel = (data, filename) => {
+const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0) => {
+    const balance = totalIncome - totalExpense;
+    
     let tableContent = `
         <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
         <head>
@@ -389,6 +391,7 @@ const exportToExcel = (data, filename) => {
                     <tr>
                         <th>Дата</th>
                         <th>Тип</th>
+                        <th>Хостел</th>
                         <th>Кассир</th>
                         <th>Сумма</th>
                         <th>Метод</th>
@@ -405,6 +408,7 @@ const exportToExcel = (data, filename) => {
             <tr>
                 <td>${row.date}</td>
                 <td class="${typeClass}">${typeLabel}</td>
+                <td>${row.hostel || '-'}</td>
                 <td>${row.staff}</td>
                 <td class="amount">${parseInt(row.amount).toLocaleString()}</td>
                 <td>${row.method}</td>
@@ -412,6 +416,27 @@ const exportToExcel = (data, filename) => {
             </tr>
         `;
     });
+
+    // ✅ Итоговые строки
+    if (totalIncome > 0 || totalExpense > 0) {
+        tableContent += `
+            <tr style="background-color: #f3f4f6; font-weight: bold; border-top: 3px solid #000;">
+                <td colspan="4" style="text-align: right;">ИТОГО ПРИХОД:</td>
+                <td class="income" style="text-align: right;">${totalIncome.toLocaleString()}</td>
+                <td colspan="2"></td>
+            </tr>
+            <tr style="background-color: #f3f4f6; font-weight: bold;">
+                <td colspan="4" style="text-align: right;">ИТОГО РАСХОД:</td>
+                <td class="expense" style="text-align: right;">${totalExpense.toLocaleString()}</td>
+                <td colspan="2"></td>
+            </tr>
+            <tr style="background-color: #e0e7ff; font-weight: bold;">
+                <td colspan="4" style="text-align: right; font-size: 16px;">БАЛАНС:</td>
+                <td style="text-align: right; font-size: 16px; color: ${balance >= 0 ? '#166534' : '#9f1239'};">${balance.toLocaleString()}</td>
+                <td colspan="2"></td>
+            </tr>
+        `;
+    }
 
     tableContent += `</tbody></table></body></html>`;
 
@@ -431,55 +456,171 @@ const printDocument = (type, guest, hostel) => {
     
     if (type === 'check' || type === 'Чек') {
         html += 'Receipt</title>';
-        html += '<style>body{padding:30px;font-family:Arial;} table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{border:1px solid #000;padding:8px;text-align:left;} .total{font-size:18px;font-weight:bold;margin-top:20px;}</style>';
-        html += '</head><body>';
-        html += `<h2>Чек / Receipt #${guest.id}</h2>`;
-        html += `<p><b>Хостел / Hostel:</b> ${hostel.name}</p>`;
-        html += `<p><b>Адрес / Address:</b> ${hostel.address}</p>`;
-        html += `<hr/>`;
-        html += `<p><b>Гость / Guest:</b> ${guest.fullName}</p>`;
-        html += `<p><b>Паспорт / Passport:</b> ${guest.passport || 'N/A'}</p>`;
-        html += `<p><b>Комната / Room:</b> ${guest.roomNumber}, Койка / Bed: ${guest.bedId}</p>`;
-        html += `<p><b>Заезд / Check-in:</b> ${new Date(guest.checkInDate).toLocaleDateString()}</p>`;
-        html += `<p><b>Дней / Days:</b> ${guest.days}</p>`;
-        html += `<hr/>`;
-        html += `<table><tr><th>Позиция</th><th>Сумма</th></tr>`;
-        html += `<tr><td>Стоимость проживания (${guest.days} дн. × ${(guest.pricePerNight || 0).toLocaleString()})</td><td>${(guest.totalPrice || 0).toLocaleString()}</td></tr>`;
-        html += `<tr><td>Оплачено</td><td>${getTotalPaid(guest).toLocaleString()}</td></tr>`;
-        const balance = (guest.totalPrice || 0) - getTotalPaid(guest);
-        html += `<tr class="total"><td>Баланс</td><td>${balance.toLocaleString()}</td></tr>`;
-        html += `</table>`;
-        html += `<p style="margin-top:30px;text-align:center;color:#666;">Дата печати: ${new Date().toLocaleString()}</p>`;
+        html += `
+        <style>
+            body { font-family: 'Courier New', monospace; padding: 30px; max-width: 400px; margin: 0 auto; background: #f9fafb; }
+            .receipt { background: white; border: 2px solid #000; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 15px; margin-bottom: 20px; }
+            .header h2 { margin: 0 0 8px 0; font-size: 20px; }
+            .header p { margin: 3px 0; font-size: 11px; color: #666; }
+            .row { display: flex; justify-content: space-between; margin: 10px 0; font-size: 13px; }
+            .row.bold { font-weight: bold; font-size: 14px; }
+            .divider { border-top: 1px dashed #ccc; margin: 15px 0; }
+            .total { border-top: 2px solid #000; margin-top: 20px; padding-top: 15px; }
+            .total .row { font-size: 16px; font-weight: bold; }
+            .balance { font-size: 18px; margin-top: 10px; }
+            .balance.paid { color: #10b981; }
+            .balance.debt { color: #ef4444; }
+            .footer { text-align: center; margin-top: 25px; padding-top: 15px; border-top: 2px dashed #000; font-size: 11px; color: #666; }
+        </style>
+        </head><body>
+        <div class="receipt">
+            <div class="header">
+                <h2>${hostel.name}</h2>
+                <p>${hostel.address}</p>
+                <p>ЧЕК №${guest.id.slice(0, 8).toUpperCase()}</p>
+                <p>${new Date().toLocaleString('ru-RU')}</p>
+            </div>
+            
+            <div class="row bold"><span>Гость:</span><span>${guest.fullName}</span></div>
+            <div class="row"><span>Паспорт:</span><span>${guest.passport}</span></div>
+            <div class="row"><span>Комната:</span><span>№${guest.roomNumber}, место ${guest.bedId}</span></div>
+            
+            <div class="divider"></div>
+            
+            <div class="row"><span>Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
+            <div class="row"><span>Количество дней:</span><span>${guest.days}</span></div>
+            <div class="row"><span>Цена за ночь:</span><span>${(guest.pricePerNight || 0).toLocaleString()} сум</span></div>
+            
+            <div class="divider"></div>
+            
+            <div class="row bold"><span>ИТОГО:</span><span>${(guest.totalPrice || 0).toLocaleString()} сум</span></div>
+            <div class="row" style="color: #10b981;"><span>Оплачено:</span><span>${getTotalPaid(guest).toLocaleString()} сум</span></div>
+            
+            <div class="total">
+                <div class="row balance ${(guest.totalPrice || 0) - getTotalPaid(guest) > 0 ? 'debt' : 'paid'}">
+                    <span>К оплате:</span>
+                    <span>${Math.max(0, (guest.totalPrice || 0) - getTotalPaid(guest)).toLocaleString()} сум</span>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <p>Спасибо за выбор нашего хостела!</p>
+                <p>Хорошего дня!</p>
+            </div>
+        </div>
+        </body></html>`;
+        
     } else if (type === 'regcard' || type === 'Анкета') {
         html += 'Registration Card</title>';
-        html += '<style>body{padding:40px;font-family:Arial;line-height:1.6;} h1{text-align:center;border-bottom:2px solid #000;padding-bottom:10px;} p{margin:10px 0;} .field{display:inline-block;min-width:300px;border-bottom:1px dotted #000;}</style>';
-        html += '</head><body>';
-        html += `<h1>АНКЕТА ГОСТЯ / GUEST REGISTRATION</h1>`;
-        html += `<p><b>ФИО / Full Name:</b> <span class="field">${guest.fullName}</span></p>`;
-        html += `<p><b>Паспорт / Passport:</b> <span class="field">${guest.passport || 'N/A'}</span></p>`;
-        html += `<p><b>Дата рождения / Birth Date:</b> <span class="field">${guest.birthDate || 'N/A'}</span></p>`;
-        html += `<p><b>Страна / Country:</b> <span class="field">${guest.country || 'N/A'}</span></p>`;
-        html += `<p><b>Хостел / Hostel:</b> <span class="field">${hostel.name}</span></p>`;
-        html += `<p><b>Адрес / Address:</b> <span class="field">${hostel.address}</span></p>`;
-        html += `<p><b>Комната / Room:</b> <span class="field">${guest.roomNumber}</span>, <b>Койка / Bed:</b> <span class="field">${guest.bedId}</span></p>`;
-        html += `<p><b>Заезд / Check-in:</b> <span class="field">${new Date(guest.checkInDate).toLocaleDateString()}</span></p>`;
-        html += `<p><b>Дней / Days:</b> <span class="field">${guest.days}</span></p>`;
-        html += `<p style="margin-top:50px;"><b>Подпись гостя / Guest Signature:</b> _______________________</p>`;
-        html += `<p><b>Дата / Date:</b> ${new Date().toLocaleDateString()}</p>`;
+        html += `
+        <style>
+            body { font-family: Arial, sans-serif; padding: 40px; background: #f9fafb; }
+            .form { background: white; max-width: 600px; margin: 0 auto; padding: 40px; border: 1px solid #ddd; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .form-header { text-align: center; border-bottom: 3px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
+            .form-header h1 { margin: 0 0 10px 0; color: #4f46e5; font-size: 24px; }
+            .field { margin: 20px 0; padding: 15px; background: #f9fafb; border-left: 4px solid #4f46e5; }
+            .field-label { font-size: 11px; color: #666; text-transform: uppercase; font-weight: bold; margin-bottom: 5px; }
+            .field-value { font-size: 16px; color: #1f2937; font-weight: 600; }
+            .signature { margin-top: 50px; border-top: 1px solid #000; padding-top: 10px; text-align: center; }
+        </style>
+        </head><body>
+        <div class="form">
+            <div class="form-header">
+                <h1>РЕГИСТРАЦИОННАЯ АНКЕТА ГОСТЯ</h1>
+                <p style="margin: 5px 0; color: #666;">${hostel.name}</p>
+                <p style="margin: 0; font-size: 12px; color: #999;">${hostel.address}</p>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">ФИО гостя:</div>
+                <div class="field-value">${guest.fullName}</div>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">Паспортные данные:</div>
+                <div class="field-value">${guest.passport}</div>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">Гражданство:</div>
+                <div class="field-value">${guest.country}</div>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">Дата рождения:</div>
+                <div class="field-value">${guest.birthDate || 'Не указана'}</div>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">Комната / Место:</div>
+                <div class="field-value">№${guest.roomNumber}, место ${guest.bedId}</div>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">Дата заезда:</div>
+                <div class="field-value">${new Date(guest.checkInDate).toLocaleString('ru-RU')}</div>
+            </div>
+            
+            <div class="field">
+                <div class="field-label">Период проживания:</div>
+                <div class="field-value">${guest.days} дней</div>
+            </div>
+            
+            <div class="signature">
+                <p style="margin: 30px 0 10px 0; font-size: 12px;">Подпись гостя: _______________________</p>
+                <p style="margin: 0; font-size: 11px; color: #999;">Дата: ${new Date().toLocaleDateString('ru-RU')}</p>
+            </div>
+        </div>
+        </body></html>`;
+        
     } else if (type === 'ref' || type === 'Справка') {
         html += 'Reference Letter</title>';
-        html += '<style>body{padding:50px;font-family:serif;line-height:1.8;} h2{text-align:center;text-transform:uppercase;} .content{margin-top:40px;text-align:justify;} .signature{margin-top:80px;}</style>';
-        html += '</head><body>';
-        html += `<h2>Справка / Reference Letter</h2>`;
-        html += `<div class="content">`;
-        html += `<p>Настоящим подтверждается, что <b>${guest.fullName}</b> (Паспорт: ${guest.passport || 'N/A'}) проживал(а) в нашем хостеле <b>${hostel.name}</b> по адресу ${hostel.address} с ${new Date(guest.checkInDate).toLocaleDateString()} в течение ${guest.days} дней.</p>`;
-        html += `<p style="margin-top:30px;">This is to certify that <b>${guest.fullName}</b> (Passport: ${guest.passport || 'N/A'}) stayed at our hostel <b>${hostel.name}</b> located at ${hostel.address} from ${new Date(guest.checkInDate).toLocaleDateString()} for ${guest.days} days.</p>`;
-        html += `</div>`;
-        html += `<div class="signature">`;
-        html += `<p><b>Дата / Date:</b> ${new Date().toLocaleDateString()}</p>`;
-        html += `<p><b>Подпись / Signature:</b> _______________________</p>`;
-        html += `<p><b>Печать / Stamp:</b></p>`;
-        html += `</div>`;
+        html += `
+        <style>
+            body { font-family: 'Times New Roman', serif; padding: 50px; background: #f9fafb; }
+            .certificate { background: white; max-width: 700px; margin: 0 auto; padding: 50px; border: 2px solid #4f46e5; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .cert-header { text-align: center; margin-bottom: 40px; }
+            .cert-header h1 { margin: 0 0 20px 0; color: #4f46e5; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; }
+            .cert-number { text-align: right; font-size: 12px; color: #666; margin-bottom: 30px; }
+            .cert-body { line-height: 1.8; font-size: 15px; text-align: justify; }
+            .cert-body p { margin: 20px 0; }
+            .cert-highlight { font-weight: bold; color: #1f2937; }
+            .cert-footer { margin-top: 50px; }
+            .cert-footer p { margin: 30px 0 5px 0; font-size: 13px; }
+            .signature-line { border-bottom: 1px solid #000; display: inline-block; min-width: 250px; margin-left: 10px; }
+            .stamp { margin-top: 30px; padding: 20px; border: 2px dashed #4f46e5; text-align: center; color: #4f46e5; font-weight: bold; }
+        </style>
+        </head><body>
+        <div class="certificate">
+            <div class="cert-header">
+                <h1>СПРАВКА</h1>
+                <p style="margin: 0; font-size: 14px; color: #666;">${hostel.name}</p>
+                <p style="margin: 5px 0 0 0; font-size: 12px; color: #999;">${hostel.address}</p>
+            </div>
+            
+            <div class="cert-number">№ ${Date.now().toString().slice(-6)} от ${new Date().toLocaleDateString('ru-RU')}</div>
+            
+            <div class="cert-body">
+                <p>Настоящая справка выдана в том, что гражданин(ка) <span class="cert-highlight">${guest.fullName}</span>, паспорт <span class="cert-highlight">${guest.passport}</span>, гражданство <span class="cert-highlight">${guest.country}</span>, действительно проживал(а) в ${hostel.name}.</p>
+                
+                <p><strong>Период проживания:</strong> с <span class="cert-highlight">${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span> продолжительностью <span class="cert-highlight">${guest.days} дней</span>.</p>
+                
+                <p><strong>Место размещения:</strong> комната №<span class="cert-highlight">${guest.roomNumber}</span>, место <span class="cert-highlight">${guest.bedId}</span>.</p>
+                
+                <p>Справка выдана для предъявления по месту требования.</p>
+            </div>
+            
+            <div class="cert-footer">
+                <p>Администратор: <span class="signature-line"></span></p>
+                <p style="margin-left: 160px; font-size: 11px; color: #666;">(подпись)</p>
+                
+                <div class="stamp">
+                    МЕСТО ДЛЯ ПЕЧАТИ
+                </div>
+            </div>
+        </div>
+        </body></html>`;
     }
     
     html += '</body></html>';
@@ -719,8 +860,12 @@ const MobileNavigation = ({ currentUser, activeTab, setActiveTab, pendingTasksCo
     )
 }
 
-const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setLang, pendingTasksCount }) => {
+const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setLang, pendingTasksCount, selectedHostelView, setSelectedHostelView }) => {
     const t = (k) => TRANSLATIONS[lang][k];
+    
+    // ✅ НОВОЕ: Проверка роли viewer
+    const isViewer = currentUser.role === 'viewer';
+    
     const tabs = [
        { id: 'dashboard', label: t('dashboard'), icon: LayoutDashboard, role: 'admin' },
        { id: 'rooms', label: t('rooms'), icon: BedDouble, role: 'all' },
@@ -750,6 +895,21 @@ const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setL
                <button onClick={() => setLang('ru')} className={`flex-1 py-1 text-xs font-bold rounded ${lang==='ru'?'bg-white shadow text-indigo-600':'text-slate-500'}`}>RU</button>
                <button onClick={() => setLang('uz')} className={`flex-1 py-1 text-xs font-bold rounded ${lang==='uz'?'bg-white shadow text-indigo-600':'text-slate-500'}`}>UZ</button>
            </div>
+           
+           {/* ✅ НОВОЕ: Переключатель хостелов для viewer */}
+           {isViewer && setSelectedHostelView && (
+               <div className="mb-4">
+                   <label className="text-xs font-bold text-slate-500 mb-2 block uppercase tracking-wide">Хостел</label>
+                   <select 
+                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium"
+                       value={selectedHostelView}
+                       onChange={e => setSelectedHostelView(e.target.value)}
+                   >
+                       <option value="hostel1">Хостел №1 (просмотр)</option>
+                       <option value="hostel2">Хостел №2 (работа)</option>
+                   </select>
+               </div>
+           )}
 
            <div className="space-y-1 flex-1 overflow-y-auto">
               {tabs.filter(t => roleCheck(t.role)).map(tab => (
@@ -1470,46 +1630,29 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                     const debt = (guest.totalPrice || 0) - getTotalPaid(guest);
                                                     const hasDebt = debt > 0;
                                                     const isCheckedOut = guest.status === 'checked_out';
+                                                    const isBooking = guest.status === 'booking';
+                                                    
+                                                    // ✅ НОВОЕ: расчёт процента оплаты для градиента
+                                                    const totalPaid = getTotalPaid(guest);
+                                                    const totalPrice = guest.totalPrice || 1;
+                                                    const paidPercent = Math.min(100, (totalPaid / totalPrice) * 100);
 
                                                     return (
                                                         <div 
                                                             key={guest.id}
-                                                            className={`absolute top-1 bottom-1 z-20 rounded-md shadow-sm cursor-pointer hover:z-50 hover:shadow-lg border group/block overflow-hidden ${bgClass} flex items-center`}
+                                                            className={`absolute top-1 bottom-1 z-20 rounded-md shadow-sm cursor-pointer hover:z-50 hover:shadow-lg border group/block overflow-hidden flex items-center`}
                                                             style={{
                                                                 left: `${styleData.leftPercent}%`,
-                                                                width: `${styleData.widthPercent}%`
+                                                                width: `${styleData.widthPercent}%`,
+                                                                background: isCheckedOut 
+                                                                    ? '#94a3b8' 
+                                                                    : isBooking
+                                                                    ? '#fbbf24'
+                                                                    : `linear-gradient(to right, #10b981 0%, #10b981 ${paidPercent}%, #ef4444 ${paidPercent}%, #ef4444 100%)`
                                                             }}
                                                             onClick={(e) => { e.stopPropagation(); onSlotClick(room, bedId, guest, null); }}
                                                             title={guest.fullName}
                                                         >
-                                                            {/* Gradient for paid/unpaid days */}
-                                                            {guest.status !== 'checked_out' && guest.status !== 'booking' && (
-                                                                (() => {
-                                                                    const totalPaid = getTotalPaid(guest);
-                                                                    const pricePerNight = guest.pricePerNight || 0;
-                                                                    const paidDays = pricePerNight > 0 ? Math.floor(totalPaid / pricePerNight) : 0;
-                                                                    const totalDays = parseInt(guest.days) || 0;
-                                                                    const paidPercent = totalDays > 0 ? Math.min((paidDays / totalDays) * 100, 100) : 0;
-                                                                    
-                                                                    return (
-                                                                        <>
-                                                                            {paidPercent > 0 && paidPercent < 100 && (
-                                                                                <div 
-                                                                                    className="bg-emerald-500 h-full absolute left-0 top-0"
-                                                                                    style={{ width: `${paidPercent}%` }}
-                                                                                />
-                                                                            )}
-                                                                            {paidPercent < 100 && (
-                                                                                <div 
-                                                                                    className="bg-rose-500 h-full absolute right-0 top-0"
-                                                                                    style={{ width: `${100 - paidPercent}%` }}
-                                                                                />
-                                                                            )}
-                                                                        </>
-                                                                    );
-                                                                })()
-                                                            )}
-                                                            
                                                             <div className="sticky left-0 pl-1 pr-1 flex flex-col justify-center h-full w-full max-w-full z-50">
                                                                 <span className="font-bold text-[10px] text-white whitespace-nowrap overflow-hidden text-ellipsis px-1.5 py-0.5 rounded-sm bg-black/40 w-fit block relative">
                                                                     {guest.status === 'booking' && '🕰 '}{guest.fullName}
@@ -1681,7 +1824,7 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
     );
 };
 
-const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, lang }) => {
+const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, lang, currentUser }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [search, setSearch] = useState('');
     const [editingClient, setEditingClient] = useState(null);
@@ -1689,6 +1832,8 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [pagination, setPagination] = useState({ page: 1, perPage: 25 });
     const [countryFilter, setCountryFilter] = useState('');
+    
+    const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'super');
 
     const filtered = useMemo(() => {
         let result = clients;
@@ -1778,19 +1923,25 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                     <option value="100">100</option>
                 </select>
                 <div className="flex gap-2 flex-wrap">
-                     <Button icon={Merge} variant="secondary" onClick={onDeduplicate} title="Merge duplicates">{t('deduplicate')}</Button>
-                     <Button icon={Globe} variant="secondary" onClick={handleNormalize} title="Fix country names">{t('normalizeCountries')}</Button>
-                     <Button icon={FileSpreadsheet} variant="secondary" onClick={() => setIsImportModalOpen(true)}>Import CSV</Button>
-                     {selectedIds.size > 0 && <Button icon={Trash2} variant="danger" onClick={handleBulkDelete}>{t('deleteSelected')}</Button>}
+                     {isAdmin && (
+                         <>
+                             <Button icon={Merge} variant="secondary" onClick={onDeduplicate} title="Merge duplicates">{t('deduplicate')}</Button>
+                             <Button icon={Globe} variant="secondary" onClick={handleNormalize} title="Fix country names">{t('normalizeCountries')}</Button>
+                             <Button icon={FileSpreadsheet} variant="secondary" onClick={() => setIsImportModalOpen(true)}>Import CSV</Button>
+                             {selectedIds.size > 0 && <Button icon={Trash2} variant="danger" onClick={handleBulkDelete}>{t('deleteSelected')}</Button>}
+                         </>
+                     )}
                 </div>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto">
                  <table className="w-full text-sm text-left min-w-[600px]">
                      <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
                          <tr>
-                             <th className="p-4 w-10">
-                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIds.size > 0 && selectedIds.size === paginatedData.length} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
-                             </th>
+                             {isAdmin && (
+                                 <th className="p-4 w-10">
+                                     <input type="checkbox" onChange={handleSelectAll} checked={selectedIds.size > 0 && selectedIds.size === paginatedData.length} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
+                                 </th>
+                             )}
                              <th className="p-4">{t('guestName')}</th>
                              <th className="p-4">{t('passport')}</th>
                              <th className="p-4">{t('birthDate')}</th>
@@ -1803,9 +1954,11 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                      <tbody className="divide-y divide-slate-100">
                          {paginatedData.map(c => (
                              <tr key={c.id} className={selectedIds.has(c.id) ? 'bg-indigo-50' : ''}>
-                                 <td className="p-4">
-                                     <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => handleSelect(c.id)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
-                                 </td>
+                                 {isAdmin && (
+                                     <td className="p-4">
+                                         <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => handleSelect(c.id)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>
+                                     </td>
+                                 )}
                                  <td className="p-4 font-bold">{c.fullName}</td>
                                  <td className="p-4 font-mono text-indigo-600">{c.passport}</td>
                                  <td className="p-4">{c.birthDate || '-'}</td>
@@ -2391,7 +2544,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             method: item.method || '-',
             comment: item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : '-')
         }));
-        exportToExcel(exportData, `Otchet_${filters.hostelId || 'All'}.xls`);
+        exportToExcel(exportData, `Otchet_${filters.hostelId || 'All'}.xls`, totalIncome, totalExpense);
     };
 
     return (
@@ -3103,11 +3256,15 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     };
 
     const handleDoCheckout = () => { 
-        // Allow checkout regardless of balance - admins can manually resolve debts or negotiate payment outside the system
-        // This flexibility is needed for cases where:
-        // 1. Admin has manually corrected the debt outside the system
-        // 2. Guest agreed to pay later or made alternative payment arrangements
-        // 3. Business decision to write off small debts
+        const debt = (guest.totalPrice || 0) - getTotalPaid(guest);
+        const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
+        
+        // ✅ ИСПРАВЛЕНО: админ может выселять принудительно, даже если есть долг
+        if (debt > 0 && !isAdmin) {
+            return notify("Debt remaining. Admin required.", 'error');
+        }
+        
+        // Остальная логика выселения
         const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance); 
         const finalData = { totalPrice: actualCost, paidCash: (guest.paidCash || 0) - refund, amountPaid: (guest.amountPaid || 0) - refund }; 
         onCheckOut(guest, finalData); 
@@ -3884,7 +4041,7 @@ function App() {
     <div className="h-screen w-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row overflow-hidden">
       
       <div className="flex-shrink-0">
-         <Navigation currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} lang={lang} setLang={setLang} pendingTasksCount={pendingTasksCount} />
+         <Navigation currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} lang={lang} setLang={setLang} pendingTasksCount={pendingTasksCount} selectedHostelView={selectedHostelFilter} setSelectedHostelView={setSelectedHostelFilter} />
       </div>
 
       <MobileNavigation currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} pendingTasksCount={pendingTasksCount} lang={lang} />
@@ -3990,7 +4147,7 @@ function App() {
                 />
             )}
 
-            {activeTab === 'clients' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ClientsView clients={clients} onUpdateClient={handleUpdateClient} onImportClients={handleImportClients} onDeduplicate={handleDeduplicate} onBulkDelete={handleBulkDeleteClients} onNormalizeCountries={handleNormalizeCountries} lang={lang} />}
+            {activeTab === 'clients' && (currentUser.role === 'admin' || currentUser.role === 'super') && <ClientsView clients={clients} onUpdateClient={handleUpdateClient} onImportClients={handleImportClients} onDeduplicate={handleDeduplicate} onBulkDelete={handleBulkDeleteClients} onNormalizeCountries={handleNormalizeCountries} lang={lang} currentUser={currentUser} />}
             {activeTab === 'staff' && currentUser.role === 'admin' && <StaffView users={usersList} onAdd={handleAddUser} onDelete={handleDeleteUser} lang={lang} />}
             {activeTab === 'expenses' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                 <div className="animate-in slide-in-from-bottom-2 space-y-6">
