@@ -1,0 +1,8 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/hostella/public_html/
+    # 1. Удаляем старые файлы (необязательно, но полезно)
+    #- /bin/rm -rf $DEPLOYPATH/* 
+    # 2. Копируем ТОЛЬКО содержимое папки dist
+    - /bin/cp -R dist/* $DEPLOYPATH
