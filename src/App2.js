@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'; // ← ДОБАВЛЕНО useCallback
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  signInAnonymously, 
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  signOut,
   onAuthStateChanged 
 } from 'firebase/auth';
 import { 
@@ -36,7 +38,8 @@ import {
   Wallet,
   Edit,
   Building2,
-  Calendar as CalendarIcon,
+  Calendar,
+  CalendarIcon,
   User,
   Lock,
   CheckCircle2,
@@ -66,6 +69,7 @@ import {
   Wrench,
   CalendarDays,
   X,
+  Smartphone, 
   Wifi,
   WifiOff,
   Globe,
@@ -77,7 +81,14 @@ import {
   Square,
   CheckSquare,
   ScanLine,
-  Timer
+  Timer,
+  Home,
+  UserPlus,
+  DollarSign,
+  CreditCard,
+  QrCode,
+  Activity,    // ← ДОБАВЛЕНО (для ChartsSection и CalendarView)
+  BarChart3    // ← ДОБАВЛЕНО (для ChartsSection)
 } from 'lucide-react';
 
 // --- STYLES ---
@@ -90,7 +101,7 @@ const TRANSLATIONS = {
     dashboard: "Дашборд", rooms: "Номера", calendar: "Календарь", reports: "Отчеты", debts: "Долги", tasks: "Задачи", expenses: "Расходы", clients: "Клиенты", staff: "Персонал", shifts: "Смены",
     logout: "Выйти", login: "Логин", pass: "Пароль", enter: "Войти в систему",
     guests: "Постояльцы", occupancy: "Загрузка", revenue: "Выручка", today: "Сегодня",
-    cash: "Нал��чные", card: "Терминал", qr: "QR",
+    cash: "Наличные", card: "Терминал", qr: "QR",
     checkin: "Заселить", booking: "Бронь", debt: "Долг", paid: "Оплачено", 
     save: "Сохранить", cancel: "Отмена", delete: "Удалить", edit: "Редактировать",
     guestName: "ФИО Гостя", passport: "Паспорт", birthDate: "Дата рождения", country: "Страна",
@@ -269,11 +280,19 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const functions = getFunctions(app);
 
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-}, "hostella");
+// ✅ ИСПРАВЛЕНО: защита от повторной инициализации
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  }, "hostella");
+} catch (error) {
+  // Если Firestore уже инициализирован, используем существующий экземпляр
+  console.log('Firestore уже инициализирован, используем существующий экземпляр');
+  db = getFirestore(app);
+}
 
 const APP_ID = 'hostella-multi-v4';
 const PUBLIC_DATA_PATH = ['artifacts', APP_ID, 'public', 'data'];
@@ -813,54 +832,286 @@ const MobileNavigation = ({ currentUser, activeTab, setActiveTab, pendingTasksCo
     )
 }
 
+// ✅ НОВЫЙ СОВРЕМЕННЫЙ TopBar
+const TopBar = ({ 
+    selectedHostelFilter, 
+    hostels, 
+    availableHostels,
+    setSelectedHostelFilter, 
+    currentUser, 
+    activeTab,
+    isOnline,
+    hasUpdate,
+    usersList,
+    shifts,
+    canPerformActions,
+    onOpenExpense, 
+    onOpenCheckIn, 
+    onOpenShift, 
+    lang 
+}) => {
+    const t = (k) => TRANSLATIONS[lang][k];
+    
+    const selectedHostel = hostels[selectedHostelFilter];
+    const hostelName = selectedHostel?.name || 'Все хостелы';
+    
+    const activeTabName = 
+        activeTab === 'dashboard' ? t('dashboard') : 
+        activeTab === 'rooms' ? t('rooms') : 
+        activeTab === 'calendar' ? t('calendar') : 
+        activeTab === 'reports' ? t('reports') : 
+        activeTab === 'debts' ? t('debts') : 
+        activeTab === 'tasks' ? t('tasks') : 
+        activeTab === 'expenses' ? t('expenses') : 
+        activeTab === 'clients' ? t('clients') : 
+        activeTab === 'staff' ? t('staff') : 
+        activeTab === 'shifts' ? t('shifts') : '';
+
+    return (
+        <div className="bg-white/80 backdrop-blur-xl border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-30">
+            {/* Left Side */}
+            <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
+                    <div>
+                        <div className="text-lg font-bold text-slate-900">{activeTabName}</div>
+                        <div className="text-xs text-slate-500 font-medium flex items-center gap-2">
+                            <MapPin size={12}/>
+                            {hostelName}
+                        </div>
+                    </div>
+                </div>
+
+                {/* ✅ ТОЛЬКО ИКОНКИ */}
+                <div className="flex items-center gap-2 ml-4">
+                    {/* Статус ONLINE/OFFLINE - только иконка */}
+                    <div className={`p-2 rounded-lg border ${
+                        isOnline 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`} title={isOnline ? 'ONLINE' : 'OFFLINE'}>
+                        {isOnline ? <Wifi size={16}/> : <WifiOff size={16}/>}
+                    </div>
+                    
+                    {/* Кнопка обновить - только иконка */}
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className={`p-2 rounded-lg border transition-all hover:scale-105 active:scale-95 ${
+                            hasUpdate 
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse' 
+                                : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                        }`}
+                        title={hasUpdate ? 'Доступно обновление' : 'Обновить'}
+                    >
+                        <Download size={16}/>
+                    </button>
+                </div>
+            </div>
+
+            {/* Right Side */}
+            <div className="flex items-center gap-3">
+                {/* Hostel Selector для админа */}
+                {availableHostels && availableHostels.length > 0 && (
+                    <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">
+                        {availableHostels.map(hid => (
+                            <button 
+                                key={hid} 
+                                onClick={() => setSelectedHostelFilter(hid)} 
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                    selectedHostelFilter === hid 
+                                        ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md' 
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                            >
+                                {hostels[hid]?.name}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {/* ✅ УБРАЛИ БЛОК "Current: Nargiza" */}
+
+                {/* Action Buttons для кассира */}
+                {currentUser.role === 'cashier' && canPerformActions && (
+                    <>
+                        <button
+                            onClick={onOpenExpense}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-rose-200 hover:shadow-xl transition-all"
+                        >
+                            <Wallet size={16}/>
+                            <span>{t('expense')}</span>
+                        </button>
+                        
+                        <button
+                            onClick={onOpenCheckIn}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:shadow-xl transition-all"
+                        >
+                            <UserPlus size={16}/>
+                            <span>{t('checkin')}</span>
+                        </button>
+
+                        <button
+                            onClick={onOpenShift}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white rounded-xl font-bold text-sm shadow-lg shadow-slate-200 hover:shadow-xl transition-all"
+                        >
+                            <Power size={16}/>
+                            <span>{t('shift')}</span>
+                        </button>
+                    </>
+                )}
+
+                {/* Режим просмотра */}
+                {currentUser.login === 'fazliddin' && !canPerformActions && (
+                    <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm font-bold">
+                        Режим просмотра
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ✅ НОВЫЙ СВЕТЛЫЙ Navigation с Glass эффектом
 const Navigation = ({ currentUser, activeTab, setActiveTab, onLogout, lang, setLang, pendingTasksCount, onOpenChangePassword }) => {
     const t = (k) => TRANSLATIONS[lang][k];
-    const tabs = [
-       { id: 'dashboard', label: t('dashboard'), icon: LayoutDashboard, role: 'admin' },
-       { id: 'rooms', label: t('rooms'), icon: BedDouble, role: 'all' },
-       { id: 'calendar', label: t('calendar'), icon: CalendarIcon, role: 'all' },
-       { id: 'reports', label: t('reports'), icon: FileText, role: 'admin' },
-       { id: 'debts', label: t('debts'), icon: Coins, role: 'all' },
-       { id: 'shifts', label: t('shifts'), icon: Timer, role: 'all' },
-       { id: 'tasks', label: t('tasks'), icon: Wrench, role: 'all', badge: pendingTasksCount },
-       { id: 'expenses', label: t('expenses'), icon: Wallet, role: 'admin' },
-       { id: 'clients', label: t('clients'), icon: Users, role: 'all' },
-       { id: 'staff', label: t('staff'), icon: UserCog, role: 'admin' },
+    const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
+    
+    const menuItems = [
+        { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, color: 'blue' },
+        { id: 'rooms', icon: BedDouble, label: t('rooms'), color: 'purple' },
+        { id: 'calendar', icon: Calendar, label: t('calendar'), color: 'indigo' },
+        { id: 'reports', icon: FileText, label: t('reports'), adminOnly: true, color: 'emerald' },
+        { id: 'debts', icon: AlertCircle, label: t('debts'), color: 'rose' },
+        { id: 'tasks', icon: CheckSquare, label: t('tasks'), badge: pendingTasksCount, color: 'amber' },
+        { id: 'expenses', icon: Wallet, label: t('expenses'), adminOnly: true, color: 'red' },
+        { id: 'clients', icon: Users, label: t('clients'), color: 'cyan' },
+        { id: 'staff', icon: UserCog, label: t('staff'), adminOnly: true, color: 'teal' },
+        { id: 'shifts', icon: Clock, label: t('shifts'), color: 'violet' },
     ];
-    const roleCheck = (role) => {
-        if (currentUser.role === 'super') return true; 
-        if (role === 'all') return true;
-        return role === currentUser.role;
+
+    const visibleItems = menuItems.filter(item => !item.adminOnly || isAdmin);
+
+    const colorClasses = {
+        blue: 'text-blue-600 bg-blue-50 border-blue-200',
+        purple: 'text-purple-600 bg-purple-50 border-purple-200',
+        indigo: 'text-indigo-600 bg-indigo-50 border-indigo-200',
+        emerald: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+        rose: 'text-rose-600 bg-rose-50 border-rose-200',
+        amber: 'text-amber-600 bg-amber-50 border-amber-200',
+        red: 'text-red-600 bg-red-50 border-red-200',
+        cyan: 'text-cyan-600 bg-cyan-50 border-cyan-200',
+        teal: 'text-teal-600 bg-teal-50 border-teal-200',
+        violet: 'text-violet-600 bg-violet-50 border-violet-200',
     };
 
     return (
-      <div className="w-56 bg-white h-screen border-r border-slate-200 flex flex-col p-4 fixed md:relative z-20 hidden md:flex">
-           <div className="text-2xl font-bold text-indigo-600 mb-8 flex items-center gap-2 pl-2">
-              <Building2/> Hostella
-           </div>
-           
-           <div className="mb-4 flex bg-slate-100 rounded-lg p-1">
-               <button onClick={() => setLang('ru')} className={`flex-1 py-1 text-xs font-bold rounded ${lang==='ru'?'bg-white shadow text-indigo-600':'text-slate-500'}`}>RU</button>
-               <button onClick={() => setLang('uz')} className={`flex-1 py-1 text-xs font-bold rounded ${lang==='uz'?'bg-white shadow text-indigo-600':'text-slate-500'}`}>UZ</button>
-           </div>
+        <div className="w-64 h-screen bg-white/80 backdrop-blur-xl border-r border-slate-200 flex flex-col shadow-lg">
+            {/* Logo & Brand */}
+            <div className="flex-shrink-0 p-6 border-b border-slate-200 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
+                <div className="flex items-center gap-3">
+                    <img 
+                        src="https://hostella.uz/logo.png" 
+                        alt="Hostella Logo"
+                        className="w-12 h-12 rounded-2xl shadow-lg object-contain"
+                        onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'flex';
+                        }}
+                    />
+                    <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg" style={{display: 'none'}}>
+                        <Building2 size={28} className="text-white"/>
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                            Hostella
+                        </h1>
+                        <p className="text-xs text-slate-500 font-medium">Система управления</p>
+                    </div>
+                </div>
+            </div>
 
-           <div className="space-y-1 flex-1 overflow-y-auto">
-              {tabs.filter(t => roleCheck(t.role)).map(tab => (
-                  <NavItem key={tab.id} icon={tab.icon} label={tab.label} active={activeTab === tab.id} onClick={() => setActiveTab(tab.id)} badge={tab.badge} />
-              ))}
-           </div>
-           <div className="border-t border-slate-100 pt-4 mt-auto">
-              <div className="flex items-center gap-3 px-3 py-2 mb-2 bg-slate-50 rounded-xl">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 font-bold uppercase shrink-0">{currentUser.name[0]}</div>
-                  <div className="overflow-hidden">
-                      <div className="font-bold text-sm truncate text-slate-700">{currentUser.name}</div>
-                      <div className="text-[10px] text-slate-500 capitalize uppercase tracking-wider">{currentUser.role === 'super' ? 'Super Admin' : (currentUser.role === 'admin' ? t('admin') : t('cashier'))}</div>
-                  </div>
-              </div>
-              <Button variant="ghost" className="w-full justify-start text-slate-600 hover:bg-slate-100 mb-2" icon={Lock} onClick={onOpenChangePassword}>{t('changePassword')}</Button>
-              <Button variant="ghost" className="w-full justify-start text-orange-600 hover:bg-orange-50 hover:text-orange-700" icon={LogOut} onClick={onLogout}>{t('logout')}</Button>
-           </div>
-      </div>
+            {/* Menu Items - СКРОЛЛИТСЯ */}
+            <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 min-h-0">
+                {visibleItems.map(item => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => setActiveTab(item.id)}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 group ${
+                                isActive 
+                                    ? `${colorClasses[item.color]} border shadow-md` 
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            }`}
+                        >
+                            <Icon size={20} className={isActive ? '' : 'opacity-60'}/>
+                            <span className="flex-1 text-left text-sm">{item.label}</span>
+                            {item.badge > 0 && (
+                                <span className="bg-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center animate-pulse shadow-sm">
+                                    {item.badge}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </nav>
+
+            {/* ✅ Bottom Actions - НОВЫЙ ПОРЯДОК */}
+            <div className="flex-shrink-0 p-3 border-t border-slate-200 bg-slate-50/50 backdrop-blur-sm space-y-2">
+                {/* Кнопка пароля + языки */}
+                <div className="flex items-center gap-2">
+                                     
+                    <button 
+                        onClick={() => setLang('ru')} 
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            lang === 'ru' 
+                                ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md' 
+                                : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-200'
+                        }`}
+                    >
+                        RU
+                    </button>
+                    <button 
+                        onClick={() => setLang('uz')} 
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            lang === 'uz' 
+                                ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md' 
+                                : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-200'
+                        }`}
+                    >
+                        UZ
+                    </button>
+					<button 
+                        onClick={onOpenChangePassword}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm transition-all text-xs font-medium border border-transparent hover:border-slate-200"
+                    >
+                        <Lock size={14}/>
+                        <span>Пароль</span>
+                    </button>
+                </div>
+
+                {/* ✅ ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ */}
+                <div className="flex items-center gap-3 bg-white/60 backdrop-blur-sm rounded-xl p-2.5 border border-slate-200 shadow-sm">
+                    <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center shadow-md">
+                        <User size={18} className="text-white"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="font-bold text-xs text-slate-800 truncate">{currentUser.name}</div>
+                        <div className="text-[10px] text-slate-500 capitalize">{currentUser.role}</div>
+                    </div>
+                </div>
+
+                {/* Кнопка выхода */}
+                <button 
+                    onClick={onLogout}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-bold transition-all shadow-lg shadow-rose-200 hover:shadow-xl text-sm"
+                >
+                    <LogOut size={16}/>
+                    <span>{t('logout')}</span>
+                </button>
+            </div>
+        </div>
     );
 };
 
@@ -975,27 +1226,121 @@ const DashboardStats = ({ rooms, guests, payments, lang, currentHostelId }) => {
     const freeBeds = Math.max(0, totalCapacity - activeGuests);
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Users size={64}/></div>
-                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('guests')}</div><div className="text-2xl font-bold text-slate-800 mt-1">{activeGuests}</div></div>
-                <div className="text-xs text-slate-400 mt-auto">{t('today')}: +{guestsTodayCount}</div>
-            </Card>
-            <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><BedDouble size={64}/></div>
-                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('occupancy')}</div><div className="text-2xl font-bold text-indigo-600 mt-1">{occupancyPercent}%</div></div>
-                <div className="text-xs text-slate-400 mt-auto">Занято: {activeGuests} / Свободно: {freeBeds}</div>
-            </Card>
-            <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Wallet size={64}/></div>
-                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('revenue')} ({t('today')})</div><div className="text-2xl font-bold text-emerald-600 mt-1">{revenueToday.toLocaleString()}</div></div>
-                <div className="text-xs text-slate-400 mt-auto">Hostel: {currentHostelInfo?.name || currentHostelId}</div>
-            </Card>
-            <Card className="flex flex-col justify-between h-32 relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Building2 size={64}/></div>
-                <div><div className="text-slate-500 text-xs font-bold uppercase tracking-wider">{t('rooms')}</div><div className="text-2xl font-bold text-slate-800 mt-1">{relevantRooms.length}</div></div>
-                <div className="text-xs text-slate-400 mt-auto">{t('total')}</div>
-            </Card>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            {/* ✅ Постояльцы - ПОЛНАЯ ЗАЛИВКА */}
+            <div className="rounded-2xl shadow-sm border border-slate-300 overflow-hidden hover:shadow-md transition-all group bg-gradient-to-br from-slate-100 via-blue-100/50 to-indigo-100/50">
+                <div className="p-5 h-full flex flex-col">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="w-12 h-12 bg-gradient-to-br from-blue-200 to-indigo-200 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Users size={24} className="text-blue-600"/>
+                        </div>
+                        {guestsTodayCount > 0 && (
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-300">
+                                +{guestsTodayCount} сегодня
+                            </span>
+                        )}
+                    </div>
+                    <div className="space-y-1 flex-1">
+                        <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                            {t('guests')}
+                        </h3>
+                        <p className="text-4xl font-bold text-slate-800">{activeGuests}</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-600 mt-auto">
+                        <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                            <span className="font-medium">Активных Постояльцев</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ✅ Загрузка - ПОЛНАЯ ЗАЛИВКА */}
+            <div className="rounded-2xl shadow-sm border border-slate-300 overflow-hidden hover:shadow-md transition-all group bg-gradient-to-br from-slate-100 via-emerald-100/50 to-teal-100/50">
+                <div className="p-5 h-full flex flex-col">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="w-12 h-12 bg-gradient-to-br from-emerald-200 to-teal-200 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <BedDouble size={24} className="text-emerald-600"/>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-300">
+                            {activeGuests}/{totalCapacity}
+                        </span>
+                    </div>
+                    <div className="space-y-2 flex-1">
+                        <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                            {t('occupancy')}
+                        </h3>
+                        <p className="text-4xl font-bold text-slate-800">{occupancyPercent}%</p>
+                        
+                        {/* ✅ Прогресс бар */}
+                        <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div 
+                                className={`h-full rounded-full transition-all ${
+                                    occupancyPercent >= 90 ? 'bg-gradient-to-r from-rose-500 to-pink-500' :
+                                    occupancyPercent >= 70 ? 'bg-gradient-to-r from-amber-500 to-yellow-500' :
+                                    'bg-gradient-to-r from-emerald-500 to-teal-500'
+                                }`}
+                                style={{ width: `${Math.min(occupancyPercent, 100)}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between text-xs text-slate-600 mt-auto">
+                        <span>Занято: <span className="font-bold text-slate-700">{activeGuests}</span></span>
+                        <span>Свободно: <span className="font-bold text-emerald-600">{freeBeds}</span></span>
+                    </div>
+                </div>
+            </div>
+
+            {/* ✅ Выручка - ПОЛНАЯ ЗАЛИВКА */}
+            <div className="rounded-2xl shadow-sm border border-slate-300 overflow-hidden hover:shadow-md transition-all group bg-gradient-to-br from-slate-100 via-purple-100/50 to-violet-100/50">
+                <div className="p-5 h-full flex flex-col">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="w-12 h-12 bg-gradient-to-br from-purple-200 to-violet-200 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Wallet size={24} className="text-purple-600"/>
+                        </div>
+                        {revenueToday > 0 && (
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-300">
+                                +{Math.round(revenueToday / 1000)}k
+                            </span>
+                        )}
+                    </div>
+                    <div className="space-y-1 flex-1">
+                        <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                            {t('revenue')} (сегодня)
+                        </h3>
+                        <p className="text-3xl font-bold text-slate-800">{revenueToday.toLocaleString()}</p>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-slate-600 mt-auto">
+                        <Building2 size={12}/>
+                        <span className="font-medium">{currentHostelInfo?.name || 'Все хостелы'}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* ✅ Комнаты - ПОЛНАЯ ЗАЛИВКА */}
+            <div className="rounded-2xl shadow-sm border border-slate-300 overflow-hidden hover:shadow-md transition-all group bg-gradient-to-br from-slate-100 via-orange-100/50 to-amber-100/50">
+                <div className="p-5 h-full flex flex-col">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="w-12 h-12 bg-gradient-to-br from-orange-200 to-amber-200 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Building2 size={24} className="text-orange-600"/>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-300">
+                            {totalCapacity} мест
+                        </span>
+                    </div>
+                    <div className="space-y-1 flex-1">
+                        <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                            {t('rooms')}
+                        </h3>
+                        <p className="text-4xl font-bold text-slate-800">{relevantRooms.length}</p>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-slate-600 mt-auto">
+                        <BedDouble size={12}/>
+                        <span className="font-medium">Всего комнат</span>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
@@ -1157,272 +1502,308 @@ const CountdownTimer = ({ targetDate, lang }) => {
     );
 };
 
+// ✅ НОВЫЙ СОВРЕМЕННЫЙ RoomCardChess
 const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const beds = Array.from({length: room.capacity}, (_, i) => i + 1);
     const now = new Date();
 
-   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col hover:shadow-md transition-all">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-            <h3 className="font-bold text-lg text-slate-700 flex items-center gap-2">
-                <span className="bg-slate-200 px-3 py-1 rounded-md text-sm text-slate-700 font-bold border border-slate-200">{t('room')} №{room.number}</span>
-                <span className="text-xs font-normal text-slate-400">({room.capacity})</span>
-            </h3>
-            {isAdmin && (
-                <div className="flex gap-1">
-                    <button onClick={onEdit} className="p-2 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded transition-all"><Edit size={16}/></button>
-                    <button onClick={onClone} className="p-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded transition-all"><Copy size={16}/></button>
-                    <button onClick={onDelete} className="p-2 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded transition-all"><Trash2 size={16}/></button>
+    // Статистика комнаты
+    const occupiedBeds = guests.filter(g => {
+        if (g.status !== 'active') return false;
+        
+        const rawCheckOut = g.checkOutDate;
+        if (!rawCheckOut) return false;
+        const checkOut = new Date(rawCheckOut);
+        if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
+            checkOut.setHours(12, 0, 0, 0);
+        }
+        
+        return now < checkOut;
+    }).length;
+
+    const totalDebt = guests.reduce((sum, g) => {
+        if (g.status !== 'active') return sum;
+        const paid = getTotalPaid(g);
+        const debt = (g.totalPrice || 0) - paid;
+        return sum + (debt > 0 ? debt : 0);
+    }, 0);
+
+    return (
+        <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden flex flex-col hover:border-slate-300 hover:shadow-md transition-all duration-200 group">
+            {/* ✅ Чистый Header */}
+            <div className="p-5 border-b border-slate-200/60 bg-slate-50/50">
+                <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 bg-white border border-slate-200 rounded-xl flex items-center justify-center shadow-sm">
+                            <BedDouble size={20} className="text-slate-700"/>
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                                <h3 className="font-semibold text-lg text-slate-900">
+                                    Комната №{room.number}
+                                </h3>
+                                <span className="text-xs text-slate-600 bg-white px-2.5 py-1 rounded-lg font-medium border border-slate-200 shadow-sm">
+                                    {room.capacity} мест
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    {isAdmin && (
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={onEdit} className="p-2 bg-white text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200">
+                                <Edit size={15}/>
+                            </button>
+                            <button onClick={onClone} className="p-2 bg-white text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors border border-slate-200">
+                                <Copy size={15}/>
+                            </button>
+                            <button onClick={onDelete} className="p-2 bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200">
+                                <Trash2 size={15}/>
+                            </button>
+                        </div>
+                    )}
                 </div>
-            )}
-        </div>
-        <div className="p-4 grid grid-cols-2 gap-3 flex-1">
-            {beds.map(bedId => {
-                const guest = guests.find(g => {
-                    if (String(g.roomId) !== String(room.id)) return false;
-                    if (String(g.bedId) !== String(bedId)) return false;
-                    
-                    if (g.status === 'active') {
-                        return true;
-                    }
-                    
-                    if (g.status === 'booking') {
-                        const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
-                        if (!rawCheckIn) return false;
+                
+                {/* ✅ Деликатная статистика */}
+                <div className="grid grid-cols-3 gap-2.5">
+                    <div className="bg-white rounded-lg p-2.5 text-center border border-slate-200 shadow-sm">
+                        <div className="text-xs text-slate-500 font-medium mb-0.5">Занято</div>
+                        <div className="text-base font-semibold text-slate-800">{occupiedBeds}/{room.capacity}</div>
+                    </div>
+                    <div className="bg-emerald-50/50 rounded-lg p-2.5 text-center border border-emerald-200/50 shadow-sm">
+                        <div className="text-xs text-emerald-700 font-medium mb-0.5">Свободно</div>
+                        <div className="text-base font-semibold text-emerald-700">{room.capacity - occupiedBeds}</div>
+                    </div>
+                    <div className="bg-rose-50/50 rounded-lg p-2.5 text-center border border-rose-200/50 shadow-sm">
+                        <div className="text-xs text-rose-700 font-medium mb-0.5">Долги</div>
+                        <div className="text-sm font-semibold text-rose-700">{totalDebt > 0 ? totalDebt.toLocaleString() : '0'}</div>
+                    </div>
+                </div>
+            </div>
 
-                        const checkIn = new Date(rawCheckIn);
-                        if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
-                            checkIn.setHours(12, 0, 0, 0);
-                        }
-                        
-                        const rawCheckOut = g.checkOutDate;
-                        if (!rawCheckOut) return false;
-
-                        const checkOut = new Date(rawCheckOut);
-                        if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
-                            checkOut.setHours(12, 0, 0, 0);
-                        }
-                        
-                        return now >= checkIn && now < checkOut;
-                    }
-                    
-                    return false;
-                });
-
-                let ghostGuest = null;
-                if (!guest) {
-                    const checkedOutGuests = guests.filter(g => 
-                        String(g.roomId) === String(room.id) && 
-                        String(g.bedId) === String(bedId) &&
-                        g.status === 'checked_out'
-                    ).sort((a,b) => {
-                        const dateA = new Date(a.checkOutDate || 0);
-                        const dateB = new Date(b.checkOutDate || 0);
-                        return dateB - dateA;
-                    });
-                    
-                    if (checkedOutGuests.length > 0) {
-                        ghostGuest = checkedOutGuests[0];
-                    }
-                }
-
-                let futureGuest = null;
-                if (!guest && !ghostGuest) {
-                    const upcoming = guests.filter(g => {
+            {/* ✅ Чистая сетка коек */}
+            <div className="p-4 grid grid-cols-2 gap-3 flex-1 bg-slate-50/30">
+                {beds.map(bedId => {
+                    const guest = guests.find(g => {
                         if (String(g.roomId) !== String(room.id)) return false;
                         if (String(g.bedId) !== String(bedId)) return false;
-                        if (g.status !== 'active' && g.status !== 'booking') return false;
                         
-                        const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
-                        if (!rawCheckIn) return false;
-
-                        const checkIn = new Date(rawCheckIn);
-                        if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
-                            checkIn.setHours(12, 0, 0, 0);
+                        if (g.status === 'active') {
+                            return true;
                         }
-                        return checkIn > now; 
-                    }).sort((a,b) => {
-                        const dateA = new Date(a.checkInDate || 0);
-                        const dateB = new Date(b.checkInDate || 0);
-                        return dateA - dateB;
+                        
+                        if (g.status === 'booking') {
+                            const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
+                            if (!rawCheckIn) return false;
+                            const checkIn = new Date(rawCheckIn);
+                            if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
+                                checkIn.setHours(12, 0, 0, 0);
+                            }
+                            const rawCheckOut = g.checkOutDate;
+                            if (!rawCheckOut) return false;
+                            const checkOut = new Date(rawCheckOut);
+                            if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
+                                checkOut.setHours(12, 0, 0, 0);
+                            }
+                            return now >= checkIn && now < checkOut;
+                        }
+                        
+                        return false;
                     });
-                    
-                    if (upcoming.length > 0) {
-                        futureGuest = upcoming[0];
-                    }
-                }
-                
-                const isBooking = guest?.status === 'booking';
-                const paid = guest ? getTotalPaid(guest) : 0;
-                const debt = guest ? guest.totalPrice - paid : 0;
-                const ghostDebt = ghostGuest ? (ghostGuest.totalPrice || 0) - getTotalPaid(ghostGuest) : 0;
-                
-                let targetDateObj = null;
-                let isExpired = false;
-                
-                if (guest) {
-                    const rawCheckOut = guest.checkOutDate;
-                    if (rawCheckOut) {
-                        const checkOut = new Date(rawCheckOut);
-                        if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
-                            checkOut.setHours(12, 0, 0, 0);
+
+                    let ghostGuest = null;
+                    if (!guest) {
+                        const checkedOutGuests = guests.filter(g => 
+                            String(g.roomId) === String(room.id) && 
+                            String(g.bedId) === String(bedId) &&
+                            g.status === 'checked_out'
+                        ).sort((a,b) => {
+                            const dateA = new Date(a.checkOutDate || 0);
+                            const dateB = new Date(b.checkOutDate || 0);
+                            return dateB - dateA;
+                        });
+                        
+                        if (checkedOutGuests.length > 0) {
+                            ghostGuest = checkedOutGuests[0];
                         }
-                        targetDateObj = checkOut;
-                        isExpired = now >= checkOut;
                     }
-                }
 
-                let bgClass = 'bg-white border-slate-100 hover:border-indigo-300 hover:shadow-sm';
-                let badgeClass = 'bg-slate-100 text-slate-400';
-                let textClass = 'text-slate-700';
-                let showTimer = false;
+                    let futureGuest = null;
+                    if (!guest && !ghostGuest) {
+                        const upcoming = guests.filter(g => {
+                            if (String(g.roomId) !== String(room.id)) return false;
+                            if (String(g.bedId) !== String(bedId)) return false;
+                            if (g.status !== 'active' && g.status !== 'booking') return false;
+                            
+                            const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
+                            if (!rawCheckIn) return false;
+                            const checkIn = new Date(rawCheckIn);
+                            if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
+                                checkIn.setHours(12, 0, 0, 0);
+                            }
+                            return checkIn > now; 
+                        }).sort((a,b) => {
+                            const dateA = new Date(a.checkInDate || 0);
+                            const dateB = new Date(b.checkInDate || 0);
+                            return dateA - dateB;
+                        });
+                        
+                        if (upcoming.length > 0) {
+                            futureGuest = upcoming[0];
+                        }
+                    }
+                    
+                    const isBooking = guest?.status === 'booking';
+                    const paid = guest ? getTotalPaid(guest) : 0;
+                    const debt = guest ? guest.totalPrice - paid : 0;
+                    const ghostDebt = ghostGuest ? (ghostGuest.totalPrice || 0) - getTotalPaid(ghostGuest) : 0;
+                    
+                    let targetDateObj = null;
+                    let isExpired = false;
+                    
+                    if (guest) {
+                        const rawCheckOut = guest.checkOutDate;
+                        if (rawCheckOut) {
+                            const checkOut = new Date(rawCheckOut);
+                            if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
+                                checkOut.setHours(12, 0, 0, 0);
+                            }
+                            targetDateObj = checkOut;
+                            isExpired = now >= checkOut;
+                        }
+                    }
 
-                if (guest && !isBooking) {
-                     // ✅ ИЗМЕНЕНИЕ: Разрешить выселение без долга
-                     if (isExpired) {
-                         bgClass = 'bg-slate-200 border-slate-300';
-                         badgeClass = 'bg-slate-300 text-slate-500';
-                         textClass = 'text-slate-500';
-                         if (debt > 0) {
-                             bgClass = 'bg-rose-50 border-rose-200';
-                             badgeClass = 'bg-white/50 text-rose-700';
-                             textClass = 'text-rose-900';
+                    // ✅ СБАЛАНСИРОВАННЫЕ ЦВЕТА
+                    let bgClass = 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm';
+                    let statusBadge = null;
+
+                    if (guest && !isBooking) {
+                         if (isExpired) {
+                             // ⚫ СЕРЫЙ ДЛЯ TIMEOUT
+                             bgClass = 'bg-slate-100 border-slate-300 shadow-sm';
+                             statusBadge = <div className="absolute top-2 right-2 text-[9px] bg-slate-600 text-white px-1.5 py-0.5 rounded font-semibold">OUT</div>;
+                         } else if (debt > 0) {
+                             // 🟡 МЯГКИЙ ЖЕЛТЫЙ ДЛЯ ДОЛГОВ
+                             bgClass = 'bg-amber-50/70 border-amber-200 shadow-sm';
+                             statusBadge = <div className="absolute top-2 right-2 w-2 h-2 bg-amber-500 rounded-full"></div>;
+                         } else {
+                             // 🟢 МЯГКИЙ ЗЕЛЕНЫЙ ДЛЯ ОПЛАЧЕННЫХ
+                             bgClass = 'bg-emerald-100 border-emerald-300 shadow-sm';
+                             statusBadge = <div className="absolute top-2 right-2"><CheckCircle2 size={14} className="text-emerald-600"/></div>;
                          }
-                     } else if (debt > 0) {
-                         bgClass = 'bg-rose-50 border-rose-200';
-                         badgeClass = 'bg-white/50 text-rose-700';
-                         textClass = 'text-rose-900';
-                     } else {
-                         bgClass = 'bg-emerald-50 border-emerald-200';
-                         badgeClass = 'bg-white/50 text-emerald-700';
-                         textClass = 'text-emerald-900';
-                     }
-                     
-                     if (targetDateObj && !isExpired) {
-                         const diffMs = targetDateObj - now;
-                         const twelveHoursMs = 12 * 60 * 60 * 1000;
-                         if (diffMs > 0 && diffMs < twelveHoursMs) showTimer = true;
-                     }
-                } else if (isBooking) {
-                    bgClass = 'bg-amber-50 border-amber-200';
-                    badgeClass = 'bg-white/50 text-amber-600';
-                    textClass = 'text-amber-900';
-                } else if (ghostGuest) {
-                    bgClass = 'bg-slate-50 border-slate-200 opacity-70';
-                    badgeClass = 'bg-slate-200 text-slate-400';
-                    textClass = 'text-slate-400 italic';
-                }
+                    } else if (isBooking) {
+                        // 🔵 МЯГКИЙ СИНИЙ ДЛЯ БРОНИ
+                        bgClass = 'bg-blue-50/70 border-blue-200 shadow-sm';
+                        statusBadge = <div className="absolute top-2 right-2"><Clock size={14} className="text-blue-600"/></div>;
+                    } else if (ghostGuest) {
+                        bgClass = 'bg-slate-50 border-slate-200 opacity-40';
+                        statusBadge = <div className="absolute top-2 right-2"><History size={12} className="text-slate-400"/></div>;
+                    }
 
-                return (
-                    <div key={bedId} onClick={() => onBedClick(bedId, guest || ghostGuest, !!ghostGuest)}
-                         className={`cursor-pointer rounded-xl p-3 border transition-all relative min-h-[90px] flex flex-col justify-between group overflow-hidden ${bgClass}`}>
-                        
-                        {/* ✅ ИЗМЕНЕНИЕ: Убрана блокировка для expired без долга */}
-                        {((guest && isExpired) || ghostGuest) && (
-                            <div className="absolute inset-0 bg-slate-800/90 z-10 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity p-2 gap-2">
-                                <span className="text-white text-[10px] font-bold text-center mb-1">
-                                    {ghostGuest ? 'Checked Out' : 'Time Out'}
-                                </span>
-                                <div className="flex flex-col gap-1 w-full">
-                                    {guest && (
+                    return (
+                        <div key={bedId} onClick={() => onBedClick(bedId, guest || ghostGuest, !!ghostGuest)}
+                             className={`cursor-pointer rounded-lg p-4 border transition-all relative min-h-[110px] flex flex-col justify-between group/bed ${bgClass}`}>
+                            
+                            {statusBadge}
+
+                            {((guest && isExpired && debt <= 0) || ghostGuest) && (
+                                <div className="absolute inset-0 bg-slate-900/90 z-10 flex flex-col items-center justify-center opacity-0 group-hover/bed:opacity-100 transition-opacity rounded-lg p-2 gap-2">
+                                    <span className="text-white text-[10px] font-medium text-center mb-1">
+                                        {ghostGuest ? 'Выселен' : 'Время вышло'}
+                                    </span>
+                                    <div className="flex flex-col gap-1.5 w-full">
+                                        {guest && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); onBedClick(bedId, guest, false); }}
+                                                className="bg-emerald-600 text-white text-[10px] py-1.5 rounded-md font-medium hover:bg-emerald-500 w-full transition-colors"
+                                            >
+                                                Продлить
+                                            </button>
+                                        )}
                                         <button 
-                                            onClick={(e) => { e.stopPropagation(); onBedClick(bedId, guest, false); }}
-                                            className="bg-emerald-500 text-white text-[10px] py-1.5 rounded font-bold hover:bg-emerald-600 w-full"
+                                            onClick={(e) => { e.stopPropagation(); onBedClick(bedId, null, false); }} 
+                                            className="bg-blue-600 text-white text-[10px] py-1.5 rounded-md font-medium hover:bg-blue-500 w-full flex items-center justify-center gap-1 transition-colors"
                                         >
-                                            {t('extend')}
+                                            <Plus size={12}/> Новый гость
                                         </button>
-                                    )}
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); onBedClick(bedId, null, false); }} 
-                                        className="bg-indigo-500 text-white text-[10px] py-1.5 rounded font-bold hover:bg-indigo-600 w-full flex items-center justify-center gap-1"
-                                    >
-                                        <Plus size={12}/> {t('checkinNew')}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex justify-between items-start">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${badgeClass}`}>
-                                {bedId} {bedId % 2 === 0 ? 'Up' : 'Dn'}
-                            </span>
-                            {guest && (
-                                isBooking ? 
-                                <Clock size={14} className="text-amber-500"/> : 
-                                <User size={14} className={isExpired ? 'text-slate-400' : (debt > 0 ? 'text-rose-400' : 'text-emerald-400')}/>
-                            )}
-                            {ghostGuest && <History size={14} className="text-slate-300"/>}
-                        </div>
-                        
-                        {guest || ghostGuest ? (
-                            <div className="mt-2 overflow-hidden">
-                                <div className={`font-bold text-sm leading-tight truncate ${textClass}`}>
-                                    {(guest || ghostGuest).fullName}
-                                </div>
-                                <div className="flex justify-between items-end mt-1">
-                                     <div className="text-[10px] opacity-70">
-                                        {isBooking ? t('booking') : (() => {
-                                            if (guest && !isBooking && !isExpired && targetDateObj) {
-                                                const daysLeft = Math.max(0, Math.ceil((targetDateObj - now) / (1000 * 60 * 60 * 24)));
-                                                if (lang === 'ru') {
-                                                    return pluralize(daysLeft, 'день', 'дня', 'дней', 'ru') + ' осталось';
-                                                } else {
-                                                    return `${daysLeft} kun qoldi`;
-                                                }
-                                            }
-                                            const days = (guest || ghostGuest).days;
-                                            if (lang === 'ru') {
-                                                return pluralize(days, 'день', 'дня', 'дней', 'ru');
-                                            } else {
-                                                return `${days} kun`;
-                                            }
-                                        })()}
-                                     </div>
-                                     {!isBooking && ghostGuest && ghostDebt > 0 && (
-                                         <div className="text-[10px] font-bold text-rose-600 bg-rose-100 px-1 rounded">
-                                             -{ghostDebt.toLocaleString()}
-                                         </div>
-                                     )}
-                                     {!isBooking && guest && debt > 0 && (
-                                         <div className="text-[10px] font-bold text-rose-600 bg-rose-100 px-1 rounded">
-                                             -{debt.toLocaleString()}
-                                         </div>
-                                     )}
-                                </div>
-                                {showTimer && targetDateObj && <CountdownTimer targetDate={targetDateObj} lang={lang} />}
-                                {isExpired && <div className="text-[9px] font-bold text-slate-500 mt-1 uppercase tracking-wide">Time Out</div>}
-                            </div>
-                        ) : (
-                            <div className="mt-auto text-center">
-                                {futureGuest ? (
-                                    <div className="text-left">
-                                        <div className="text-[10px] text-slate-400 font-medium uppercase">
-                                            {(() => {
-                                                const daysUntil = Math.max(0, Math.ceil((new Date(futureGuest.checkInDate) - now)/(1000*60*60*24)));
-                                                if (lang === 'ru') {
-                                                    return 'Свободно ' + pluralize(daysUntil, 'день', 'дня', 'дней', 'ru');
-                                                } else {
-                                                    return `Bo'sh ${daysUntil} kun`;
-                                                }
-                                            })()}
-                                        </div>
-                                        <div className="text-xs font-bold text-slate-500 truncate flex items-center gap-1">
-                                            <Clock size={10}/> {futureGuest.fullName}
-                                        </div>
                                     </div>
-                                ) : (
-                                    <Plus className="mx-auto text-slate-200 group-hover:text-indigo-400 transition-colors" size={20}/>
-                                )}
+                                </div>
+                            )}
+
+                            <div className="flex justify-between items-start">
+                                <span className={`text-xs font-medium px-2 py-1 rounded-md ${
+                                    bedId % 2 === 0 
+                                        ? 'bg-blue-100/70 text-blue-700 border border-blue-200/50' 
+                                        : 'bg-purple-100/70 text-purple-700 border border-purple-200/50'
+                                }`}>
+                                    {bedId} {bedId % 2 === 0 ? 'Верх' : 'Низ'}
+                                </span>
+                                {guest && <User size={15} className="text-slate-400"/>}
+                                {ghostGuest && <History size={15} className="text-slate-300"/>}
+                                {!guest && !ghostGuest && !futureGuest && <Plus size={15} className="text-slate-300 group-hover/bed:text-slate-500 transition-colors"/>}
                             </div>
-                        )}
-                    </div>
-                );
-            })}
+                            
+                            {guest || ghostGuest ? (
+                                <div className="mt-3 overflow-hidden">
+                                    <div className="font-semibold text-sm leading-tight truncate text-slate-900">
+                                        {(guest || ghostGuest).fullName}
+                                    </div>
+                                    <div className="flex justify-between items-center mt-2">
+                                         <div className="text-[10px] text-slate-600 font-medium">
+                                            {isBooking ? 'Бронь' : (() => {
+                                                if (guest && !isBooking && !isExpired && targetDateObj) {
+                                                    const daysLeft = Math.max(0, Math.ceil((targetDateObj - now) / (1000 * 60 * 60 * 24)));
+                                                    return `${daysLeft} дн.`;
+                                                }
+                                                const days = (guest || ghostGuest).days;
+                                                return `${days} дн.`;
+                                            })()}
+                                         </div>
+                                         {!isBooking && ghostGuest && ghostDebt > 0 && (
+                                             <div className="text-[10px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded border border-rose-200">
+                                                 -{ghostDebt.toLocaleString()}
+                                             </div>
+                                         )}
+                                         {!isBooking && guest && debt > 0 && (
+                                             <div className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
+                                                 -{debt.toLocaleString()}
+                                             </div>
+                                         )}
+                                    </div>
+                                    {!isExpired && targetDateObj && guest && !isBooking && (
+                                        <CountdownTimer targetDate={targetDateObj} lang={lang} />
+                                    )}
+                                    {isExpired && <div className="text-[9px] font-medium text-slate-600 mt-1 uppercase tracking-wide">TIME OUT</div>}
+                                </div>
+                            ) : (
+                                <div className="mt-auto text-center">
+                                    {futureGuest ? (
+                                        <div className="text-left">
+                                            <div className="text-[10px] text-blue-600 font-medium uppercase mb-1">
+                                                {(() => {
+                                                    const daysUntil = Math.max(0, Math.ceil((new Date(futureGuest.checkInDate) - now)/(1000*60*60*24)));
+                                                    return `Через ${daysUntil} дн.`;
+                                                })()}
+                                            </div>
+                                            <div className="text-xs font-medium text-slate-700 truncate flex items-center gap-1">
+                                                <Clock size={10}/> {futureGuest.fullName}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-slate-300 group-hover/bed:text-slate-400 transition-colors">
+                                            <Plus size={24} className="mx-auto"/>
+                                            <div className="text-[10px] font-medium mt-1">Свободно</div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
-    </div>
-);
-}; 
+    );
+};
 
 const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
@@ -1524,37 +1905,211 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
         </div>
     );
 };
-// ✅ ИЗМЕНЕНИЕ: Добавлена визуализация оплаченных/должных дней (зеленый/красный)
+// ✅ ИСПРАВЛЕНО: Tooltip с умным позиционированием
+const GuestTooltip = ({ guest, room, mousePos, lang }) => {
+    const t = (k) => TRANSLATIONS[lang][k];
+    const totalPaid = getTotalPaid(guest);
+    const debt = (guest.totalPrice || 0) - totalPaid;
+    
+    const now = new Date();
+    const checkIn = new Date(guest.checkInDate);
+    const checkOut = new Date(guest.checkOutDate);
+    if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
+        checkOut.setHours(12, 0, 0, 0);
+    }
+    const isExpired = now >= checkOut;
+    
+    const daysTotal = parseInt(guest.days);
+    const daysStayed = Math.min(daysTotal, Math.max(0, Math.ceil((now - checkIn) / (1000 * 60 * 60 * 24))));
+    const daysLeft = Math.max(0, daysTotal - daysStayed);
+    
+    // ✅ УМНОЕ ПОЗИЦИОНИРОВАНИЕ
+    const tooltipWidth = 320;
+    const tooltipHeight = 400; // примерная высота
+    const offset = 15;
+    
+    let x = mousePos.x + offset;
+    let y = mousePos.y + offset;
+    
+    // Если выходит за правый край - показываем слева от курсора
+    if (x + tooltipWidth > window.innerWidth) {
+        x = mousePos.x - tooltipWidth - offset;
+    }
+    
+    // Если выходит за нижний край - показываем сверху от курсора
+    if (y + tooltipHeight > window.innerHeight) {
+        y = mousePos.y - tooltipHeight - offset;
+    }
+    
+    // Если выходит за левый край - прижимаем к левому краю
+    if (x < 10) {
+        x = 10;
+    }
+    
+    // Если выходит за верхний край - прижимаем к верхнему краю
+    if (y < 10) {
+        y = 10;
+    }
+    
+    return (
+        <div 
+            className="fixed z-[100] bg-slate-900 text-white rounded-xl shadow-2xl p-4 min-w-[320px] animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
+            style={{
+                left: `${x}px`,
+                top: `${y}px`
+            }}
+        >
+            {/* Header */}
+            <div className="border-b border-white/20 pb-3 mb-3">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                        <h4 className="font-bold text-lg text-white mb-1">{guest.fullName}</h4>
+                        <div className="flex items-center gap-2 text-xs text-white/70">
+                            <span className="flex items-center gap-1">
+                                <User size={12}/> {guest.passport}
+                            </span>
+                            <span>•</span>
+                            <span>{guest.country}</span>
+                        </div>
+                    </div>
+                    <div className={`px-2 py-1 rounded-lg text-xs font-bold ${
+                        guest.status === 'booking' ? 'bg-amber-500' :
+                        guest.status === 'checked_out' ? 'bg-slate-500' :
+                        isExpired ? 'bg-rose-500' :
+                        debt > 0 ? 'bg-orange-500' : 'bg-emerald-500'
+                    }`}>
+                        {guest.status === 'booking' ? '🕰 Бронь' :
+                         guest.status === 'checked_out' ? 'Выселен' :
+                         isExpired ? '⏰ Просрочен' :
+                         debt > 0 ? 'Долг' : '✓ Оплачено'}
+                    </div>
+                </div>
+            </div>
+            
+            {/* Info Grid */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="bg-white/10 rounded-lg p-2">
+                    <div className="text-[10px] text-white/60 uppercase font-bold mb-1">Комната</div>
+                    <div className="text-sm font-bold">№{guest.roomNumber} / Место {guest.bedId}</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2">
+                    <div className="text-[10px] text-white/60 uppercase font-bold mb-1">Период</div>
+                    <div className="text-sm font-bold">{guest.days} {lang === 'ru' ? 'дн.' : 'kun'}</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2">
+                    <div className="text-[10px] text-white/60 uppercase font-bold mb-1">Заезд</div>
+                    <div className="text-sm font-bold">{new Date(guest.checkInDate).toLocaleDateString()}</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2">
+                    <div className="text-[10px] text-white/60 uppercase font-bold mb-1">Выезд</div>
+                    <div className="text-sm font-bold">{new Date(guest.checkOutDate).toLocaleDateString()}</div>
+                </div>
+            </div>
+            
+            {/* Financial Info */}
+            {guest.status !== 'booking' && (
+                <div className="bg-white/10 rounded-lg p-3 mb-3">
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs text-white/70">К оплате:</span>
+                        <span className="font-bold">{guest.totalPrice?.toLocaleString()} сум</span>
+                    </div>
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs text-white/70">Оплачено:</span>
+                        <span className="font-bold text-emerald-400">{totalPaid.toLocaleString()} сум</span>
+                    </div>
+                    {debt > 0 && (
+                        <div className="flex justify-between items-center pt-2 border-t border-white/20">
+                            <span className="text-xs font-bold text-rose-400">Долг:</span>
+                            <span className="font-bold text-rose-400">{debt.toLocaleString()} сум</span>
+                        </div>
+                    )}
+                </div>
+            )}
+            
+            {/* Progress */}
+            {guest.status === 'active' && !isExpired && (
+                <div className="bg-white/10 rounded-lg p-3">
+                    <div className="flex justify-between text-xs text-white/70 mb-2">
+                        <span>Прогресс проживания</span>
+                        <span>{daysStayed} / {daysTotal} дн.</span>
+                    </div>
+                    <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+                        <div 
+                            className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all"
+                            style={{ width: `${(daysStayed / daysTotal) * 100}%` }}
+                        />
+                    </div>
+                    <div className="text-xs text-white/60 mt-2 text-center">
+                        Осталось: {daysLeft} {lang === 'ru' ? 'дн.' : 'kun'}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ✅ ПОЛНОСТЬЮ НОВЫЙ CalendarView
 const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest }) => {
     const t = (k) => TRANSLATIONS[lang][k]; 
     const [collapsedRooms, setCollapsedRooms] = useState({});
     const [startDate, setStartDate] = useState(new Date());
+    const [hoveredGuest, setHoveredGuest] = useState(null);
+    const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
-    const shiftDate = (days) => {
-        const newDate = new Date(startDate);
-        newDate.setDate(newDate.getDate() + days);
-        setStartDate(newDate);
-    };
+    const shiftDateLeft = useCallback(() => {
+        setStartDate(prev => {
+            const newDate = new Date(prev);
+            newDate.setDate(newDate.getDate() - 1);
+            return newDate;
+        });
+    }, []);
+
+    const shiftDateRight = useCallback(() => {
+        setStartDate(prev => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const currentStart = new Date(prev);
+            currentStart.setHours(0, 0, 0, 0);
+            
+            const newDate = new Date(prev);
+            
+            if (currentStart >= today) {
+                newDate.setDate(newDate.getDate() + 7);
+            } else {
+                newDate.setDate(newDate.getDate() + 1);
+            }
+            
+            return newDate;
+        });
+    }, []);
 
     const calendarDaysCount = 14;
-    const days = Array.from({length: calendarDaysCount}, (_, i) => {
-        const d = new Date(startDate);
-        d.setDate(d.getDate() + i);
-        return { 
-            date: d, 
-            str: getLocalDateString(d), 
-            day: d.getDate(), 
-            month: d.getMonth() + 1,
-            week: d.toLocaleDateString('ru-RU', {weekday: 'short'}) 
-        };
-    });
-
-    const toggleRoom = (roomId) => {
-        setCollapsedRooms(prev => ({...prev, [roomId]: !prev[roomId]}));
-    };
     
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    // ✅ МЕМОИЗАЦИЯ ДНЕЙ
+    const days = useMemo(() => {
+        return Array.from({length: calendarDaysCount}, (_, i) => {
+            const d = new Date(startDate);
+            d.setDate(d.getDate() + i);
+            return { 
+                date: d, 
+                str: getLocalDateString(d), 
+                day: d.getDate(), 
+                month: d.getMonth() + 1,
+                week: d.toLocaleDateString('ru-RU', {weekday: 'short'}) 
+            };
+        });
+    }, [startDate]);
+
+    const toggleRoom = useCallback((roomId) => {
+        setCollapsedRooms(prev => ({...prev, [roomId]: !prev[roomId]}));
+    }, []);
+    
+    const sevenDaysAgo = useMemo(() => {
+        const date = new Date();
+        date.setDate(date.getDate() - 7);
+        return date;
+    }, []);
     
     const relevantGuests = useMemo(() => {
         const uniqueGuests = [];
@@ -1566,8 +2121,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             
             if (g.status === 'active' || g.status === 'booking') {
                 uniqueGuests.push(g);
-            }
-            else if (g.status === 'checked_out') {
+            } else if (g.status === 'checked_out') {
                 const checkOutDate = new Date(g.checkOutDate);
                 if (checkOutDate > sevenDaysAgo) {
                     uniqueGuests.push(g);
@@ -1576,78 +2130,53 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         });
         
         return uniqueGuests;
-    }, [guests]);
+    }, [guests, sevenDaysAgo]);
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
-    
-    const getBlockColorClass = (guest) => {
-    // ✅ Брони - желтые
-    if (guest.status === 'booking') return 'bg-amber-400 border-amber-500';
-    
-    // ✅ Выселенные - серые
-    if (guest.status === 'checked_out') return 'bg-slate-400 border-slate-500';
 
-    const now = new Date();
-    const checkOut = new Date(guest.checkOutDate);
-    if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
-         checkOut.setHours(12, 0, 0, 0);
-    }
-    
-    // ✅ ИСПРАВЛЕНИЕ: Если срок проживания истек - ВСЕГДА серый
-    if (now >= checkOut) {
-        return 'bg-slate-400 border-slate-500'; 
-    }
-    
-    // ✅ Для активных (срок не истек) - проверяем долг
-    const totalPrice = guest.totalPrice || 0;
-    const totalPaid = getTotalPaid(guest);
-    const debt = totalPrice - totalPaid;
-
-    if (debt <= 0) return 'bg-emerald-500 border-emerald-600'; // Зеленый - оплачено
-    return 'bg-rose-500 border-rose-600'; // Красный - есть долг
-};
-
-    const getGuestBlockStyle = (guest) => {
-        let checkInDate = new Date(guest.checkInDate || guest.checkInDateTime || guest.checkIn);
-        checkInDate.setHours(12, 0, 0, 0);
-
+    // ✅ МЕМОИЗАЦИЯ СТИЛЕЙ ГОСТЕЙ
+    const guestStyles = useMemo(() => {
+        const styles = {};
         const calendarStart = new Date(days[0].str);
         calendarStart.setHours(0,0,0,0);
-        
-        // ✅ ИСПРАВЛЕНИЕ: Используем реальный checkOutDate из базы данных
-        const checkOutDate = new Date(guest.checkOutDate);
-        checkOutDate.setHours(12, 0, 0, 0);
-
         const calendarEnd = new Date(days[days.length-1].str);
         calendarEnd.setHours(23,59,59,999);
-
-        if (checkOutDate < calendarStart || checkInDate > calendarEnd) return null;
-
         const msPerDay = 1000 * 60 * 60 * 24;
         const totalCalendarMs = msPerDay * calendarDaysCount;
         
-        let startTimeDiff = checkInDate.getTime() - calendarStart.getTime();
-        let durationMs = checkOutDate.getTime() - checkInDate.getTime();
+        relevantGuests.forEach(guest => {
+            let checkInDate = new Date(guest.checkInDate || guest.checkInDateTime || guest.checkIn);
+            checkInDate.setHours(12, 0, 0, 0);
 
-        if (startTimeDiff < 0) {
-            durationMs += startTimeDiff; 
-            startTimeDiff = 0; 
-        }
+            const guestDurationMs = parseInt(guest.days) * 24 * 60 * 60 * 1000;
+            const checkOutDate = new Date(checkInDate.getTime() + guestDurationMs);
+            checkOutDate.setHours(12, 0, 0, 0);
 
-        const leftPercent = (startTimeDiff / totalCalendarMs) * 100;
-        const widthPercent = (durationMs / totalCalendarMs) * 100;
-        const maxRemaining = 100 - leftPercent;
-        const finalWidth = Math.min(widthPercent, maxRemaining);
+            if (checkOutDate < calendarStart || checkInDate > calendarEnd) {
+                styles[guest.id] = null;
+                return;
+            }
 
-        // ✅ НОВОЕ: Расчет процента оплаченных дней
-        const totalPrice = guest.totalPrice || 0;
-        const totalPaid = getTotalPaid(guest);
-        const paidRatio = totalPrice > 0 ? Math.min(1, totalPaid / totalPrice) : 1;
+            let startTimeDiff = checkInDate.getTime() - calendarStart.getTime();
+            let durationMs = checkOutDate.getTime() - checkInDate.getTime();
 
-        return { leftPercent, widthPercent: finalWidth, paidRatio };
-    };
+            if (startTimeDiff < 0) {
+                durationMs += startTimeDiff; 
+                startTimeDiff = 0; 
+            }
+
+            const leftPercent = (startTimeDiff / totalCalendarMs) * 100;
+            const widthPercent = (durationMs / totalCalendarMs) * 100;
+            const maxRemaining = 100 - leftPercent;
+            const finalWidth = Math.min(widthPercent, maxRemaining);
+
+            styles[guest.id] = { leftPercent, widthPercent: finalWidth };
+        });
+        
+        return styles;
+    }, [relevantGuests, days, calendarDaysCount]);
     
-    const handleEmptyCellClick = (room, bedId, dateStr, isRightHalf) => {
+    const handleEmptyCellClick = useCallback((room, bedId, dateStr, isRightHalf) => {
         const clickDate = new Date(dateStr);
         if (isRightHalf) {
             clickDate.setHours(12, 0, 0, 0); 
@@ -1656,40 +2185,106 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             clickDate.setHours(12, 0, 0, 0);
         }
         onSlotClick(room, bedId, null, clickDate.toISOString());
-    };
+    }, [onSlotClick]);
 
-    const handleDeleteGuest = (e, guestId) => {
+    const handleDeleteGuest = useCallback((e, guestId) => {
         e.stopPropagation();
         if (confirm(t('confirmDelete'))) {
             onDeleteGuest(guestId);
         }
-    };
+    }, [t, onDeleteGuest]);
+
+    // ✅ THROTTLE для mousemove
+    const handleMouseMove = useCallback((e) => {
+        setMousePosition({ x: e.clientX, y: e.clientY });
+    }, []);
+
+    const handleMouseEnter = useCallback((e, guest, room) => {
+        setMousePosition({ x: e.clientX, y: e.clientY });
+        setHoveredGuest({ ...guest, room });
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+        setHoveredGuest(null);
+    }, []);
 
     return (
-        <div className="flex-1 flex flex-col overflow-hidden bg-white">
-            <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
+        <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100">
+            <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
                 <div className="flex gap-2">
-                    <button onClick={() => shiftDate(-1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><ChevronLeft size={20}/></button>
-                    <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setStartDate(d); }} className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-bold hover:bg-indigo-100">{t('today')}</button>
-                    <button onClick={() => shiftDate(7)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><ChevronRight size={20}/></button>
+                    <button onClick={shiftDateLeft} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
+                        <ChevronLeft size={20}/>
+                    </button>
+                    <button 
+                        onClick={() => { 
+                            const d = new Date(); 
+                            d.setHours(0,0,0,0); 
+                            setStartDate(d); 
+                        }} 
+                        className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-sm font-bold hover:from-indigo-700 hover:to-indigo-800 shadow-md shadow-indigo-200 transition-all"
+                    >
+                        {t('today')}
+                    </button>
+                    <button onClick={shiftDateRight} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
+                        <ChevronRight size={20}/>
+                    </button>
                 </div>
-                <div className="text-sm font-bold text-slate-700 bg-slate-50 px-3 py-1 rounded-md border border-slate-200">
-                    {days[0].date.toLocaleDateString()} — {days[days.length - 1].date.toLocaleDateString()}
+				
+                <div className="flex items-center gap-3">
+                    <div className="text-sm font-bold text-slate-700 bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
+                        {days[0].date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} — {days[days.length - 1].date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </div>
+                    
+                    <div className="flex items-center gap-3 text-xs">
+                        <div className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded bg-emerald-500"></div>
+                            <span className="text-slate-600">Оплачено</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded bg-rose-500"></div>
+                            <span className="text-slate-600">Долг</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded bg-amber-500"></div>
+                            <span className="text-slate-600">Бронь</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded bg-slate-400"></div>
+                            <span className="text-slate-600">Просрочен</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-auto relative">
-                <div className="min-w-[1600px]">
-                    <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200 shadow-sm h-12">
-                        <div className="w-40 p-3 font-bold text-xs text-slate-500 bg-slate-50 border-r border-slate-200 sticky left-0 z-50">
+            {/* ✅ ОПТИМИЗАЦИЯ: will-change, contain */}
+            <div className="flex-1 overflow-auto relative" style={{willChange: 'scroll-position'}}>
+                <div className="min-w-[1600px]" style={{contain: 'layout style'}}>
+                    <div className="flex sticky top-0 bg-white z-40 border-b-2 border-slate-300 shadow-sm h-16">
+                        <div className="w-48 p-3 font-bold text-xs text-slate-500 bg-slate-50 border-r border-slate-300 sticky left-0 z-50 flex items-center">
+                            <BedDouble size={16} className="mr-2"/>
                             {t('room')} / {t('bed')}
                         </div>
-                        {days.map(d => (
-                            <div key={d.str} className={`flex-1 min-w-[80px] flex flex-col items-start justify-center px-2 border-r border-slate-100 ${['сб','вс'].includes(d.week) ? 'bg-rose-50' : ''}`}>
-                                <div className="text-[10px] text-slate-400 uppercase font-bold">{d.week}</div>
-                                <div className="text-sm font-bold text-slate-800">{d.day}.{d.month}</div>
-                            </div>
-                        ))}
+                        {days.map(d => {
+                            const isToday = d.str === getLocalDateString(new Date());
+                            const isWeekend = ['сб','вс'].includes(d.week);
+                            
+                            return (
+                                <div key={d.str} className={`flex-1 min-w-[100px] flex flex-col items-center justify-center px-1 border-r border-slate-200 transition-colors ${
+                                    isToday ? 'bg-indigo-100 border-indigo-300' :
+                                    isWeekend ? 'bg-rose-50' : 'bg-white'
+                                }`}>
+                                    <div className={`text-[9px] uppercase font-bold ${isToday ? 'text-indigo-700' : 'text-slate-400'}`}>
+                                        {d.week}
+                                    </div>
+                                    <div className={`text-base font-bold my-0.5 ${isToday ? 'text-indigo-900' : 'text-slate-800'}`}>
+                                        {d.day}
+                                    </div>
+                                    <div className={`text-[9px] ${isToday ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                        {d.month < 10 ? '0' : ''}{d.month}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {rooms.map(room => {
@@ -1697,12 +2292,15 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                         const roomLabel = lang === 'uz' ? `Xona №${room.number}` : `Комната №${room.number}`;
                         
                         return (
-                            <div key={room.id} className="border-b border-slate-200">
+                            <div key={room.id} className="border-b border-slate-200 hover:bg-slate-50/50 transition-colors">
                                 <div 
-                                    className="flex items-center justify-between px-3 py-2 bg-slate-100 hover:bg-slate-200 cursor-pointer font-bold text-slate-700 text-sm sticky left-0 z-30 border-r border-slate-200 w-40 border-b border-slate-200"
+                                    className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-100 to-slate-50 hover:from-slate-200 hover:to-slate-100 cursor-pointer font-bold text-slate-700 text-sm sticky left-0 z-30 border-r border-slate-300 w-48 border-b border-slate-200 transition-all"
                                     onClick={() => toggleRoom(room.id)}
                                 >
-                                    <span>{roomLabel}</span>
+                                    <span className="flex items-center gap-2">
+                                        <Building2 size={14}/>
+                                        {roomLabel}
+                                    </span>
                                     {isCollapsed ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
                                 </div>
 
@@ -1710,116 +2308,142 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                     const bedGuests = relevantGuests.filter(g => g.roomId === room.id && String(g.bedId) === String(bedId));
                                     
                                     return (
-                                        <div key={bedId} className="flex h-16 border-b border-slate-50 last:border-b-0 relative">
-                                            <div className="w-40 px-4 flex items-center justify-between border-r border-slate-200 bg-white sticky left-0 z-30 text-xs font-bold text-slate-500">
-                                                <span>{t('bed')} {bedId}</span>
-                                                <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 rounded text-slate-400">{bedId % 2 === 0 ? 'Up' : 'Dn'}</span>
+                                        <div key={bedId} className="flex h-14 border-b border-slate-100 last:border-b-0 relative group/row hover:bg-indigo-50/30 transition-colors">
+                                            <div className="w-48 px-4 flex items-center justify-between border-r border-slate-200 bg-white sticky left-0 z-30 text-sm font-semibold text-slate-600 group-hover/row:bg-indigo-50/50 transition-colors">
+                                                <span className="flex items-center gap-2">
+                                                    <BedDouble size={14} className="text-slate-400"/>
+                                                    Место {bedId}
+                                                </span>
+                                                <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${
+                                                    bedId % 2 === 0 ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                                                }`}>
+                                                    {bedId % 2 === 0 ? 'Верх' : 'Низ'}
+                                                </span>
                                             </div>
 
                                             <div className="flex-1 relative">
                                                 <div className="absolute inset-0 flex">
-                                                    {days.map(d => (
-                                                        <div key={d.str} className={`flex-1 min-w-[80px] border-r border-slate-100 h-full flex ${['сб','вс'].includes(d.week) ? 'bg-rose-50' : ''}`}>
-                                                            <div className="w-1/2 h-full cursor-pointer hover:bg-indigo-50 border-r border-slate-200/30" onClick={() => handleEmptyCellClick(room, bedId, d.str, false)}/>
-                                                            <div className="w-1/2 h-full cursor-pointer hover:bg-indigo-50" onClick={() => handleEmptyCellClick(room, bedId, d.str, true)}/>
-                                                        </div>
-                                                    ))}
+                                                    {days.map(d => {
+                                                        const isToday = d.str === getLocalDateString(new Date());
+                                                        const isWeekend = ['сб','вс'].includes(d.week);
+                                                        
+                                                        return (
+                                                            <div key={d.str} className={`flex-1 min-w-[100px] border-r border-slate-100 h-full flex ${
+                                                                isToday ? 'bg-indigo-50/50' : isWeekend ? 'bg-rose-50/30' : ''
+                                                            }`}>
+                                                                <div 
+                                                                    className="w-1/2 h-full cursor-pointer hover:bg-indigo-100/50 border-r border-slate-100/50 transition-colors" 
+                                                                    onClick={() => handleEmptyCellClick(room, bedId, d.str, false)}
+                                                                />
+                                                                <div 
+                                                                    className="w-1/2 h-full cursor-pointer hover:bg-indigo-100/50 transition-colors" 
+                                                                    onClick={() => handleEmptyCellClick(room, bedId, d.str, true)}
+                                                                />
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
 
                                                 {bedGuests.map(guest => {
-    const styleData = getGuestBlockStyle(guest);
-    if (!styleData) return null;
-    
-    const bgClass = getBlockColorClass(guest);
-    const debt = (guest.totalPrice || 0) - getTotalPaid(guest);
-    const hasDebt = debt > 0;
-    const isCheckedOut = guest.status === 'checked_out';
-    
-    // ✅ ДОБАВЛЕНО: Проверка просрочки
-    const now = new Date();
-    const checkOut = new Date(guest.checkOutDate);
-    if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
-        checkOut.setHours(12, 0, 0, 0);
-    }
-    const isExpired = now >= checkOut && guest.status !== 'checked_out';
-    
-    const paidRatio = styleData.paidRatio;
+                                                    // ✅ ИСПОЛЬЗУЕМ МЕМОИЗИРОВАННЫЕ СТИЛИ
+                                                    const styleData = guestStyles[guest.id];
+                                                    if (!styleData) return null;
+                                                    
+                                                    const totalPaid = getTotalPaid(guest);
+                                                    const debt = (guest.totalPrice || 0) - totalPaid;
+                                                    const isCheckedOut = guest.status === 'checked_out';
+                                                    
+                                                    const now = new Date();
+                                                    const checkOut = new Date(guest.checkOutDate);
+                                                    if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
+                                                        checkOut.setHours(12, 0, 0, 0);
+                                                    }
+                                                    const isExpired = now >= checkOut && !isCheckedOut;
+                                                    
+                                                    const totalPrice = guest.totalPrice || 0;
+                                                    const paidRatio = totalPrice > 0 ? Math.min(1, totalPaid / totalPrice) : 0;
+                                                    
+                                                    const bgClass = guest.status === 'booking' ? 'bg-gradient-to-r from-amber-400 to-amber-500 border-amber-600' :
+                                                                   isCheckedOut ? 'bg-gradient-to-r from-slate-400 to-slate-500 border-slate-600' :
+                                                                   isExpired ? 'bg-gradient-to-r from-slate-400 to-slate-500 border-slate-600' :
+                                                                   debt > 0 ? 'bg-gradient-to-r from-rose-500 to-rose-600 border-rose-700' :
+                                                                   'bg-gradient-to-r from-emerald-500 to-emerald-600 border-emerald-700';
 
-    return (
-        <div 
-            key={guest.id}
-            className={`absolute top-1 bottom-1 z-20 rounded-md shadow-sm cursor-pointer hover:z-50 hover:shadow-lg border group/block overflow-hidden flex items-center ${bgClass}`}
-            style={{
-                left: `${styleData.leftPercent}%`,
-                width: `${styleData.widthPercent}%`
-            }}
-            onClick={(e) => { e.stopPropagation(); onSlotClick(room, bedId, guest, null); }}
-            title={guest.fullName}
-        >
-            {/* ✅ ИСПРАВЛЕНО: Зеленая заливка - только для НЕ просроченных */}
-{!isCheckedOut && !isExpired && guest.status !== 'booking' && paidRatio > 0 && (
-    <div 
-        className="absolute inset-0 bg-emerald-500"
-        style={{ width: `${paidRatio * 100}%` }}
-    />
-)}
+                                                    return (
+                                                        <div 
+                                                            key={guest.id}
+                                                            className={`absolute top-1 bottom-1 z-20 rounded-lg shadow-lg cursor-pointer hover:z-50 hover:shadow-xl hover:scale-[1.02] border-2 group/block overflow-hidden ${bgClass} flex items-center transition-all duration-200`}
+                                                            style={{
+                                                                left: `${styleData.leftPercent}%`,
+                                                                width: `${styleData.widthPercent}%`,
+                                                                willChange: 'transform'
+                                                            }}
+                                                            onClick={(e) => { 
+                                                                e.stopPropagation(); 
+                                                                onSlotClick(room, bedId, guest, null); 
+                                                            }}
+                                                            onMouseEnter={(e) => handleMouseEnter(e, guest, room)}
+                                                            onMouseMove={handleMouseMove}
+                                                            onMouseLeave={handleMouseLeave}
+                                                        >
+                                                            {!isCheckedOut && !isExpired && guest.status !== 'booking' && paidRatio > 0 && (
+                                                                <div 
+                                                                    className="absolute inset-0 bg-emerald-500 opacity-100"
+                                                                    style={{ width: `${paidRatio * 100}%` }}
+                                                                />
+                                                            )}
 
-{/* ✅ ИСПРАВЛЕНО: Красная заливка - только для НЕ просроченных */}
-{!isCheckedOut && !isExpired && hasDebt && guest.status !== 'booking' && paidRatio < 1 && (
-    <div 
-        className="absolute inset-0 bg-rose-500"
-        style={{ 
-            left: `${paidRatio * 100}%`,
-            width: `${(1 - paidRatio) * 100}%` 
-        }}
-    />
-)}
+                                                            {!isCheckedOut && !isExpired && debt > 0 && guest.status !== 'booking' && paidRatio < 1 && (
+                                                                <div 
+                                                                    className="absolute inset-0 bg-rose-500 opacity-100"
+                                                                    style={{ 
+                                                                        left: `${paidRatio * 100}%`,
+                                                                        width: `${(1 - paidRatio) * 100}%` 
+                                                                    }}
+                                                                />
+                                                            )}
 
-            <div className="sticky left-0 pl-1 pr-1 flex flex-col justify-center h-full w-full max-w-full z-50">
-                <span className="font-bold text-[10px] text-white whitespace-nowrap overflow-hidden text-ellipsis px-1.5 py-0.5 rounded-sm bg-black/40 w-fit block relative">
-                    {guest.status === 'booking' && '🕰 '}
-                    {isExpired && '⏰ '}
-                    {guest.fullName}
-                </span>
-                
-                {/* ✅ ИЗМЕНЕНО: Показываем долг только для активных (не просроченных) */}
-                {!isCheckedOut && !isExpired && hasDebt && (
-                    <span className="text-[9px] font-bold mt-0.5 px-1.5 py-px rounded w-fit bg-white text-rose-600 shadow-sm border border-rose-200 relative">
-                        -{debt.toLocaleString()}
-                    </span>
-                )}
-                
-                {/* ✅ ИЗМЕНЕНО: Показываем OK только для активных (не просроченных) */}
-                {!isCheckedOut && !isExpired && !hasDebt && guest.status !== 'booking' && (
-                    <span className="text-[9px] font-bold mt-0.5 px-1 py-px rounded w-fit bg-white/90 text-emerald-700 shadow-sm relative">
-                        ✓ OK
-                    </span>
-                )}
-                
-                {/* ✅ НОВОЕ: Показываем TIME OUT для просроченных */}
-                {isExpired && (
-                     <span className="text-[9px] font-bold mt-0.5 px-1.5 py-px rounded w-fit bg-white text-slate-700 shadow-sm border border-slate-300 relative">
-                        TIME OUT
-                     </span>
-                )}
-                
-                {isCheckedOut && (
-                     <span className="text-[9px] text-white/90 italic ml-1">OUT</span>
-                )}
-            </div>
-
-            {isCheckedOut && isAdmin && (
-                <button 
-                    onClick={(e) => handleDeleteGuest(e, guest.id)}
-                    className="absolute right-1 top-1 p-1 bg-white hover:bg-rose-500 hover:text-white rounded-full text-slate-700 shadow-md hidden group-hover/block:block z-50"
-                    title={t('delete')}
-                >
-                    <X size={10} strokeWidth={3}/>
-                </button>
-            )}
-        </div>
-    );
-})}
+                                                            <div className="sticky left-0 px-2 flex items-center gap-2 w-full relative z-10">
+                                                                <div className="bg-white/20 p-1 rounded-lg backdrop-blur-sm">
+                                                                    {guest.status === 'booking' ? <Clock size={12} className="text-white"/> :
+                                                                     isExpired ? <AlertCircle size={12} className="text-white"/> :
+                                                                     <User size={12} className="text-white"/>}
+                                                                </div>
+                                                                
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="font-bold text-xs text-white truncate">
+                                                                        {guest.fullName}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 text-[10px] text-white/80">
+                                                                        <span>{guest.days}д</span>
+                                                                        {debt > 0 && !isCheckedOut && !isExpired && (
+                                                                            <>
+                                                                                <span>•</span>
+                                                                                <span className="font-bold">-{debt.toLocaleString()}</span>
+                                                                            </>
+                                                                        )}
+                                                                        {isExpired && (
+                                                                            <>
+                                                                                <span>•</span>
+                                                                                <span className="font-bold">TIME OUT</span>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                {isCheckedOut && isAdmin && (
+                                                                    <button 
+                                                                        onClick={(e) => handleDeleteGuest(e, guest.id)}
+                                                                        className="bg-white/20 hover:bg-rose-500 p-1.5 rounded-lg text-white transition-colors opacity-0 group-hover/block:opacity-100"
+                                                                        title={t('delete')}
+                                                                    >
+                                                                        <X size={12} strokeWidth={3}/>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     );
@@ -1829,6 +2453,15 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     })}
                 </div>
             </div>
+            
+            {hoveredGuest && (
+                <GuestTooltip 
+                    guest={hoveredGuest} 
+                    room={hoveredGuest.room} 
+                    mousePos={mousePosition}
+                    lang={lang}
+                />
+            )}
         </div>
     );
 };
@@ -3258,333 +3891,513 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
 
 const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, guests, clients, onClose, onSubmit, notify, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
-    const [selectedRoomId, setSelectedRoomId] = useState(initialRoom?.id || allRooms[0]?.id || '');
-    const room = allRooms.find(r => r.id === selectedRoomId);
     
-    const [searchTerm, setSearchTerm] = useState('');
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [isScanning, setIsScanning] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const initialStep = (initialRoom && preSelectedBedId) ? 2 : 1;
+    const [step, setStep] = useState(initialStep);
     
-    const now = new Date();
-    const todayStr = getLocalDateString(now);
-    const yesterdayStr = getLocalDateString(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const defaultDate = now.getHours() < 12 ? yesterdayStr : todayStr;
-
-    const [form, setForm] = useState({
-        fullName: '', birthDate: '', passport: '', country: 'Узбекистан',
-        bedId: String(preSelectedBedId || '1'),
-        checkInDate: initialDate || defaultDate, 
-        days: 1, 
-        pricePerNight: 0,
-        payCash: '', payCard: '', payQR: ''
+    const [formData, setFormData] = useState({
+        roomId: initialRoom?.id || '',
+        roomNumber: initialRoom?.number || '',
+        bedId: preSelectedBedId || '',
+        fullName: '',
+        passport: '',
+        country: '',
+        birthDate: '',
+        checkInDate: initialDate || new Date().toISOString().split('T')[0],
+        days: 1,
+        pricePerNight: initialRoom?.price || 0,
+        paidCash: 0,
+        paidCard: 0,
+        paidQR: 0,
+        status: 'active'
     });
 
-    const [magnetActiveField, setMagnetActiveField] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [matchedClients, setMatchedClients] = useState([]);
 
     useEffect(() => {
+        if (searchTerm.length >= 2) {
+            const matches = clients.filter(c => 
+                c.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.passport?.toLowerCase().includes(searchTerm.toLowerCase())
+            ).slice(0, 5);
+            setMatchedClients(matches);
+        } else {
+            setMatchedClients([]);
+        }
+    }, [searchTerm, clients]);
+
+    const handleClientSelect = (client) => {
+        setFormData(prev => ({
+            ...prev,
+            fullName: client.fullName || '',
+            passport: client.passport || '',
+            country: client.country || '',
+            birthDate: client.birthDate || ''
+        }));
+        setSearchTerm('');
+        setMatchedClients([]);
+    };
+
+    const handleChange = (field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+        if (field === 'fullName') setSearchTerm(value);
+    };
+
+    const handleRoomChange = (roomId) => {
+        const room = allRooms.find(r => r.id === roomId);
         if (room) {
-            const isUpper = parseInt(form.bedId) % 2 === 0;
-            const price = isUpper ? (room.prices?.upper || 0) : (room.prices?.lower || 0);
-            setForm(prev => ({ ...prev, pricePerNight: price }));
-        }
-    }, [room, form.bedId]);
-
-    const handleNameChange = (e) => {
-        const val = e.target.value.toUpperCase();
-        setForm(prev => ({ ...prev, fullName: val }));
-        setSearchTerm(val);
-        setShowSuggestions(true);
-    };
-
-    const selectClient = (client) => {
-        setForm(prev => ({ ...prev, fullName: client.fullName, passport: client.passport, birthDate: client.birthDate, country: client.country }));
-        setShowSuggestions(false);
-    };
-    
-    const handlePassportScan = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        setIsScanning(true);
-
-        try {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            
-            reader.onload = async () => {
-                const base64String = reader.result.toString();
-                const base64Image = base64String.split(',')[1];
-
-                if (!base64Image) {
-                    notify("Error processing image file", 'error');
-                    setIsScanning(false);
-                    return;
-                }
-
-                try {
-                    const scanPassportFn = httpsCallable(functions, 'scanPassport');
-                    const response = await scanPassportFn({ image: base64Image });
-                    const { success, data, error } = response.data;
-
-                    if (success) {
-                        setForm(prev => ({
-                            ...prev,
-                            fullName: data.fullName || prev.fullName,
-                            passport: data.passport || prev.passport,
-                            birthDate: data.birthDate || prev.birthDate,
-                            country: data.country || prev.country
-                        }));
-                        notify("Passport Scanned Successfully!", 'success');
-                    } else {
-                        throw new Error(error || "Unknown server error");
-                    }
-                } catch (apiErr) {
-                    console.error("Cloud Function Error:", apiErr);
-                    notify("Scan failed: " + (apiErr.message || "Server Error"), 'error');
-                } finally {
-                    setIsScanning(false);
-                }
-            };
-            
-            reader.onerror = () => {
-                notify("File Read Error", 'error');
-                setIsScanning(false);
-            };
-
-        } catch (err) {
-            console.error(err);
-            notify("System Error", 'error');
-            setIsScanning(false);
+            setFormData(prev => ({
+                ...prev,
+                roomId: room.id,
+                roomNumber: room.number,
+                pricePerNight: room.price || 0,
+                bedId: ''
+            }));
         }
     };
 
-    const suggestions = searchTerm.length > 1 ? clients.filter(c => c.fullName.includes(searchTerm) || c.passport.includes(searchTerm)).slice(0, 5) : [];
-    const totalPrice = (parseInt(form.pricePerNight) || 0) * (parseInt(form.days) || 1);
-    const totalPaid = (parseInt(form.payCash)||0) + (parseInt(form.payCard)||0) + (parseInt(form.payQR)||0);
-    const debt = totalPrice - totalPaid;
-
-    const applyMagnet = (field) => {
-        const currentCash = field === 'payCash' ? 0 : (parseInt(form.payCash) || 0);
-        const currentCard = field === 'payCard' ? 0 : (parseInt(form.payCard) || 0);
-        const currentQR = field === 'payQR' ? 0 : (parseInt(form.payQR) || 0);
-        const currentTotal = currentCash + currentCard + currentQR;
-        const remaining = Math.max(0, totalPrice - currentTotal);
-
-        setForm(prev => ({ ...prev, [field]: String(remaining) }));
-        setMagnetActiveField(field);
-    };
-
-    const handleAction = (e, isBooking = false) => {
-        if(e) e.preventDefault();
-        if(isSubmitting) return;
+    const getAvailableBeds = () => {
+        if (!formData.roomId) return [];
+        const room = allRooms.find(r => r.id === formData.roomId);
+        if (!room) return [];
         
-        try {
-            setIsSubmitting(true);
-            if (!room) return notify(t('error'), 'error');
-            if (!form.fullName.trim()) return notify("Fill Name!", 'error');
-
-            const selectedDate = new Date(form.checkInDate);
-            selectedDate.setHours(12, 0, 0, 0);
+        const now = new Date();
+        
+        const occupiedBeds = guests.filter(g => {
+            if (g.roomId !== formData.roomId) return false;
+            if (g.status !== 'active') return false;
             
-            const stay = getStayDetails(selectedDate.toISOString(), form.days);
-            
-            const conflicts = guests.filter(g => {
-                if(g.roomId !== room.id || String(g.bedId) !== String(form.bedId)) return false;
-                if(g.status !== 'active' && g.status !== 'booking') return false;
-                return checkCollision(g.checkInDate || g.checkInDateTime || g.checkIn, g.days, selectedDate.toISOString(), form.days);
-            });
-
-            if (conflicts.length > 0) {
-                setIsSubmitting(false);
-                return notify(`Occupied! (${conflicts[0].fullName})`, 'error');
+            const rawCheckOut = g.checkOutDate;
+            if (!rawCheckOut) return true;
+            const checkOut = new Date(rawCheckOut);
+            if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
+                checkOut.setHours(12, 0, 0, 0);
             }
-
-            const finalCash = isBooking ? 0 : (parseInt(form.payCash) || 0);
-            const finalCard = isBooking ? 0 : (parseInt(form.payCard) || 0);
-            const finalQR = isBooking ? 0 : (parseInt(form.payQR) || 0);
-            const finalTotalPaid = isBooking ? 0 : totalPaid;
-
-            onSubmit({
-                ...form,
-                checkInDate: stay.start.toISOString(), 
-                checkOutDate: stay.end.toISOString(), 
-                roomId: room.id, 
-                roomNumber: room.number, 
-                hostelId: room.hostelId,
-                bedId: String(form.bedId), 
-                paidCash: finalCash, 
-                paidCard: finalCard, 
-                paidQR: finalQR,
-                amountPaid: finalTotalPaid, 
-                totalPrice,
-                status: isBooking ? 'booking' : 'active'
-            });
             
-            setTimeout(() => setIsSubmitting(false), 1000);
-        } catch (err) {
-            console.error(err);
-            setIsSubmitting(false);
+            return now < checkOut;
+        }).map(g => String(g.bedId));
+
+        return Array.from({length: room.capacity}, (_, i) => i + 1).map(bedId => ({
+            id: bedId,
+            occupied: occupiedBeds.includes(String(bedId))
+        }));
+    };
+
+    // ✅ ФУНКЦИЯ МАГНИТИКА - заполняет остаток в выбранное поле
+    const handleMagnetClick = (field) => {
+        const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
+        const currentTotal = parseInt(formData.paidCash || 0) + parseInt(formData.paidCard || 0) + parseInt(formData.paidQR || 0);
+        const remaining = Math.max(0, totalPrice - currentTotal);
+        
+        if (remaining > 0) {
+            handleChange(field, (parseInt(formData[field] || 0) + remaining).toString());
         }
     };
-    const disableWheel = (e) => { e.currentTarget.blur(); };
+
+    // ✅ ЗАСЕЛЕНИЕ
+    const handleSubmit = () => {
+        if (!formData.fullName || !formData.passport || !formData.roomId || !formData.bedId) {
+            notify(t('fillAllFields'), 'error');
+            return;
+        }
+
+        const stay = getStayDetails(formData.checkInDate, parseInt(formData.days));
+        const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
+
+        onSubmit({
+            ...formData,
+            status: 'active',
+            checkInDate: stay.start.toISOString(),
+            checkOutDate: stay.end.toISOString(),
+            totalPrice,
+            amountPaid: parseInt(formData.paidCash) + parseInt(formData.paidCard) + parseInt(formData.paidQR),
+            staffId: 'current',
+            hostelId: allRooms.find(r => r.id === formData.roomId)?.hostelId
+        });
+    };
+
+    // ✅ БРОНИРОВАНИЕ (только с данными гостя)
+    const handleBooking = () => {
+        if (!formData.fullName || !formData.passport || !formData.roomId || !formData.bedId) {
+            notify(t('fillAllFields'), 'error');
+            return;
+        }
+
+        const stay = getStayDetails(formData.checkInDate, parseInt(formData.days));
+        const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
+
+        onSubmit({
+            ...formData,
+            status: 'booking',
+            checkInDate: stay.start.toISOString(),
+            checkOutDate: stay.end.toISOString(),
+            totalPrice,
+            amountPaid: 0,
+            paidCash: 0,
+            paidCard: 0,
+            paidQR: 0,
+            staffId: 'current',
+            hostelId: allRooms.find(r => r.id === formData.roomId)?.hostelId
+        });
+    };
+
+    const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
+    const totalPaid = parseInt(formData.paidCash || 0) + parseInt(formData.paidCard || 0) + parseInt(formData.paidQR || 0);
+    const availableBeds = getAvailableBeds();
+    
+    const totalSteps = initialStep === 1 ? 3 : 2;
+    const displayStep = initialStep === 2 ? step - 1 : step;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[95vh]">
-            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-20">
-              <div><h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3">{t('checkin')} {room && <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-sm rounded-full font-bold">Room {room.number}</span>}</h3><p className="text-slate-500 text-sm mt-1">New Guest</p></div>
-              <button onClick={onClose} type="button" className="p-2 hover:bg-slate-100 rounded-full transition-colors"><XCircle className="text-slate-400 hover:text-slate-600" size={32}/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto bg-slate-50/50 p-8">
-              <form onSubmit={(e)=>handleAction(e, false)} className="flex flex-col gap-6">
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full relative flex flex-col">
-                        {isScanning && (
-                            <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center rounded-2xl animate-in fade-in">
-                                <Loader2 className="animate-spin text-indigo-600 mb-4" size={50} />
-                                <span className="font-bold text-slate-800 text-lg">AI распознавание...</span>
-                                <span className="text-slate-500 text-sm mt-1">Пожалуйста, подождите</span>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+            <style>{`
+                input[type="number"]::-webkit-inner-spin-button,
+                input[type="number"]::-webkit-outer-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+                input[type="number"] {
+                    -moz-appearance: textfield;
+                }
+            `}</style>
+            
+            <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 border border-slate-200">
+                {/* Header */}
+                <div className="p-6 border-b border-slate-200 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                                <UserPlus size={24} className="text-white"/>
                             </div>
-                        )}
-
-                        <div className="flex items-center gap-2 mb-4">
-                            <User className="text-indigo-600" size={24}/>
-                            <h4 className="font-bold text-slate-800 text-lg">{t('guestName')}</h4>
-                        </div>
-
-                        <div className="mb-6">
-                            <label className="relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-300 rounded-xl cursor-pointer bg-indigo-50 hover:bg-indigo-100 transition-all group overflow-hidden">
-                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                    <div className="bg-white p-3 rounded-full mb-2 shadow-sm group-hover:scale-110 transition-transform">
-                                        <ScanLine className="text-indigo-600" size={24} />
-                                    </div>
-                                    <p className="mb-1 text-sm font-bold text-indigo-700">Снять фото / Загрузить</p>
-                                    <p className="text-xs text-indigo-400">Паспорт или ID карта</p>
-                                </div>
-                                <input 
-                                    type="file" 
-                                    accept="image/*" 
-                                    capture="environment" 
-                                    onChange={handlePassportScan}
-                                    className="hidden" 
-                                    disabled={isScanning}
-                                />
-                            </label>
-                        </div>
-
-                        <div className="space-y-5 flex-1">
-                            <div className="relative">
-                                <label className={labelClass}>{t('guestName')} (Search DB)</label>
-                                <div className="relative">
-                                    <input className={`${inputClass} pl-10 py-3 text-lg font-bold text-slate-700`} value={form.fullName} onChange={handleNameChange} placeholder="IVANOV IVAN" onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} />
-                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><User size={18}/></div>
-                                </div>
-                                {showSuggestions && suggestions.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl mt-2 z-50 overflow-hidden">
-                                        {suggestions.map(s => (
-                                            <div key={s.id} onClick={() => selectClient(s)} className="p-3 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group">
-                                                <div><div className="font-bold text-slate-800">{s.fullName}</div><div className="text-xs text-slate-400">{s.country}</div></div><div className="bg-slate-100 px-2 py-1 rounded text-xs font-mono text-slate-500 group-hover:bg-white">{s.passport}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="grid grid-cols-2 gap-5">
-                                <div><label className={labelClass}>{t('passport')}</label><input className={`${inputClass} uppercase font-mono text-lg`} value={form.passport} onChange={e => setForm({...form, passport: e.target.value.toUpperCase()})} placeholder="AA1234567" /></div>
-                                <div><label className={labelClass}>{t('birthDate')}</label><input type="date" className={inputClass} value={form.birthDate} onChange={e => setForm({...form, birthDate: e.target.value})} /></div>
-                            </div>
-                            <div><label className={labelClass}>{t('country')}</label><select className={inputClass} value={form.country} onChange={e => setForm({...form, country: e.target.value})}>{COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                        </div>
-                    </div>
-                    
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full">
-                        <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
-                            <BedDouble className="text-indigo-600" size={20}/>
-                            <h4 className="font-bold text-slate-800">Placement</h4>
-                        </div>
-                        <div className="grid grid-cols-2 gap-5">
-                            <div><label className={labelClass}>{t('room')}</label><select className={`${inputClass} font-bold`} value={selectedRoomId} onChange={e => setSelectedRoomId(e.target.value)}>{allRooms.map(r => <option key={r.id} value={r.id}>№ {r.number}</option>)}</select></div>
                             <div>
-                                <label className={labelClass}>{t('bed')}</label>
-                                <select className={inputClass} value={form.bedId} onChange={e => setForm({...form, bedId: e.target.value})}>
-                                    {room && Array.from({length: room.capacity}).map((_, i) => { const id = i + 1; return <option key={id} value={id}>№ {id} {id % 2 === 0 ? '(Up)' : '(Down)'}</option> })}
+                                <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                                    {t('checkin')}
+                                </h2>
+                                <p className="text-indigo-600 text-sm font-medium">Шаг {displayStep} из {totalSteps}</p>
+                            </div>
+                        </div>
+                        <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-xl transition-colors">
+                            <X size={24} className="text-slate-600"/>
+                        </button>
+                    </div>
+
+                    <div className="mt-4 flex gap-2">
+                        {Array.from({length: totalSteps}, (_, i) => i + 1).map(s => (
+                            <div key={s} className={`h-2 flex-1 rounded-full transition-all ${
+                                s <= displayStep ? 'bg-gradient-to-r from-indigo-500 to-purple-500' : 'bg-slate-200'
+                            }`}/>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                    {step === 1 && (
+                        <div className="space-y-4 animate-in slide-in-from-right duration-200">
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                <Home size={20} className="text-indigo-600"/>
+                                Выбор комнаты и места
+                            </h3>
+
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">Комната</label>
+                                <select 
+                                    value={formData.roomId}
+                                    onChange={(e) => handleRoomChange(e.target.value)}
+                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                >
+                                    <option value="">Выберите комнату</option>
+                                    {allRooms.map(r => (
+                                        <option key={r.id} value={r.id}>
+                                            Комната №{r.number} - {(r.price || 0).toLocaleString()} сум/день
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
-                            <div>
-                                <label className={labelClass}>Date In</label>
-                                <input 
-                                    type="date" 
-                                    className={inputClass} 
-                                    value={form.checkInDate.split('T')[0]} 
-                                    onChange={e => setForm({...form, checkInDate: e.target.value})}
-                                />
+
+                            {formData.roomId && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-3">Выберите место</label>
+                                    <div className="grid grid-cols-4 gap-3">
+                                        {availableBeds.map(bed => (
+                                            <button
+                                                key={bed.id}
+                                                onClick={() => !bed.occupied && handleChange('bedId', bed.id)}
+                                                disabled={bed.occupied}
+                                                className={`p-4 rounded-xl border-2 font-bold transition-all ${
+                                                    formData.bedId === bed.id
+                                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-lg'
+                                                        : bed.occupied
+                                                        ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                                                        : 'border-slate-200 hover:border-indigo-400 hover:bg-indigo-50'
+                                                }`}
+                                            >
+                                                <BedDouble size={20} className="mx-auto mb-1"/>
+                                                <div className="text-sm">Место {bed.id}</div>
+                                                <div className="text-xs mt-1">
+                                                    {bed.occupied ? '❌ Занято' : '✓ Свободно'}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {step === 2 && (
+                        <div className="space-y-4 animate-in slide-in-from-right duration-200">
+                            {/* ✅ УБРАЛИ ЗАГОЛОВОК */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2 relative">
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">ФИО</label>
+                                    <input
+                                        type="text"
+                                        value={formData.fullName}
+                                        onChange={(e) => handleChange('fullName', e.target.value)}
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                        placeholder="Введите ФИО"
+                                    />
+                                    {matchedClients.length > 0 && (
+                                        <div className="absolute z-10 w-full mt-2 bg-white border-2 border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                            {matchedClients.map(client => (
+                                                <button
+                                                    key={client.id}
+                                                    onClick={() => handleClientSelect(client)}
+                                                    className="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0"
+                                                >
+                                                    <div className="font-bold text-slate-800">{client.fullName}</div>
+                                                    <div className="text-xs text-slate-500">{client.passport} • {client.country}</div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Паспорт</label>
+                                    <input
+                                        type="text"
+                                        value={formData.passport}
+                                        onChange={(e) => handleChange('passport', e.target.value)}
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                        placeholder="AA1234567"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Страна</label>
+                                    <select
+                                        value={formData.country}
+                                        onChange={(e) => handleChange('country', e.target.value)}
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                    >
+                                        <option value="">Выберите страну</option>
+                                        {COUNTRIES.map((country, idx) => {
+                                            if (country === '---') {
+                                                return <option key={idx} disabled>──────────────</option>;
+                                            }
+                                            return <option key={idx} value={country}>{country}</option>;
+                                        })}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Дата рождения</label>
+                                    <input
+                                        type="date"
+                                        value={formData.birthDate}
+                                        onChange={(e) => handleChange('birthDate', e.target.value)}
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Дата заезда</label>
+                                    <input
+                                        type="date"
+                                        value={formData.checkInDate}
+                                        onChange={(e) => handleChange('checkInDate', e.target.value)}
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Количество дней</label>
+                                    <input
+                                        type="number"
+                                        value={formData.days}
+                                        onChange={(e) => handleChange('days', e.target.value)}
+                                        min="1"
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Цена за ночь</label>
+                                    <input
+                                        type="number"
+                                        value={formData.pricePerNight}
+                                        onChange={(e) => handleChange('pricePerNight', e.target.value)}
+                                        className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:ring focus:ring-indigo-200 transition-all bg-white"
+                                    />
+                                </div>
                             </div>
-                            <div><label className={labelClass}>{t('days')}</label><input type="number" min="1" className={`${inputClass} font-bold text-lg`} value={form.days} onChange={e => setForm({...form, days: e.target.value})} onWheel={disableWheel} /></div>
-                            <div className="col-span-2"><label className={labelClass}>{t('price')}</label><input type="number" className={inputClass} value={form.pricePerNight} onChange={e => setForm({...form, pricePerNight: e.target.value})} onWheel={disableWheel} /></div>
+
+                            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 border-2 border-indigo-200">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-700 font-bold">Итого к оплате:</span>
+                                    <span className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                                        {totalPrice.toLocaleString()} сум
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                 </div>
-                 
-                 <div className="bg-slate-50 border border-slate-200 p-6 rounded-3xl w-full">
-                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-lg"><Wallet className="text-indigo-600"/> {t('payment')}</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                         <div>
-                             <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">{t('cash')}</label>
-                             <div className="flex items-center">
-                                 <input type="number" className="w-full bg-white border border-slate-300 rounded-l-xl px-4 py-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400 no-spinner" value={form.payCash} onChange={e => { setForm({...form, payCash: e.target.value}); setMagnetActiveField(null); }} placeholder="0" onWheel={disableWheel} />
-                                 <button type="button" onClick={() => applyMagnet('payCash')} disabled={magnetActiveField && magnetActiveField !== 'payCash'} className="bg-white border border-l-0 border-slate-300 rounded-r-xl px-3 py-3 hover:bg-slate-50 text-indigo-600 disabled:opacity-40"><Magnet size={18}/></button>
-                             </div>
-                         </div>
-                         <div>
-                             <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">{t('card')}</label>
-                             <div className="flex items-center">
-                                 <input type="number" className="w-full bg-white border border-slate-300 rounded-l-xl px-4 py-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400 no-spinner" value={form.payCard} onChange={e => { setForm({...form, payCard: e.target.value}); setMagnetActiveField(null); }} placeholder="0" onWheel={disableWheel} />
-                                 <button type="button" onClick={() => applyMagnet('payCard')} disabled={magnetActiveField && magnetActiveField !== 'payCard'} className="bg-white border border-l-0 border-slate-300 rounded-r-xl px-3 py-3 hover:bg-slate-50 text-indigo-600 disabled:opacity-40"><Magnet size={18}/></button>
-                             </div>
-                         </div>
-                         <div>
-                             <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">{t('qr')}</label>
-                             <div className="flex items-center">
-                                 <input type="number" className="w-full bg-white border border-slate-300 rounded-l-xl px-4 py-3 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400 no-spinner" value={form.payQR} onChange={e => { setForm({...form, payQR: e.target.value}); setMagnetActiveField(null); }} placeholder="0" onWheel={disableWheel} />
-                                 <button type="button" onClick={() => applyMagnet('payQR')} disabled={magnetActiveField && magnetActiveField !== 'payQR'} className="bg-white border border-l-0 border-slate-300 rounded-r-xl px-3 py-3 hover:bg-slate-50 text-indigo-600 disabled:opacity-40"><Magnet size={18}/></button>
-                             </div>
-                         </div>
-                    </div>
-                    <div className="flex flex-col md:flex-row gap-4 items-stretch">
-                        <div className="flex-1 bg-white border border-slate-200 rounded-xl p-4 flex justify-around items-center shadow-sm">
-                             <div className="text-center">
-                                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{t('total')}</div>
-                                 <div className="font-extrabold text-slate-800 text-xl">{totalPrice.toLocaleString()}</div>
-                             </div>
-                             <div className="w-px h-8 bg-slate-100 mx-2"></div>
-                             <div className="text-center">
-                                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{t('paid')}</div>
-                                 <div className="font-extrabold text-emerald-600 text-xl">{totalPaid.toLocaleString()}</div>
-                             </div>
-                             <div className="w-px h-8 bg-slate-100 mx-2"></div>
-                             <div className="text-center">
-                                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{t('debt')}</div>
-                                 <div className={`font-extrabold text-xl ${debt > 0 ? 'text-rose-500' : 'text-slate-300'}`}>{debt > 0 ? debt.toLocaleString() : '0'}</div>
-                             </div>
+                    )}
+
+                    {step === 3 && (
+                        <div className="space-y-4 animate-in slide-in-from-right duration-200">
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                <Wallet size={20} className="text-indigo-600"/>
+                                Оплата
+                            </h3>
+
+                            {/* ✅ КОМПАКТНЫЕ ПОЛЯ С МАГНИТИКОМ */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
+                                        <DollarSign size={12}/>
+                                        Наличные
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            value={formData.paidCash}
+                                            onChange={(e) => handleChange('paidCash', e.target.value)}
+                                            className="w-full pl-3 pr-10 py-2 border-2 border-emerald-300 rounded-lg focus:border-emerald-500 focus:ring focus:ring-emerald-200 transition-all bg-white text-sm"
+                                            placeholder="0"
+                                        />
+                                        <button
+                                            onClick={() => handleMagnetClick('paidCash')}
+                                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md transition-colors"
+                                            title="Заполнить остаток"
+                                        >
+                                            <Magnet size={14}/>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-blue-700 mb-1 flex items-center gap-1">
+                                        <CreditCard size={12}/>
+                                        Карта
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            value={formData.paidCard}
+                                            onChange={(e) => handleChange('paidCard', e.target.value)}
+                                            className="w-full pl-3 pr-10 py-2 border-2 border-blue-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all bg-white text-sm"
+                                            placeholder="0"
+                                        />
+                                        <button
+                                            onClick={() => handleMagnetClick('paidCard')}
+                                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
+                                            title="Заполнить остаток"
+                                        >
+                                            <Magnet size={14}/>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-purple-700 mb-1 flex items-center gap-1">
+                                        <QrCode size={12}/>
+                                        QR код
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            value={formData.paidQR}
+                                            onChange={(e) => handleChange('paidQR', e.target.value)}
+                                            className="w-full pl-3 pr-10 py-2 border-2 border-purple-300 rounded-lg focus:border-purple-500 focus:ring focus:ring-purple-200 transition-all bg-white text-sm"
+                                            placeholder="0"
+                                        />
+                                        <button
+                                            onClick={() => handleMagnetClick('paidQR')}
+                                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-md transition-colors"
+                                            title="Заполнить остаток"
+                                        >
+                                            <Magnet size={14}/>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ✅ КОМПАКТНАЯ СВОДКА */}
+                            <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl p-4 border-2 border-slate-200 space-y-2">
+                                <div className="flex justify-between text-sm text-slate-600">
+                                    <span>Стоимость:</span>
+                                    <span className="font-bold text-slate-800">{totalPrice.toLocaleString()} сум</span>
+                                </div>
+                                <div className="flex justify-between text-sm text-emerald-600">
+                                    <span>Оплачено:</span>
+                                    <span className="font-bold">{totalPaid.toLocaleString()} сум</span>
+                                </div>
+                                <div className="border-t-2 border-slate-300 pt-2 flex justify-between items-center">
+                                    <span className="font-bold">
+                                        {totalPaid >= totalPrice ? 'Переплата:' : 'Долг:'}
+                                    </span>
+                                    <span className={`text-xl font-bold ${
+                                        totalPaid >= totalPrice ? 'text-emerald-600' : 'text-rose-600'
+                                    }`}>
+                                        {Math.abs(totalPrice - totalPaid).toLocaleString()} сум
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* ✅ ПРЕДУПРЕЖДЕНИЕ О ДОЛГЕ */}
+                            {totalPaid < totalPrice && (
+                                <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-3 flex items-start gap-2">
+                                    <AlertCircle size={18} className="text-amber-600 flex-shrink-0 mt-0.5"/>
+                                    <div className="text-xs text-amber-700">
+                                        <span className="font-bold">Внимание!</span> Гость заселяется с долгом <span className="font-bold">{(totalPrice - totalPaid).toLocaleString()} сум</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div className="flex flex-col sm:flex-row gap-3 min-w-[300px]">
-                            <Button type="button" onClick={(e) => handleAction(e, true)} variant="warning" className="flex-1 py-4 text-lg shadow-sm" title="Book" disabled={isSubmitting}>
-                                <Clock size={20} /> {t('booking')}
-                            </Button>
-                            <Button type="button" onClick={(e) => handleAction(e, false)} variant="primary" className="flex-[2] py-4 text-lg shadow-lg shadow-indigo-200" icon={CheckCircle2} disabled={isSubmitting}>
-                                {t('checkin')}
-                            </Button>
-                        </div>
-                    </div>
-                 </div>
-              </form>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-slate-200 bg-slate-50/50 backdrop-blur-sm flex justify-between gap-3">
+                    {step > initialStep && (
+                        <Button variant="secondary" onClick={() => setStep(step - 1)}>
+                            Назад
+                        </Button>
+                    )}
+                    
+                    {/* ✅ КНОПКА БРОНИРОВАНИЯ (только на шаге 2) */}
+                    {step === 2 && (
+                        <Button variant="warning" onClick={handleBooking} icon={Clock}>
+                            Забронировать
+                        </Button>
+                    )}
+                    
+                    <div className="flex-1"></div>
+                    
+                    {step < 3 ? (
+                        <Button variant="primary" onClick={() => setStep(step + 1)}>
+                            Далее
+                        </Button>
+                    ) : (
+                        <Button variant="success" onClick={handleSubmit} icon={CheckCircle2}>
+                            Заселить
+                        </Button>
+                    )}
+                </div>
             </div>
-          </div>
-          <style>{`
-            .no-spinner::-webkit-outer-spin-button, .no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-            .no-spinner { -moz-appearance: textfield; }
-          `}</style>
         </div>
     );
 };
@@ -4215,27 +5028,124 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
     );
 };
 
-const ExpenseModal = ({ onClose, onSubmit, lang }) => {
+const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
     const t = (k) => TRANSLATIONS[lang][k];
-    const categories = lang === 'uz' ? ['Хўжалик буюмлари', 'Озиқ-овқат', 'Таъмирлаш', 'Иш ҳақи', 'Коммунал', 'Бошқа'] : ['Хозтовары', 'Продукты', 'Ремонт', 'Зарплата', 'Коммунальные', 'Прочее'];
-    const [form, setForm] = useState({ amount: '', category: categories[0], comment: '' });
-    
+    const [category, setCategory] = useState('');
+    const [amount, setAmount] = useState('');
+    const [comment, setComment] = useState('');
+
+    const categories = [
+        'Аренда', 'Коммунальные услуги', 'Зарплата', 'Продукты', 
+        'Канцелярия', 'Ремонт', 'Интернет', 'Реклама', 'Другое'
+    ];
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!category || !amount) {
+            alert('Заполните все обязательные поля');
+            return;
+        }
+        onSubmit({
+            category,
+            amount: parseFloat(amount),
+            comment,
+            date: new Date().toISOString(),
+            staffId: currentUser.id || currentUser.login,
+            hostelId: currentUser.hostelId
+        });
+        onClose();
+    };
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-                <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Wallet size={20} className="text-rose-500"/> {t('expense')}</h3>
-                <div className="space-y-4">
-                    <div><label className={labelClass}>{t('amount')}</label><input type="number" className={inputClass} value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} placeholder="0" /></div>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
+                {/* ✅ Header */}
+                <div className="p-6 border-b border-slate-200 bg-gradient-to-br from-slate-100 via-rose-100/50 to-pink-100/50">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 bg-gradient-to-br from-rose-200 to-pink-200 rounded-xl flex items-center justify-center">
+                                <Wallet size={24} className="text-rose-600"/>
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Добавить расход</h2>
+                                <p className="text-sm text-slate-600">Заполните данные о расходе</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-slate-700"
+                        >
+                            <X size={24}/>
+                        </button>
+                    </div>
+                </div>
+
+                {/* ✅ Form */}
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 bg-gradient-to-br from-slate-50 to-rose-50/20">
+                    {/* Категория */}
                     <div>
-                        <label className={labelClass}>{t('category')}</label>
-                        <select className={inputClass} value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
-                            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            Категория *
+                        </label>
+                        <select
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:border-rose-400 focus:ring-4 focus:ring-rose-100 outline-none transition-all text-slate-700 font-medium"
+                            required
+                        >
+                            <option value="">Выберите категорию</option>
+                            {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
                         </select>
                     </div>
-                    <div><label className={labelClass}>{t('comment')}</label><input className={inputClass} value={form.comment} onChange={e => setForm({...form, comment: e.target.value})} placeholder="..." /></div>
-                    <Button onClick={() => onSubmit(form)} className="w-full mt-4" disabled={!form.amount}>{t('save')}</Button>
-                    <Button variant="secondary" onClick={onClose} className="w-full">{t('cancel')}</Button>
-                </div>
+
+                    {/* Сумма */}
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            Сумма (сум) *
+                        </label>
+                        <input
+                            type="number"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            placeholder="0"
+                            className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:border-rose-400 focus:ring-4 focus:ring-rose-100 outline-none transition-all text-slate-700 font-medium"
+                            required
+                        />
+                    </div>
+
+                    {/* Комментарий */}
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            Комментарий
+                        </label>
+                        <textarea
+                            value={comment}
+                            onChange={(e) => setComment(e.target.value)}
+                            placeholder="Дополнительная информация..."
+                            rows={3}
+                            className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:border-rose-400 focus:ring-4 focus:ring-rose-100 outline-none transition-all text-slate-700 font-medium resize-none"
+                        />
+                    </div>
+
+                    {/* Buttons */}
+                    <div className="flex gap-3 pt-4">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-semibold hover:bg-slate-100 transition-colors"
+                        >
+                            Отмена
+                        </button>
+                        <button
+                            type="submit"
+                            className="flex-1 px-6 py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-xl font-semibold shadow-lg shadow-rose-200 hover:shadow-xl transition-all"
+                        >
+                            Добавить
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );
@@ -4340,64 +5250,118 @@ const ShiftClosingModal = ({ user, payments = [], expenses, onClose, onLogout, n
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-                    <div>
-                        <h2 className="text-xl font-bold flex items-center gap-2">
-                            <Lock size={20} className="text-rose-400"/> {t('shiftClose')}
-                        </h2>
-                        <p className="text-slate-400 text-xs mt-1">{t('staff')}: {user.name}</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
+                {/* ✅ Градиентный Header */}
+                <div className="p-6 border-b border-slate-200 bg-gradient-to-br from-slate-100 via-indigo-100/50 to-purple-100/50">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 bg-gradient-to-br from-indigo-200 to-purple-200 rounded-xl flex items-center justify-center">
+                                <Lock size={24} className="text-indigo-600"/>
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">{t('shiftClose')}</h2>
+                                <p className="text-sm text-slate-600">{t('staff')}: <span className="font-semibold">{user.name}</span></p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-slate-700"
+                        >
+                            <X size={24}/>
+                        </button>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-white/10 rounded-full hover:bg-white/20">
-                        <XCircle size={20}/>
-                    </button>
                 </div>
-                <div className="p-6 overflow-y-auto bg-slate-50 space-y-6">
-                    <div className="bg-indigo-50 p-5 rounded-2xl border border-indigo-200 shadow-sm text-center">
-                        <h3 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">{t('total')}</h3>
-                        <div className="text-3xl font-extrabold text-indigo-700">{totalRevenue.toLocaleString()}</div>
-                        <div className="text-xs text-indigo-400 mt-1">{t('cash')} + {t('card')} + {t('qr')}</div>
+
+                {/* ✅ Content */}
+                <div className="p-6 overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50/20 space-y-4">
+                    {/* Итого */}
+                    <div className="bg-gradient-to-br from-indigo-100 to-purple-100 p-6 rounded-2xl border-2 border-indigo-300 shadow-sm text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-indigo-300 to-purple-300 rounded-lg flex items-center justify-center">
+                                <Wallet size={16} className="text-indigo-700"/>
+                            </div>
+                            <h3 className="text-sm font-bold text-indigo-700 uppercase tracking-wide">{t('total')}</h3>
+                        </div>
+                        <div className="text-4xl font-bold text-slate-800 mb-1">{totalRevenue.toLocaleString()}</div>
+                        <div className="text-xs text-slate-600 font-medium">{t('cash')} + {t('card')} + {t('qr')}</div>
                     </div>
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-                            Kassa ({t('cash')})
-                        </h3>
-                        <div className="flex justify-between items-center mb-2 text-sm">
-                            <span className="text-slate-600">{t('income')}:</span>
-                            <span className="font-bold text-slate-900">+{income.cash.toLocaleString()}</span>
+
+                    {/* Касса */}
+                    <div className="bg-white p-5 rounded-2xl border-2 border-slate-300 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-8 h-8 bg-gradient-to-br from-emerald-200 to-teal-200 rounded-lg flex items-center justify-center">
+                                <DollarSign size={16} className="text-emerald-600"/>
+                            </div>
+                            <h3 className="text-base font-bold text-slate-700 uppercase tracking-wide">
+                                Касса ({t('cash')})
+                            </h3>
                         </div>
-                        <div className="flex justify-between items-center mb-4 text-sm">
-                            <span className="text-rose-600">{t('expense')}:</span>
-                            <span className="font-bold text-rose-600">-{totalExpenses.toLocaleString()}</span>
-                        </div>
-                        <div className="pt-3 border-t border-dashed border-slate-300 flex justify-between items-center">
-                            <span className="font-bold text-lg text-slate-800">{t('cashInHand')}:</span>
-                            <span className="font-bold text-2xl text-emerald-600">{cashInHand.toLocaleString()}</span>
+                        
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-slate-600 font-medium">{t('income')}:</span>
+                                <span className="font-bold text-slate-800">+{income.cash.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-rose-600 font-medium">{t('expense')}:</span>
+                                <span className="font-bold text-rose-600">-{totalExpenses.toLocaleString()}</span>
+                            </div>
+                            <div className="pt-3 border-t-2 border-slate-200 flex justify-between items-center">
+                                <span className="font-bold text-slate-800">{t('cashInHand')}:</span>
+                                <span className="font-bold text-2xl text-emerald-600">{cashInHand.toLocaleString()}</span>
+                            </div>
                         </div>
                     </div>
+
+                    {/* Терминал и QR */}
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="text-slate-400 text-xs font-bold uppercase mb-1">{t('card')}</div>
-                            <div className="text-lg font-bold text-slate-800">{income.card.toLocaleString()}</div>
+                        <div className="bg-gradient-to-br from-blue-100 to-cyan-100 p-4 rounded-xl border-2 border-blue-300 shadow-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-7 h-7 bg-gradient-to-br from-blue-200 to-cyan-200 rounded-lg flex items-center justify-center">
+                                    <CreditCard size={14} className="text-blue-600"/>
+                                </div>
+                                <div className="text-xs font-bold text-blue-700 uppercase">{t('card')}</div>
+                            </div>
+                            <div className="text-xl font-bold text-slate-800">{income.card.toLocaleString()}</div>
                         </div>
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="text-slate-400 text-xs font-bold uppercase mb-1">{t('qr')}</div>
-                            <div className="text-lg font-bold text-slate-800">{income.qr.toLocaleString()}</div>
+                        
+                        <div className="bg-gradient-to-br from-purple-100 to-violet-100 p-4 rounded-xl border-2 border-purple-300 shadow-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-7 h-7 bg-gradient-to-br from-purple-200 to-violet-200 rounded-lg flex items-center justify-center">
+                                    <Smartphone size={14} className="text-purple-600"/>
+                                </div>
+                                <div className="text-xs font-bold text-purple-700 uppercase">{t('qr')}</div>
+                            </div>
+                            <div className="text-xl font-bold text-slate-800">{income.qr.toLocaleString()}</div>
                         </div>
                     </div>
                 </div>
-                <div className="p-4 bg-white border-t border-slate-200 flex flex-col gap-3">
-                    <Button variant="secondary" onClick={copyReport} icon={Copy} className="w-full">
-                        Copy
-                    </Button>
+
+                {/* ✅ Footer Buttons */}
+                <div className="p-6 bg-slate-50 border-t border-slate-200 flex flex-col gap-3">
+                    <button
+                        onClick={copyReport}
+                        className="w-full px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-semibold hover:bg-slate-100 transition-colors flex items-center justify-center gap-2"
+                    >
+                        <Copy size={20}/>
+                        Копировать отчет
+                    </button>
+                    
                     <div className="flex gap-3">
-                        <Button variant="ghost" className="flex-1" onClick={onClose}>
+                        <button
+                            onClick={onClose}
+                            className="flex-1 px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-xl font-semibold hover:bg-slate-100 transition-colors"
+                        >
                             {t('cancel')}
-                        </Button>
-                        <Button variant="danger" className="flex-1" icon={LogOut} onClick={handleEndShiftWithNotify}>
+                        </button>
+                        <button
+                            onClick={handleEndShiftWithNotify}
+                            className="flex-1 px-6 py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-xl font-semibold shadow-lg shadow-rose-200 hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                        >
+                            <LogOut size={20}/>
                             {t('shiftClose')}
-                        </Button>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -5260,614 +6224,553 @@ function App() {
   };
 
   const handlePayDebt = async (targets, amount, methods = { cash: amount, card: 0, qr: 0 }) => {
-      try {
-          const safeStaffId = currentUser.id || currentUser.login; 
-          let remaining = amount;
-          
-          for (const target of targets) {
-              if (remaining <= 0) break;
-              const pay = Math.min(remaining, target.currentDebt); 
-              const ratio = pay / amount;
-              const cashPay = Math.floor(methods.cash * ratio); 
-              const cardPay = Math.floor(methods.card * ratio); 
-              const qrPay = Math.floor(methods.qr * ratio);
-              
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), { 
+    try {
+        const safeStaffId = currentUser.id || currentUser.login; 
+        let remaining = amount;
+        
+        for (const target of targets) {
+            if (remaining <= 0) break;
+            const pay = Math.min(remaining, target.currentDebt); 
+            const ratio = pay / amount;
+            const cashPay = Math.floor(methods.cash * ratio); 
+            const cardPay = Math.floor(methods.card * ratio); 
+            const qrPay = Math.floor(methods.qr * ratio);
+            
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), { 
                 paidCash: increment(cashPay), 
                 paidCard: increment(cardPay), 
                 paidQR: increment(qrPay), 
                 amountPaid: increment(pay) 
-              });
-              
-              await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId); 
-              remaining -= pay;
-          }
-          
-          showNotification("Debt Paid!");
-      } catch(e) { 
+            });
+            
+            await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId); 
+            remaining -= pay;
+        }
+        
+        showNotification("Debt Paid!");
+    } catch(e) { 
         showNotification("Error paying debt", 'error'); 
-      }
-  };
-
-  const handleAdminAdjustDebt = async (guestId, adjustment) => {
-      try { 
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { 
-          totalPrice: increment(adjustment) 
-        }); 
-        showNotification("Debt Adjusted"); 
-      } catch(e) { 
-        showNotification("Error adjusting", 'error'); 
-      }
-  };
-
-  const handleRepeatStay = (lastStay) => {
-      const client = clients.find(c => c.passport === lastStay.passport);
-      if (!client) return;
-      
-      const room = rooms.find(r => r.id === lastStay.roomId);
-      if (!room) return;
-      
-      setCheckInModal({ 
-          open: true, 
-          room: room, 
-          bedId: lastStay.bedId, 
-          date: null 
-      });
-      
-      setClientHistoryModal({ open: false, client: null });
-  };
-
- const downloadExpensesCSV = () => {
-  const t = (k) => TRANSLATIONS[lang][k];
-  
-  const exportData = filteredExpenses.map(e => {
-    const staff = usersList.find(u => u.id === e.staffId || u.login === e.staffId)?.name || 'N/A';
-    const hostelName = HOSTELS[e.hostelId]?.name || e.hostelId || '-';
-    
-    return {
-      date: new Date(e.date).toLocaleString(),
-      hostel: hostelName,
-      category: e.category,
-      amount: parseInt(e.amount),
-      staff: staff,
-      comment: e.comment || '-'
-    };
-  });
-  
-  const totalExpenses = exportData.reduce((sum, item) => sum + item.amount, 0);
-  
-  let table = `
-    <html>
-    <head>
-      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-      <style>
-        body { font-family: Arial, sans-serif; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #000000; padding: 8px; text-align: left; }
-        th { background-color: #dc2626; color: #ffffff; font-weight: bold; }
-        .amount { text-align: right; color: #991b1b; font-weight: bold; }
-        .total-row { background-color: #fee2e2; font-weight: bold; border-top: 3px solid #991b1b; }
-        .total-label { text-align: right; font-size: 14px; }
-      </style>
-    </head>
-    <body>
-      <h2 style="text-align:center;">Отчет по расходам</h2>
-      <p style="text-align:center;">Период: ${new Date().toLocaleDateString()}</p>
-      <table>
-        <thead>
-          <tr>
-            <th>Дата</th>
-            <th>Хостел</th>
-            <th>Категория</th>
-            <th>Сумма</th>
-            <th>Кассир</th>
-            <th>Комментарий</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
-  
-  exportData.forEach(row => {
-    table += `
-      <tr>
-        <td>${row.date}</td>
-        <td>${row.hostel}</td>
-        <td>${row.category}</td>
-        <td class="amount">${row.amount.toLocaleString()}</td>
-        <td>${row.staff}</td>
-        <td>${row.comment}</td>
-      </tr>
-    `;
-  });
-  
-  table += `
-    <tr class="total-row">
-      <td colspan="3" class="total-label">ИТОГО РАСХОДОВ:</td>
-      <td class="amount">${totalExpenses.toLocaleString()}</td>
-      <td colspan="2"></td>
-    </tr>
-  `;
-  
-  table += `</tbody></table></body></html>`;
-  
-  const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `Expenses_Report_${new Date().toISOString().split('T')[0]}.xls`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+    }
 };
 
-  if (isLoadingAuth) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <Loader2 className="animate-spin text-indigo-600" size={40}/>
-    </div>
-  );
+const handleAdminAdjustDebt = async (guestId, adjustment) => {
+    try { 
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { 
+            totalPrice: increment(adjustment) 
+        }); 
+        showNotification("Debt Adjusted"); 
+    } catch(e) { 
+        showNotification("Error adjusting", 'error'); 
+    }
+};
 
-  if (!currentUser) return (
-    <LoginScreen 
-      users={usersList} 
-      onLogin={handleLogin} 
-      onSeed={seedUsers} 
-      lang={lang} 
-      setLang={setLang} 
-    />
-  );
+const handleRepeatStay = (lastStay) => {
+    const client = clients.find(c => c.passport === lastStay.passport);
+    if (!client) return;
+    
+    const room = rooms.find(r => r.id === lastStay.roomId);
+    if (!room) return;
+    
+    setCheckInModal({ 
+        open: true, 
+        room: room, 
+        bedId: lastStay.bedId, 
+        date: null 
+    });
+    
+    setClientHistoryModal({ open: false, client: null });
+};
 
-  if (activeShiftInMyHostel) {
-      return (
-        <ShiftBlockScreen 
-          activeShift={activeShiftInMyHostel} 
-          activeUser={activeUserForBlock} 
-          currentUser={currentUser} 
-          onLogout={handleLogout} 
-          onTransferToMe={handleTransferToMe} 
-        />
-      );
-  }
-
-  const activeUserDoc = usersList.find(u => u.id === currentUser?.id) || currentUser;
-  const currentHostelInfo = HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId] || HOSTELS['hostel1'];
-  const t = (k) => TRANSLATIONS[lang][k];
-
-  return (
-    <div className="h-screen w-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row overflow-hidden">
-      
-      <div className="flex-shrink-0">
-         <Navigation 
-          currentUser={currentUser} 
-          activeTab={activeTab} 
-          setActiveTab={setActiveTab} 
-          onLogout={handleLogout} 
-          lang={lang} 
-          setLang={setLang} 
-          pendingTasksCount={pendingTasksCount} 
-          onOpenChangePassword={() => setIsChangePasswordModalOpen(true)} 
-        />
-      </div>
-
-      <MobileNavigation 
-        currentUser={currentUser} 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        pendingTasksCount={pendingTasksCount} 
-        lang={lang} 
-      />
-      
-      {notification && (
-        <Notification 
-          message={notification.message} 
-          type={notification.type} 
-          onClose={() => setNotification(null)} 
-        />
-      )}
-      
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+const downloadExpensesCSV = () => {
+    const t = (k) => TRANSLATIONS[lang][k];
+    
+    const exportData = filteredExpenses.map(e => {
+        const staff = usersList.find(u => u.id === e.staffId || u.login === e.staffId)?.name || 'N/A';
+        const hostelName = HOSTELS[e.hostelId]?.name || e.hostelId || '-';
         
-        <div className="flex-shrink-0 p-4 md:p-6 pb-0 bg-slate-50 z-10">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        {activeTab === 'dashboard' ? t('dashboard').toUpperCase() : 
-                         activeTab === 'rooms' ? t('rooms').toUpperCase() : 
-                         activeTab === 'calendar' ? t('calendar').toUpperCase() : 
-                         activeTab === 'reports' ? t('reports').toUpperCase() : 
-                         activeTab === 'debts' ? t('debts').toUpperCase() : 
-                         activeTab === 'tasks' ? t('tasks').toUpperCase() : 
-                         activeTab === 'expenses' ? t('expenses').toUpperCase() : 
-                         activeTab === 'clients' ? t('clients').toUpperCase() : 
-                         activeTab === 'staff' ? t('staff').toUpperCase() : 
-                         activeTab === 'shifts' ? t('shifts').toUpperCase() : ''}
-                    </h2>
-                    <div className="flex items-center gap-4 text-slate-500 text-sm mt-1">
-                        <div className="flex items-center gap-1">
-                            <MapPin size={14}/> 
-                            {HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId]?.name || 'All'}
+        return {
+            date: new Date(e.date).toLocaleString(),
+            hostel: hostelName,
+            category: e.category,
+            amount: parseInt(e.amount),
+            staff: staff,
+            comment: e.comment || '-'
+        };
+    });
+    
+    const totalExpenses = exportData.reduce((sum, item) => sum + item.amount, 0);
+    
+    let table = `
+        <html>
+        <head>
+            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+            <style>
+                body { font-family: Arial, sans-serif; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #000000; padding: 8px; text-align: left; }
+                th { background-color: #dc2626; color: #ffffff; font-weight: bold; }
+                .amount { text-align: right; color: #991b1b; font-weight: bold; }
+                .total-row { background-color: #fee2e2; font-weight: bold; border-top: 3px solid #991b1b; }
+                .total-label { text-align: right; font-size: 14px; }
+            </style>
+        </head>
+        <body>
+            <h2 style="text-align:center;">Отчет по расходам</h2>
+            <p style="text-align:center;">Период: ${new Date().toLocaleDateString()}</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Хостел</th>
+                        <th>Категория</th>
+                        <th>Сумма</th>
+                        <th>Кассир</th>
+                        <th>Комментарий</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    exportData.forEach(row => {
+        table += `
+            <tr>
+                <td>${row.date}</td>
+                <td>${row.hostel}</td>
+                <td>${row.category}</td>
+                <td class="amount">${row.amount.toLocaleString()}</td>
+                <td>${row.staff}</td>
+                <td>${row.comment}</td>
+            </tr>
+        `;
+    });
+    
+    table += `
+        <tr class="total-row">
+            <td colspan="3" class="total-label">ИТОГО РАСХОДОВ:</td>
+            <td class="amount">${totalExpenses.toLocaleString()}</td>
+            <td colspan="2"></td>
+        </tr>
+    `;
+    
+    table += `</tbody></table></body></html>`;
+    
+    const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Expenses_Report_${new Date().toISOString().split('T')[0]}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+if (isLoadingAuth) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 className="animate-spin text-indigo-600" size={40}/>
+    </div>
+);
+
+if (!currentUser) return (
+    <LoginScreen 
+        users={usersList} 
+        onLogin={handleLogin} 
+        onSeed={seedUsers} 
+        lang={lang} 
+        setLang={setLang} 
+    />
+);
+
+if (activeShiftInMyHostel) {
+    return (
+        <ShiftBlockScreen 
+            activeShift={activeShiftInMyHostel} 
+            activeUser={activeUserForBlock} 
+            currentUser={currentUser} 
+            onLogout={handleLogout} 
+            onTransferToMe={handleTransferToMe} 
+        />
+    );
+}
+
+const activeUserDoc = usersList.find(u => u.id === currentUser?.id) || currentUser;
+const currentHostelInfo = HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId] || HOSTELS['hostel1'];
+const t = (k) => TRANSLATIONS[lang][k];
+
+return (
+    <div className="h-screen w-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row overflow-hidden">
+        
+        <div className="flex-shrink-0">
+            <Navigation 
+                currentUser={currentUser} 
+                activeTab={activeTab} 
+                setActiveTab={setActiveTab} 
+                onLogout={handleLogout} 
+                lang={lang} 
+                setLang={setLang} 
+                pendingTasksCount={pendingTasksCount} 
+                onOpenChangePassword={() => setIsChangePasswordModalOpen(true)} 
+            />
+        </div>
+
+        <MobileNavigation 
+            currentUser={currentUser} 
+            activeTab={activeTab} 
+            setActiveTab={setActiveTab} 
+            pendingTasksCount={pendingTasksCount} 
+            lang={lang} 
+        />
+        
+        {notification && (
+            <Notification 
+                message={notification.message} 
+                type={notification.type} 
+                onClose={() => setNotification(null)} 
+            />
+        )}
+        
+        <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+            
+            {/* ✅ НОВЫЙ TopBar */}
+            {!(currentUser.role === 'cashier' && activeTab === 'calendar') && (
+                <TopBar 
+                    selectedHostelFilter={selectedHostelFilter}
+                    hostels={HOSTELS}
+                    availableHostels={availableHostelsForUser}
+                    setSelectedHostelFilter={setSelectedHostelFilter}
+                    currentUser={currentUser}
+                    activeTab={activeTab}
+                    isOnline={isOnline}
+                    hasUpdate={hasUpdate}
+                    usersList={usersList}
+                    shifts={shifts}
+                    canPerformActions={canPerformActions}
+                    onOpenExpense={() => setExpenseModal(true)}
+                    onOpenCheckIn={() => setCheckInModal({ open: true, room: null, bedId: null, date: null })}
+                    onOpenShift={() => setShiftModal(true)}
+                    lang={lang}
+                />
+            )}
+
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pt-2 pb-20">
+                {activeTab === 'dashboard' && currentUser.role === 'admin' && (
+                    <div className="space-y-8 animate-in fade-in">
+                        <DashboardStats 
+                            rooms={filteredRooms} 
+                            guests={guests} 
+                            payments={payments} 
+                            lang={lang} 
+                            currentHostelId={selectedHostelFilter} 
+                        />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <ChartsSection 
+                                guests={filteredGuests} 
+                                rooms={filteredRooms} 
+                                payments={filteredPayments} 
+                                lang={lang} 
+                            />
                         </div>
-                        <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 border ${isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
-                            {isOnline ? <Wifi size={12}/> : <WifiOff size={12}/>}
-                            {isOnline ? 'ONLINE' : 'OFFLINE'}
-                        </div>
-                        <button 
-                            onClick={() => window.location.reload()} 
-                            className={`px-2 py-1 ${hasUpdate ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300 animate-pulse' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'} rounded-lg text-[10px] font-bold flex items-center gap-1 border transition-all hover:scale-105 active:scale-95`}
-                            title="Проверить обновления и перезагрузить"
-                        >
-                            <Download size={12}/>
-                            {hasUpdate ? '🔔 Обновить' : 'Обновить'}
-                        </button>
-                        {currentUser.role === 'cashier' && (
-                            <div className="bg-white px-2 py-0.5 rounded border border-slate-200 text-[10px] font-bold text-slate-600 flex items-center gap-1">
-                                <User size={10}/>
-                                Current: {usersList.find(u => shifts.find(s => s.staffId === u.id && !s.endTime))?.name || "Nobody"}
+                    </div>
+                )}
+
+                {activeTab === 'rooms' && (
+                    <div>
+                        {(currentUser.role === 'admin' || currentUser.role === 'super') && (
+                            <div className="flex justify-end mb-4">
+                                <Button icon={PlusCircle} onClick={() => setAddRoomModal(true)}>
+                                    Добавить комнату
+                                </Button>
                             </div>
                         )}
-                    </div>
-                </div>
-                <div className="flex items-center gap-3">
-                    {/* ✅ НОВОЕ: Переключатель хостелов для Fazliddin */}
-                    {availableHostelsForUser.length > 0 && (
-                        <div className="flex bg-white p-1 rounded-xl border border-slate-300 shadow-sm">
-                          {availableHostelsForUser.map(hid => (
-                            <button 
-                              key={hid} 
-                              onClick={() => setSelectedHostelFilter(hid)} 
-                              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectedHostelFilter === hid ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-                            >
-                              {HOSTELS[hid].name}
-                            </button>
-                          ))}
+                        
+                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 -mt-2">
+                            {filteredRooms.map(room => (
+                                <RoomCardChess 
+                                    key={room.id} 
+                                    room={room} 
+                                    guests={filteredGuests.filter(g => g.roomId === room.id)} 
+                                    isAdmin={currentUser.role === 'admin' || currentUser.role === 'super'} 
+                                    onEdit={() => setEditRoomModal({ open: true, room })} 
+                                    onClone={() => handleCloneRoom(room)} 
+                                    onDelete={() => handleDeleteRoom(room)} 
+                                    lang={lang} 
+                                    onBedClick={(bedId, guest, isGhost) => { 
+                                        if (guest) {
+                                            setGuestDetailsModal({ open: true, guest });
+                                        } else { 
+                                            if(!canPerformActions) {
+                                                showNotification("Режим просмотра", 'error');
+                                            } else if(currentUser.role === 'admin' || currentUser.role === 'super') {
+                                                alert("Admin cannot check-in");
+                                            } else {
+                                                setCheckInModal({ open: true, room, bedId, date: null });
+                                            }
+                                        } 
+                                    }} 
+                                />
+                            ))}
                         </div>
-                    )}
-                    
-                    {/* ✅ ИЗМЕНЕНИЕ: Блокировка действий для Fazliddin в hostel1 */}
-                    {currentUser.role === 'cashier' && canPerformActions && (
-                      <>
-                        <Button variant="danger" icon={Wallet} onClick={() => setExpenseModal(true)}>
-                          {t('expense')}
-                        </Button>
-                        <Button variant="primary" icon={CheckCircle2} onClick={() => setCheckInModal({ open: true, room: null, bedId: null, date: null })}>
-                          {t('checkin')}
-                        </Button>
-                        <Button variant="secondary" icon={Power} onClick={() => setShiftModal(true)}>
-                          {t('shift')}
-                        </Button>
-                      </>
-                    )}
-                    
-                    {currentUser.login === 'fazliddin' && !canPerformActions && (
-                      <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm font-bold">
-                        Режим просмотра
-                      </div>
-                    )}
-                </div>
-            </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pt-2 pb-20">
-            {activeTab === 'dashboard' && currentUser.role === 'admin' && (
-                <div className="space-y-8 animate-in fade-in">
-                    <DashboardStats 
-                      rooms={filteredRooms} 
-                      guests={guests} 
-                      payments={payments} 
-                      lang={lang} 
-                      currentHostelId={selectedHostelFilter} 
-                    />
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <ChartsSection 
-                          guests={filteredGuests} 
-                          rooms={filteredRooms} 
-                          payments={filteredPayments} 
-                          lang={lang} 
+                    </div>
+                )}
+                
+                {activeTab === 'calendar' && (
+                    <div className="h-full flex flex-col bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+                        <CalendarView 
+                            rooms={filteredRooms} 
+                            guests={filteredGuests} 
+                            onSlotClick={(room, bedId, guest, dateISO) => { 
+                                if (guest) setGuestDetailsModal({ open: true, guest }); 
+                                else { 
+                                    if(!canPerformActions) {
+                                        showNotification("Режим просмотра", 'error');
+                                    } else if(currentUser.role === 'admin' || currentUser.role === 'super') {
+                                        alert("Admin cannot check-in");
+                                    } else {
+                                        setCheckInModal({ open: true, room, bedId, date: dateISO });
+                                    }
+                                } 
+                            }} 
+                            lang={lang} 
+                            currentUser={currentUser} 
+                            onDeleteGuest={handleDeleteGuest} 
                         />
                     </div>
-                </div>
-            )}
-            
-            {activeTab === 'rooms' && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2 text-slate-500 text-sm">
-                    <CheckCircle2 size={18} /> 
-                    <span>Click bed for actions</span>
-                  </div>
-                  {(currentUser.role === 'admin' || currentUser.role === 'super') && (
-                    <Button icon={PlusCircle} onClick={() => setAddRoomModal(true)}>
-                      Add Room
-                    </Button>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {filteredRooms.map(room => (
-                    <RoomCardChess 
-                      key={room.id} 
-                      room={room} 
-                      guests={filteredGuests.filter(g => g.roomId === room.id)} 
-                      isAdmin={currentUser.role === 'admin' || currentUser.role === 'super'} 
-                      onEdit={() => setEditRoomModal({ open: true, room })} 
-                      onClone={() => handleCloneRoom(room)} 
-                      onDelete={() => handleDeleteRoom(room)} 
-                      lang={lang} 
-                      onBedClick={(bedId, guest, isGhost) => { 
-                        if (guest) {
-                            setGuestDetailsModal({ open: true, guest });
-                        } else { 
-                            if(!canPerformActions) {
-                              showNotification("Режим просмотра", 'error');
-                            } else if(currentUser.role === 'admin' || currentUser.role === 'super') {
-                              alert("Admin cannot check-in");
-                            } else {
-                              setCheckInModal({ open: true, room, bedId, date: null });
-                            }
-                        } 
-                      }} 
+                )}
+                
+                {activeTab === 'reports' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <ReportsView 
+                        payments={filteredPayments} 
+                        expenses={filteredExpenses} 
+                        users={filteredUsersForReports} 
+                        guests={filteredGuests} 
+                        currentUser={currentUser} 
+                        onDeletePayment={handleDeletePayment} 
+                        lang={lang} 
                     />
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {activeTab === 'calendar' && (
-                <div className="h-full flex flex-col bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-                    <CalendarView 
-                      rooms={filteredRooms} 
-                      guests={filteredGuests} 
-                      onSlotClick={(room, bedId, guest, dateISO) => { 
-                        if (guest) setGuestDetailsModal({ open: true, guest }); 
-                        else { 
-                            if(!canPerformActions) {
-                              showNotification("Режим просмотра", 'error');
-                            } else if(currentUser.role === 'admin' || currentUser.role === 'super') {
-                              alert("Admin cannot check-in");
-                            } else {
-                              setCheckInModal({ open: true, room, bedId, date: dateISO });
-                            }
-                        } 
-                      }} 
-                      lang={lang} 
-                      currentUser={currentUser} 
-                      onDeleteGuest={handleDeleteGuest} 
+                )}
+                
+                {activeTab === 'debts' && (
+                    <DebtsView 
+                        guests={filteredGuests} 
+                        users={usersList} 
+                        lang={lang} 
+                        onPayDebt={handlePayDebt} 
+                        currentUser={currentUser} 
+                        onAdminAdjustDebt={handleAdminAdjustDebt} 
+                        clients={clients} 
+                        onCreateDebt={handleCreateDebt} 
                     />
-                </div>
-            )}
-            
-            {activeTab === 'reports' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
-              <ReportsView 
-                payments={filteredPayments} 
-                expenses={filteredExpenses} 
-                users={filteredUsersForReports} 
-                guests={filteredGuests} 
-                currentUser={currentUser} 
-                onDeletePayment={handleDeletePayment} 
-                lang={lang} 
-              />
-            )}
-            
-            {activeTab === 'debts' && (
-              <DebtsView 
-                guests={filteredGuests} 
-                users={usersList} 
-                lang={lang} 
-                onPayDebt={handlePayDebt} 
-                currentUser={currentUser} 
-                onAdminAdjustDebt={handleAdminAdjustDebt} 
-                clients={clients} 
-                onCreateDebt={handleCreateDebt} 
-              />
-            )}
-            
-            {activeTab === 'tasks' && (
-              <TaskManager 
-                tasks={filteredTasks} 
-                users={usersList} 
-                currentUser={currentUser} 
-                onAddTask={handleAddTask} 
-                onCompleteTask={handleCompleteTask} 
-                onUpdateTask={handleUpdateTask} 
-                onDeleteTask={handleDeleteTask} 
-                lang={lang} 
-                selectedHostelFilter={selectedHostelFilter} 
-              />
-            )}
+                )}
+                
+                {activeTab === 'tasks' && (
+                    <TaskManager 
+                        tasks={filteredTasks} 
+                        users={usersList} 
+                        currentUser={currentUser} 
+                        onAddTask={handleAddTask} 
+                        onCompleteTask={handleCompleteTask} 
+                        onUpdateTask={handleUpdateTask} 
+                        onDeleteTask={handleDeleteTask} 
+                        lang={lang} 
+                        selectedHostelFilter={selectedHostelFilter} 
+                    />
+                )}
 
-            {activeTab === 'shifts' && (
-                <ShiftsView 
-                    shifts={shifts} 
-                    users={usersList} 
-                    currentUser={currentUser} 
-                    onStartShift={handleStartShift} 
-                    onEndShift={handleEndShift} 
-                    onTransferShift={handleTransferShift} 
-                    lang={lang} 
-                    hostelId={currentUser.hostelId} 
-                    onAdminAddShift={handleAdminAddShift} 
-                    onAdminUpdateShift={handleAdminUpdateShift} 
-                />
-            )}
+                {activeTab === 'shifts' && (
+                    <ShiftsView 
+                        shifts={shifts} 
+                        users={usersList} 
+                        currentUser={currentUser} 
+                        onStartShift={handleStartShift} 
+                        onEndShift={handleEndShift} 
+                        onTransferShift={handleTransferShift} 
+                        lang={lang} 
+                        hostelId={currentUser.hostelId} 
+                        onAdminAddShift={handleAdminAddShift} 
+                        onAdminUpdateShift={handleAdminUpdateShift} 
+                    />
+                )}
 
-            {activeTab === 'clients' && (
-                <ClientsView 
-                    clients={clients} 
-                    onUpdateClient={handleUpdateClient} 
-                    onImportClients={handleImportClients} 
-                    onDeduplicate={handleDeduplicate} 
-                    onBulkDelete={handleBulkDeleteClients} 
-                    onNormalizeCountries={handleNormalizeCountries} 
-                    lang={lang} 
-                    currentUser={currentUser} 
-                    onOpenClientHistory={handleOpenClientHistory}
-                />
-            )}
-            
-            {activeTab === 'staff' && currentUser.role === 'admin' && (
-              <StaffView 
-                users={usersList} 
-                onAdd={handleAddUser} 
-                onDelete={handleDeleteUser} 
-                lang={lang} 
-              />
-            )}
-            
-            {activeTab === 'expenses' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
-                <div className="animate-in slide-in-from-bottom-2 space-y-6">
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-lg font-bold">{t('expenses')}</h3>
-                      <div className="flex gap-2">
-                        <Button icon={Download} variant="secondary" onClick={downloadExpensesCSV}>
-                          Export
-                        </Button>
-                        <Button icon={Plus} onClick={() => setExpenseModal(true)}>
-                          {t('expense')}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {filteredExpenses.length > 0 ? filteredExpenses.map(e => (
-                        <div key={e.id} className="bg-white p-4 rounded-xl border border-slate-300 shadow-sm flex flex-col justify-between">
-                          <div>
-                            <div className="flex justify-between items-start mb-2">
-                              <span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold text-slate-600">
-                                {e.category}
-                              </span>
-                              <span className="text-xs text-slate-400">
-                                {new Date(e.date).toLocaleDateString()}
-                              </span>
+                {activeTab === 'clients' && (
+                    <ClientsView 
+                        clients={clients} 
+                        onUpdateClient={handleUpdateClient} 
+                        onImportClients={handleImportClients} 
+                        onDeduplicate={handleDeduplicate} 
+                        onBulkDelete={handleBulkDeleteClients} 
+                        onNormalizeCountries={handleNormalizeCountries} 
+                        lang={lang} 
+                        currentUser={currentUser} 
+                        onOpenClientHistory={handleOpenClientHistory}
+                    />
+                )}
+                
+                {activeTab === 'staff' && currentUser.role === 'admin' && (
+                    <StaffView 
+                        users={usersList} 
+                        onAdd={handleAddUser} 
+                        onDelete={handleDeleteUser} 
+                        lang={lang} 
+                    />
+                )}
+                
+                {activeTab === 'expenses' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <div className="animate-in slide-in-from-bottom-2 space-y-6">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-bold">{t('expenses')}</h3>
+                            <div className="flex gap-2">
+                                <Button icon={Download} variant="secondary" onClick={downloadExpensesCSV}>
+                                    Export
+                                </Button>
+                                <Button icon={Plus} onClick={() => setExpenseModal(true)}>
+                                    {t('expense')}
+                                </Button>
                             </div>
-                            <p className="font-medium text-slate-800">{e.comment}</p>
-                          </div>
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
-                            <span className="font-bold text-rose-600">
-                              -{parseInt(e.amount).toLocaleString()}
-                            </span>
-                            <span className="text-xs text-slate-400">
-                              {usersList.find(u => u.id === e.staffId)?.name || 'N/A'}
-                            </span>
-                          </div>
                         </div>
-                      )) : (
-                        <div className="text-slate-400 col-span-3 text-center py-10">
-                          No Expenses
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {filteredExpenses.length > 0 ? filteredExpenses.map(e => (
+                                <div key={e.id} className="bg-white p-4 rounded-xl border border-slate-300 shadow-sm flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="px-2 py-1 bg-slate-100 rounded text-xs font-bold text-slate-600">
+                                                {e.category}
+                                            </span>
+                                            <span className="text-xs text-slate-400">
+                                                {new Date(e.date).toLocaleDateString()}
+                                            </span>
+                                        </div>
+                                        <p className="font-medium text-slate-800">{e.comment}</p>
+                                    </div>
+                                    <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                        <span className="font-bold text-rose-600">
+                                            -{parseInt(e.amount).toLocaleString()}
+                                        </span>
+                                        <span className="text-xs text-slate-400">
+                                            {usersList.find(u => u.id === e.staffId)?.name || 'N/A'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="text-slate-400 col-span-3 text-center py-10">
+                                    No Expenses
+                                </div>
+                            )}
                         </div>
-                      )}
                     </div>
-                </div>
-            )}
-        </div>
-      </main>
+                )}
+            </div>
+        </main>
 
-      {checkInModal.open && canPerformActions && (
-        <CheckInModal 
-          initialRoom={checkInModal.room} 
-          preSelectedBedId={checkInModal.bedId} 
-          initialDate={checkInModal.date} 
-          allRooms={filteredRooms} 
-          guests={filteredGuests} 
-          clients={clients} 
-          onClose={() => setCheckInModal({open: false, room: null, bedId: null, date: null})} 
-          onSubmit={handleCheckIn} 
-          notify={showNotification} 
-          lang={lang} 
-        />
-      )}
-      
-      {guestDetailsModal.open && (
-        <GuestDetailsModal 
-          guest={guestDetailsModal.guest} 
-          room={filteredRooms.find(r => r.id === guestDetailsModal.guest.roomId)} 
-          currentUser={currentUser} 
-          onClose={() => setGuestDetailsModal({open: false, guest: null})} 
-          onUpdate={handleGuestUpdate} 
-          onPayment={handlePayment} 
-          onCheckOut={handleCheckOut} 
-          onSplit={handleSplitGuest} 
-          onOpenMove={() => setMoveGuestModal({ open: true, guest: guestDetailsModal.guest })} 
-          onDelete={handleDeleteGuest} 
-          notify={showNotification} 
-          onReduceDays={handleAdminReduceDays} 
-          onActivateBooking={handleActivateBooking} 
-          onReduceDaysNoRefund={handleAdminReduceDaysNoRefund} 
-          hostelInfo={currentHostelInfo} 
-          lang={lang} 
-        />
-      )}
-      
-      {moveGuestModal.open && (
-        <MoveGuestModal 
-          guest={moveGuestModal.guest} 
-          allRooms={filteredRooms} 
-          guests={filteredGuests} 
-          onClose={() => setMoveGuestModal({open: false, guest: null})} 
-          onMove={handleMoveGuest} 
-          notify={showNotification} 
-          lang={lang} 
-        />
-      )}
-      
-      {expenseModal && canPerformActions && (
-        <ExpenseModal 
-          onClose={() => setExpenseModal(false)} 
-          onSubmit={handleAddExpense} 
-          lang={lang} 
-        />
-      )}
-      
-      {addRoomModal && (
-        <RoomFormModal 
-          title="Add Room" 
-          onClose={() => setAddRoomModal(false)} 
-          onSubmit={handleCreateRoom} 
-          lang={lang} 
-        />
-      )}
-      
-      {editRoomModal.open && (
-        <RoomFormModal 
-          title="Edit Room" 
-          initialData={editRoomModal.room} 
-          onClose={() => setEditRoomModal({open: false, room: null})} 
-          onSubmit={handleEditRoom} 
-          lang={lang} 
-        />
-      )}
-      
-      {shiftModal && (
-        <ShiftClosingModal 
-          user={activeUserDoc} 
-          payments={payments} 
-          expenses={filteredExpenses} 
-          onClose={() => setShiftModal(false)} 
-          onEndShift={handleEndShift} 
-          onLogout={handleLogout} 
-          notify={showNotification} 
-          lang={lang} 
-        />
-      )}
-      
-      {isChangePasswordModalOpen && (
-          <ChangePasswordModal 
-              currentUser={currentUser}
-              users={usersList}
-              onClose={() => setIsChangePasswordModalOpen(false)}
-              onChangePassword={handleChangePassword}
-              lang={lang}
-          />
-      )}
-      
-      {clientHistoryModal.open && (
-          <ClientHistoryModal 
-              client={clientHistoryModal.client}
-              guests={guests}
-              users={usersList}
-              rooms={rooms}
-              onClose={() => setClientHistoryModal({open: false, client: null})}
-              onRepeatStay={handleRepeatStay}
-              lang={lang}
-          />
-      )}
+        {/* Модальные окна */}
+        {checkInModal.open && canPerformActions && (
+            <CheckInModal 
+                initialRoom={checkInModal.room} 
+                preSelectedBedId={checkInModal.bedId} 
+                initialDate={checkInModal.date} 
+                allRooms={filteredRooms} 
+                guests={filteredGuests} 
+                clients={clients} 
+                onClose={() => setCheckInModal({open: false, room: null, bedId: null, date: null})} 
+                onSubmit={handleCheckIn} 
+                notify={showNotification} 
+                lang={lang} 
+            />
+        )}
+        
+        {guestDetailsModal.open && (
+            <GuestDetailsModal 
+                guest={guestDetailsModal.guest} 
+                room={filteredRooms.find(r => r.id === guestDetailsModal.guest.roomId)} 
+                currentUser={currentUser} 
+                onClose={() => setGuestDetailsModal({open: false, guest: null})} 
+                onUpdate={handleGuestUpdate} 
+                onPayment={handlePayment} 
+                onCheckOut={handleCheckOut} 
+                onSplit={handleSplitGuest} 
+                onOpenMove={() => setMoveGuestModal({ open: true, guest: guestDetailsModal.guest })} 
+                onDelete={handleDeleteGuest} 
+                notify={showNotification} 
+                onReduceDays={handleAdminReduceDays} 
+                onActivateBooking={handleActivateBooking} 
+                onReduceDaysNoRefund={handleAdminReduceDaysNoRefund} 
+                hostelInfo={currentHostelInfo} 
+                lang={lang} 
+            />
+        )}
+        
+        {moveGuestModal.open && (
+            <MoveGuestModal 
+                guest={moveGuestModal.guest} 
+                allRooms={filteredRooms} 
+                guests={filteredGuests} 
+                onClose={() => setMoveGuestModal({open: false, guest: null})} 
+                onMove={handleMoveGuest} 
+                notify={showNotification} 
+                lang={lang} 
+            />
+        )}
+        
+        {expenseModal && canPerformActions && (
+            <ExpenseModal 
+                onClose={() => setExpenseModal(false)} 
+                onSubmit={handleAddExpense} 
+                lang={lang} 
+            />
+        )}
+        
+        {addRoomModal && (
+            <RoomFormModal 
+                title="Add Room" 
+                onClose={() => setAddRoomModal(false)} 
+                onSubmit={handleCreateRoom} 
+                lang={lang} 
+            />
+        )}
+        
+        {editRoomModal.open && (
+            <RoomFormModal 
+                title="Edit Room" 
+                initialData={editRoomModal.room} 
+                onClose={() => setEditRoomModal({open: false, room: null})} 
+                onSubmit={handleEditRoom} 
+                lang={lang} 
+            />
+        )}
+        
+        {shiftModal && (
+            <ShiftClosingModal 
+                user={activeUserDoc} 
+                payments={payments} 
+                expenses={filteredExpenses} 
+                onClose={() => setShiftModal(false)} 
+                onEndShift={handleEndShift} 
+                onLogout={handleLogout} 
+                notify={showNotification} 
+                lang={lang} 
+            />
+        )}
+        
+        {isChangePasswordModalOpen && (
+            <ChangePasswordModal 
+                currentUser={currentUser}
+                users={usersList}
+                onClose={() => setIsChangePasswordModalOpen(false)}
+                onChangePassword={handleChangePassword}
+                lang={lang}
+            />
+        )}
+        
+        {clientHistoryModal.open && (
+            <ClientHistoryModal 
+                client={clientHistoryModal.client}
+                guests={guests}
+                users={usersList}
+                rooms={rooms}
+                onClose={() => setClientHistoryModal({open: false, client: null})}
+                onRepeatStay={handleRepeatStay}
+                lang={lang}
+            />
+        )}
     </div>
-  );
+);
 }
 
 export default App;

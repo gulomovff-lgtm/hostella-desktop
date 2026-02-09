@@ -289,7 +289,6 @@ try {
     })
   }, "hostella");
 } catch (error) {
-  // Если Firestore уже инициализирован, используем существующий экземпляр
   console.log('Firestore уже инициализирован, используем существующий экземпляр');
   db = getFirestore(app);
 }
@@ -392,13 +391,45 @@ const getLocalDatetimeString = (dateObj) => {
     return localISOTime;
 };
 
-const getStayDetails = (checkInIsoOrDate, days, now = new Date()) => {
-    const checkIn = typeof checkInIsoOrDate === 'string' ? new Date(checkInIsoOrDate) : checkInIsoOrDate;
-    checkIn.setHours(12, 0, 0, 0);
-    const checkOut = new Date(checkIn);
-    checkOut.setDate(checkOut.getDate() + parseInt(days));
-    checkOut.setHours(12, 0, 0, 0);
-    return { start: checkIn, end: checkOut };
+// ✅ ОБНОВЛЕННАЯ ЛОГИКА: Ранний заезд (00:00) = до 12:00 следующего дня
+const getStayDetails = (checkInDateTime, days) => {
+    const start = new Date(checkInDateTime);
+    const checkInHour = start.getHours();
+    
+    console.log('📅 getStayDetails:', {
+        checkInDateTime,
+        hour: checkInHour,
+        days
+    });
+    
+    // ✅ РАННИЙ ЗАЕЗД: если время 00:00 (полночь)
+    if (checkInHour === 0) {
+        console.log('🌅 Early check-in detected! Guest gets from 00:00 to 12:00 next day.');
+        // Оставляем start как есть (00:00)
+        // Выезд через days дней в 12:00
+        const end = new Date(start);
+        end.setDate(end.getDate() + parseInt(days));
+        end.setHours(12, 0, 0, 0);
+        
+        console.log('📅 Stay details:', {
+            checkIn: start.toISOString(),
+            checkOut: end.toISOString()
+        });
+        
+        return { start, end };
+    }
+    
+    // ✅ ОБЫЧНЫЙ ЗАЕЗД: стандартизируем на 12:00
+    start.setHours(12, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + parseInt(days));
+    
+    console.log('📅 Stay details:', {
+        checkIn: start.toISOString(),
+        checkOut: end.toISOString()
+    });
+    
+    return { start, end };
 };
 
 const checkCollision = (existingCheckIn, existingDays, newCheckIn, newDays) => {
@@ -1502,307 +1533,368 @@ const CountdownTimer = ({ targetDate, lang }) => {
     );
 };
 
-// ✅ НОВЫЙ СОВРЕМЕННЫЙ RoomCardChess
-const RoomCardChess = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, lang }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
-    const beds = Array.from({length: room.capacity}, (_, i) => i + 1);
+// --- Вспомогательные функции (вынесены, чтобы не создавать их при каждом рендере) ---
+const parseDate = (dateInput) => {
+    if (!dateInput) return null;
+    const date = new Date(dateInput);
+    if (typeof dateInput === 'string' && !dateInput.includes('T')) {
+        date.setHours(12, 0, 0, 0);
+    }
+    return date;
+};
+
+const getDaysDiff = (date1, date2) => {
+    if (!date1 || !date2) return 0;
+    return Math.ceil((date2 - date1) / (1000 * 60 * 60 * 24));
+};
+
+const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
+// --- Основной компонент ---
+const RoomCardGlass = ({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, lang }) => {
+    const [filterMode, setFilterMode] = useState('all');
     const now = new Date();
 
-    // Статистика комнаты
-    const occupiedBeds = guests.filter(g => {
-        if (g.status !== 'active') return false;
+    // 1. Логика данных (28 часов + статусы)
+    const bedsData = useMemo(() => {
+        const beds = [];
         
-        const rawCheckOut = g.checkOutDate;
-        if (!rawCheckOut) return false;
-        const checkOut = new Date(rawCheckOut);
-        if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
-            checkOut.setHours(12, 0, 0, 0);
-        }
-        
-        return now < checkOut;
-    }).length;
+        for (let i = 1; i <= room.capacity; i++) {
+            const bedId = i;
+            const bedGuests = guests.filter(g => 
+                String(g.roomId) === String(room.id) && String(g.bedId) === String(bedId)
+            );
 
-    const totalDebt = guests.reduce((sum, g) => {
-        if (g.status !== 'active') return sum;
-        const paid = getTotalPaid(g);
-        const debt = (g.totalPrice || 0) - paid;
-        return sum + (debt > 0 ? debt : 0);
-    }, 0);
+            const activeGuest = bedGuests.find(g => g.status === 'active');
+            const bookingGuest = bedGuests.find(g => g.status === 'booking' && parseDate(g.checkInDate) > now);
+            const ghostDebtor = bedGuests
+                .filter(g => g.status === 'checked_out')
+                .find(g => (g.totalPrice - getTotalPaid(g)) > 0);
+
+            let status = 'free';
+            let displayGuest = null;
+            let debt = 0;
+            let isTimeout = false;
+            let daysLeft = 0;
+
+            if (activeGuest) {
+                const checkOut = parseDate(activeGuest.checkOutDate);
+                const isExpired = checkOut && now > checkOut;
+                
+                // --- Правило 28 часов ---
+                let showAsFree = false;
+                if (isExpired) {
+                    const hoursSinceCheckout = (now - checkOut) / (1000 * 60 * 60);
+                    if (hoursSinceCheckout > 28) {
+                        showAsFree = true;
+                    }
+                }
+
+                if (showAsFree) {
+                    status = 'free';
+                    displayGuest = null;
+                } else {
+                    displayGuest = activeGuest;
+                    const paid = getTotalPaid(activeGuest);
+                    debt = (activeGuest.totalPrice || 0) - paid;
+                    isTimeout = isExpired;
+                    status = isTimeout ? 'timeout' : 'occupied';
+                    daysLeft = checkOut ? getDaysDiff(now, checkOut) : 0;
+                }
+            } else if (bookingGuest) {
+                displayGuest = bookingGuest;
+                status = 'booking';
+                daysLeft = getDaysDiff(now, parseDate(bookingGuest.checkInDate));
+            }
+
+            beds.push({
+                id: bedId,
+                status,
+                guest: displayGuest,
+                debt,
+                isTimeout,
+                daysLeft,
+                ghostDebtor,
+                ghostDebt: ghostDebtor ? (ghostDebtor.totalPrice - getTotalPaid(ghostDebtor)) : 0
+            });
+        }
+        return beds;
+    }, [guests, room.id, room.capacity]);
+
+    // 2. Статистика
+    const stats = useMemo(() => {
+        return bedsData.reduce((acc, bed) => {
+            if (bed.status === 'occupied') acc.occupied++;
+            if (bed.status === 'free' || bed.status === 'timeout') acc.free++;
+            if (bed.debt > 0) acc.totalDebt += bed.debt;
+            return acc;
+        }, { occupied: 0, free: 0, totalDebt: 0 });
+    }, [bedsData]);
+
+    const toggleFilter = (mode) => {
+        setFilterMode(prev => prev === mode ? 'all' : mode);
+    };
+
+    // Мягкая подсветка фильтров
+    const getOpacity = (bed) => {
+        if (filterMode === 'all') return 'opacity-100';
+        if (filterMode === 'debt') {
+            const hasActiveDebt = bed.guest && bed.debt > 0;
+            const hasGhostDebt = !!bed.ghostDebtor;
+            // Мягкий фокус на должниках
+            return (hasActiveDebt || hasGhostDebt) 
+                ? 'opacity-100 ring-2 ring-rose-300 shadow-md transform scale-[1.01]' 
+                : 'opacity-40 grayscale-[0.8] blur-[0.5px]';
+        }
+        if (filterMode === 'free') {
+            // Мягкий фокус на свободных
+            return (bed.status === 'free' || bed.status === 'timeout') 
+                ? 'opacity-100 ring-2 ring-emerald-300 shadow-md transform scale-[1.01]' 
+                : 'opacity-40 grayscale-[0.8] blur-[0.5px]';
+        }
+        return 'opacity-100';
+    };
 
     return (
-        <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden flex flex-col hover:border-slate-300 hover:shadow-md transition-all duration-200 group">
-            {/* ✅ Чистый Header */}
-            <div className="p-5 border-b border-slate-200/60 bg-slate-50/50">
-                <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 bg-white border border-slate-200 rounded-xl flex items-center justify-center shadow-sm">
-                            <BedDouble size={20} className="text-slate-700"/>
+        <div className="relative group bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+            
+            <div className="flex flex-col h-full">
+                
+                {/* HEADER: Чистый и легкий */}
+                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-700 shadow-sm">
+                            <span className="font-bold text-xl text-slate-800">{room.number}</span>
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2.5 flex-wrap">
-                                <h3 className="font-semibold text-lg text-slate-900">
-                                    Комната №{room.number}
-                                </h3>
-                                <span className="text-xs text-slate-600 bg-white px-2.5 py-1 rounded-lg font-medium border border-slate-200 shadow-sm">
-                                    {room.capacity} мест
-                                </span>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Комната</span>
+                            <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded-md w-fit">
+                                <Users size={12} className="text-slate-500"/>
+                                <span className="text-xs font-semibold text-slate-600">{room.capacity} мест</span>
                             </div>
                         </div>
                     </div>
+
                     {isAdmin && (
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={onEdit} className="p-2 bg-white text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200">
-                                <Edit size={15}/>
-                            </button>
-                            <button onClick={onClone} className="p-2 bg-white text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors border border-slate-200">
-                                <Copy size={15}/>
-                            </button>
-                            <button onClick={onDelete} className="p-2 bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200">
-                                <Trash2 size={15}/>
-                            </button>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                            <ActionBtn icon={Edit} color="blue" onClick={onEdit} />
+                            <ActionBtn icon={Copy} color="purple" onClick={onClone} />
+                            <ActionBtn icon={Trash2} color="rose" onClick={onDelete} />
                         </div>
                     )}
                 </div>
-                
-                {/* ✅ Деликатная статистика */}
-                <div className="grid grid-cols-3 gap-2.5">
-                    <div className="bg-white rounded-lg p-2.5 text-center border border-slate-200 shadow-sm">
-                        <div className="text-xs text-slate-500 font-medium mb-0.5">Занято</div>
-                        <div className="text-base font-semibold text-slate-800">{occupiedBeds}/{room.capacity}</div>
-                    </div>
-                    <div className="bg-emerald-50/50 rounded-lg p-2.5 text-center border border-emerald-200/50 shadow-sm">
-                        <div className="text-xs text-emerald-700 font-medium mb-0.5">Свободно</div>
-                        <div className="text-base font-semibold text-emerald-700">{room.capacity - occupiedBeds}</div>
-                    </div>
-                    <div className="bg-rose-50/50 rounded-lg p-2.5 text-center border border-rose-200/50 shadow-sm">
-                        <div className="text-xs text-rose-700 font-medium mb-0.5">Долги</div>
-                        <div className="text-sm font-semibold text-rose-700">{totalDebt > 0 ? totalDebt.toLocaleString() : '0'}</div>
-                    </div>
+
+                {/* STATS BAR: Мягкие кнопки */}
+                <div className="grid grid-cols-3 gap-3 p-4 bg-white">
+                    <StatButton 
+                        label="Занято" 
+                        value={stats.occupied} 
+                        color="slate" 
+                        active={filterMode === 'all'} 
+                        onClick={() => toggleFilter('all')}
+                    />
+                    <StatButton 
+                        label="Свободно" 
+                        value={stats.free} 
+                        color="emerald" 
+                        active={filterMode === 'free'} 
+                        onClick={() => toggleFilter('free')}
+                    />
+                    <StatButton 
+                        label="Долг" 
+                        value={formatMoney(stats.totalDebt)} 
+                        color="rose" 
+                        isCurrency 
+                        active={filterMode === 'debt'} 
+                        onClick={() => toggleFilter('debt')}
+                    />
                 </div>
-            </div>
 
-            {/* ✅ Чистая сетка коек */}
-            <div className="p-4 grid grid-cols-2 gap-3 flex-1 bg-slate-50/30">
-                {beds.map(bedId => {
-                    const guest = guests.find(g => {
-                        if (String(g.roomId) !== String(room.id)) return false;
-                        if (String(g.bedId) !== String(bedId)) return false;
-                        
-                        if (g.status === 'active') {
-                            return true;
-                        }
-                        
-                        if (g.status === 'booking') {
-                            const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
-                            if (!rawCheckIn) return false;
-                            const checkIn = new Date(rawCheckIn);
-                            if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
-                                checkIn.setHours(12, 0, 0, 0);
-                            }
-                            const rawCheckOut = g.checkOutDate;
-                            if (!rawCheckOut) return false;
-                            const checkOut = new Date(rawCheckOut);
-                            if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
-                                checkOut.setHours(12, 0, 0, 0);
-                            }
-                            return now >= checkIn && now < checkOut;
-                        }
-                        
-                        return false;
-                    });
+                {/* BEDS GRID: Светлый фон сетки */}
+                <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 flex-1">
+                    {bedsData.map((bed) => {
+                        const showGhost = filterMode === 'debt' && !bed.guest && bed.ghostDebtor;
+                        const overrideWithGhost = filterMode === 'debt' && bed.ghostDebtor && (!bed.guest || bed.debt <= 0);
 
-                    let ghostGuest = null;
-                    if (!guest) {
-                        const checkedOutGuests = guests.filter(g => 
-                            String(g.roomId) === String(room.id) && 
-                            String(g.bedId) === String(bedId) &&
-                            g.status === 'checked_out'
-                        ).sort((a,b) => {
-                            const dateA = new Date(a.checkOutDate || 0);
-                            const dateB = new Date(b.checkOutDate || 0);
-                            return dateB - dateA;
-                        });
-                        
-                        if (checkedOutGuests.length > 0) {
-                            ghostGuest = checkedOutGuests[0];
-                        }
-                    }
+                        const targetGuest = overrideWithGhost ? bed.ghostDebtor : bed.guest;
+                        const targetDebt = overrideWithGhost ? bed.ghostDebt : bed.debt;
+                        const isGhostView = overrideWithGhost || showGhost;
 
-                    let futureGuest = null;
-                    if (!guest && !ghostGuest) {
-                        const upcoming = guests.filter(g => {
-                            if (String(g.roomId) !== String(room.id)) return false;
-                            if (String(g.bedId) !== String(bedId)) return false;
-                            if (g.status !== 'active' && g.status !== 'booking') return false;
-                            
-                            const rawCheckIn = g.checkInDate || g.checkInDateTime || g.checkIn;
-                            if (!rawCheckIn) return false;
-                            const checkIn = new Date(rawCheckIn);
-                            if (typeof rawCheckIn === 'string' && !rawCheckIn.includes('T')) {
-                                checkIn.setHours(12, 0, 0, 0);
-                            }
-                            return checkIn > now; 
-                        }).sort((a,b) => {
-                            const dateA = new Date(a.checkInDate || 0);
-                            const dateB = new Date(b.checkInDate || 0);
-                            return dateA - dateB;
-                        });
-                        
-                        if (upcoming.length > 0) {
-                            futureGuest = upcoming[0];
-                        }
-                    }
-                    
-                    const isBooking = guest?.status === 'booking';
-                    const paid = guest ? getTotalPaid(guest) : 0;
-                    const debt = guest ? guest.totalPrice - paid : 0;
-                    const ghostDebt = ghostGuest ? (ghostGuest.totalPrice || 0) - getTotalPaid(ghostGuest) : 0;
-                    
-                    let targetDateObj = null;
-                    let isExpired = false;
-                    
-                    if (guest) {
-                        const rawCheckOut = guest.checkOutDate;
-                        if (rawCheckOut) {
-                            const checkOut = new Date(rawCheckOut);
-                            if (typeof rawCheckOut === 'string' && !rawCheckOut.includes('T')) {
-                                checkOut.setHours(12, 0, 0, 0);
-                            }
-                            targetDateObj = checkOut;
-                            isExpired = now >= checkOut;
-                        }
-                    }
-
-                    // ✅ СБАЛАНСИРОВАННЫЕ ЦВЕТА
-                    let bgClass = 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm';
-                    let statusBadge = null;
-
-                    if (guest && !isBooking) {
-                         if (isExpired) {
-                             // ⚫ СЕРЫЙ ДЛЯ TIMEOUT
-                             bgClass = 'bg-slate-100 border-slate-300 shadow-sm';
-                             statusBadge = <div className="absolute top-2 right-2 text-[9px] bg-slate-600 text-white px-1.5 py-0.5 rounded font-semibold">OUT</div>;
-                         } else if (debt > 0) {
-                             // 🟡 МЯГКИЙ ЖЕЛТЫЙ ДЛЯ ДОЛГОВ
-                             bgClass = 'bg-amber-50/70 border-amber-200 shadow-sm';
-                             statusBadge = <div className="absolute top-2 right-2 w-2 h-2 bg-amber-500 rounded-full"></div>;
-                         } else {
-                             // 🟢 МЯГКИЙ ЗЕЛЕНЫЙ ДЛЯ ОПЛАЧЕННЫХ
-                             bgClass = 'bg-emerald-100 border-emerald-300 shadow-sm';
-                             statusBadge = <div className="absolute top-2 right-2"><CheckCircle2 size={14} className="text-emerald-600"/></div>;
-                         }
-                    } else if (isBooking) {
-                        // 🔵 МЯГКИЙ СИНИЙ ДЛЯ БРОНИ
-                        bgClass = 'bg-blue-50/70 border-blue-200 shadow-sm';
-                        statusBadge = <div className="absolute top-2 right-2"><Clock size={14} className="text-blue-600"/></div>;
-                    } else if (ghostGuest) {
-                        bgClass = 'bg-slate-50 border-slate-200 opacity-40';
-                        statusBadge = <div className="absolute top-2 right-2"><History size={12} className="text-slate-400"/></div>;
-                    }
-
-                    return (
-                        <div key={bedId} onClick={() => onBedClick(bedId, guest || ghostGuest, !!ghostGuest)}
-                             className={`cursor-pointer rounded-lg p-4 border transition-all relative min-h-[110px] flex flex-col justify-between group/bed ${bgClass}`}>
-                            
-                            {statusBadge}
-
-                            {((guest && isExpired && debt <= 0) || ghostGuest) && (
-                                <div className="absolute inset-0 bg-slate-900/90 z-10 flex flex-col items-center justify-center opacity-0 group-hover/bed:opacity-100 transition-opacity rounded-lg p-2 gap-2">
-                                    <span className="text-white text-[10px] font-medium text-center mb-1">
-                                        {ghostGuest ? 'Выселен' : 'Время вышло'}
+                        return (
+                            <div 
+                                key={bed.id}
+                                onClick={() => !bed.isTimeout && onBedClick(bed.id, targetGuest, isGhostView)}
+                                className={`
+                                    relative p-3 rounded-xl border transition-all duration-200 flex flex-col justify-between min-h-[110px] group/bed overflow-hidden
+                                    ${getOpacity(bed)}
+                                    ${getBedStyles(bed.status, targetDebt > 0, isGhostView)}
+                                `}
+                            >
+                                {/* Хедер койки */}
+                                <div className="flex justify-between items-start mb-2 relative z-10">
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                                        bed.isTimeout ? 'bg-slate-200 text-slate-500' : 'bg-white/60 text-slate-500 backdrop-blur-sm'
+                                    }`}>
+                                        №{bed.id}
                                     </span>
-                                    <div className="flex flex-col gap-1.5 w-full">
-                                        {guest && (
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); onBedClick(bedId, guest, false); }}
-                                                className="bg-emerald-600 text-white text-[10px] py-1.5 rounded-md font-medium hover:bg-emerald-500 w-full transition-colors"
-                                            >
-                                                Продлить
-                                            </button>
-                                        )}
+                                    
+                                    {isGhostView && (
+                                        <div className="flex items-center gap-1 text-[9px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200">
+                                            <History size={10} /> ИСТОРИЯ
+                                        </div>
+                                    )}
+                                    
+                                    {/* Статус Timeout - теперь аккуратный */}
+                                    {bed.isTimeout && !isGhostView && (
+                                        <div className="flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded-full">
+                                            ВРЕМЯ ВЫШЛО
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ТЕЛО КАРТОЧКИ */}
+                                {targetGuest ? (
+                                    <div className="flex-1 flex flex-col justify-end relative z-10">
+                                        <div className={`font-semibold text-sm leading-tight mb-1.5 truncate ${bed.status === 'timeout' ? 'text-slate-500' : 'text-slate-800'}`}>
+                                            {targetGuest.fullName}
+                                        </div>
+                                        
+                                        <div className="flex items-center justify-between">
+                                            {/* Дни */}
+                                            {!isGhostView && !bed.isTimeout && (
+                                                <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-slate-100/50 px-1.5 py-0.5 rounded-md">
+                                                    {bed.status === 'booking' ? <Clock size={11}/> : <CalendarDays size={11}/>}
+                                                    {bed.status === 'booking' 
+                                                        ? `Через ${bed.daysLeft} дн` 
+                                                        : `${bed.daysLeft} дн`
+                                                    }
+                                                </div>
+                                            )}
+                                            {bed.isTimeout && <div className="h-4"></div>} {/* Пустой блок для выравнивания */}
+
+                                            {/* Бейджи статуса */}
+                                            {targetDebt > 0 ? (
+                                                <div className="flex items-center gap-1 bg-rose-100 text-rose-700 text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-200 ml-auto">
+                                                    <Wallet size={10} className="fill-rose-700/20"/>
+                                                    -{formatMoney(targetDebt)}
+                                                </div>
+                                            ) : (
+                                                !isGhostView && bed.status !== 'booking' && !bed.isTimeout && (
+                                                    <div className="flex items-center gap-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-lg border border-emerald-200 ml-auto">
+                                                        <CheckCircle2 size={10}/> OK
+                                                    </div>
+                                                )
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-300 group-hover/bed:text-emerald-400 transition-colors">
+                                        <div className="p-2 rounded-full border-2 border-dashed border-slate-200 group-hover/bed:border-emerald-300 group-hover/bed:bg-emerald-50 transition-all">
+                                            <Plus size={16} strokeWidth={2.5} />
+                                        </div>
+                                        <span className="text-[10px] font-bold mt-1.5 uppercase tracking-wide group-hover/bed:text-emerald-600">Свободно</span>
+                                    </div>
+                                )}
+
+                                {/* --- МЕНЮ ДЕЙСТВИЙ ДЛЯ TIMEOUT --- */}
+                                {bed.isTimeout && (
+                                    <div className="absolute inset-0 bg-white/90 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center gap-2 opacity-0 group-hover/bed:opacity-100 transition-opacity duration-200 p-3">
                                         <button 
-                                            onClick={(e) => { e.stopPropagation(); onBedClick(bedId, null, false); }} 
-                                            className="bg-blue-600 text-white text-[10px] py-1.5 rounded-md font-medium hover:bg-blue-500 w-full flex items-center justify-center gap-1 transition-colors"
+                                            onClick={(e) => { e.stopPropagation(); onBedClick(bed.id, targetGuest, false); }}
+                                            className="w-full py-2 bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-slate-600 hover:text-blue-600 text-xs font-bold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-all"
                                         >
-                                            <Plus size={12}/> Новый гость
+                                            <History size={14}/> Продлить
+                                        </button>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); onBedClick(bed.id, null, false); }}
+                                            className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white border border-transparent text-xs font-bold rounded-lg shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-all"
+                                        >
+                                            <UserPlus size={14}/> Заселить
                                         </button>
                                     </div>
-                                </div>
-                            )}
-
-                            <div className="flex justify-between items-start">
-                                <span className={`text-xs font-medium px-2 py-1 rounded-md ${
-                                    bedId % 2 === 0 
-                                        ? 'bg-blue-100/70 text-blue-700 border border-blue-200/50' 
-                                        : 'bg-purple-100/70 text-purple-700 border border-purple-200/50'
-                                }`}>
-                                    {bedId} {bedId % 2 === 0 ? 'Верх' : 'Низ'}
-                                </span>
-                                {guest && <User size={15} className="text-slate-400"/>}
-                                {ghostGuest && <History size={15} className="text-slate-300"/>}
-                                {!guest && !ghostGuest && !futureGuest && <Plus size={15} className="text-slate-300 group-hover/bed:text-slate-500 transition-colors"/>}
+                                )}
                             </div>
-                            
-                            {guest || ghostGuest ? (
-                                <div className="mt-3 overflow-hidden">
-                                    <div className="font-semibold text-sm leading-tight truncate text-slate-900">
-                                        {(guest || ghostGuest).fullName}
-                                    </div>
-                                    <div className="flex justify-between items-center mt-2">
-                                         <div className="text-[10px] text-slate-600 font-medium">
-                                            {isBooking ? 'Бронь' : (() => {
-                                                if (guest && !isBooking && !isExpired && targetDateObj) {
-                                                    const daysLeft = Math.max(0, Math.ceil((targetDateObj - now) / (1000 * 60 * 60 * 24)));
-                                                    return `${daysLeft} дн.`;
-                                                }
-                                                const days = (guest || ghostGuest).days;
-                                                return `${days} дн.`;
-                                            })()}
-                                         </div>
-                                         {!isBooking && ghostGuest && ghostDebt > 0 && (
-                                             <div className="text-[10px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded border border-rose-200">
-                                                 -{ghostDebt.toLocaleString()}
-                                             </div>
-                                         )}
-                                         {!isBooking && guest && debt > 0 && (
-                                             <div className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
-                                                 -{debt.toLocaleString()}
-                                             </div>
-                                         )}
-                                    </div>
-                                    {!isExpired && targetDateObj && guest && !isBooking && (
-                                        <CountdownTimer targetDate={targetDateObj} lang={lang} />
-                                    )}
-                                    {isExpired && <div className="text-[9px] font-medium text-slate-600 mt-1 uppercase tracking-wide">TIME OUT</div>}
-                                </div>
-                            ) : (
-                                <div className="mt-auto text-center">
-                                    {futureGuest ? (
-                                        <div className="text-left">
-                                            <div className="text-[10px] text-blue-600 font-medium uppercase mb-1">
-                                                {(() => {
-                                                    const daysUntil = Math.max(0, Math.ceil((new Date(futureGuest.checkInDate) - now)/(1000*60*60*24)));
-                                                    return `Через ${daysUntil} дн.`;
-                                                })()}
-                                            </div>
-                                            <div className="text-xs font-medium text-slate-700 truncate flex items-center gap-1">
-                                                <Clock size={10}/> {futureGuest.fullName}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="text-slate-300 group-hover/bed:text-slate-400 transition-colors">
-                                            <Plus size={24} className="mx-auto"/>
-                                            <div className="text-[10px] font-medium mt-1">Свободно</div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                        );
+                    })}
+                </div>
             </div>
         </div>
     );
+};
+
+// --- СТИЛИ И КНОПКИ (SOFT UI VERSION) ---
+
+const ActionBtn = ({ icon: Icon, color, onClick }) => {
+    // Пастельные кнопки действий
+    const styles = {
+        blue: "hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200",
+        purple: "hover:bg-purple-50 hover:text-purple-600 hover:border-purple-200",
+        rose: "hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
+    };
+    return (
+        <button onClick={onClick} className={`p-2 rounded-xl bg-white text-slate-400 border border-slate-100 transition-all shadow-sm ${styles[color]}`}>
+            <Icon size={16} />
+        </button>
+    );
+};
+
+const StatButton = ({ label, value, color, active, onClick, isCurrency }) => {
+    // МЯГКИЕ ЦВЕТА СТАТИСТИКИ
+    const styles = {
+        slate: active 
+            ? "bg-slate-50 border-slate-100 text-slate-800 ring-1 ring-slate-100" 
+            : "bg-white border-slate-100 text-slate-500 hover:border-slate-200",
+        emerald: active 
+            ? "bg-emerald-100 border-emerald-200 text-emerald-800 ring-1 ring-emerald-200" 
+            : "bg-emerald-100/30 border-emerald-100/50 text-emerald-600 hover:bg-emerald-50/50",
+        rose: active 
+            ? "bg-rose-50 border-rose-200 text-rose-800 ring-1 ring-rose-200" 
+            : "bg-rose-50/30 border-rose-100/50 text-rose-600 hover:bg-rose-50/50",
+    };
+
+    return (
+        <button 
+            onClick={onClick}
+            className={`
+                flex flex-col items-center justify-center p-2 rounded-xl border transition-all duration-200
+                ${styles[color]} ${active ? 'shadow-sm' : ''}
+            `}
+        >
+            <span className="text-[10px] font-bold uppercase opacity-60 mb-0.5">{label}</span>
+            <span className={`text-sm font-bold ${isCurrency ? 'truncate w-full text-center' : ''}`}>
+                {value}
+            </span>
+        </button>
+    );
+};
+
+// ✅ SOFT UI BED STYLES (Приятные глазу)
+const getBedStyles = (status, hasDebt, isGhost) => {
+    // 1. ИСТОРИЯ/ДОЛГ (Мягкий красный/розовый)
+    if (isGhost) return "bg-rose-50/80 border border-rose-200 text-rose-900";
+    
+    // 2. СВОБОДНО (Белый с легким пунктиром)
+    if (status === 'free') {
+        return "bg-white border border-slate-200 border-dashed hover:border-emerald-300 hover:shadow-sm";
+    }
+    
+    // 3. TIMEOUT (Благородный серый)
+    if (status === 'timeout') {
+        return "bg-slate-100 border border-slate-200 text-slate-400"; 
+    }
+    
+    // 4. БРОНЬ (Светло-голубой)
+    if (status === 'booking') {
+        return "bg-blue-50/60 border border-blue-200 text-blue-800";
+    }
+    
+    // 5. АКТИВНЫЙ ГОСТЬ
+    if (hasDebt) {
+        // Должник - Розовый фон (внимание, но не агрессия)
+        return "bg-rose-50 border border-rose-200 text-rose-800 shadow-sm";
+    }
+    
+    // Оплачено - Мятный/Светло-зеленый (Спокойствие)
+    return "bg-emerald-50 border border-emerald-200 text-emerald-800 shadow-sm";
 };
 
 const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, lang }) => {
@@ -2055,6 +2147,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const [startDate, setStartDate] = useState(new Date());
     const [hoveredGuest, setHoveredGuest] = useState(null);
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+    const [hoveredRow, setHoveredRow] = useState(null);
+    const [hoveredCol, setHoveredCol] = useState(null);
 
     const shiftDateLeft = useCallback(() => {
         setStartDate(prev => {
@@ -2084,9 +2178,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         });
     }, []);
 
-    const calendarDaysCount = 14;
+    const calendarDaysCount = 20;
     
-    // ✅ МЕМОИЗАЦИЯ ДНЕЙ
+    // ✅ ОПРЕДЕЛЕНИЕ days
     const days = useMemo(() => {
         return Array.from({length: calendarDaysCount}, (_, i) => {
             const d = new Date(startDate);
@@ -2134,7 +2228,6 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
-    // ✅ МЕМОИЗАЦИЯ СТИЛЕЙ ГОСТЕЙ
     const guestStyles = useMemo(() => {
         const styles = {};
         const calendarStart = new Date(days[0].str);
@@ -2194,26 +2287,37 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         }
     }, [t, onDeleteGuest]);
 
-    // ✅ THROTTLE для mousemove
     const handleMouseMove = useCallback((e) => {
         setMousePosition({ x: e.clientX, y: e.clientY });
     }, []);
 
+    const tooltipTimeoutRef = useRef(null);
+    
     const handleMouseEnter = useCallback((e, guest, room) => {
+        if (tooltipTimeoutRef.current) {
+            clearTimeout(tooltipTimeoutRef.current);
+        }
+        
         setMousePosition({ x: e.clientX, y: e.clientY });
-        setHoveredGuest({ ...guest, room });
+        
+        tooltipTimeoutRef.current = setTimeout(() => {
+            setHoveredGuest({ ...guest, room });
+        }, 100);
     }, []);
 
     const handleMouseLeave = useCallback(() => {
+        if (tooltipTimeoutRef.current) {
+            clearTimeout(tooltipTimeoutRef.current);
+        }
         setHoveredGuest(null);
     }, []);
 
     return (
-        <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100">
-            <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
-                <div className="flex gap-2">
-                    <button onClick={shiftDateLeft} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
-                        <ChevronLeft size={20}/>
+        <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+            <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-slate-200/80 shadow-sm">
+                <div className="flex gap-1.5">
+                    <button onClick={shiftDateLeft} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-600 hover:text-slate-800 transition-colors border border-transparent hover:border-slate-200">
+                        <ChevronLeft size={18}/>
                     </button>
                     <button 
                         onClick={() => { 
@@ -2221,65 +2325,69 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                             d.setHours(0,0,0,0); 
                             setStartDate(d); 
                         }} 
-                        className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg text-sm font-bold hover:from-indigo-700 hover:to-indigo-800 shadow-md shadow-indigo-200 transition-all"
+                        className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-medium hover:bg-slate-700 shadow-sm transition-all"
                     >
                         {t('today')}
                     </button>
-                    <button onClick={shiftDateRight} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
-                        <ChevronRight size={20}/>
+                    <button onClick={shiftDateRight} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-600 hover:text-slate-800 transition-colors border border-transparent hover:border-slate-200">
+                        <ChevronRight size={18}/>
                     </button>
                 </div>
 				
-                <div className="flex items-center gap-3">
-                    <div className="text-sm font-bold text-slate-700 bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2.5">
+                    <div className="text-xs font-medium text-slate-700 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
                         {days[0].date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} — {days[days.length - 1].date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </div>
                     
-                    <div className="flex items-center gap-3 text-xs">
+                    <div className="flex items-center gap-2 text-[10px]">
                         <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded bg-emerald-500"></div>
-                            <span className="text-slate-600">Оплачено</span>
+                            <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70"></div>
+                            <span className="text-slate-600 font-medium">Оплачено</span>
                         </div>
                         <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded bg-rose-500"></div>
-                            <span className="text-slate-600">Долг</span>
+                            <div className="w-2.5 h-2.5 rounded-sm bg-rose-500/70"></div>
+                            <span className="text-slate-600 font-medium">Долг</span>
                         </div>
                         <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded bg-amber-500"></div>
-                            <span className="text-slate-600">Бронь</span>
+                            <div className="w-2.5 h-2.5 rounded-sm bg-amber-500/70"></div>
+                            <span className="text-slate-600 font-medium">Бронь</span>
                         </div>
                         <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded bg-slate-400"></div>
-                            <span className="text-slate-600">Просрочен</span>
+                            <div className="w-2.5 h-2.5 rounded-sm bg-slate-400"></div>
+                            <span className="text-slate-600 font-medium">Просрочен</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* ✅ ОПТИМИЗАЦИЯ: will-change, contain */}
             <div className="flex-1 overflow-auto relative" style={{willChange: 'scroll-position'}}>
-                <div className="min-w-[1600px]" style={{contain: 'layout style'}}>
-                    <div className="flex sticky top-0 bg-white z-40 border-b-2 border-slate-300 shadow-sm h-16">
-                        <div className="w-48 p-3 font-bold text-xs text-slate-500 bg-slate-50 border-r border-slate-300 sticky left-0 z-50 flex items-center">
-                            <BedDouble size={16} className="mr-2"/>
+                <div className="min-w-[2000px]" style={{contain: 'layout style'}}>
+                    <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200 shadow-sm h-12">
+                        <div className="w-40 p-2 font-medium text-[10px] text-slate-600 bg-slate-50/50 border-r border-slate-200 sticky left-0 z-50 flex items-center">
+                            <BedDouble size={14} className="mr-1.5 text-slate-500"/>
                             {t('room')} / {t('bed')}
                         </div>
-                        {days.map(d => {
+                        {days.map((d, colIndex) => {
                             const isToday = d.str === getLocalDateString(new Date());
                             const isWeekend = ['сб','вс'].includes(d.week);
+                            const isHovered = hoveredCol === colIndex;
                             
                             return (
-                                <div key={d.str} className={`flex-1 min-w-[100px] flex flex-col items-center justify-center px-1 border-r border-slate-200 transition-colors ${
-                                    isToday ? 'bg-indigo-100 border-indigo-300' :
-                                    isWeekend ? 'bg-rose-50' : 'bg-white'
-                                }`}>
-                                    <div className={`text-[9px] uppercase font-bold ${isToday ? 'text-indigo-700' : 'text-slate-400'}`}>
+                                <div 
+                                    key={d.str} 
+                                    className={`flex-1 min-w-[80px] flex flex-col items-center justify-center px-1 border-r border-slate-200/60 transition-colors ${
+                                        isHovered ? 'bg-blue-100/50' :
+                                        isToday ? 'bg-blue-50/50 border-blue-200' :
+                                        isWeekend ? 'bg-slate-50' : 'bg-white'
+                                    }`}
+                                >
+                                    <div className={`text-[8px] uppercase font-medium ${isToday ? 'text-blue-700' : 'text-slate-400'}`}>
                                         {d.week}
                                     </div>
-                                    <div className={`text-base font-bold my-0.5 ${isToday ? 'text-indigo-900' : 'text-slate-800'}`}>
+                                    <div className={`text-sm font-semibold my-0.5 ${isToday ? 'text-blue-900' : 'text-slate-800'}`}>
                                         {d.day}
                                     </div>
-                                    <div className={`text-[9px] ${isToday ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                    <div className={`text-[8px] ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>
                                         {d.month < 10 ? '0' : ''}{d.month}
                                     </div>
                                 </div>
@@ -2292,51 +2400,70 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                         const roomLabel = lang === 'uz' ? `Xona №${room.number}` : `Комната №${room.number}`;
                         
                         return (
-                            <div key={room.id} className="border-b border-slate-200 hover:bg-slate-50/50 transition-colors">
+                            <div key={room.id} className="border-b border-slate-200/60 hover:bg-slate-50/30 transition-colors">
                                 <div 
-                                    className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-100 to-slate-50 hover:from-slate-200 hover:to-slate-100 cursor-pointer font-bold text-slate-700 text-sm sticky left-0 z-30 border-r border-slate-300 w-48 border-b border-slate-200 transition-all"
+                                    className="flex items-center justify-between px-3 py-1.5 bg-slate-50/50 hover:bg-slate-100/50 cursor-pointer font-medium text-slate-700 text-xs sticky left-0 z-30 border-r border-slate-200 w-40 border-b border-slate-200/60 transition-all"
                                     onClick={() => toggleRoom(room.id)}
                                 >
-                                    <span className="flex items-center gap-2">
-                                        <Building2 size={14}/>
+                                    <span className="flex items-center gap-1.5">
+                                        <Building2 size={12} className="text-slate-500"/>
                                         {roomLabel}
                                     </span>
-                                    {isCollapsed ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
+                                    {isCollapsed ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronUp size={14} className="text-slate-400"/>}
                                 </div>
 
                                 {!isCollapsed && Array.from({length: room.capacity}, (_, i) => i + 1).map(bedId => {
                                     const bedGuests = relevantGuests.filter(g => g.roomId === room.id && String(g.bedId) === String(bedId));
+                                    const rowKey = `${room.id}-${bedId}`;
+                                    const isRowHovered = hoveredRow === rowKey;
                                     
                                     return (
-                                        <div key={bedId} className="flex h-14 border-b border-slate-100 last:border-b-0 relative group/row hover:bg-indigo-50/30 transition-colors">
-                                            <div className="w-48 px-4 flex items-center justify-between border-r border-slate-200 bg-white sticky left-0 z-30 text-sm font-semibold text-slate-600 group-hover/row:bg-indigo-50/50 transition-colors">
-                                                <span className="flex items-center gap-2">
-                                                    <BedDouble size={14} className="text-slate-400"/>
-                                                    Место {bedId}
+                                        <div 
+                                            key={bedId} 
+                                            className={`flex h-10 border-b border-slate-100/60 last:border-b-0 relative group/row transition-colors ${
+                                                isRowHovered ? 'bg-blue-100/30' : 'hover:bg-blue-50/20'
+                                            }`}
+                                            onMouseEnter={() => setHoveredRow(rowKey)}
+                                            onMouseLeave={() => setHoveredRow(null)}
+                                        >
+                                            <div className={`w-40 px-3 flex items-center justify-between border-r border-slate-200/60 bg-white sticky left-0 z-30 text-xs font-medium text-slate-600 transition-colors ${
+                                                isRowHovered ? 'bg-blue-100/40' : 'group-hover/row:bg-blue-50/30'
+                                            }`}>
+                                                <span className="flex items-center gap-1.5">
+                                                    <BedDouble size={12} className="text-slate-400"/>
+                                                    <span className="text-slate-700">№{bedId}</span>
                                                 </span>
-                                                <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${
-                                                    bedId % 2 === 0 ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-medium ${
+                                                    bedId % 2 === 0 ? 'bg-blue-100/70 text-blue-700 border border-blue-200/50' : 'bg-purple-100/70 text-purple-700 border border-purple-200/50'
                                                 }`}>
-                                                    {bedId % 2 === 0 ? 'Верх' : 'Низ'}
+                                                    {bedId % 2 === 0 ? '⬆️' : '⬇️'}
                                                 </span>
                                             </div>
 
                                             <div className="flex-1 relative">
                                                 <div className="absolute inset-0 flex">
-                                                    {days.map(d => {
+                                                    {days.map((d, colIndex) => {
                                                         const isToday = d.str === getLocalDateString(new Date());
                                                         const isWeekend = ['сб','вс'].includes(d.week);
+                                                        const isColHovered = hoveredCol === colIndex;
                                                         
                                                         return (
-                                                            <div key={d.str} className={`flex-1 min-w-[100px] border-r border-slate-100 h-full flex ${
-                                                                isToday ? 'bg-indigo-50/50' : isWeekend ? 'bg-rose-50/30' : ''
-                                                            }`}>
+                                                            <div 
+                                                                key={d.str} 
+                                                                className={`flex-1 min-w-[80px] border-r border-slate-100/50 h-full flex transition-colors ${
+                                                                    isColHovered ? 'bg-blue-100/30' :
+                                                                    isToday ? 'bg-blue-50/30' : 
+                                                                    isWeekend ? 'bg-slate-50/30' : ''
+                                                                }`}
+                                                                onMouseEnter={() => setHoveredCol(colIndex)}
+                                                                onMouseLeave={() => setHoveredCol(null)}
+                                                            >
                                                                 <div 
-                                                                    className="w-1/2 h-full cursor-pointer hover:bg-indigo-100/50 border-r border-slate-100/50 transition-colors" 
+                                                                    className="w-1/2 h-full cursor-pointer hover:bg-blue-200/40 border-r border-slate-100/30 transition-colors" 
                                                                     onClick={() => handleEmptyCellClick(room, bedId, d.str, false)}
                                                                 />
                                                                 <div 
-                                                                    className="w-1/2 h-full cursor-pointer hover:bg-indigo-100/50 transition-colors" 
+                                                                    className="w-1/2 h-full cursor-pointer hover:bg-blue-200/40 transition-colors" 
                                                                     onClick={() => handleEmptyCellClick(room, bedId, d.str, true)}
                                                                 />
                                                             </div>
@@ -2345,7 +2472,6 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                 </div>
 
                                                 {bedGuests.map(guest => {
-                                                    // ✅ ИСПОЛЬЗУЕМ МЕМОИЗИРОВАННЫЕ СТИЛИ
                                                     const styleData = guestStyles[guest.id];
                                                     if (!styleData) return null;
                                                     
@@ -2363,20 +2489,28 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                     const totalPrice = guest.totalPrice || 0;
                                                     const paidRatio = totalPrice > 0 ? Math.min(1, totalPaid / totalPrice) : 0;
                                                     
-                                                    const bgClass = guest.status === 'booking' ? 'bg-gradient-to-r from-amber-400 to-amber-500 border-amber-600' :
-                                                                   isCheckedOut ? 'bg-gradient-to-r from-slate-400 to-slate-500 border-slate-600' :
-                                                                   isExpired ? 'bg-gradient-to-r from-slate-400 to-slate-500 border-slate-600' :
-                                                                   debt > 0 ? 'bg-gradient-to-r from-rose-500 to-rose-600 border-rose-700' :
-                                                                   'bg-gradient-to-r from-emerald-500 to-emerald-600 border-emerald-700';
+                                                    const bgClass = guest.status === 'booking' ? 'bg-amber-500/90 border-amber-600' :
+                                                                   isCheckedOut ? 'bg-slate-400/90 border-slate-500' :
+                                                                   isExpired ? 'bg-slate-400/90 border-slate-500' :
+                                                                   debt > 0 ? 'bg-rose-500/90 border-rose-600' :
+                                                                   'bg-emerald-500/90 border-emerald-600';
+
+                                                    const zIndex = isCheckedOut ? 'z-10' : 
+                                                                   isExpired ? 'z-15' : 
+                                                                   guest.status === 'booking' ? 'z-20' :
+                                                                   'z-25';
 
                                                     return (
                                                         <div 
                                                             key={guest.id}
-                                                            className={`absolute top-1 bottom-1 z-20 rounded-lg shadow-lg cursor-pointer hover:z-50 hover:shadow-xl hover:scale-[1.02] border-2 group/block overflow-hidden ${bgClass} flex items-center transition-all duration-200`}
+                                                            className={`absolute top-0.5 bottom-0.5 ${zIndex} rounded-md cursor-pointer hover:z-50 border group/block overflow-hidden ${bgClass} flex items-center transition-all duration-150`}
                                                             style={{
                                                                 left: `${styleData.leftPercent}%`,
                                                                 width: `${styleData.widthPercent}%`,
-                                                                willChange: 'transform'
+                                                                willChange: 'transform',
+                                                                boxShadow: hoveredGuest?.id === guest.id 
+                                                                    ? '0 4px 12px rgba(0,0,0,0.2)' 
+                                                                    : '0 1px 3px rgba(0,0,0,0.1)'
                                                             }}
                                                             onClick={(e) => { 
                                                                 e.stopPropagation(); 
@@ -2388,14 +2522,14 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                         >
                                                             {!isCheckedOut && !isExpired && guest.status !== 'booking' && paidRatio > 0 && (
                                                                 <div 
-                                                                    className="absolute inset-0 bg-emerald-500 opacity-100"
+                                                                    className="absolute inset-0 bg-emerald-500/90"
                                                                     style={{ width: `${paidRatio * 100}%` }}
                                                                 />
                                                             )}
 
                                                             {!isCheckedOut && !isExpired && debt > 0 && guest.status !== 'booking' && paidRatio < 1 && (
                                                                 <div 
-                                                                    className="absolute inset-0 bg-rose-500 opacity-100"
+                                                                    className="absolute inset-0 bg-rose-500/90"
                                                                     style={{ 
                                                                         left: `${paidRatio * 100}%`,
                                                                         width: `${(1 - paidRatio) * 100}%` 
@@ -2403,29 +2537,29 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                 />
                                                             )}
 
-                                                            <div className="sticky left-0 px-2 flex items-center gap-2 w-full relative z-10">
-                                                                <div className="bg-white/20 p-1 rounded-lg backdrop-blur-sm">
-                                                                    {guest.status === 'booking' ? <Clock size={12} className="text-white"/> :
-                                                                     isExpired ? <AlertCircle size={12} className="text-white"/> :
-                                                                     <User size={12} className="text-white"/>}
+                                                            <div className="sticky left-0 px-1.5 flex items-center gap-1 w-full relative z-10">
+                                                                <div className="bg-white/25 p-0.5 rounded backdrop-blur-sm">
+                                                                    {guest.status === 'booking' ? <Clock size={10} className="text-white"/> :
+                                                                     isExpired ? <AlertCircle size={10} className="text-white"/> :
+                                                                     <User size={10} className="text-white"/>}
                                                                 </div>
                                                                 
                                                                 <div className="flex-1 min-w-0">
-                                                                    <div className="font-bold text-xs text-white truncate">
+                                                                    <div className="font-semibold text-[10px] text-white truncate">
                                                                         {guest.fullName}
                                                                     </div>
-                                                                    <div className="flex items-center gap-2 text-[10px] text-white/80">
+                                                                    <div className="flex items-center gap-1 text-[8px] text-white/90">
                                                                         <span>{guest.days}д</span>
                                                                         {debt > 0 && !isCheckedOut && !isExpired && (
                                                                             <>
                                                                                 <span>•</span>
-                                                                                <span className="font-bold">-{debt.toLocaleString()}</span>
+                                                                                <span className="font-semibold">-{debt.toLocaleString()}</span>
                                                                             </>
                                                                         )}
                                                                         {isExpired && (
                                                                             <>
                                                                                 <span>•</span>
-                                                                                <span className="font-bold">TIME OUT</span>
+                                                                                <span className="font-semibold">OUT</span>
                                                                             </>
                                                                         )}
                                                                     </div>
@@ -2434,10 +2568,10 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                 {isCheckedOut && isAdmin && (
                                                                     <button 
                                                                         onClick={(e) => handleDeleteGuest(e, guest.id)}
-                                                                        className="bg-white/20 hover:bg-rose-500 p-1.5 rounded-lg text-white transition-colors opacity-0 group-hover/block:opacity-100"
+                                                                        className="bg-white/20 hover:bg-rose-500 p-0.5 rounded text-white transition-colors opacity-0 group-hover/block:opacity-100"
                                                                         title={t('delete')}
                                                                     >
-                                                                        <X size={12} strokeWidth={3}/>
+                                                                        <X size={10} strokeWidth={3}/>
                                                                     </button>
                                                                 )}
                                                             </div>
@@ -3182,6 +3316,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const t = (k) => TRANSLATIONS[lang][k];
     const [staffFilter, setStaffFilter] = useState('');
     const [startDate, setStartDate] = useState('');
+    
+    // --- ЛОГИКА АГРЕГАЦИИ (БЕЗ ИЗМЕНЕНИЙ) ---
     const aggregatedDebts = useMemo(() => {
         const debtMap = {};
         guests.forEach(g => {
@@ -3207,8 +3343,11 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
         });
         return Object.values(debtMap);
     }, [guests, startDate, staffFilter, users]);
+
     const totalDebt = aggregatedDebts.reduce((sum, item) => sum + item.totalDebt, 0);
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
+    
+    // --- STATE ---
     const [selectedDebtor, setSelectedDebtor] = useState(null);
     const [payCash, setPayCash] = useState('');
     const [payCard, setPayCard] = useState('');
@@ -3219,6 +3358,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const [magnetActiveField, setMagnetActiveField] = useState(null);
     const [isCreateDebtModalOpen, setIsCreateDebtModalOpen] = useState(false);
 
+    // --- HANDLERS ---
     const handlePayClick = (debtor) => { 
         setSelectedDebtor(debtor); 
         setIsPayModalOpen(true); 
@@ -3227,7 +3367,12 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
         setPayQR(''); 
         setMagnetActiveField(null);
     };
-    const handleAdminAdjustClick = (debtor) => { setSelectedDebtor(debtor); setIsAdminAdjustModalOpen(true); setAdminAdjustAmount(''); }
+    
+    const handleAdminAdjustClick = (debtor) => { 
+        setSelectedDebtor(debtor); 
+        setIsAdminAdjustModalOpen(true); 
+        setAdminAdjustAmount(''); 
+    }
     
     const submitPayment = () => {
         if (!selectedDebtor) return;
@@ -3268,138 +3413,184 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
 
     const disableWheel = (e) => { e.currentTarget.blur(); };
 
+    // --- UI RENDER ---
     return (
-        <div className="space-y-6">
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-end">
-                <div className="flex-1 w-full"><label className={labelClass}>{t('staff')}</label><select className={inputClass} value={staffFilter} onChange={e => setStaffFilter(e.target.value)}><option value="">All</option>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
-                <div className="w-full md:w-auto"><label className={labelClass}>{t('date')}</label><input type="date" className={inputClass} value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
-                <div className="px-6 py-2 bg-rose-50 border border-rose-200 rounded-xl text-center w-full md:w-auto min-w-[200px]"><div className="text-xs font-bold text-rose-500 uppercase">{t('total')} {t('debt')}</div><div className="text-2xl font-bold text-rose-700">{totalDebt.toLocaleString()}</div></div>
-                <div className="flex gap-2">
-                    <Button icon={Plus} onClick={() => setIsCreateDebtModalOpen(true)}>{t('createDebt')}</Button>
-                    <Button variant="secondary" icon={Printer} onClick={() => printDebts(aggregatedDebts, totalDebt)}>{t('print')}</Button>
+        <div className="space-y-6 pb-20 animate-in fade-in duration-300">
+            
+            {/* HEADER & FILTERS */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col lg:flex-row gap-4 items-end">
+                <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('staff')}</label>
+                        <select className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" value={staffFilter} onChange={e => setStaffFilter(e.target.value)}>
+                            <option value="">Все сотрудники</option>
+                            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('date')}</label>
+                        <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                    </div>
+                </div>
+                
+                <div className="w-full lg:w-auto flex flex-col sm:flex-row gap-3 items-stretch">
+                    <div className="px-6 py-2 bg-rose-50 border border-rose-200 rounded-xl text-center min-w-[200px]">
+                        <div className="text-xs font-bold text-rose-400 uppercase tracking-wider">{t('total')} {t('debt')}</div>
+                        <div className="text-2xl font-black text-rose-600 tracking-tight">{totalDebt.toLocaleString()}</div>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button icon={Plus} onClick={() => setIsCreateDebtModalOpen(true)} className="flex-1">{t('createDebt')}</Button>
+                        <Button variant="secondary" icon={Printer} onClick={() => printDebts(aggregatedDebts, totalDebt)} className="flex-1">{t('print')}</Button>
+                    </div>
                 </div>
             </div>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto">
-                <table className="w-full text-sm text-left min-w-[600px]">
-                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                        <tr>
-                            <th className="p-4">{t('guestName')}</th>
-                            <th className="p-4">{t('passport')}</th>
-                            <th className="p-4">{t('staff')}</th>
-                            <th className="p-4 text-right">{t('debt')}</th>
-                            <th className="p-4 text-right">{t('action')}</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {aggregatedDebts.map(item => (
-                            <tr key={item.id} className="hover:bg-slate-50">
-                                <td className="p-4 font-bold">{item.fullName}</td>
-                                <td className="p-4 font-mono">{item.passport}</td>
-                                <td className="p-4">{users.find(u => u.id === item.staffId || u.login === item.staffId)?.name || item.staffId}</td>
-                                <td className="p-4 text-right font-bold text-rose-600">{item.totalDebt.toLocaleString()}</td>
-                                <td className="p-4 text-right flex justify-end gap-2">
-                                    <Button size="sm" onClick={() => handlePayClick(item)}>{t('payDebt')}</Button>
+
+            {/* LIST (CARDS) */}
+            <div className="grid gap-3">
+                {aggregatedDebts.length === 0 ? (
+                    <div className="bg-white rounded-xl p-10 text-center border border-slate-200 border-dashed">
+                        <CheckCircle2 size={48} className="mx-auto mb-3 text-slate-300"/>
+                        <p className="text-slate-500 font-medium">{t('noData')}</p>
+                    </div>
+                ) : (
+                    aggregatedDebts.map(item => (
+                        <div key={item.id} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all flex flex-col md:flex-row items-center gap-4 group">
+                            
+                            {/* Left: Info */}
+                            <div className="flex-1 w-full flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center text-lg font-bold">
+                                    {item.roomNumber}
+                                </div>
+                                <div className="min-w-0">
+                                    <h3 className="font-bold text-slate-800 text-lg truncate mb-0.5">{item.fullName}</h3>
+                                    <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
+                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{item.passport}</span>
+                                        <span>{users.find(u => u.id === item.staffId || u.login === item.staffId)?.name || item.staffId}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right: Actions & Debt */}
+                            <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 border-slate-100 pt-3 md:pt-0">
+                                <div className="text-right">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('debt')}</div>
+                                    <div className="text-xl font-black text-rose-600">
+                                        {item.totalDebt.toLocaleString()}
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => handlePayClick(item)}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white p-3 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-2 text-sm"
+                                    >
+                                        <Wallet size={18}/> {t('payDebt')}
+                                    </button>
                                     {isAdmin && (
-                                        <Button size="sm" variant="secondary" onClick={() => handleAdminAdjustClick(item)}>{t('addDebt')}</Button>
+                                        <button 
+                                            onClick={() => handleAdminAdjustClick(item)}
+                                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-3 rounded-lg transition-colors border border-slate-200"
+                                            title={t('addDebt')}
+                                        >
+                                            <Edit size={18}/>
+                                        </button>
                                     )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                {aggregatedDebts.length === 0 && <div className="p-8 text-center text-slate-400">{t('noData')}</div>}
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
+
+            {/* PAY MODAL */}
             {isPayModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                    <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-xl">
-                        <h3 className="font-bold text-lg mb-4">{t('payDebt')}</h3>
-                        <p className="mb-4 text-sm">{selectedDebtor?.fullName} (Total: {selectedDebtor?.totalDebt.toLocaleString()})</p>
-                        <div className="space-y-3">
-                            <div>
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">{t('cash')}</label>
-                                <div className="flex items-center">
-                                    <input 
-                                        type="number" 
-                                        className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-l focus:ring-1 focus:ring-indigo-500 outline-none text-sm no-spinner" 
-                                        value={payCash} 
-                                        onChange={e => {setPayCash(e.target.value); setMagnetActiveField(null);}} 
-                                        placeholder="0"
-                                        onWheel={disableWheel}
-                                    />
-                                    <button 
-                                        type="button"
-                                        onClick={() => applyMagnet('payCash')} 
-                                        disabled={magnetActiveField && magnetActiveField !== 'payCash'} 
-                                        className="bg-white border border-l-0 border-slate-300 rounded-r px-2 py-2 text-indigo-600 disabled:opacity-40"
-                                    >
-                                        <Magnet size={16}/>
-                                    </button>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">{t('card')}</label>
-                                <div className="flex items-center">
-                                    <input 
-                                        type="number" 
-                                        className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-l focus:ring-1 focus:ring-indigo-500 outline-none text-sm no-spinner" 
-                                        value={payCard} 
-                                        onChange={e => {setPayCard(e.target.value); setMagnetActiveField(null);}} 
-                                        placeholder="0"
-                                        onWheel={disableWheel}
-                                    />
-                                    <button 
-                                        type="button"
-                                        onClick={() => applyMagnet('payCard')} 
-                                        disabled={magnetActiveField && magnetActiveField !== 'payCard'} 
-                                        className="bg-white border border-l-0 border-slate-300 rounded-r px-2 py-2 text-indigo-600 disabled:opacity-40"
-                                    >
-                                        <Magnet size={16}/>
-                                    </button>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">{t('qr')}</label>
-                                <div className="flex items-center">
-                                    <input 
-                                        type="number" 
-                                        className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-l focus:ring-1 focus:ring-indigo-500 outline-none text-sm no-spinner" 
-                                        value={payQR} 
-                                        onChange={e => {setPayQR(e.target.value); setMagnetActiveField(null);}} 
-                                        placeholder="0"
-                                        onWheel={disableWheel}
-                                    />
-                                    <button 
-                                        type="button"
-                                        onClick={() => applyMagnet('payQR')} 
-                                        disabled={magnetActiveField && magnetActiveField !== 'payQR'} 
-                                        className="bg-white border border-l-0 border-slate-300 rounded-r px-2 py-2 text-indigo-600 disabled:opacity-40"
-                                    >
-                                        <Magnet size={16}/>
-                                    </button>
-                                </div>
-                            </div>
+                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden">
+                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                            <h3 className="font-bold text-lg text-slate-800">{t('payDebt')}</h3>
+                            <p className="text-sm text-slate-500 font-medium">{selectedDebtor?.fullName}</p>
                         </div>
-                        <div className="flex gap-2 mt-4">
-                            <Button className="flex-1" onClick={submitPayment}>{t('save')}</Button>
-                            <Button variant="secondary" className="flex-1" onClick={() => setIsPayModalOpen(false)}>{t('cancel')}</Button>
+                        
+                        <div className="p-6 space-y-4">
+                            {/* Total Debt Badge */}
+                            <div className="bg-rose-50 border border-rose-100 p-3 rounded-lg text-center">
+                                <div className="text-xs font-bold text-rose-400 uppercase">Общий долг</div>
+                                <div className="text-2xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
+                            </div>
+
+                            {['payCash', 'payCard', 'payQR'].map(field => (
+                                <div key={field} className="relative">
+                                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
+                                        {field === 'payCash' ? <DollarSign size={16}/> : field === 'payCard' ? <CreditCard size={16}/> : <QrCode size={16}/>}
+                                    </div>
+                                    <input 
+                                        type="number" 
+                                        className="w-full pl-10 pr-10 py-3 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all no-spinner placeholder:font-normal"
+                                        placeholder={field === 'payCash' ? t('cash') : field === 'payCard' ? t('card') : t('qr')}
+                                        value={field === 'payCash' ? payCash : field === 'payCard' ? payCard : payQR}
+                                        onChange={e => {
+                                            const val = e.target.value;
+                                            if(field === 'payCash') setPayCash(val);
+                                            else if(field === 'payCard') setPayCard(val);
+                                            else setPayQR(val);
+                                            setMagnetActiveField(null);
+                                        }}
+                                        onWheel={disableWheel}
+                                    />
+                                    <button 
+                                        onClick={() => applyMagnet(field)}
+                                        disabled={magnetActiveField && magnetActiveField !== field}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors disabled:opacity-30"
+                                    >
+                                        <Magnet size={16}/>
+                                    </button>
+                                </div>
+                            ))}
+
+                            <div className="flex gap-3 mt-2">
+                                <button onClick={() => setIsPayModalOpen(false)} className="flex-1 py-3 border border-slate-300 rounded-lg font-bold text-slate-600 hover:bg-slate-50">
+                                    {t('cancel')}
+                                </button>
+                                <button onClick={submitPayment} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-md shadow-emerald-200">
+                                    {t('save')}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* ADMIN ADJUST MODAL */}
             {isAdminAdjustModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                    <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-xl">
-                        <h3 className="font-bold text-lg mb-4">{t('addDebt')} (Admin)</h3>
-                        <p className="mb-4 text-sm text-slate-500">Enter +/- amount to adjust total price.</p>
-                        <input className={inputClass} type="number" value={adminAdjustAmount} onChange={e => setAdminAdjustAmount(e.target.value)} placeholder="+/- Amount" />
-                        <div className="flex gap-2 mt-4">
-                            <Button className="flex-1" onClick={submitAdminAdjust}>{t('save')}</Button>
-                            <Button variant="secondary" className="flex-1" onClick={() => setIsAdminAdjustModalOpen(false)}>{t('cancel')}</Button>
+                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden">
+                        <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
+                            <h3 className="font-bold text-lg text-amber-900">{t('addDebt')} (Admin)</h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <p className="text-sm text-slate-500">Введите сумму (+ или -) для корректировки баланса.</p>
+                            <input 
+                                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-lg font-bold outline-none focus:border-amber-500" 
+                                type="number" 
+                                value={adminAdjustAmount} 
+                                onChange={e => setAdminAdjustAmount(e.target.value)} 
+                                placeholder="+/- Сумма" 
+                                onWheel={disableWheel}
+                            />
+                            <div className="flex gap-3">
+                                <button onClick={() => setIsAdminAdjustModalOpen(false)} className="flex-1 py-3 border border-slate-300 rounded-lg font-bold text-slate-600 hover:bg-slate-50">
+                                    {t('cancel')}
+                                </button>
+                                <button onClick={submitAdminAdjust} className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold shadow-md shadow-amber-200">
+                                    {t('save')}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
+
             {isCreateDebtModalOpen && <CreateDebtModal clients={clients} onClose={() => setIsCreateDebtModalOpen(false)} onCreate={onCreateDebt} lang={lang} />}
+            
             <style>{`
                 .no-spinner::-webkit-outer-spin-button, .no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
                 .no-spinner { -moz-appearance: textfield; }
@@ -3903,7 +4094,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
         passport: '',
         country: '',
         birthDate: '',
-        checkInDate: initialDate || new Date().toISOString().split('T')[0],
+        checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
         days: 1,
         pricePerNight: initialRoom?.price || 0,
         paidCash: 0,
@@ -3984,7 +4175,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
         }));
     };
 
-    // ✅ ФУНКЦИЯ МАГНИТИКА - заполняет остаток в выбранное поле
     const handleMagnetClick = (field) => {
         const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
         const currentTotal = parseInt(formData.paidCash || 0) + parseInt(formData.paidCard || 0) + parseInt(formData.paidQR || 0);
@@ -3995,6 +4185,37 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
         }
     };
 
+    // ✅ АВТОМАТИЧЕСКАЯ ЛОГИКА: Если сейчас 8:00-11:59 и выбрана сегодняшняя дата → 00:00 сегодня
+const getCheckInDateTime = () => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    const selectedDate = new Date(formData.checkInDate);
+    selectedDate.setHours(0, 0, 0, 0);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // ✅ РАННИЙ ЗАЕЗД: если сейчас 8:00-11:59 И выбрана сегодняшняя дата
+    if (currentHour >= 8 && currentHour < 12 && selectedDate.getTime() === today.getTime()) {
+        // Устанавливаем на сегодня 00:00 (полночь)
+        const checkInDateTime = new Date(selectedDate);
+        checkInDateTime.setHours(0, 0, 0, 0);
+        return { 
+            dateTime: checkInDateTime.toISOString(), 
+            isEarlyCheckIn: true 
+        };
+    }
+    
+    // ✅ ОБЫЧНЫЙ ЗАЕЗД: выбранная дата 12:00
+    const checkInDateTime = new Date(selectedDate);
+    checkInDateTime.setHours(12, 0, 0, 0);
+    return { 
+        dateTime: checkInDateTime.toISOString(), 
+        isEarlyCheckIn: false 
+    };
+};
+
     // ✅ ЗАСЕЛЕНИЕ
     const handleSubmit = () => {
         if (!formData.fullName || !formData.passport || !formData.roomId || !formData.bedId) {
@@ -4002,8 +4223,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
             return;
         }
 
-        const stay = getStayDetails(formData.checkInDate, parseInt(formData.days));
+        const { dateTime: checkInDateTime, isEarlyCheckIn } = getCheckInDateTime();
+        const stay = getStayDetails(checkInDateTime, parseInt(formData.days));
         const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
+
+        console.log('✅ Check-in:', { 
+            isEarlyCheckIn, 
+            checkInDateTime, 
+            checkOutDateTime: stay.end.toISOString() 
+        });
 
         onSubmit({
             ...formData,
@@ -4024,8 +4252,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
             return;
         }
 
-        const stay = getStayDetails(formData.checkInDate, parseInt(formData.days));
+        const { dateTime: checkInDateTime, isEarlyCheckIn } = getCheckInDateTime();
+        const stay = getStayDetails(checkInDateTime, parseInt(formData.days));
         const totalPrice = parseInt(formData.days) * parseInt(formData.pricePerNight);
+
+        console.log('✅ Booking:', { 
+            isEarlyCheckIn, 
+            checkInDateTime, 
+            checkOutDateTime: stay.end.toISOString() 
+        });
 
         onSubmit({
             ...formData,
@@ -4048,6 +4283,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
     
     const totalSteps = initialStep === 1 ? 3 : 2;
     const displayStep = initialStep === 2 ? step - 1 : step;
+
+    // ✅ Проверяем, будет ли ранний заезд
+    const { isEarlyCheckIn } = getCheckInDateTime();
 
     return (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -4148,7 +4386,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
 
                     {step === 2 && (
                         <div className="space-y-4 animate-in slide-in-from-right duration-200">
-                            {/* ✅ УБРАЛИ ЗАГОЛОВОК */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2 relative">
                                     <label className="block text-sm font-bold text-slate-700 mb-2">ФИО</label>
@@ -4245,6 +4482,29 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                 </div>
                             </div>
 
+                            {/* ✅ АВТОМАТИЧЕСКОЕ УВЕДОМЛЕНИЕ О РАННЕМ ЗАЕЗДЕ */}
+                            {isEarlyCheckIn && (
+                                <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top">
+                                    <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5"/>
+                                    <div className="text-sm text-amber-800">
+                                        <strong>🌅 Ранний заезд обнаружен!</strong>
+                                        <br/>
+                                        Сейчас <strong>{new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</strong>, 
+                                        система автоматически продлевает проживание до 12:00 следующего дня.
+                                        <div className="mt-2 p-2 bg-white/60 rounded-lg font-semibold">
+                                            📅 Фактическое проживание: {(() => {
+                                                const { dateTime } = getCheckInDateTime();
+                                                const stay = getStayDetails(dateTime, formData.days);
+                                                return `${new Date(stay.start).toLocaleDateString('ru-RU')} → ${new Date(stay.end).toLocaleDateString('ru-RU')} 12:00`;
+                                            })()}
+                                        </div>
+                                        <div className="text-xs text-amber-700 mt-2">
+                                            💡 Гость получает бонусное время до 12:00
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 border-2 border-indigo-200">
                                 <div className="flex justify-between items-center">
                                     <span className="text-slate-700 font-bold">Итого к оплате:</span>
@@ -4263,7 +4523,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                 Оплата
                             </h3>
 
-                            {/* ✅ КОМПАКТНЫЕ ПОЛЯ С МАГНИТИКОМ */}
                             <div className="grid grid-cols-3 gap-3">
                                 <div>
                                     <label className="block text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
@@ -4335,7 +4594,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                 </div>
                             </div>
 
-                            {/* ✅ КОМПАКТНАЯ СВОДКА */}
                             <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl p-4 border-2 border-slate-200 space-y-2">
                                 <div className="flex justify-between text-sm text-slate-600">
                                     <span>Стоимость:</span>
@@ -4357,7 +4615,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                                 </div>
                             </div>
 
-                            {/* ✅ ПРЕДУПРЕЖДЕНИЕ О ДОЛГЕ */}
                             {totalPaid < totalPrice && (
                                 <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-3 flex items-start gap-2">
                                     <AlertCircle size={18} className="text-amber-600 flex-shrink-0 mt-0.5"/>
@@ -4378,7 +4635,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
                         </Button>
                     )}
                     
-                    {/* ✅ КНОПКА БРОНИРОВАНИЯ (только на шаге 2) */}
                     {step === 2 && (
                         <Button variant="warning" onClick={handleBooking} icon={Clock}>
                             Забронировать
@@ -4400,12 +4656,17 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, allRooms, gu
             </div>
         </div>
     );
-};
+};	
+
 const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
+    
+    if (!guest) { onClose(); return null; }
+    
     const totalPaid = getTotalPaid(guest);
     const debt = (guest.totalPrice || 0) - totalPaid;
     
+    // --- STATE ---
     const [activeAction, setActiveAction] = useState(null);
     const [payCash, setPayCash] = useState('');
     const [payCard, setPayCard] = useState('');
@@ -4416,26 +4677,28 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const [checkoutManualRefund, setCheckoutManualRefund] = useState('');
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState({ 
-        fullName: guest.fullName, 
-        birthDate: guest.birthDate, 
-        passport: guest.passport, 
-        country: guest.country, 
-        pricePerNight: guest.pricePerNight 
+        fullName: guest.fullName || '', 
+        birthDate: guest.birthDate || '', 
+        passport: guest.passport || '', 
+        country: guest.country || 'Узбекистан', 
+        pricePerNight: guest.pricePerNight || 0
     });
     const [splitAfterDays, setSplitAfterDays] = useState(1);
     const [splitGapDays, setSplitGapDays] = useState(1);
     const [reduceDays, setReduceDays] = useState(1);
     const [reduceDaysNoRefund, setReduceDaysNoRefund] = useState(1);
-    const [newStartDate, setNewStartDate] = useState(guest.checkInDate.split('T')[0]);
+    const [magnetActiveField, setMagnetActiveField] = useState(null);
+    
+    const [newStartDate, setNewStartDate] = useState(() => {
+        try {
+            return guest.checkInDate ? new Date(guest.checkInDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+        } catch (e) { return new Date().toISOString().split('T')[0]; }
+    });
     
     const isBooking = guest.status === 'booking';
     const isCheckedOut = guest.status === 'checked_out';
-    const [magnetActiveField, setMagnetActiveField] = useState(null);
-
-    const canMoveDate = currentUser.role === 'admin' || 
-                        currentUser.role === 'super' || 
-                        currentUser.login === 'fazliddin';
-
+    const canMoveDate = currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.login === 'fazliddin';
+    
     const today = new Date(); 
     const checkIn = new Date(guest.checkInDate); 
     let daysStayedCalculated = Math.max(1, Math.ceil((today - checkIn) / (1000 * 60 * 60 * 24)));
@@ -4443,15 +4706,15 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
     const actualCost = daysStayed * parseInt(guest.pricePerNight); 
     const balance = totalPaid - actualCost;
 
+    // --- HANDLERS ---
+    const disableWheel = (e) => e.target.blur();
+
     const handlePayDebt = () => { 
         if(isPaymentSubmitting) return;
-        const cash = parseInt(payCash) || 0; 
-        const card = parseInt(payCard) || 0; 
-        const qr = parseInt(payQR) || 0; 
-        const sum = cash + card + qr; 
-        if(sum <= 0) return notify("Enter Amount", 'error'); 
+        const c = parseInt(payCash)||0, cd = parseInt(payCard)||0, q = parseInt(payQR)||0;
+        if(c+cd+q <= 0) return notify("Введите сумму", 'error'); 
         setIsPaymentSubmitting(true);
-        onPayment(guest.id, { cash, card, qr });
+        onPayment(guest.id, { cash:c, card:cd, qr:q });
         setTimeout(() => setIsPaymentSubmitting(false), 1000);
     };
     
@@ -4463,565 +4726,519 @@ const GuestDetailsModal = ({ guest, room, currentUser, onClose, onUpdate, onPaym
         const stay = getStayDetails(guest.checkInDate, updates.days);
         updates.checkOutDate = stay.end.toISOString();
         onUpdate(guest.id, updates); 
+        setActiveAction(null);
     };
 
-    // ✅ ИЗМЕНЕНИЕ: Убрана блокировка выселения для гостей без долга
     const handleDoCheckout = () => { 
         const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance);
-        
-        const finalData = { 
-            totalPrice: actualCost,
-            refundAmount: refund
-        }; 
-        onCheckOut(guest, finalData); 
+        onCheckOut(guest, { totalPrice: actualCost, refundAmount: refund }); 
     };
 
     const handleDoSplit = () => { 
-        const iSplitAfter = parseInt(splitAfterDays); 
-        const iSplitGap = parseInt(splitGapDays); 
-        const iTotalDays = parseInt(guest.days); 
-        if (iSplitAfter >= iTotalDays) return notify("Split day must be less than total days", 'error'); 
-        onSplit(guest, iSplitAfter, iSplitGap); 
-        onClose(); 
+        if (parseInt(splitAfterDays) >= parseInt(guest.days)) return notify("Error days", 'error'); 
+        onSplit(guest, parseInt(splitAfterDays), parseInt(splitGapDays)); onClose(); 
     };
 
     const handleSaveInfo = () => { 
-        const newPrice = parseInt(editForm.pricePerNight); 
-        const newTotal = newPrice * parseInt(guest.days); 
-        onUpdate(guest.id, { ...editForm, totalPrice: newTotal }); 
+        onUpdate(guest.id, { ...editForm, totalPrice: parseInt(editForm.pricePerNight) * parseInt(guest.days) }); 
         setIsEditing(false); 
     };
 
-    const handleDeleteGuest = () => { 
-        if (confirm(t('confirmDelete'))) { 
-            onDelete(guest); 
-        } 
-    };
-
-    const handleReduceDays = () => { 
-        const rd = parseInt(reduceDays); 
-        if (!rd || rd <= 0) return notify("Error days", 'error'); 
-        if (rd >= guest.days) return notify("Can't remove all days", 'error'); 
-        onReduceDays(guest, rd); 
-        onClose(); 
-    };
-
-    const handleReduceDaysNoRefund = () => { 
-        const rd = parseInt(reduceDaysNoRefund); 
-        if (!rd || rd <= 0) return notify("Error days", 'error'); 
-        if (rd >= guest.days) return notify("Can't remove all days", 'error'); 
-        onReduceDaysNoRefund(guest, rd); 
-        onClose(); 
-    };
-
-    const handlePrint = (type) => { 
-        printDocument(type, guest, hostelInfo); 
-    };
+    const handleDeleteGuest = () => { if (confirm(t('confirmDelete'))) onDelete(guest); };
+    const handleReduceDays = () => { onReduceDays(guest, parseInt(reduceDays)); onClose(); };
+    const handleReduceDaysNoRefund = () => { onReduceDaysNoRefund(guest, parseInt(reduceDaysNoRefund)); onClose(); };
+    const handlePrint = (type) => printDocument(type, guest, hostelInfo); 
     
     const handleMoveBooking = () => {
-        const start = new Date(newStartDate);
-        start.setHours(12, 0, 0, 0);
+        const start = new Date(newStartDate); start.setHours(12, 0, 0, 0);
         const stay = getStayDetails(start.toISOString(), guest.days);
-        onUpdate(guest.id, { 
-            checkInDate: start.toISOString(), 
-            checkOutDate: stay.end.toISOString() 
-        });
-        notify("Date Changed!");
-        setActiveAction(null);
+        onUpdate(guest.id, { checkInDate: start.toISOString(), checkOutDate: stay.end.toISOString() });
+        notify("Дата изменена!"); setActiveAction(null);
     };
     
     const applyMagnet = (field) => {
-        const currentCash = field === 'payCash' ? 0 : (parseInt(payCash) || 0);
-        const currentCard = field === 'payCard' ? 0 : (parseInt(payCard) || 0);
-        const currentQR = field === 'payQR' ? 0 : (parseInt(payQR) || 0);
-        const currentTotal = currentCash + currentCard + currentQR;
-        const remaining = Math.max(0, debt - currentTotal);
-        if (field === 'payCash') setPayCash(String(remaining));
-        if (field === 'payCard') setPayCard(String(remaining));
-        if (field === 'payQR') setPayQR(String(remaining));
+        const currentTotal = (field === 'payCash' ? 0 : (parseInt(payCash)||0)) + (field === 'payCard' ? 0 : (parseInt(payCard)||0)) + (field === 'payQR' ? 0 : (parseInt(payQR)||0));
+        const rem = Math.max(0, debt - currentTotal);
+        if (field === 'payCash') setPayCash(String(rem));
+        if (field === 'payCard') setPayCard(String(rem));
+        if (field === 'payQR') setPayQR(String(rem));
         setMagnetActiveField(field);
     };
 
-    const disableWheel = (e) => { 
-        e.currentTarget.blur(); 
+    // --- UI HELPERS ---
+    const InfoRow = ({ label, value, icon: Icon }) => (
+        <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+            <div className="flex items-center gap-2 text-slate-500 text-sm">
+                {Icon && <Icon size={14}/>}
+                <span>{label}</span>
+            </div>
+            <div className="font-bold text-slate-800 text-sm">{value}</div>
+        </div>
+    );
+
+    const BigActionButton = ({ label, icon: Icon, onClick, active, color }) => {
+        // Четкие цвета для кнопок
+        const colors = {
+            emerald: active ? 'bg-emerald-600 text-white ring-2 ring-offset-1 ring-emerald-600' : 'bg-white border-2 border-emerald-100 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300',
+            blue: active ? 'bg-blue-600 text-white ring-2 ring-offset-1 ring-blue-600' : 'bg-white border-2 border-blue-100 text-blue-700 hover:bg-blue-50 hover:border-blue-300',
+            amber: active ? 'bg-amber-500 text-white ring-2 ring-offset-1 ring-amber-500' : 'bg-white border-2 border-amber-100 text-amber-700 hover:bg-amber-50 hover:border-amber-300',
+            rose: active ? 'bg-rose-600 text-white ring-2 ring-offset-1 ring-rose-600' : 'bg-white border-2 border-rose-100 text-rose-700 hover:bg-rose-50 hover:border-rose-300',
+        };
+
+        return (
+            <button 
+                onClick={onClick}
+                className={`flex flex-col items-center justify-center p-3 rounded-lg transition-all duration-150 shadow-sm ${colors[color]}`}
+            >
+                <Icon size={24} className="mb-1"/>
+                <span className="text-xs font-bold uppercase tracking-wide">{label}</span>
+            </button>
+        );
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] overflow-y-auto">
-                <div className={`${isBooking ? 'bg-amber-500' : (isCheckedOut ? 'bg-slate-500' : 'bg-slate-900')} text-white p-6 flex justify-between items-start relative`}>
-                    <div className="flex-1">
-                        {isBooking && <div className="text-xs uppercase font-bold text-white/80 mb-1 flex items-center gap-1"><Clock size={12}/> {t('booking')}</div>}
-                        {isCheckedOut && <div className="text-xs uppercase font-bold text-white/80 mb-1 flex items-center gap-1"><History size={12}/> Checked Out</div>}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                
+                {/* --- HEADER: Строгий и четкий --- */}
+                <div className="px-6 py-4 bg-white border-b border-slate-200 flex justify-between items-start">
+                    <div className="flex-1 mr-4">
                         {isEditing ? (
-                            <div className="space-y-2 text-slate-900">
-                                <input className={inputClass} value={editForm.fullName} onChange={e => setEditForm({...editForm, fullName: e.target.value.toUpperCase()})} />
+                            <div className="space-y-3">
+                                <input className="w-full border-2 border-slate-300 rounded px-2 py-1 text-lg font-bold text-slate-900 focus:border-indigo-500 outline-none" value={editForm.fullName} onChange={e => setEditForm({...editForm, fullName: e.target.value.toUpperCase()})} />
                                 <div className="grid grid-cols-2 gap-2">
-                                    <input className={inputClass} value={editForm.passport} onChange={e => setEditForm({...editForm, passport: e.target.value.toUpperCase()})} />
-                                    <input type="date" className={inputClass} value={editForm.birthDate} onChange={e => setEditForm({...editForm, birthDate: e.target.value})} />
+                                    <input className="border border-slate-300 rounded px-2 py-1" value={editForm.passport} onChange={e => setEditForm({...editForm, passport: e.target.value.toUpperCase()})} />
+                                    <input type="date" className="border border-slate-300 rounded px-2 py-1" value={editForm.birthDate} onChange={e => setEditForm({...editForm, birthDate: e.target.value})} />
                                 </div>
-                                <select className={inputClass} value={editForm.country} onChange={e => setEditForm({...editForm, country: e.target.value})}>
-                                    {COUNTRIES.map(c => <option key={c}>{c}</option>)}
-                                </select>
-                                {(currentUser.role === 'admin' || currentUser.role === 'super') && (
-                                    <div>
-                                        <label className={labelClass}>{t('price')}</label>
-                                        <input type="number" className={inputClass} value={editForm.pricePerNight} onChange={e => setEditForm({...editForm, pricePerNight: e.target.value})} />
-                                    </div>
-                                )}
-                                <Button size="sm" onClick={handleSaveInfo}>{t('save')}</Button>
+                                <div className="flex gap-2">
+                                    <button onClick={handleSaveInfo} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm font-bold">Сохранить</button>
+                                    <button onClick={() => setIsEditing(false)} className="bg-slate-200 text-slate-700 px-3 py-1 rounded text-sm font-bold">Отмена</button>
+                                </div>
                             </div>
                         ) : (
                             <>
-                                <div className="flex items-center gap-2">
-                                    <h2 className="text-xl font-bold">{guest.fullName}</h2>
-                                    <button 
-                                        onClick={() => setIsEditing(true)} 
-                                        className="bg-transparent border-none p-1 text-white/60 hover:text-white transition-colors cursor-pointer" 
-                                        title="Редактировать"
-                                    >
-                                        <Edit size={18}/>
-                                    </button>
-                                </div>
-                                <div className="flex gap-4 text-sm text-white/70 mt-1 flex-wrap">
-                                    <span>Room {guest.roomNumber}</span>
-                                    <span>Bed {guest.bedId}</span>
-                                    <span>{new Date(guest.checkInDate).toLocaleDateString()}</span>
-                                    <span>{guest.passport}</span>
+                                <h2 className="text-xl font-black text-slate-800 leading-tight mb-1">{guest.fullName}</h2>
+                                <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                                    <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-700">{guest.passport}</span>
+                                    <span>•</span>
+                                    <span>{guest.country}</span>
+                                    {!isCheckedOut && <button onClick={() => setIsEditing(true)} className="text-indigo-600 hover:underline ml-2 text-xs">Изм.</button>}
                                 </div>
                             </>
                         )}
                     </div>
-                    <button 
-                        onClick={onClose} 
-                        className="bg-transparent border-none p-2 text-white/60 hover:text-white transition-colors cursor-pointer hover:bg-white/10 rounded-full"
-                    >
-                        <XCircle size={32}/>
+                    <button onClick={onClose} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500">
+                        <X size={20}/>
                     </button>
                 </div>
 
-                {!isBooking && (
-                    <div className={`p-4 flex justify-between items-center ${debt > 0 ? 'bg-rose-50 border-b border-rose-200' : 'bg-emerald-50 border-b border-emerald-200'}`}>
-                        <div className="flex items-center gap-2">
-                            {debt > 0 ? <AlertCircle className="text-rose-600"/> : <CheckCircle2 className="text-emerald-600"/>}
-                            <span className={`font-bold ${debt > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                                {debt > 0 ? `${t('debt')}: ${debt.toLocaleString()}` : t('paid')}
-                            </span>
+                {/* --- BODY: Контрастные блоки --- */}
+                <div className="flex-1 overflow-y-auto bg-slate-50 p-4 space-y-4">
+                    
+                    {/* 1. Блок информации (Grid) */}
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wider border-b border-slate-100 pb-1">Детали проживания</h3>
+                        <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+                            <InfoRow label="Комната" value={`№${guest.roomNumber}`} icon={Building2}/>
+                            <InfoRow label="Место" value={`№${guest.bedId}`} icon={BedDouble}/>
+                            <InfoRow label="Заезд" value={new Date(guest.checkInDate).toLocaleDateString()} icon={Calendar}/>
+                            <InfoRow label="Выезд" value={guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString() : '...'} icon={LogOut}/>
+                            <InfoRow label="Дней" value={guest.days} icon={Clock}/>
+                            <InfoRow label="Тариф" value={`${parseInt(guest.pricePerNight).toLocaleString()}`} icon={Wallet}/>
                         </div>
-                        <div className="text-xs text-slate-500 text-right">
-                            <div>{t('total')}: {guest.totalPrice?.toLocaleString()}</div>
-                            <div>{t('paid')}: {totalPaid.toLocaleString()}</div>
+                    </div>
+
+                    {/* 2. Блок финансов (Яркий) */}
+                    {!isBooking && (
+                        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="p-4 grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-xs text-slate-500 mb-1">Всего к оплате</div>
+                                    <div className="text-lg font-bold text-slate-900">{guest.totalPrice?.toLocaleString()}</div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-xs text-slate-500 mb-1">Оплачено</div>
+                                    <div className="text-lg font-bold text-emerald-600">{totalPaid.toLocaleString()}</div>
+                                </div>
+                            </div>
+                            <div className={`px-4 py-3 flex justify-between items-center ${debt > 0 ? 'bg-rose-50 border-t border-rose-100' : 'bg-emerald-50 border-t border-emerald-100'}`}>
+                                <span className={`font-bold text-sm ${debt > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                    {debt > 0 ? 'ОСТАТОК ДОЛГА:' : 'БАЛАНС:'}
+                                </span>
+                                <span className={`text-xl font-black ${debt > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                    {debt > 0 ? `-${debt.toLocaleString()}` : 'ОПЛАЧЕНО'}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 3. Действия */}
+                    {isBooking ? (
+                        <div className="space-y-3">
+                            <div className="bg-amber-50 border border-amber-200 p-3 rounded text-amber-800 text-sm font-medium flex items-center gap-2">
+                                <Clock size={16}/> Гость в статусе "Бронь". Заселение еще не выполнено.
+                            </div>
+                            <button onClick={() => onActivateBooking(guest)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold hover:bg-slate-700 shadow-sm">
+                                ЗАСЕЛИТЬ СЕЙЧАС
+                            </button>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={() => setActiveAction('moveDate')} className="bg-white border border-slate-300 text-slate-700 py-2 rounded font-bold hover:bg-slate-50">Перенести</button>
+                                <button onClick={handleDeleteGuest} className="bg-rose-50 border border-rose-200 text-rose-600 py-2 rounded font-bold hover:bg-rose-100">Отменить</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-4 gap-3">
+                                <BigActionButton label="Оплата" icon={Wallet} color="emerald" active={activeAction === 'pay'} onClick={() => setActiveAction(activeAction === 'pay' ? null : 'pay')}/>
+                                <BigActionButton label="Продлить" icon={Clock} color="blue" active={activeAction === 'extend'} onClick={() => setActiveAction(activeAction === 'extend' ? null : 'extend')}/>
+                                {!isCheckedOut && <BigActionButton label="Пауза" icon={Split} color="amber" active={activeAction === 'split'} onClick={() => setActiveAction(activeAction === 'split' ? null : 'split')}/>}
+                                {!isCheckedOut && <BigActionButton label="Выселить" icon={LogOut} color="rose" active={activeAction === 'checkout'} onClick={() => setActiveAction(activeAction === 'checkout' ? null : 'checkout')}/>}
+                            </div>
+
+                            {/* Forms Container */}
+                            {activeAction && (
+                                <div className="bg-white border-2 border-indigo-100 rounded-lg p-4 shadow-sm animate-in slide-in-from-top-2 duration-150">
+                                    {activeAction === 'pay' && (
+                                        <div className="space-y-3">
+                                            <h4 className="font-bold text-slate-800 border-b pb-2 mb-3">Внести оплату</h4>
+                                            {['payCash', 'payCard', 'payQR'].map(field => (
+                                                <div key={field} className="flex items-center">
+                                                    <div className="w-24 text-xs font-bold text-slate-500 uppercase">
+                                                        {field === 'payCash' ? 'Наличные' : field === 'payCard' ? 'Карта' : 'QR-код'}
+                                                    </div>
+                                                    <div className="flex-1 relative">
+                                                        <input 
+                                                            type="number" 
+                                                            className="w-full border border-slate-300 rounded px-3 py-2 font-bold text-slate-800 focus:border-indigo-500 outline-none"
+                                                            placeholder="0"
+                                                            value={field === 'payCash' ? payCash : field === 'payCard' ? payCard : payQR}
+                                                            onChange={e => {
+                                                                const val = e.target.value;
+                                                                if(field === 'payCash') setPayCash(val);
+                                                                else if(field === 'payCard') setPayCard(val);
+                                                                else setPayQR(val);
+                                                                setMagnetActiveField(null);
+                                                            }}
+                                                            onWheel={disableWheel}
+                                                        />
+                                                        <button onClick={() => applyMagnet(field)} className="absolute right-1 top-1 text-indigo-500 p-1 hover:bg-indigo-50 rounded">
+                                                            <Magnet size={16}/>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting} className="w-full bg-emerald-600 text-white py-3 rounded font-bold hover:bg-emerald-700 mt-2">
+                                                {isPaymentSubmitting ? 'Сохранение...' : 'ПОДТВЕРДИТЬ ОПЛАТУ'}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {activeAction === 'extend' && (
+                                        <div className="space-y-4">
+                                            <h4 className="font-bold text-slate-800 border-b pb-2">Продление проживания</h4>
+                                            <div className="flex items-center justify-between bg-slate-50 p-2 rounded border border-slate-200">
+                                                <button onClick={() => setExtendDays(Math.max(1, extendDays-1))} className="w-10 h-10 bg-white border rounded font-bold text-xl">-</button>
+                                                <div className="text-center">
+                                                    <input 
+                                                        type="number" 
+                                                        className="w-20 text-center bg-transparent font-bold text-2xl outline-none"
+                                                        value={extendDays}
+                                                        onChange={e => setExtendDays(e.target.value)}
+                                                        onWheel={disableWheel}
+                                                    />
+                                                    <div className="text-xs text-slate-500">дней</div>
+                                                </div>
+                                                <button onClick={() => setExtendDays(parseInt(extendDays)+1)} className="w-10 h-10 bg-white border rounded font-bold text-xl">+</button>
+                                            </div>
+                                            <div className="text-center font-bold text-indigo-700">
+                                                К оплате: +{(extendDays * parseInt(guest.pricePerNight)).toLocaleString()} сум
+                                            </div>
+                                            <button onClick={handleExtend} className="w-full bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700">
+                                                ПРОДЛИТЬ
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {activeAction === 'checkout' && (
+                                        <div className="space-y-4">
+                                            <h4 className="font-bold text-slate-800 border-b pb-2">Выселение гостя</h4>
+                                            <div className="bg-slate-50 p-3 rounded border border-slate-200 text-sm space-y-2">
+                                                <div className="flex justify-between"><span>Факт проживания:</span> <strong>{daysStayed} дн.</strong></div>
+                                                <div className="flex justify-between"><span>Стоимость факта:</span> <strong>{actualCost.toLocaleString()}</strong></div>
+                                            </div>
+                                            
+                                            {balance < 0 ? (
+                                                <div className="bg-rose-100 text-rose-800 p-3 rounded border border-rose-200 font-bold text-center">
+                                                    ВНИМАНИЕ: ДОЛГ {Math.abs(balance).toLocaleString()}
+                                                </div>
+                                            ) : (
+                                                <div className="bg-emerald-100 text-emerald-800 p-3 rounded border border-emerald-200 font-bold text-center">
+                                                    К ВОЗВРАТУ: {balance.toLocaleString()}
+                                                    {balance > 0 && (
+                                                        <input 
+                                                            type="number" 
+                                                            className="w-full mt-2 border border-emerald-300 rounded px-2 py-1 text-sm font-normal text-black"
+                                                            placeholder="Ввести другую сумму"
+                                                            value={checkoutManualRefund}
+                                                            onChange={e => setCheckoutManualRefund(e.target.value)}
+                                                            onWheel={disableWheel}
+                                                        />
+                                                    )}
+                                                </div>
+                                            )}
+                                            
+                                            <button onClick={handleDoCheckout} className="w-full bg-rose-600 text-white py-3 rounded font-bold hover:bg-rose-700">
+                                                ПОДТВЕРДИТЬ ВЫСЕЛЕНИЕ
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Остальные формы (split, moveDate) в том же стиле... */}
+                                    {activeAction === 'split' && (
+                                        <div className="space-y-3">
+                                            <h4 className="font-bold">Разделение (Пауза)</h4>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div><label className="text-xs">Выезд через</label><input type="number" className="w-full border p-2 rounded" value={splitAfterDays} onChange={e=>setSplitAfterDays(e.target.value)} onWheel={disableWheel}/></div>
+                                                <div><label className="text-xs">Пауза (дней)</label><input type="number" className="w-full border p-2 rounded" value={splitGapDays} onChange={e=>setSplitGapDays(e.target.value)} onWheel={disableWheel}/></div>
+                                            </div>
+                                            <button onClick={handleDoSplit} className="w-full bg-amber-500 text-white py-2 rounded font-bold">Разделить</button>
+                                        </div>
+                                    )}
+                                    {activeAction === 'moveDate' && (
+                                        <div className="space-y-3">
+                                            <h4 className="font-bold">Перенос даты</h4>
+                                            <input type="date" className="w-full border p-2 rounded" value={newStartDate} onChange={e => setNewStartDate(e.target.value)} />
+                                            <button onClick={handleMoveBooking} className="w-full bg-slate-800 text-white py-2 rounded font-bold">Сохранить</button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* --- FOOTER --- */}
+                {!isBooking && (
+                    <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs font-bold text-slate-500">
+                        <div className="flex gap-4">
+                            <button onClick={() => handlePrint('check')} className="flex items-center gap-1 hover:text-slate-800"><Printer size={14}/> Чек</button>
+                            <button onClick={() => handlePrint('regcard')} className="flex items-center gap-1 hover:text-slate-800"><FileText size={14}/> Анкета</button>
+                        </div>
+                        <div className="flex gap-4">
+                            <button onClick={onOpenMove} className="flex items-center gap-1 hover:text-slate-800"><ArrowLeftRight size={14}/> Переместить</button>
+                            {(currentUser.role === 'admin' || currentUser.role === 'super') && (
+                                <button onClick={handleDeleteGuest} className="flex items-center gap-1 text-rose-400 hover:text-rose-600"><Trash2 size={14}/> Удалить</button>
+                            )}
                         </div>
                     </div>
                 )}
-
-                <div className="p-6 space-y-6">
-                    {isBooking && (
-                        <div className="space-y-2">
-                            <Button className="w-full py-3 text-lg" onClick={() => onActivateBooking(guest)}>
-                                <CheckCircle2/> {t('checkin')}
-                            </Button>
-                            <div className="grid grid-cols-2 gap-2">
-                                <Button variant="secondary" onClick={() => setActiveAction(activeAction === 'moveDate' ? null : 'moveDate')} icon={CalendarDays}>
-                                    {t('moveDate')}
-                                </Button>
-                                <Button variant="danger" onClick={handleDeleteGuest} icon={Trash2}>
-                                    {t('cancel')}
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {!isBooking && (
-                        <div className="grid grid-cols-4 gap-2">
-                             <Button 
-                                variant={activeAction === 'pay' ? 'primary' : 'secondary'} 
-                                onClick={() => setActiveAction(activeAction === 'pay' ? null : 'pay')} 
-                                disabled={debt <= 0}
-                             >
-                                {t('payment')}
-                             </Button>
-                             <Button 
-                                variant={activeAction === 'extend' ? 'primary' : 'secondary'} 
-                                onClick={() => setActiveAction(activeAction === 'extend' ? null : 'extend')}
-                             >
-                                {t('extend')}
-                             </Button>
-                             {!isCheckedOut && (
-                                <Button 
-                                    variant={activeAction === 'split' ? 'primary' : 'secondary'} 
-                                    onClick={() => setActiveAction(activeAction === 'split' ? null : 'split')} 
-                                    title="Split"
-                                >
-                                    <Split size={18}/>
-                                </Button>
-                             )}
-                             {!isCheckedOut && (
-                                <Button 
-                                    variant={activeAction === 'checkout' ? 'primary' : 'secondary'} 
-                                    onClick={() => setActiveAction(activeAction === 'checkout' ? null : 'checkout')} 
-                                    className="text-rose-600 border-rose-300 hover:bg-rose-50"
-                                >
-                                    {t('checkout')}
-                                </Button>
-                             )}
-                        </div>
-                    )}
-
-                    {!isBooking && (
-                        <div className="flex gap-2 justify-center">
-                            <Button size="sm" variant="ghost" onClick={() => handlePrint('check')} icon={Printer}>
-                                {t('printCheck')}
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => handlePrint('regcard')} icon={Printer}>
-                                {t('printForm')}
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => handlePrint('ref')} icon={Printer}>
-                                {t('printRef')}
-                            </Button>
-                        </div>
-                    )}
-
-                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-300">
-                        {(!activeAction && !isBooking) && (
-                            <div className="space-y-4">
-                                <div className="flex justify-center gap-2">
-                                    {!isCheckedOut && (
-                                        <Button variant="ghost" icon={ArrowLeftRight} onClick={onOpenMove}>
-                                            {t('move')}
-                                        </Button>
-                                    )}
-                                    {!isCheckedOut && canMoveDate && (
-                                        <Button variant="ghost" icon={CalendarDays} onClick={() => setActiveAction('moveDate')}>
-                                            {t('moveDate')}
-                                        </Button>
-                                    )}
-                                </div>
-                                {(currentUser.role === 'admin' || currentUser.role === 'super') && (
-                                    <>
-                                        <div className="border-t border-slate-200 pt-4 flex justify-center gap-4">
-                                            {!isCheckedOut && (
-                                                <button 
-                                                    onClick={() => setActiveAction('reduceNoRefund')} 
-                                                    className="text-xs text-amber-600 hover:text-amber-700 font-bold flex items-center gap-1"
-                                                >
-                                                    <Scissors size={14}/> {t('reduceNoRefund')}
-                                                </button>
-                                            )}
-                                            <button 
-                                                onClick={handleDeleteGuest} 
-                                                className="text-xs text-rose-400 hover:text-rose-600 underline"
-                                            >
-                                                {t('delete')}
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        )}
-
-                        {activeAction === 'split' && (
-                            <div className="space-y-4">
-                                <h4 className="font-bold text-slate-700">{t('splitTitle')}</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className={labelClass}>{t('splitAfter')}</label>
-                                        <input 
-                                            type="number" 
-                                            min="1" 
-                                            max={guest.days - 1} 
-                                            className={inputClass} 
-                                            value={splitAfterDays} 
-                                            onChange={e => setSplitAfterDays(e.target.value)} 
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className={labelClass}>{t('splitGap')}</label>
-                                        <input 
-                                            type="number" 
-                                            min="1" 
-                                            className={inputClass} 
-                                            value={splitGapDays} 
-                                            onChange={e => setSplitGapDays(e.target.value)} 
-                                        />
-                                    </div>
-                                </div>
-                                <div className="text-xs text-slate-500 bg-white p-2 rounded border border-slate-200">
-                                    {t('splitInfo').replace('{x}', splitAfterDays).replace('{y}', splitGapDays).replace('{z}', guest.days - splitAfterDays)}
-                                </div>
-                                <Button className="w-full" onClick={handleDoSplit}>
-                                    {t('confirmSplit')}
-                                </Button>
-                            </div>
-                        )}
-
-                        {activeAction === 'moveDate' && (
-                            <div className="space-y-4">
-                                <h4 className="font-bold text-slate-700">{t('moveDate')}</h4>
-                                <div>
-                                    <label className={labelClass}>{t('newDate')}</label>
-                                    <input 
-                                        type="date" 
-                                        className={inputClass} 
-                                        value={newStartDate} 
-                                        onChange={e => setNewStartDate(e.target.value)} 
-                                    />
-                                </div>
-                                <Button className="w-full" onClick={handleMoveBooking}>
-                                    {t('save')}
-                                </Button>
-                            </div>
-                        )}
-
-                        {activeAction === 'pay' && (
-                            <div className="space-y-3">
-                                <label className={labelClass}>
-                                    {t('amount')} ({t('debt')}: {debt})
-                                </label>
-                                <div className="grid grid-cols-1 gap-2">
-                                    <div className="flex items-center">
-                                        <span className="w-20 text-[10px] uppercase font-bold text-slate-400">
-                                            {t('cash')}
-                                        </span>
-                                        <input 
-                                            type="number" 
-                                            className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-l focus:ring-1 focus:ring-indigo-500 outline-none text-sm no-spinner" 
-                                            value={payCash} 
-                                            onChange={e => {setPayCash(e.target.value); setMagnetActiveField(null);}} 
-                                            placeholder="0" 
-                                            onWheel={disableWheel} 
-                                        />
-                                        <button 
-                                            type="button"
-                                            onClick={() => applyMagnet('payCash')} 
-                                            disabled={magnetActiveField && magnetActiveField !== 'payCash'} 
-                                            className="bg-white border border-l-0 border-slate-300 rounded-r px-2 py-2 text-indigo-600 disabled:opacity-40"
-                                        >
-                                            <Magnet size={16}/>
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <span className="w-20 text-[10px] uppercase font-bold text-slate-400">
-                                            {t('card')}
-                                        </span>
-                                        <input 
-                                            type="number" 
-                                            className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-l focus:ring-1 focus:ring-indigo-500 outline-none text-sm no-spinner" 
-                                            value={payCard} 
-                                            onChange={e => {setPayCard(e.target.value); setMagnetActiveField(null);}} 
-                                            placeholder="0" 
-                                            onWheel={disableWheel} 
-                                        />
-                                        <button 
-                                            type="button"
-                                            onClick={() => applyMagnet('payCard')} 
-                                            disabled={magnetActiveField && magnetActiveField !== 'payCard'} 
-                                            className="bg-white border border-l-0 border-slate-300 rounded-r px-2 py-2 text-indigo-600 disabled:opacity-40"
-                                        >
-                                            <Magnet size={16}/>
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <span className="w-20 text-[10px] uppercase font-bold text-slate-400">
-                                            {t('qr')}
-                                        </span>
-                                        <input 
-                                            type="number" 
-                                            className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-l focus:ring-1 focus:ring-indigo-500 outline-none text-sm no-spinner" 
-                                            value={payQR} 
-                                            onChange={e => {setPayQR(e.target.value); setMagnetActiveField(null);}} 
-                                            placeholder="0" 
-                                            onWheel={disableWheel} 
-                                        />
-                                        <button 
-                                            type="button"
-                                            onClick={() => applyMagnet('payQR')} 
-                                            disabled={magnetActiveField && magnetActiveField !== 'payQR'} 
-                                            className="bg-white border border-l-0 border-slate-300 rounded-r px-2 py-2 text-indigo-600 disabled:opacity-40"
-                                        >
-                                            <Magnet size={16}/>
-                                        </button>
-                                    </div>
-                                </div>
-                                <Button 
-                                    className="w-full" 
-                                    onClick={handlePayDebt} 
-                                    disabled={isPaymentSubmitting}
-                                >
-                                    {t('payment')}
-                                </Button>
-                            </div>
-                        )}
-
-                        {activeAction === 'extend' && (
-                            <div className="space-y-3">
-                                <label className={labelClass}>
-                                    {t('extend')} ({t('days')})
-                                </label>
-                                <input 
-                                    type="number" 
-                                    min="1" 
-                                    className={inputClass} 
-                                    value={extendDays} 
-                                    onChange={e => setExtendDays(e.target.value)} 
-                                />
-                                <div className="text-right text-sm text-slate-500">
-                                    + {(extendDays * parseInt(guest.pricePerNight)).toLocaleString()}
-                                </div>
-                                <Button className="w-full" onClick={handleExtend}>
-                                    OK
-                                </Button>
-                            </div>
-                        )}
-
-                        {activeAction === 'checkout' && (
-                            <div className="space-y-4">
-                                <div className="text-sm space-y-1 pb-3 border-b border-slate-300">
-                                    <div className="flex justify-between">
-                                        <span>Прожито (расчет):</span> 
-                                        <b>{daysStayed} дн.</b>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Оплачено всего:</span> 
-                                        <b>{totalPaid.toLocaleString()}</b>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Стоимость факта:</span> 
-                                        <b>{actualCost.toLocaleString()}</b>
-                                    </div>
-                                </div>
-                                {balance < 0 ? (
-                                    <div className="bg-rose-100 text-rose-800 p-3 rounded-lg text-center font-bold border border-rose-200">
-                                        Долг: {Math.abs(balance).toLocaleString()} 
-                                        <br/>
-                                        <span className="text-xs font-normal">Продлите проживание или оплатите.</span>
-                                    </div>
-                                ) : (
-                                    <div className="bg-emerald-100 text-emerald-800 p-3 rounded-lg border border-emerald-200">
-                                        <div className="text-center font-bold mb-2">
-                                            К возврату: {balance.toLocaleString()}
-                                        </div>
-                                        {balance > 0 && (
-                                            <div>
-                                                <label className={`${labelClass} mb-1`}>
-                                                    {t('manualRefund')}
-                                                </label>
-                                                <input 
-                                                    type="number" 
-                                                    className={inputClass} 
-                                                    value={checkoutManualRefund} 
-                                                    placeholder={balance} 
-                                                    onChange={e => setCheckoutManualRefund(e.target.value)} 
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                <Button 
-                                    variant="danger" 
-                                    className="w-full" 
-                                    onClick={handleDoCheckout}
-                                >
-                                    {t('checkout')}
-                                </Button>
-                            </div>
-                        )}
-
-                        {(currentUser.role === 'admin' || currentUser.role === 'super') && !isBooking && !activeAction && (
-                            <div className="mt-6 p-4 border-t border-slate-100">
-                                <h4 className="font-bold text-slate-700 mb-2">Reduce Days (Refund)</h4>
-                                <div className="grid grid-cols-2 gap-3 items-end">
-                                    <div>
-                                        <label className={labelClass}>Reduce by (days)</label>
-                                        <input 
-                                            type="number" 
-                                            min="1" 
-                                            max={guest.days-1} 
-                                            className={inputClass} 
-                                            value={reduceDays} 
-                                            onChange={e => setReduceDays(e.target.value)} 
-                                        />
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="text-xs text-slate-500">Refund:</div>
-                                        <div className="font-bold">
-                                            {((parseInt(guest.pricePerNight)||0) * (parseInt(reduceDays)||0)).toLocaleString()}
-                                        </div>
-                                    </div>
-                                    <div className="col-span-2">
-                                        <Button 
-                                            className="w-full" 
-                                            variant="secondary" 
-                                            onClick={handleReduceDays}
-                                        >
-                                            Apply & Refund
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {activeAction === 'reduceNoRefund' && (
-                            <div className="space-y-4">
-                                <h4 className="font-bold text-amber-700">{t('reduceNoRefund')}</h4>
-                                <p className="text-xs text-slate-500">
-                                    Money stays in register. Guest stay is shortened.
-                                </p>
-                                <div>
-                                    <label className={labelClass}>Reduce by (days)</label>
-                                    <input 
-                                        type="number" 
-                                        min="1" 
-                                        max={guest.days-1} 
-                                        className={inputClass} 
-                                        value={reduceDaysNoRefund} 
-                                        onChange={e => setReduceDaysNoRefund(e.target.value)} 
-                                    />
-                                </div>
-                                <Button 
-                                    className="w-full" 
-                                    variant="warning" 
-                                    onClick={handleReduceDaysNoRefund}
-                                >
-                                    Apply (No Refund)
-                                </Button>
-                            </div>
-                        )}
-                    </div>
-                </div>
             </div>
         </div>
     );
 };
 
+// ✅ ВСТАВЬТЕ ЭТОТ КОД ПЕРЕД function App()
+
 const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [targetRoomId, setTargetRoomId] = useState(guest.roomId);
     const [targetBedId, setTargetBedId] = useState('');
-    const room = allRooms.find(r => r.id === targetRoomId);
-    const availableBeds = room ? Array.from({length: room.capacity}, (_, i) => i + 1) : [];
+    
+    const selectedRoom = allRooms.find(r => r.id === targetRoomId);
+    
+    // Получаем список коек для выбранной комнаты
+    const beds = selectedRoom ? Array.from({length: selectedRoom.capacity}, (_, i) => i + 1) : [];
+    const now = new Date();
+
     const handleMove = () => {
-        if (!targetRoomId || !targetBedId) return notify("Select Destination", 'error');
-        const conflicts = guests.filter(g => 
-            g.roomId === targetRoomId && 
-            String(g.bedId) === String(targetBedId) && 
-            (g.status === 'active' || g.status === 'booking') &&
-            g.id !== guest.id && 
-            checkCollision(g.checkInDate, g.days, guest.checkInDate, guest.days)
-        );
-        if (conflicts.length > 0) return notify(`Occupied! (${conflicts[0].fullName})`, 'error');
-        onMove(guest, targetRoomId, room.number, String(targetBedId));
+        if (!targetRoomId || !targetBedId) return notify("Выберите место", 'error');
+        
+        // Проверка на конфликты
+        const conflicts = guests.filter(g => {
+            // Смотрим только гостей в целевой комнате и на целевой койке
+            if (String(g.roomId) !== String(targetRoomId)) return false;
+            if (String(g.bedId) !== String(targetBedId)) return false;
+            if (g.id === guest.id) return false; // Не считаем самого себя
+            if (g.status === 'checked_out') return false; // Выселенные не мешают
+
+            // ВАЖНО: Проверка на Тайм-аут
+            // Если у "соседа" время вышло — считаем койку свободной (игнорируем конфликт)
+            if (g.status === 'active') {
+                const checkOut = new Date(g.checkOutDate);
+                if (typeof g.checkOutDate === 'string' && !g.checkOutDate.includes('T')) {
+                    checkOut.setHours(12, 0, 0, 0);
+                }
+                const isTimeout = now > checkOut;
+                if (isTimeout) return false; // Разрешаем перемещение поверх Timeout
+            }
+
+            // Стандартная проверка пересечения дат
+            return checkCollision(g.checkInDate, g.days, guest.checkInDate, guest.days);
+        });
+        
+        if (conflicts.length > 0) return notify(`Занято! (${conflicts[0].fullName})`, 'error');
+        
+        onMove(guest, targetRoomId, selectedRoom.number, String(targetBedId));
     };
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-                <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><ArrowLeftRight size={20}/> {t('move')}</h3>
-                <p className="text-sm text-slate-500 mb-4">{t('guestName')}: <b>{guest.fullName}</b></p>
-                <div className="space-y-4">
-                    <div><label className={labelClass}>New {t('room')}</label><select className={inputClass} value={targetRoomId} onChange={e => { setTargetRoomId(e.target.value); setTargetBedId(''); }}>{allRooms.map(r => <option key={r.id} value={r.id}>Room {r.number}</option>)}</select></div>
-                    <div><label className={labelClass}>New {t('bed')}</label><select className={inputClass} value={targetBedId} onChange={e => setTargetBedId(e.target.value)}><option value="">Select Bed</option>{availableBeds.map(id => (<option key={id} value={id}>Bed {id} {id%2===0?'(Up)':'(Down)'}</option>))}</select></div>
-                    <Button onClick={handleMove} className="w-full mt-4">{t('move')}</Button>
-                    <Button variant="secondary" onClick={onClose} className="w-full">{t('cancel')}</Button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
+                
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <ArrowLeftRight size={20} className="text-indigo-600"/>
+                        {t('move')}
+                    </h3>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
+                        <X size={20}/>
+                    </button>
+                </div>
+                
+                {/* Body */}
+                <div className="p-6 space-y-5 overflow-y-auto">
+                    {/* Инфо о госте */}
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <div className="text-xs text-indigo-500 font-bold uppercase mb-0.5">Гость</div>
+                            <div className="font-bold text-indigo-900">{guest.fullName}</div>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-xs text-indigo-500 font-bold uppercase mb-0.5">Текущее место</div>
+                            <div className="font-bold text-indigo-900">Комн. {guest.roomNumber} / {guest.bedId}</div>
+                        </div>
+                    </div>
+
+                    {/* Выбор комнаты */}
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Выберите комнату</label>
+                        <select 
+                            className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm transition-all"
+                            value={targetRoomId} 
+                            onChange={e => { setTargetRoomId(e.target.value); setTargetBedId(''); }}
+                        >
+                            {allRooms.map(r => (
+                                <option key={r.id} value={r.id}>Комната №{r.number} ({r.capacity} мест)</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Сетка кроватей (Визуализация) */}
+                    {selectedRoom && (
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">
+                                Доступные места (Комната {selectedRoom.number})
+                            </label>
+                            
+                            <div className="grid grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1">
+                                {beds.map(bedId => {
+                                    // Ищем, кто живет на этой койке
+                                    const occupant = guests.find(g => 
+                                        String(g.roomId) === String(selectedRoom.id) && 
+                                        String(g.bedId) === String(bedId) &&
+                                        (g.status === 'active' || g.status === 'booking') &&
+                                        g.id !== guest.id // Исключаем самого себя
+                                    );
+
+                                    let status = 'free';
+                                    let statusText = 'Свободно';
+                                    
+                                    if (occupant) {
+                                        if (occupant.status === 'booking') {
+                                            status = 'booking';
+                                            statusText = 'Бронь';
+                                        } else {
+                                            // Проверка на Timeout
+                                            const checkOut = new Date(occupant.checkOutDate);
+                                            if (typeof occupant.checkOutDate === 'string' && !occupant.checkOutDate.includes('T')) {
+                                                checkOut.setHours(12, 0, 0, 0);
+                                            }
+                                            
+                                            if (now > checkOut) {
+                                                status = 'timeout'; // Считаем свободным для выбора
+                                                statusText = 'Time Out';
+                                            } else {
+                                                status = 'occupied';
+                                                statusText = occupant.fullName.split(' ')[0]; // Имя
+                                            }
+                                        }
+                                    }
+
+                                    // Стилизация карточки койки
+                                    const isSelected = String(targetBedId) === String(bedId);
+                                    let cardClass = "border border-slate-200 bg-white hover:border-slate-400";
+                                    let textClass = "text-slate-600";
+                                    let disabled = false;
+
+                                    if (isSelected) {
+                                        cardClass = "border-2 border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600";
+                                        textClass = "text-indigo-700";
+                                    } else if (status === 'occupied') {
+                                        cardClass = "bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed";
+                                        textClass = "text-slate-400";
+                                        disabled = true;
+                                    } else if (status === 'timeout') {
+                                        cardClass = "bg-slate-50 border-slate-300 border-dashed hover:border-indigo-400 hover:bg-slate-100";
+                                        textClass = "text-slate-500";
+                                    } else if (status === 'booking') {
+                                        // Бронь можно выбрать, но будет проверка дат при нажатии "Переместить"
+                                        cardClass = "bg-amber-50 border-amber-200 hover:border-amber-400";
+                                        textClass = "text-amber-700";
+                                    } else {
+                                        // Free
+                                        cardClass = "bg-white border-emerald-200 hover:border-emerald-500 hover:shadow-md hover:-translate-y-0.5";
+                                        textClass = "text-emerald-700";
+                                    }
+
+                                    return (
+                                        <button
+                                            key={bedId}
+                                            onClick={() => !disabled && setTargetBedId(String(bedId))}
+                                            disabled={disabled}
+                                            className={`p-3 rounded-xl transition-all duration-200 text-left relative overflow-hidden group ${cardClass}`}
+                                        >
+                                            <div className="flex justify-between items-start mb-1">
+                                                <div className="flex items-center gap-1">
+                                                    <BedDouble size={16} className={disabled ? 'text-slate-400' : isSelected ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}/>
+                                                    <span className={`text-xs font-bold ${textClass}`}>№{bedId}</span>
+                                                </div>
+                                                <span className="text-[9px] uppercase font-bold text-slate-400 bg-white/50 px-1 rounded">
+                                                    {bedId % 2 === 0 ? 'Верх' : 'Низ'}
+                                                </span>
+                                            </div>
+                                            
+                                            <div className={`text-xs font-medium truncate ${status === 'timeout' ? 'text-slate-500' : textClass}`}>
+                                                {statusText}
+                                            </div>
+
+                                            {/* Индикатор выбора */}
+                                            {isSelected && (
+                                                <div className="absolute top-2 right-2 w-2 h-2 bg-indigo-600 rounded-full shadow-sm"></div>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="p-6 bg-slate-50 border-t border-slate-200 flex gap-3">
+                    <button 
+                        onClick={onClose} 
+                        className="flex-1 py-3 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-white text-sm transition-colors"
+                    >
+                        Отмена
+                    </button>
+                    <button 
+                        onClick={handleMove} 
+                        disabled={!targetBedId}
+                        className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 text-sm shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:shadow-none"
+                    >
+                        Переместить
+                    </button>
                 </div>
             </div>
         </div>
@@ -6483,7 +6700,7 @@ return (
                         
                         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 -mt-2">
                             {filteredRooms.map(room => (
-                                <RoomCardChess 
+                                <RoomCardGlass 
                                     key={room.id} 
                                     room={room} 
                                     guests={filteredGuests.filter(g => g.roomId === room.id)} 
@@ -6548,17 +6765,20 @@ return (
                 )}
                 
                 {activeTab === 'debts' && (
-                    <DebtsView 
-                        guests={filteredGuests} 
-                        users={usersList} 
-                        lang={lang} 
-                        onPayDebt={handlePayDebt} 
-                        currentUser={currentUser} 
-                        onAdminAdjustDebt={handleAdminAdjustDebt} 
-                        clients={clients} 
-                        onCreateDebt={handleCreateDebt} 
-                    />
-                )}
+    <DebtsView 
+        guests={filteredGuests} 
+        users={usersList} 
+        lang={lang} 
+        onPayDebt={handlePayDebt} 
+        currentUser={currentUser} 
+        onAdminAdjustDebt={handleAdminAdjustDebt} 
+        clients={clients} 
+        onCreateDebt={handleCreateDebt}
+        
+        // 👇 ДОБАВЛЕНО: Функция открытия карточки гостя
+        onOpenGuest={(guest) => setSelectedGuest(guest)} 
+    />
+)}
                 
                 {activeTab === 'tasks' && (
                     <TaskManager 
