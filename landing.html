@@ -1,0 +1,1860 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hostella - Хостелы в Ташкенте</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --primary: #1a3c40;
+            --secondary: #2a5c60;
+            --accent: #e88c40;
+            --light: #f4f1ea;
+            --white: #ffffff;
+            --text: #333333;
+            --pistachio: #93c572;
+            --pistachio-dark: #75a656;
+            --pistachio-light: #eff7e8;
+        }
+        html { scroll-behavior: smooth; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Montserrat', sans-serif; }
+        body { background-color: var(--light); color: var(--text); overflow-x: hidden; width: 100%; }
+
+        /* --- ПРЕЛОАДЕР --- */
+        #preloader {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: var(--primary); z-index: 99999;
+            display: flex; justify-content: center; align-items: center;
+            transition: opacity 0.8s ease-out, visibility 0.8s;
+        }
+        .loader-content { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+        .loader-content img {
+            width: 200px; height: 200px; border-radius: 50%;
+            border: 4px solid var(--accent); padding: 4px;
+            animation: pulse-loader 1.5s infinite;
+        }
+        .loader-text {
+            color: rgba(255,255,255,.55); font-size: .78rem; font-weight: 700;
+            letter-spacing: .15em; text-transform: uppercase;
+        }
+        .preloader-hidden { opacity: 0; visibility: hidden; }
+        @keyframes pulse-loader {
+            0%   { transform: scale(1);   box-shadow: 0 0 0 0 rgba(232,140,64,.7); }
+            70%  { transform: scale(1.1); box-shadow: 0 0 0 20px rgba(232,140,64,0); }
+            100% { transform: scale(1);   box-shadow: 0 0 0 0 rgba(232,140,64,0); }
+        }
+
+        /* --- НАВИГАЦИЯ --- */
+        nav {
+            position: fixed; top: 0; width: 100%; padding: 10px 5%;
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(26,60,64,.95); backdrop-filter: blur(10px);
+            z-index: 1000; box-shadow: 0 4px 20px rgba(0,0,0,.1);
+            transform: translateY(-100%);
+        }
+        .nav-left { display: flex; align-items: center; }
+        .nav-logo-img { height: 50px; width: auto; border-radius: 50%; border: 2px solid var(--accent); margin-right: 20px; }
+        .nav-links { display: flex; gap: 20px; }
+        .nav-links a { color: var(--white); text-decoration: none; font-weight: 500; transition: color .3s; font-size: .9rem; text-transform: uppercase; }
+        .nav-links a:hover { color: var(--accent); }
+        .nav-right { display: flex; align-items: center; gap: 20px; }
+        .lang-switch { display: flex; gap: 10px; color: white; font-weight: 700; font-size: .9rem; }
+        .lang-btn { cursor: pointer; opacity: .6; transition: .3s; }
+        .lang-btn:hover, .lang-btn.active { opacity: 1; color: var(--accent); }
+        .nav-phones { display: flex; flex-direction: column; align-items: flex-end; }
+        .nav-phone-link { color: var(--white); text-decoration: none; font-size: .9rem; font-weight: 700; margin-bottom: 2px; transition: color .3s; display: flex; align-items: center; }
+        .nav-phone-link:hover { color: var(--accent); }
+        .nav-phone-link i { margin-right: 5px; color: var(--accent); font-size: .8rem; }
+
+        /* --- HERO --- */
+        .hero-split {
+            min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 48px;
+            background: linear-gradient(rgba(26,60,64,.82), rgba(26,60,64,.94)),
+                url('https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=1920&q=80');
+            background-size: cover; background-position: center;
+            color: white; padding: 120px 5% 60px;
+        }
+        .hero-content { visibility: hidden; max-width: 520px; text-align: left; }
+        .hero-split-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+        @media (max-width: 960px) {
+            .hero-split { grid-template-columns: 1fr; padding: 90px 5% 40px; }
+            .hero-split-cards { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 520px) {
+            .hero-split-cards { grid-template-columns: 1fr; }
+        }
+
+        .hero-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+            border-radius: 30px; padding: 7px 18px; font-size: .78rem; font-weight: 700;
+            letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.85);
+            margin-bottom: 22px; backdrop-filter: blur(4px);
+        }
+        .hero-badge i { color: var(--accent); font-size: .8rem; }
+
+        .hero-split h1 {
+            font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 900;
+            line-height: 1.15; margin-bottom: 18px;
+            text-shadow: 0 2px 20px rgba(0,0,0,.3);
+        }
+        .hero-split h1 .accent-word { color: var(--accent); }
+        .hero-split p {
+            font-size: 1.05rem; max-width: 480px; margin: 0 0 32px;
+            opacity: .8; line-height: 1.6;
+        }
+
+        /* Hero кнопки */
+        .hero-btns { display: flex; gap: 14px; justify-content: flex-start; flex-wrap: wrap; margin-bottom: 44px; }
+        .cta-btn {
+            padding: 16px 36px; background: var(--accent); color: white;
+            border: none; border-radius: 50px; font-family: 'Montserrat', sans-serif;
+            font-size: .95rem; font-weight: 800; text-transform: uppercase;
+            letter-spacing: .06em; cursor: pointer;
+            box-shadow: 0 8px 28px -4px rgba(232,140,64,.65);
+            transition: background .2s, transform .15s, box-shadow .2s;
+            display: inline-flex; align-items: center; gap: 9px; text-decoration: none;
+        }
+        .cta-btn:hover { background: #d47c30; transform: translateY(-2px); box-shadow: 0 12px 36px -4px rgba(232,140,64,.7); }
+        .cta-btn:active { transform: scale(.97); }
+        .cta-btn-outline {
+            padding: 15px 30px; background: transparent; color: white;
+            border: 2px solid rgba(255,255,255,.45); border-radius: 50px;
+            font-family: 'Montserrat', sans-serif; font-size: .9rem; font-weight: 700;
+            cursor: pointer; transition: all .2s; text-decoration: none;
+            display: inline-flex; align-items: center; gap: 8px;
+        }
+        .cta-btn-outline:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.75); }
+
+        /* Hero stats */
+        .hero-stats {
+            display: flex; gap: 0; justify-content: flex-start;
+            border: 1px solid rgba(255,255,255,.15); border-radius: 16px;
+            overflow: hidden; max-width: 420px; margin: 0;
+            backdrop-filter: blur(6px); background: rgba(255,255,255,.06);
+        }
+        .hero-stat {
+            flex: 1; padding: 16px 10px; text-align: center;
+            border-right: 1px solid rgba(255,255,255,.15);
+        }
+        .hero-stat:last-child { border-right: none; }
+        .hero-stat-val { font-size: 1.4rem; font-weight: 900; color: var(--accent); line-height: 1; }
+        .hero-stat-lbl { font-size: .65rem; font-weight: 600; color: rgba(255,255,255,.55); text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
+
+        @media (max-width: 768px) {
+            .hero-split h1 { font-size: 1.8rem; }
+            .hero-btns { flex-direction: column; align-items: center; }
+            .cta-btn, .cta-btn-outline { width: 100%; max-width: 300px; justify-content: center; }
+            .hero-stats { max-width: 320px; }
+            .hero-stat-val { font-size: 1.1rem; }
+        }
+
+        /* --- СЕКЦИИ --- */
+        section { padding: 80px 20px; }
+        .section-label {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(232,140,64,.1); border: 1px solid rgba(232,140,64,.3);
+            border-radius: 30px; padding: 5px 14px; font-size: .72rem; font-weight: 800;
+            letter-spacing: .1em; text-transform: uppercase; color: var(--accent);
+            margin-bottom: 14px;
+        }
+        .section-header { text-align: center; margin-bottom: 56px; }
+        .section-header h2 { font-size: clamp(1.7rem, 3.5vw, 2.5rem); color: var(--primary); margin-bottom: 14px; font-weight: 900; }
+        .section-header p { font-size: .95rem; color: #888; max-width: 480px; margin: 0 auto 16px; line-height: 1.6; }
+        .section-header .line { width: 50px; height: 4px; background: linear-gradient(90deg, var(--accent), #f5b87c); border-radius: 2px; margin: 0 auto; }
+
+        /* === О НАС === */
+        .features { background: var(--white); overflow: hidden; position: relative; }
+        .features::before {
+            content: ''; position: absolute; right: -120px; top: -80px;
+            width: 400px; height: 400px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(232,140,64,.06) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .features-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr));
+            gap: 24px; max-width: 1200px; margin: 0 auto;
+        }
+        .feature-item {
+            padding: 36px 28px 32px; border-radius: 20px;
+            background: white; border: 1.5px solid #f0f0f0;
+            box-shadow: 0 2px 12px rgba(0,0,0,.04);
+            opacity: 0; transform: translateY(28px);
+            transition: opacity .6s ease, transform .6s ease, box-shadow .3s, border-color .3s;
+            position: relative; overflow: hidden;
+        }
+        .feature-item::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(232,140,64,.04) 0%, transparent 60%);
+            opacity: 0; transition: opacity .3s;
+        }
+        .feature-item:hover { box-shadow: 0 12px 40px rgba(0,0,0,.1); border-color: rgba(232,140,64,.3); transform: translateY(-4px) !important; }
+        .feature-item:hover::before { opacity: 1; }
+        .feature-item.visible { opacity: 1; transform: translateY(0); }
+        .feature-num {
+            position: absolute; top: 20px; right: 20px;
+            font-size: 3rem; font-weight: 900; color: rgba(26,60,64,.04); line-height: 1;
+            user-select: none; pointer-events: none;
+        }
+        .feature-icon-wrap {
+            width: 68px; height: 68px; border-radius: 18px; margin-bottom: 22px;
+            background: linear-gradient(135deg, rgba(232,140,64,.12) 0%, rgba(232,140,64,.05) 100%);
+            display: flex; align-items: center; justify-content: center;
+            transition: background .3s;
+        }
+        .feature-item:hover .feature-icon-wrap { background: linear-gradient(135deg, rgba(232,140,64,.22) 0%, rgba(232,140,64,.1) 100%); }
+        .feature-icon { font-size: 1.8rem; color: var(--accent); animation: floatIcon 3s ease-in-out infinite; }
+        @keyframes floatIcon { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+        .feature-item:nth-child(2) .feature-icon { animation-delay: .2s; }
+        .feature-item:nth-child(3) .feature-icon { animation-delay: .4s; }
+        .feature-item:nth-child(4) .feature-icon { animation-delay: .6s; }
+        .feature-item h3 { font-size: 1.05rem; font-weight: 900; color: var(--primary); margin-bottom: 8px; }
+        .feature-item p { font-size: .85rem; color: #888; line-height: 1.6; }
+
+        /* === ФИЛИАЛЫ === */
+        .branches { background: var(--light); }
+        .branch-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 32px; max-width: 1200px; margin: 0 auto; }
+        .branch-card {
+            width: 100%; max-width: 520px; background: white; border-radius: 24px;
+            overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.08);
+            transition: box-shadow .3s, transform .3s; border: 1.5px solid #f0ede6;
+        }
+        .branch-card:hover { box-shadow: 0 20px 60px rgba(0,0,0,.14); transform: translateY(-6px); }
+        .branch-img-wrapper { height: 250px; overflow: hidden; position: relative; }
+        .branch-img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
+        .branch-card:hover .branch-img { transform: scale(1.05); }
+        .branch-img-overlay {
+            position: absolute; inset: 0;
+            background: linear-gradient(to top, rgba(26,60,64,.6) 0%, transparent 50%);
+        }
+        .branch-img-badge {
+            position: absolute; top: 16px; left: 16px;
+            background: var(--accent); color: white; padding: 5px 12px;
+            border-radius: 20px; font-size: .72rem; font-weight: 800; text-transform: uppercase;
+            letter-spacing: .05em; backdrop-filter: blur(4px);
+        }
+        .branch-img-number {
+            position: absolute; bottom: 16px; right: 16px;
+            background: rgba(255,255,255,.15); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,.3); color: white;
+            padding: 6px 14px; border-radius: 20px; font-size: .78rem; font-weight: 800;
+        }
+        .branch-info { padding: 28px; }
+        .branch-title { font-size: 1.4rem; color: var(--primary); margin-bottom: 6px; font-weight: 900; }
+        .branch-address {
+            display: flex; align-items: center; gap: 7px;
+            color: #999; margin-bottom: 20px; font-size: .85rem;
+        }
+        .branch-address i { color: var(--accent); }
+        .amenities-list { list-style: none; margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }
+        .amenities-list li {
+            font-size: .88rem; color: #555;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .amenities-list li .icon-check {
+            width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
+            background: var(--pistachio-light); display: flex; align-items: center; justify-content: center;
+        }
+        .amenities-list li .icon-check i { color: var(--pistachio-dark); font-size: .75rem; }
+        .branch-btn {
+            display: flex; align-items: center; justify-content: center; gap: 9px;
+            width: 100%; background: var(--primary); color: white;
+            padding: 15px; border: none; border-radius: 14px;
+            font-family: 'Montserrat', sans-serif; font-size: .92rem; font-weight: 800;
+            cursor: pointer; letter-spacing: .04em;
+            transition: background .2s, transform .15s, box-shadow .2s;
+            box-shadow: 0 6px 20px rgba(26,60,64,.25);
+        }
+        .branch-btn:hover { background: #0f2426; box-shadow: 0 10px 28px rgba(26,60,64,.35); }
+        .branch-btn:active { transform: scale(.97); }
+
+        /* === ЦЕНЫ === */
+        .prices {
+            background: linear-gradient(145deg, #0f2426 0%, var(--primary) 50%, #1e4a50 100%);
+            color: white; position: relative; overflow: hidden;
+        }
+        .prices::before {
+            content: ''; position: absolute; left: -100px; bottom: -100px;
+            width: 500px; height: 500px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(232,140,64,.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .prices .section-header .line { background: linear-gradient(90deg, var(--accent), #f5b87c); }
+        .prices .section-label { background: rgba(232,140,64,.15); border-color: rgba(232,140,64,.4); }
+        .prices .section-header h2 { color: white; }
+        .prices .section-header p { color: rgba(255,255,255,.55); }
+        .price-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 28px; max-width: 1100px; margin: 0 auto; }
+        .price-card {
+            flex: 1; min-width: min(300px, 100%); max-width: 460px;
+            background: rgba(255,255,255,.06); backdrop-filter: blur(12px);
+            padding: 0; border-radius: 24px;
+            border: 1px solid rgba(255,255,255,.1);
+            overflow: hidden; transition: transform .3s, box-shadow .3s;
+        }
+        .price-card:hover { transform: translateY(-6px); box-shadow: 0 24px 60px rgba(0,0,0,.3); }
+        .price-card-header {
+            padding: 28px 28px 22px;
+            background: rgba(255,255,255,.05);
+            border-bottom: 1px solid rgba(255,255,255,.08);
+            display: flex; align-items: center; gap: 16px;
+        }
+        .price-card-icon {
+            width: 52px; height: 52px; border-radius: 14px; flex-shrink: 0;
+            background: linear-gradient(135deg, var(--accent), #f5b87c);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .price-card-icon i { font-size: 1.4rem; color: white; }
+        .price-card-htitle { font-size: 1.05rem; font-weight: 900; color: white; }
+        .price-card-haddr { font-size: .75rem; color: rgba(255,255,255,.45); margin-top: 3px; }
+        .price-card-body { padding: 24px 28px; }
+        .price-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.07); gap: 12px;
+        }
+        .price-row:last-of-type { border-bottom: none; }
+        .price-row-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+        .price-bed-label { font-size: .88rem; color: rgba(255,255,255,.75); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .price-right { text-align: right; flex-shrink: 0; }
+        .price-bed-icon {
+            width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+            background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center;
+        }
+        .price-bed-icon i { font-size: .85rem; color: rgba(255,255,255,.6); }
+        .room-cost { font-weight: 900; font-size: 1.05rem; color: var(--accent); white-space: nowrap; }
+        .room-cost-sub { font-size: .68rem; color: rgba(255,255,255,.35); font-weight: 600; display: block; text-align: right; margin-top: 2px; }
+        .discount-badge {
+            margin: 0 28px 24px; background: rgba(147,197,114,.12);
+            color: #93c572; text-align: center; padding: 12px 16px;
+            border-radius: 14px; font-weight: 700; font-size: .85rem;
+            border: 1px solid rgba(147,197,114,.25);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+
+        /* === FOOTER === */
+        footer {
+            background: #0d1f21; color: #888;
+            padding: 60px 20px 30px;
+        }
+        .footer-inner {
+            max-width: 1100px; margin: 0 auto;
+            display: grid; grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 48px; margin-bottom: 48px;
+        }
+        .footer-brand img { height: 64px; border-radius: 50%; border: 2px solid var(--accent); margin-bottom: 16px; }
+        .footer-brand p { font-size: .82rem; line-height: 1.7; color: #666; max-width: 240px; margin-bottom: 20px; }
+        .footer-socials { display: flex; gap: 10px; }
+        .footer-socials a {
+            width: 40px; height: 40px; border-radius: 12px;
+            background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+            display: flex; align-items: center; justify-content: center;
+            color: #888; font-size: 1rem; transition: all .2s;
+        }
+        .footer-socials a:hover { background: var(--accent); border-color: var(--accent); color: white; transform: translateY(-2px); }
+        .footer-col h4 { color: white; font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 20px; }
+        .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+        .footer-col ul li a, .footer-col ul li { font-size: .83rem; color: #666; text-decoration: none; transition: color .2s; }
+        .footer-col ul li a:hover { color: var(--accent); }
+        .footer-contact-item { display: flex; align-items: flex-start; gap: 10px; }
+        .footer-contact-item i { color: var(--accent); font-size: .85rem; margin-top: 3px; flex-shrink: 0; }
+        .footer-bottom {
+            max-width: 1100px; margin: 0 auto;
+            border-top: 1px solid rgba(255,255,255,.06);
+            padding-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: gap-16px;
+        }
+        .footer-bottom p { font-size: .78rem; color: #444; }
+        .footer-bottom-book {
+            background: var(--accent); color: white; border: none;
+            padding: 10px 22px; border-radius: 20px; font-family: 'Montserrat', sans-serif;
+            font-size: .78rem; font-weight: 800; cursor: pointer; letter-spacing: .05em;
+            transition: background .2s; display: inline-flex; align-items: center; gap: 7px;
+        }
+        .footer-bottom-book:hover { background: #d47c30; }
+        @media (max-width: 900px) {
+            .footer-inner { grid-template-columns: 1fr 1fr; gap: 32px; }
+        }
+        @media (max-width: 600px) {
+            .footer-inner { grid-template-columns: 1fr; gap: 28px; }
+            .footer-bottom { flex-direction: column; gap: 16px; text-align: center; }
+            .price-card-header { padding: 20px 16px 16px; }
+            .price-card-body { padding: 16px; }
+            .discount-badge { margin: 0 16px 16px; }
+        }
+
+        /* ================================================================
+           МОДАЛЬНОЕ ОКНО БРОНИРОВАНИЯ
+        ================================================================ */
+        .booking-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(10,25,27,.78);
+            backdrop-filter: blur(7px);
+            display: flex; align-items: center; justify-content: center;
+            padding: 16px;
+            opacity: 0; visibility: hidden;
+            transition: opacity .35s ease, visibility .35s;
+        }
+        .booking-overlay.open { opacity: 1; visibility: visible; }
+        .booking-overlay.open .bm-card {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+
+        .bm-card {
+            background: white; border-radius: 26px;
+            width: 100%; max-width: 460px;
+            box-shadow: 0 40px 100px rgba(0,0,0,.45);
+            overflow: hidden;
+            transform: translateY(28px) scale(.97);
+            opacity: 0;
+            transition: transform .42s cubic-bezier(.16,1,.3,1), opacity .35s ease;
+            max-height: 92vh; overflow-y: auto;
+        }
+
+        /* шапка */
+        .bm-header {
+            background: linear-gradient(135deg, #1a3c40 0%, #0f2426 100%);
+            padding: 20px 20px 18px;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 10;
+        }
+        .bm-header-left { display: flex; align-items: center; gap: 12px; }
+        .bm-logo { width: 44px; height: 44px; border-radius: 12px; overflow: hidden; border: 2px solid var(--accent); flex-shrink: 0; }
+        .bm-logo img { width: 100%; height: 100%; object-fit: cover; }
+        .bm-title { color: white; font-weight: 900; font-size: 1.1rem; }
+        .bm-subtitle { color: rgba(255,255,255,.5); font-size: .73rem; margin-top: 2px; }
+        .bm-close { background: rgba(255,255,255,.12); border: none; border-radius: 10px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; transition: background .2s; flex-shrink: 0; }
+        .bm-close:hover { background: rgba(255,255,255,.25); }
+
+        /* табы */
+        .bm-tabs { display: flex; border-bottom: 1px solid #f1f1f1; }
+        .bm-tab { flex: 1; padding: 13px 8px; font-family: 'Montserrat', sans-serif; font-size: .82rem; font-weight: 700; text-align: center; border: none; background: none; cursor: pointer; color: #bbb; border-bottom: 3px solid transparent; transition: all .2s; }
+        .bm-tab.active { color: var(--primary); border-bottom-color: var(--accent); background: #fff8f3; }
+
+        /* тело */
+        .bm-body { padding: 22px; }
+        .bm-step { display: none; }
+        .bm-step.active { display: block; }
+
+        /* ---- ШАГИ ЗАГРУЗКИ / ОШИБКИ ---- */
+        .bm-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; gap: 12px; }
+        .bm-spinner-big { width: 36px; height: 36px; border: 3.5px solid #e2e8f0; border-top-color: var(--primary); border-radius: 50%; animation: spin .75s linear infinite; }
+        .bm-loading p { font-size: .83rem; color: #94a3b8; font-weight: 600; }
+
+        /* ---- КАЛЕНДАРЬ ---- */
+        .bm-cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .bm-cal-nav button { border: none; background: #f5f5f5; border-radius: 10px; width: 36px; height: 36px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; transition: background .2s; }
+        .bm-cal-nav button:hover { background: #ebebeb; }
+        .bm-cal-month { font-weight: 900; font-size: 1rem; color: var(--primary); }
+        .bm-wdays { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 6px; }
+        .bm-wday { text-align: center; font-size: .63rem; font-weight: 800; color: #c0c0c0; text-transform: uppercase; padding: 4px 0; }
+        .bm-days { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+
+        .bm-day {
+            aspect-ratio: 1; border-radius: 10px; border: none; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: .84rem;
+            transition: all .15s; position: relative;
+        }
+        .bm-day .sub { font-size: .52rem; font-weight: 700; opacity: .65; margin-top: 1px; }
+        .bm-day.empty { background: none; cursor: default; pointer-events: none; }
+        .bm-day.past { background: #f9f9f9; color: #d0d0d0; cursor: not-allowed; }
+        .bm-day.full { background: #fff0f0; color: #f5a5a5; cursor: not-allowed; text-decoration: line-through; }
+        .bm-day.free { background: #ecfdf5; color: #10b981; }
+        .bm-day.free:hover { background: #d1fae5; }
+        .bm-day.moderate { background: #f0fdfa; color: #0d9488; }
+        .bm-day.moderate:hover { background: #ccfbf1; }
+        .bm-day.tight { background: #fffbeb; color: #d97706; }
+        .bm-day.tight:hover { background: #fef3c7; }
+        .bm-day.unknown { background: #f8f8f8; color: #999; }
+        .bm-day.unknown:hover { background: #f0f0f0; }
+        .bm-day.today { outline: 2px solid var(--primary); outline-offset: 1px; }
+        .bm-day.selected { background: var(--primary) !important; color: white !important; outline: 2.5px solid var(--accent); outline-offset: 1px; }
+        .bm-day.selected .sub { opacity: .6; }
+
+        .bm-legend { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 14px 0 16px; }
+        .bm-legend-item { display: flex; align-items: center; gap: 5px; font-size: .68rem; font-weight: 700; color: #999; }
+        .bm-legend-dot { width: 10px; height: 10px; border-radius: 4px; }
+
+        .bm-hostel-info { background: #f8f8f8; border-radius: 14px; padding: 14px; }
+        .bm-hostel-name { font-weight: 900; font-size: .9rem; color: var(--primary); margin-bottom: 2px; }
+        .bm-hostel-addr { font-size: .78rem; color: #999; }
+        .bm-hint { text-align: center; font-size: .73rem; color: #c0c0c0; font-weight: 600; margin-top: 12px; }
+
+        /* ---- ФОРМА ---- */
+        .bm-back-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+        .bm-back-btn { border: none; background: #f5f5f5; border-radius: 10px; width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #666; font-size: .95rem; transition: background .2s; flex-shrink: 0; }
+        .bm-back-btn:hover { background: #ebebeb; }
+        .bm-form-title { font-weight: 900; font-size: 1rem; color: #1e293b; }
+        .bm-form-meta { font-size: .74rem; color: #94a3b8; font-weight: 600; margin-top: 3px; }
+
+        .bm-field { margin-bottom: 14px; }
+        .bm-label { display: block; font-size: .67rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 6px; }
+        .bm-label span.req { color: #f87171; }
+        .bm-input-wrap { position: relative; }
+        .bm-input-wrap i { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: #b0b8c4; font-size: .82rem; pointer-events: none; }
+        .bm-input, .bm-select {
+            width: 100%; padding: 12px 14px 12px 38px;
+            border: 1.5px solid #e2e8f0; border-radius: 12px;
+            font-family: 'Montserrat', sans-serif; font-size: .88rem; font-weight: 600;
+            color: #1e293b; background: white; outline: none;
+            transition: border-color .2s, box-shadow .2s;
+        }
+        .bm-input:focus, .bm-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,60,64,.1); }
+        .bm-select { appearance: none; }
+        .bm-checkout-hint { font-size: .72rem; color: #94a3b8; font-weight: 600; margin-top: 5px; padding-left: 4px; }
+
+        .bm-error-msg { display: flex; align-items: center; gap: 8px; background: #fff0f0; border: 1px solid #fecaca; border-radius: 12px; padding: 10px 14px; font-size: .82rem; font-weight: 600; color: #dc2626; margin-bottom: 14px; }
+
+        .bm-submit {
+            width: 100%; padding: 15px; border: none; border-radius: 12px;
+            background: var(--accent); color: white;
+            font-family: 'Montserrat', sans-serif; font-size: .95rem; font-weight: 900; letter-spacing: .04em;
+            cursor: pointer; transition: background .2s, transform .1s;
+            box-shadow: 0 6px 20px -4px rgba(232,140,64,.55);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .bm-submit:hover { background: #d47c30; }
+        .bm-submit:active { transform: scale(.98); }
+        .bm-submit:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        .bm-spinner { width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.4); border-top-color: white; border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ---- УСПЕХ ---- */
+        .bm-success-wrap { text-align: center; padding: 8px 0 4px; }
+        .bm-success-icon { width: 72px; height: 72px; border-radius: 50%; background: #d1fae5; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+        .bm-success-icon i { font-size: 2.1rem; color: #059669; }
+        .bm-success-wrap h3 { font-size: 1.4rem; font-weight: 900; color: #1e293b; margin-bottom: 8px; }
+        .bm-success-wrap p { font-size: .86rem; color: #64748b; max-width: 300px; margin: 0 auto 20px; line-height: 1.55; }
+        .bm-summary { background: #f8fafc; border-radius: 14px; padding: 16px; text-align: left; margin-bottom: 20px; }
+        .bm-summary-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #f0f4f8; font-size: .82rem; }
+        .bm-summary-row:last-child { border-bottom: none; }
+        .bm-summary-row .lbl { color: #94a3b8; font-weight: 600; }
+        .bm-summary-row .val { color: #1e293b; font-weight: 800; }
+        .bm-new-btn { padding: 12px 30px; border: none; border-radius: 12px; background: var(--primary); color: white; font-family: 'Montserrat', sans-serif; font-size: .88rem; font-weight: 800; cursor: pointer; transition: background .2s; }
+        .bm-new-btn:hover { background: var(--secondary); }
+
+        @media (max-width: 768px) {
+            .nav-links { display: none; }
+            nav { padding: 10px 15px; }
+            .nav-logo-img { width: 40px; height: 40px; margin-right: 10px; }
+            .nav-phone-link { font-size: .75rem; }
+            section { padding: 56px 16px; }
+            .branch-img-wrapper { height: 200px; }
+            .price-card { width: 100%; min-width: auto; }
+            .gs_reveal_left, .gs_reveal_right { transform: none !important; opacity: 1 !important; }
+            .lang-switch { font-size: .8rem; }
+            .bm-card { border-radius: 20px; }
+            .branch-container { gap: 20px; }
+        }
+    </style>
+
+    <!-- Карточки-филиалы + модал деталей -->
+    <style>
+        /* ═══ DARK BRANCH CARDS ═══ */
+        .branches { background: #0d2426; }
+        .branches .section-header h2 { color: white; }
+        .branches .section-header p  { color: rgba(255,255,255,.5); }
+        .branches .section-label { background: rgba(232,140,64,.15); border-color: rgba(232,140,64,.4); color: var(--accent); }
+        .branches .line { background: linear-gradient(90deg, var(--accent), #f5b87c); }
+        .branch-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 28px; max-width: 1100px; margin: 0 auto; }
+
+        .bcard { background: rgba(255,255,255,.1); border-radius: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.4); margin-bottom: 0; border: 1px solid rgba(255,255,255,.14); overflow: hidden; transition: box-shadow .3s, transform .3s; cursor: pointer; contain: layout style paint; width: 100%; max-width: 480px; }
+        .bcard:hover { box-shadow: 0 20px 52px rgba(0,0,0,.5); transform: translateY(-4px); }
+
+        .car { position: relative; height: 220px; overflow: hidden; contain: layout style paint; }
+        .car-track { display: flex; height: 100%; transition: transform .55s cubic-bezier(.45,.05,.55,.95); will-change: transform; }
+        .car-slide { min-width: 100%; height: 100%; }
+        .car-slide img { width: 100%; height: 100%; object-fit: cover; }
+        .car-ov { position: absolute; inset: 0; background: linear-gradient(to top, rgba(26,60,64,.55) 0%, transparent 50%); pointer-events: none; }
+        .car-badge { position: absolute; top: 12px; left: 12px; background: rgba(232,140,64,.9); color: white; padding: 4px 12px; border-radius: 20px; font-size: .7rem; font-weight: 800; text-transform: uppercase; border: 1px solid rgba(255,255,255,.2); }
+        .car-dots { position: absolute; bottom: 10px; left: 0; width: 100%; display: flex; justify-content: center; gap: 5px; }
+        .dot { width: 7px; height: 7px; background: rgba(255,255,255,.45); border-radius: 50%; cursor: pointer; transition: all .25s; }
+        .dot.active { background: var(--accent); transform: scale(1.25); }
+
+        .cbody { padding: 20px; }
+        .cname { font-size: 1.05rem; font-weight: 900; color: white; margin-bottom: 4px; }
+        .caddr { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: rgba(255,255,255,.5); margin-bottom: 16px; }
+        .caddr i { color: var(--accent); font-size: .75rem; }
+
+        .agrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+        .abtn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 11px 8px; border-radius: 13px; text-decoration: none; font-size: .75rem; font-weight: 700; transition: all .22s; cursor: pointer; font-family: 'Montserrat', sans-serif; overflow: hidden; white-space: nowrap; }
+        .abtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .abtn .ai { font-size: .88rem; transition: transform .2s; }
+        .abtn:hover .ai { transform: scale(1.15); }
+        .abtn:active { transform: scale(.95); }
+        .abtn-call { background: rgba(255,255,255,.1); color: rgba(255,255,255,.85); border: 1px solid rgba(255,255,255,.2); }
+        .abtn-call:hover { background: rgba(255,255,255,.2); color: white; }
+        .abtn-map  { background: rgba(232,140,64,.15); color: var(--accent); border: 1px solid rgba(232,140,64,.3); }
+        .abtn-map:hover { background: rgba(232,140,64,.28); border-color: rgba(232,140,64,.6); }
+        .abtn-book { grid-column: 1/-1; background: linear-gradient(135deg, var(--accent) 0%, #d47c30 100%); color: white; padding: 14px; border-radius: 13px; font-size: .88rem; font-weight: 800; border: 1px solid rgba(255,255,255,.15); box-shadow: 0 6px 22px rgba(232,140,64,.35); }
+        .abtn-book:hover { box-shadow: 0 10px 30px rgba(232,140,64,.5); transform: translateY(-1px); }
+
+        .prow { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.08); font-size: .8rem; }
+        .prow:last-child { border-bottom: none; }
+        .prow-l { display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,.55); }
+        .prow-l i { color: var(--accent); font-size: .75rem; }
+        .pval { font-weight: 900; color: white; font-size: .9rem; }
+        .psub { font-size: .65rem; font-weight: 600; color: rgba(255,255,255,.38); display: block; text-align: right; }
+        .card-disc { display: inline-flex; align-items: center; gap: 6px; background: rgba(147,197,114,.12); color: #93c572; border: 1px solid rgba(147,197,114,.28); border-radius: 10px; padding: 8px 12px; font-size: .75rem; font-weight: 700; margin-top: 12px; width: 100%; }
+
+        /* ═══ DETAIL MODAL ═══ */
+        .hm-ov { position: fixed; inset: 0; z-index: 9100; background: rgba(4,14,16,.92); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; opacity: 0; visibility: hidden; transition: opacity .3s, visibility .3s; }
+        .hm-ov.open { opacity: 1; visibility: visible; }
+        .hm-ov.open .hm-sheet { transform: translateY(0); }
+        .hm-sheet { background: linear-gradient(175deg, #0e2124 0%, #080a10 100%); width: 100%; max-width: 520px; border-radius: 28px 28px 0 0; max-height: 95vh; overflow-y: auto; transform: translateY(100%); transition: transform .44s cubic-bezier(.16,1,.3,1); box-shadow: 0 -2px 0 rgba(232,140,64,.4), 0 -24px 70px rgba(0,0,0,.8); border-top: 1px solid rgba(255,255,255,.1); }
+        .hm-handle { width: 44px; height: 4px; background: rgba(255,255,255,.18); border-radius: 2px; margin: 14px auto 0; display: block; }
+        .hm-gallery { position: relative; height: 240px; overflow: hidden; }
+        .hm-gtrack { display: flex; height: 100%; transition: transform .5s cubic-bezier(.45,.05,.55,.95); }
+        .hm-gslide { min-width: 100%; height: 100%; }
+        .hm-gslide img { width: 100%; height: 100%; object-fit: cover; }
+        .hm-gov { position: absolute; inset: 0; background: linear-gradient(to top, rgba(8,22,24,.8) 0%, rgba(8,22,24,.1) 55%, transparent 100%); }
+        .hm-gcnt { position: absolute; bottom: 10px; right: 14px; background: rgba(0,0,0,.65); color: rgba(255,255,255,.8); font-size: .68rem; font-weight: 800; padding: 3px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,.15); }
+        .hm-gthumbs { display: flex; flex-wrap: nowrap; gap: 7px; padding: 12px 16px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+        .hm-gthumbs::-webkit-scrollbar { display: none; }
+        .hm-gthumb { width: 72px; min-width: 72px; height: 52px; border-radius: 9px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: all .2s; flex-shrink: 0; flex-grow: 0; touch-action: manipulation; }
+        .hm-gthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .hm-gthumb.act { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(232,140,64,.3); }
+        .hm-close { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,.65); border: 1px solid rgba(255,255,255,.15); width: 36px; height: 36px; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: .9rem; z-index: 10; transition: all .2s; }
+        .hm-close:hover { background: rgba(0,0,0,.85); }
+        .hm-body { padding: 18px 18px 24px; }
+        .hm-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(232,140,64,.15); border: 1px solid rgba(232,140,64,.3); color: var(--accent); font-size: .7rem; font-weight: 800; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; margin-bottom: 10px; }
+        .hm-name { font-size: 1.25rem; font-weight: 900; color: white; margin-bottom: 4px; }
+        .hm-addr { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: rgba(255,255,255,.45); margin-bottom: 16px; }
+        .hm-addr i { color: var(--accent); }
+        .hm-desc { font-size: .82rem; color: rgba(255,255,255,.6); line-height: 1.7; margin-bottom: 18px; padding: 14px; background: rgba(255,255,255,.05); border-radius: 14px; border: 1px solid rgba(255,255,255,.07); }
+        .hm-feats-title { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: rgba(255,255,255,.3); margin-bottom: 12px; }
+        .hm-feats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+        .hm-feat { display: flex; align-items: center; gap: 9px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 10px 12px; font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.75); }
+        .hm-feat i { color: var(--accent); font-size: .85rem; width: 16px; text-align: center; }
+        .hm-prices { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px; margin-bottom: 18px; }
+        .hm-prices-title { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.3); margin-bottom: 10px; }
+        .hm-prow { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .hm-prow:last-child { border-bottom: none; }
+        .hm-prow-l { display: flex; align-items: center; gap: 7px; font-size: .8rem; color: rgba(255,255,255,.55); }
+        .hm-prow-l i { color: var(--accent); font-size: .75rem; }
+        .hm-pricenum { font-size: .95rem; font-weight: 900; color: white; }
+        .hm-pricesub { font-size: .62rem; color: rgba(255,255,255,.35); margin-top: 1px; text-align: right; }
+        .hm-disc { display: flex; align-items: center; gap: 7px; background: rgba(147,197,114,.1); border: 1px solid rgba(147,197,114,.22); border-radius: 10px; padding: 9px 12px; font-size: .75rem; font-weight: 700; color: #93c572; margin-bottom: 18px; }
+        .hm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .hm-btn { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 13px 10px; border-radius: 13px; font-family: 'Montserrat', sans-serif; font-size: .82rem; font-weight: 700; cursor: pointer; text-decoration: none; border: 1px solid transparent; transition: all .2s; }
+        .hm-btn-call { background: rgba(255,255,255,.1); color: rgba(255,255,255,.85); border-color: rgba(255,255,255,.18); }
+        .hm-btn-call:hover { background: rgba(255,255,255,.18); color: white; }
+        .hm-btn-map { background: rgba(232,140,64,.15); color: var(--accent); border-color: rgba(232,140,64,.3); }
+        .hm-btn-map:hover { background: rgba(232,140,64,.28); }
+        .hm-btn-book { grid-column: 1/-1; background: linear-gradient(135deg, var(--accent) 0%, #d47c30 100%); color: white; padding: 15px; border-radius: 14px; font-size: .9rem; font-weight: 900; box-shadow: 0 8px 24px -4px rgba(232,140,64,.45); border-color: rgba(255,255,255,.15); }
+        .hm-btn-book:hover { box-shadow: 0 12px 32px -4px rgba(232,140,64,.6); transform: translateY(-1px); }
+    </style>
+</head>
+<body>
+
+<div id="preloader">
+    <div class="loader-content">
+        <img src="logo.png" alt="Loading...">
+        <div class="loader-text" id="loader_text">Загрузка...</div>
+    </div>
+</div>
+
+<nav>
+    <div class="nav-left">
+        <a href="#"><img src="logo.png" alt="Hostella" class="nav-logo-img"></a>
+        <div class="nav-links">
+            <a href="#about"    id="nav_about">О нас</a>
+            <a href="#prices"   id="nav_prices">Цены</a>
+            <a href="#contacts" id="nav_contacts">Контакты</a>
+        </div>
+    </div>
+    <div class="nav-right">
+        <div class="lang-switch">
+            <span class="lang-btn active" onclick="setLanguage('ru')">RU</span>
+            <span class="lang-btn"        onclick="setLanguage('uz')">UZ</span>
+            <span class="lang-btn"        onclick="setLanguage('en')">EN</span>
+        </div>
+        <div class="nav-phones">
+            <a href="tel:+998337108880" class="nav-phone-link"><i class="fas fa-phone-alt"></i> +998 33 710 88 80</a>
+            <a href="tel:+998555159990" class="nav-phone-link"><i class="fas fa-phone-alt"></i> +998 55 515 99 90</a>
+        </div>
+    </div>
+</nav>
+
+<section class="hero-split" id="branches">
+    <div class="hero-content">
+        <div class="hero-badge">
+            <i class="fas fa-map-marker-alt"></i>
+            <span id="hero_badge_text">Ташкент — 2 локации</span>
+        </div>
+        <h1 id="hero_title">Уютное жильё —<br><span class="accent-word" id="hero_title2">от 70 000 сум</span> в день</h1>
+        <p id="hero_text">Современные хостелы в самом центре Ташкента. Чистота, Wi-Fi и дружеская атмосфера.</p>
+        <div class="hero-btns">
+            <button class="cta-btn" onclick="openBooking('hostel1')" id="hero_btn">
+                <i class="fas fa-calendar-check"></i>
+                <span id="hero_btn_text">Забронировать</span>
+            </button>
+            <a href="#about" class="cta-btn-outline" id="hero_btn2">
+                <i class="fas fa-info-circle"></i>
+                <span id="hero_btn2_text">Узнать больше</span>
+            </a>
+        </div>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="hero-stat-val">2</div>
+                <div class="hero-stat-lbl" id="stat_branches">Филиала</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-val">70 000</div>
+                <div class="hero-stat-lbl" id="stat_price">от сум/день</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-val"><i class="fas fa-star" style="font-size:1.1rem"></i></div>
+                <div class="hero-stat-lbl" id="stat_loc">Центр города</div>
+            </div>
+        </div>
+    </div>
+    <div class="hero-split-cards">
+
+        <!-- Филиал 2 -->
+        <div class="bcard" onclick="openDetail('hostel2')">
+            <div class="car" id="car2">
+                <div class="car-track">
+                    <div class="car-slide"><img src="https://hostella.uz/qr/photo_2026-01-16_00-17-05.jpg" alt=""></div>
+                    <div class="car-slide"><img src="https://hostella.uz/qr/IMG_3716.jpg" alt="" loading="lazy"></div>
+                    <div class="car-slide"><img src="https://hostella.uz/qr/IMG_3722.jpg" alt="" loading="lazy"></div>
+                    <div class="car-slide"><img src="https://hostella.uz/qr/IMG_3720.jpg" alt="" loading="lazy"></div>
+                </div>
+                <div class="car-ov"></div>
+                <div class="car-badge">Filial №2</div>
+                <div class="car-dots"></div>
+            </div>
+            <div class="cbody">
+                <div class="cname" id="c2_name">Филиал №2 — 6-й проезд</div>
+                <div class="caddr"><i class="fas fa-map-marker-alt"></i><span id="c2_addr">6-й пр. Ниёзбек Йули, 39</span></div>
+                <div class="agrid">
+                    <a href="tel:+998337108880" class="abtn abtn-call" onclick="event.stopPropagation();trackEvent('call_hostel2')"><i class="fas fa-phone-alt ai"></i> <span id="c2_call">Позвонить</span></a>
+                    <a href="https://yandex.uz/maps/-/CLhVz496" target="_blank" class="abtn abtn-map" onclick="event.stopPropagation();trackEvent('map_hostel2')"><i class="fas fa-location-arrow ai"></i> <span id="c2_map">На карте</span></a>
+                    <button class="abtn abtn-book" onclick="event.stopPropagation();openBooking('hostel2')"><i class="fas fa-calendar-check ai"></i> <span id="c2_book">Забронировать</span></button>
+                </div>
+                <div class="prow"><div class="prow-l"><i class="fas fa-arrow-up"></i><span id="c2_up">Верхняя</span></div><div><span class="pval">90 000</span><span class="psub" id="c2_night1">сум / ночь</span></div></div>
+                <div class="prow"><div class="prow-l"><i class="fas fa-arrow-down"></i><span id="c2_dn">Нижняя</span></div><div><span class="pval">100 000</span><span class="psub" id="c2_night2">сум / ночь</span></div></div>
+                <div class="card-disc"><i class="fas fa-leaf"></i><span id="c2_disc">Скидки при проживании месяц</span></div>
+            </div>
+        </div>
+
+        <!-- Филиал 1 -->
+        <div class="bcard" onclick="openDetail('hostel1')">
+            <div class="car" id="car1">
+                <div class="car-track">
+                    <div class="car-slide"><img src="https://hostella.uz/photo_2026-02-21_02-30-39.jpg" alt=""></div>
+                    <div class="car-slide"><img src="https://hostella.uz/qr/Gemini_Generated_Image_xqmcrjxqmcrjxqmc.png" alt="" loading="lazy"></div>
+                    <div class="car-slide"><img src="https://hostella.uz/qr/Gemini_Generated_Image_mypyflmypyflmypy.png" alt="" loading="lazy"></div>
+                    <div class="car-slide"><img src="https://hostella.uz/qr/Gemini_Generated_Image_ya3djoya3djoya3d.png" alt="" loading="lazy"></div>
+                </div>
+                <div class="car-ov"></div>
+                <div class="car-badge">Filial №1</div>
+                <div class="car-dots"></div>
+            </div>
+            <div class="cbody">
+                <div class="cname" id="c1_name">Филиал №1 — Ниёзбек</div>
+                <div class="caddr"><i class="fas fa-map-marker-alt"></i><span id="c1_addr">ул. Ниёзбек Йули, 43</span></div>
+                <div class="agrid">
+                    <a href="tel:+998555159990" class="abtn abtn-call" onclick="event.stopPropagation();trackEvent('call_hostel1')"><i class="fas fa-phone-alt ai"></i> <span id="c1_call">Позвонить</span></a>
+                    <a href="https://yandex.uz/maps/-/CLhVv29z" target="_blank" class="abtn abtn-map" onclick="event.stopPropagation();trackEvent('map_hostel1')"><i class="fas fa-location-arrow ai"></i> <span id="c1_map">На карте</span></a>
+                    <button class="abtn abtn-book" onclick="event.stopPropagation();openBooking('hostel1')"><i class="fas fa-calendar-check ai"></i> <span id="c1_book">Забронировать</span></button>
+                </div>
+                <div class="prow"><div class="prow-l"><i class="fas fa-arrow-up"></i><span id="c1_up">Верхняя</span></div><div><span class="pval">70 000</span><span class="psub" id="c1_night1">сум / ночь</span></div></div>
+                <div class="prow"><div class="prow-l"><i class="fas fa-arrow-down"></i><span id="c1_dn">Нижняя</span></div><div><span class="pval">80 000</span><span class="psub" id="c1_night2">сум / ночь</span></div></div>
+                <div class="card-disc"><i class="fas fa-leaf"></i><span id="c1_disc">Скидки при проживании месяц</span></div>
+            </div>
+        </div>
+
+    </div>
+</section>
+
+<section id="about" class="features">
+    <div class="section-header">
+        <div class="section-label"><i class="fas fa-star"></i> Hostella</div>
+        <h2 id="why_title">Почему выбирают нас</h2>
+        <p id="why_sub">Мы создаём не просто место для сна — мы создаём атмосферу.</p>
+        <div class="line"></div>
+    </div>
+    <div class="features-grid">
+        <div class="feature-item">
+            <div class="feature-num">01</div>
+            <div class="feature-icon-wrap"><i class="fas fa-wifi feature-icon"></i></div>
+            <h3 id="feat_wifi_title">Wi-Fi</h3>
+            <p  id="feat_wifi_text">Быстрый безлимитный интернет бесплатно на всех этажах</p>
+        </div>
+        <div class="feature-item">
+            <div class="feature-num">02</div>
+            <div class="feature-icon-wrap"><i class="fas fa-bed feature-icon"></i></div>
+            <h3 id="feat_comfort_title">Комфортный сон</h3>
+            <p  id="feat_comfort_text">Ортопедические матрасы и индивидуальные розетки у каждой койки</p>
+        </div>
+        <div class="feature-item">
+            <div class="feature-num">03</div>
+            <div class="feature-icon-wrap"><i class="fas fa-users feature-icon"></i></div>
+            <h3 id="feat_party_title">Классная атмосфера</h3>
+            <p  id="feat_party_text">Дружная атмосфера и знакомства с путешественниками со всего мира</p>
+        </div>
+        <div class="feature-item">
+            <div class="feature-num">04</div>
+            <div class="feature-icon-wrap"><i class="fas fa-broom feature-icon"></i></div>
+            <h3 id="feat_clean_title">Чистота</h3>
+            <p  id="feat_clean_text">Ежедневная уборка, чистое бельё и личные шкафчики с замком</p>
+        </div>
+    </div>
+</section>
+
+<section id="prices" class="prices">
+    <div class="section-header">
+        <div class="section-label"><i class="fas fa-tag"></i> Цены</div>
+        <h2 id="price_header">Стоимость проживания</h2>
+        <p id="price_sub">Честные цены без скрытых доплат. Скидки для долгосрочных гостей.</p>
+        <div class="line"></div>
+    </div>
+    <div class="price-container gs_reveal">
+
+        <!-- Карточка 1 -->
+        <div class="price-card">
+            <div class="price-card-header">
+                <div class="price-card-icon"><i class="fas fa-building"></i></div>
+                <div>
+                    <div class="price-card-htitle" id="price_title1">Хостел №1</div>
+                    <div class="price-card-haddr">ул. Ниёзбек Йули, 43</div>
+                </div>
+            </div>
+            <div class="price-card-body">
+                <div class="price-row">
+                    <div class="price-row-left">
+                        <div class="price-bed-icon"><i class="fas fa-arrow-up"></i></div>
+                        <span class="price-bed-label" id="bed_up1">Верхняя койка</span>
+                    </div>
+                    <div class="price-right">
+                        <span class="room-cost">70 000</span>
+                        <span class="room-cost-sub">сум / ночь</span>
+                    </div>
+                </div>
+                <div class="price-row">
+                    <div class="price-row-left">
+                        <div class="price-bed-icon"><i class="fas fa-arrow-down"></i></div>
+                        <span class="price-bed-label" id="bed_down1">Нижняя койка</span>
+                    </div>
+                    <div class="price-right">
+                        <span class="room-cost">80 000</span>
+                        <span class="room-cost-sub">сум / ночь</span>
+                    </div>
+                </div>
+            </div>
+            <div class="discount-badge"><i class="fas fa-leaf"></i> <span id="discount_text1">Скидки при проживании от месяца</span></div>
+        </div>
+
+        <!-- Карточка 2 -->
+        <div class="price-card">
+            <div class="price-card-header">
+                <div class="price-card-icon"><i class="fas fa-building"></i></div>
+                <div>
+                    <div class="price-card-htitle" id="price_title2">Хостел №2</div>
+                    <div class="price-card-haddr">6-й пр. Ниёзбек Йули, 39</div>
+                </div>
+            </div>
+            <div class="price-card-body">
+                <div class="price-row">
+                    <div class="price-row-left">
+                        <div class="price-bed-icon"><i class="fas fa-arrow-up"></i></div>
+                        <span class="price-bed-label" id="bed_up2">Верхняя койка</span>
+                    </div>
+                    <div class="price-right">
+                        <span class="room-cost">90 000</span>
+                        <span class="room-cost-sub">сум / ночь</span>
+                    </div>
+                </div>
+                <div class="price-row">
+                    <div class="price-row-left">
+                        <div class="price-bed-icon"><i class="fas fa-arrow-down"></i></div>
+                        <span class="price-bed-label" id="bed_down2">Нижняя койка</span>
+                    </div>
+                    <div class="price-right">
+                        <span class="room-cost">100 000</span>
+                        <span class="room-cost-sub">сум / ночь</span>
+                    </div>
+                </div>
+            </div>
+            <div class="discount-badge"><i class="fas fa-leaf"></i> <span id="discount_text2">Скидки при проживании от месяца</span></div>
+        </div>
+
+    </div>
+</section>
+
+<footer id="contacts">
+    <div class="footer-inner">
+
+        <!-- Бренд -->
+        <div class="footer-brand">
+            <img src="logo.png" alt="Hostella">
+            <p>Современные хостелы в самом сердце Ташкента. Уют, чистота и дружеская атмосфера.</p>
+            <div class="footer-socials">
+                <a href="https://www.instagram.com/hostella_tashkent" title="Instagram"><i class="fab fa-instagram"></i></a>
+                <a href="https://t.me/hostel_hostella_tashkent" title="Telegram"><i class="fab fa-telegram"></i></a>
+                <a href="https://www.facebook.com/profile.php?id=61586505050524" title="Facebook"><i class="fab fa-facebook"></i></a>
+            </div>
+        </div>
+
+        <!-- Навигация -->
+        <div class="footer-col">
+            <h4>Навигация</h4>
+            <ul>
+                <li><a href="#about">О нас</a></li>
+                <li><a href="#branches">Наши хостелы</a></li>
+                <li><a href="#prices">Цены</a></li>
+                <li><a href="#contacts">Контакты</a></li>
+            </ul>
+        </div>
+
+        <!-- Адреса -->
+        <div class="footer-col">
+            <h4>Адреса</h4>
+            <ul>
+                <li class="footer-contact-item"><i class="fas fa-map-marker-alt"></i><span>ул. Ниёзбек Йули, 43</span></li>
+                <li class="footer-contact-item"><i class="fas fa-map-marker-alt"></i><span>6-й пр. Ниёзбек Йули, 39</span></li>
+            </ul>
+        </div>
+
+        <!-- Контакты -->
+        <div class="footer-col">
+            <h4>Контакты</h4>
+            <ul>
+                <li class="footer-contact-item"><i class="fas fa-phone-alt"></i><a href="tel:+998337108880">+998 33 710 88 80</a></li>
+                <li class="footer-contact-item"><i class="fas fa-phone-alt"></i><a href="tel:+998555159990">+998 55 515 99 90</a></li>
+                <li class="footer-contact-item"><i class="fab fa-telegram"></i><a href="https://t.me/hostel_hostella_tashkent">Telegram</a></li>
+            </ul>
+        </div>
+
+    </div>
+    <div class="footer-bottom">
+        <p>© Hostella 2026. All rights reserved.</p>
+        <button class="footer-bottom-book" onclick="openBooking('hostel1')">
+            <i class="fas fa-calendar-check"></i> Забронировать
+        </button>
+    </div>
+</footer>
+
+
+<!-- ============================================================
+     МОДАЛЬНОЕ ОКНО ДЕТАЛИ ФИЛИАЛА
+============================================================ -->
+<div class="hm-ov" id="hmOv" onclick="handleHmOvClick(event)">
+    <div class="hm-sheet" id="hmSheet">
+        <span class="hm-handle"></span>
+        <div class="hm-gallery" id="hm_gallery">
+            <div class="hm-gtrack" id="hm_gtrack"></div>
+            <div class="hm-gov"></div>
+            <button class="hm-close" onclick="closeDetail()"><i class="fas fa-times"></i></button>
+            <div class="hm-gcnt" id="hm_gcnt">1 / 4</div>
+        </div>
+        <div class="hm-gthumbs" id="hm_thumbs"></div>
+        <div class="hm-body">
+            <div class="hm-badge" id="hm_badge"><i class="fas fa-star"></i> <span>Premium</span></div>
+            <div class="hm-name" id="hm_name"></div>
+            <div class="hm-addr"><i class="fas fa-map-marker-alt"></i><span id="hm_addr"></span></div>
+            <div class="hm-desc" id="hm_desc"></div>
+            <div class="hm-feats-title" id="hm_feats_t">Удобства</div>
+            <div class="hm-feats" id="hm_feats"></div>
+            <div class="hm-prices">
+                <div class="hm-prices-title" id="hm_prices_t">Цены</div>
+                <div id="hm_prows"></div>
+            </div>
+            <div class="hm-disc" id="hm_disc_row"><i class="fas fa-leaf"></i><span id="hm_disc_txt"></span></div>
+            <div class="hm-actions">
+                <a class="hm-btn hm-btn-call" id="hm_call_btn" href="#"><i class="fas fa-phone-alt"></i><span id="hm_call_lbl">Позвонить</span></a>
+                <a class="hm-btn hm-btn-map" id="hm_map_btn" href="#" target="_blank"><i class="fas fa-location-arrow"></i><span id="hm_map_lbl">На карте</span></a>
+                <button class="hm-btn hm-btn-book" id="hm_book_btn" onclick="hmBook()"><i class="fas fa-calendar-check"></i><span id="hm_book_lbl">Забронировать</span></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     МОДАЛЬНОЕ ОКНО БРОНИРОВАНИЯ
+============================================================ -->
+<div class="booking-overlay" id="bookingOverlay" onclick="handleOverlayClick(event)">
+    <div class="bm-card" id="bmCard">
+
+        <!-- Шапка (sticky) -->
+        <div class="bm-header">
+            <div class="bm-header-left">
+                <div class="bm-logo"><img src="logo.png" alt="H"></div>
+                <div>
+                    <div class="bm-title">Hostella</div>
+                    <div class="bm-subtitle" id="bm_subtitle">Онлайн бронирование</div>
+                </div>
+            </div>
+            <button class="bm-close" onclick="closeBooking()"><i class="fas fa-times"></i></button>
+        </div>
+
+        <!-- Табы хостелов -->
+        <div class="bm-tabs">
+            <button class="bm-tab active" data-hostel="hostel1" onclick="switchHostel('hostel1')">Хостел №1</button>
+            <button class="bm-tab"        data-hostel="hostel2" onclick="switchHostel('hostel2')">Хостел №2</button>
+        </div>
+
+        <!-- Тело -->
+        <div class="bm-body" id="bmBody">
+
+            <!-- ШАГ: Загрузка -->
+            <div class="bm-step active" id="step_loading">
+                <div class="bm-loading">
+                    <div class="bm-spinner-big"></div>
+                    <p id="bm_loading_text">Загружаем данные...</p>
+                </div>
+            </div>
+
+            <!-- ШАГ: Календарь -->
+            <div class="bm-step" id="step_calendar">
+                <div class="bm-cal-nav">
+                    <button onclick="bmPrevMonth()"><i class="fas fa-chevron-left"></i></button>
+                    <div class="bm-cal-month" id="bm_month_label"></div>
+                    <button onclick="bmNextMonth()"><i class="fas fa-chevron-right"></i></button>
+                </div>
+                <div class="bm-wdays">
+                    <div class="bm-wday">Пн</div><div class="bm-wday">Вт</div>
+                    <div class="bm-wday">Ср</div><div class="bm-wday">Чт</div>
+                    <div class="bm-wday">Пт</div><div class="bm-wday">Сб</div>
+                    <div class="bm-wday">Вс</div>
+                </div>
+                <div class="bm-days" id="bm_days_grid"></div>
+                <div class="bm-legend">
+                    <div class="bm-legend-item"><div class="bm-legend-dot" style="background:#d1fae5"></div><span id="leg_free">Много мест</span></div>
+                    <div class="bm-legend-item"><div class="bm-legend-dot" style="background:#ccfbf1"></div><span id="leg_mod">Есть места</span></div>
+                    <div class="bm-legend-item"><div class="bm-legend-dot" style="background:#fef3c7"></div><span id="leg_tight">Мало мест</span></div>
+                    <div class="bm-legend-item"><div class="bm-legend-dot" style="background:#fee2e2"></div><span id="leg_full">Занято</span></div>
+                </div>
+                <div class="bm-hostel-info">
+                    <div class="bm-hostel-name" id="bm_hostel_name">Хостел №1</div>
+                    <div class="bm-hostel-addr" id="bm_hostel_addr">ул. Ниёзбек Йули, 43</div>
+                </div>
+                <div class="bm-hint" id="bm_select_hint">Выберите дату заезда</div>
+            </div>
+
+            <!-- ШАГ: Форма -->
+            <div class="bm-step" id="step_form">
+                <div class="bm-back-row">
+                    <button class="bm-back-btn" onclick="showStep('step_calendar')"><i class="fas fa-arrow-left"></i></button>
+                    <div>
+                        <div class="bm-form-title" id="bm_form_title">Оформление брони</div>
+                        <div class="bm-form-meta" id="bm_form_meta"></div>
+                    </div>
+                </div>
+
+                <div class="bm-field">
+                    <label class="bm-label"><span id="lbl_fio">ФИО</span> <span class="req">*</span></label>
+                    <div class="bm-input-wrap">
+                        <i class="fas fa-user"></i>
+                        <input class="bm-input" type="text" id="bf_name" placeholder="Иванов Иван Иванович">
+                    </div>
+                </div>
+
+                <div class="bm-field">
+                    <label class="bm-label"><span id="lbl_phone">Телефон</span> <span class="req">*</span></label>
+                    <div class="bm-input-wrap">
+                        <i class="fas fa-phone-alt"></i>
+                        <input class="bm-input" type="tel" id="bf_phone" placeholder="+998 90 000-00-00">
+                    </div>
+                </div>
+
+                <div class="bm-field">
+                    <label class="bm-label" id="lbl_country">Страна</label>
+                    <div class="bm-input-wrap">
+                        <i class="fas fa-globe"></i>
+                        <select class="bm-select" id="bf_country">
+                            <option>Узбекистан</option><option>Россия</option><option>Казахстан</option>
+                            <option>Кыргызстан</option><option>Таджикистан</option><option>Туркменистан</option>
+                            <option>Беларусь</option><option>Украина</option><option>Германия</option>
+                            <option>Франция</option><option>США</option><option>Великобритания</option>
+                            <option>Китай</option><option>Индия</option><option>Турция</option>
+                            <option>ОАЭ</option><option>Южная Корея</option><option>Япония</option>
+                            <option>Италия</option><option>Испания</option><option>Польша</option>
+                            <option>Азербайджан</option><option>Армения</option><option>Грузия</option>
+                            <option>Израиль</option><option>Пакистан</option><option>Афганистан</option>
+                            <option>Другая</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="bm-field">
+                    <label class="bm-label"><span id="lbl_days">Количество дней</span> <span class="req">*</span></label>
+                    <div class="bm-input-wrap">
+                        <i class="fas fa-moon"></i>
+                        <input class="bm-input" type="number" id="bf_days" value="1" min="1" max="365" oninput="updateCheckoutHint()">
+                    </div>
+                    <div class="bm-checkout-hint" id="bm_checkout_hint"></div>
+                </div>
+
+                <div class="bm-error-msg" id="bm_error" style="display:none">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span id="bm_error_text"></span>
+                </div>
+
+                <button class="bm-submit" id="bm_submit_btn" onclick="submitBooking()">
+                    <i class="fas fa-check" id="bm_submit_icon"></i>
+                    <span id="bm_submit_text">Подтвердить бронь</span>
+                </button>
+            </div>
+
+            <!-- ШАГ: Успех -->
+            <div class="bm-step" id="step_success">
+                <div class="bm-success-wrap">
+                    <div class="bm-success-icon"><i class="fas fa-check"></i></div>
+                    <h3 id="bm_success_title">Заявка принята!</h3>
+                    <p  id="bm_success_text">Мы свяжемся с вами для подтверждения бронирования. Приготовьте документы при заезде.</p>
+                    <div class="bm-summary">
+                        <div class="bm-summary-row"><span class="lbl" id="sum_lbl_hostel">Хостел</span>     <span class="val" id="sum_hostel"></span></div>
+                        <div class="bm-summary-row"><span class="lbl" id="sum_lbl_checkin">Дата заезда</span><span class="val" id="sum_checkin"></span></div>
+                        <div class="bm-summary-row"><span class="lbl" id="sum_lbl_checkout">Дата выезда</span><span class="val" id="sum_checkout"></span></div>
+                        <div class="bm-summary-row"><span class="lbl" id="sum_lbl_name">Имя</span>          <span class="val" id="sum_name"></span></div>
+                    </div>
+                    <button class="bm-new-btn" onclick="bmReset()" id="bm_new_btn">Новая заявка</button>
+                </div>
+            </div>
+
+        </div><!-- /bm-body -->
+    </div><!-- /bm-card -->
+</div><!-- /booking-overlay -->
+
+
+<!-- ============================================================
+     СКРИПТЫ
+============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+
+<!-- Firebase SDK (совместимый режим, без сборщика) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+<script>
+    /* ═══ HOSTEL DETAILS DATA ═══ */
+    const HOSTEL_DETAILS = {
+      hostel2: {
+        photos: [
+          'https://hostella.uz/qr/photo_2026-01-16_00-17-05.jpg',
+          'https://hostella.uz/qr/IMG_3716.jpg',
+          'https://hostella.uz/qr/IMG_3722.jpg',
+          'https://hostella.uz/qr/IMG_3720.jpg'
+        ],
+        phone: 'tel:+998337108880',
+        map: 'https://yandex.uz/maps/-/CLhVz496',
+        info: {
+          uz: { badge:'Filial №2', name:"2-Filial — 6-tor Niyozbek", addr:"Niyozbek yo'li 6-tor, 39",
+            desc:"Toshkent markazida joylashgan qulay va zamonaviy hostel. Wi-Fi, issiq suv, tozalik. Metroga 10 daqiqa yurish masofasida.",
+            featsTitle:'Xizmatlar', pricesTitle:'Narxlar', discTxt:'Oylik yashashda chegirma',
+            callLbl:"Qo'ng'iroq", mapLbl:'Xarita', bookLbl:'Bron qilish',
+            prices:[{icon:'fa-arrow-up',label:'Yuqori joy',val:'90 000'},{icon:'fa-arrow-down',label:'Pastki joy',val:'100 000'}]
+          },
+          ru: { badge:'Филиал №2', name:'2-Филиал — 6-й пр. Ниёзбек', addr:'6-й пр. Ниёзбек Йули, 39',
+            desc:'Современный уютный хостел в центре Ташкента. Wi-Fi, горячая вода, уборка. 10 минут пешком до метро.',
+            featsTitle:'Удобства', pricesTitle:'Цены', discTxt:'Скидки при проживании от месяца',
+            callLbl:'Позвонить', mapLbl:'На карте', bookLbl:'Забронировать',
+            prices:[{icon:'fa-arrow-up',label:'Верхняя койка',val:'90 000'},{icon:'fa-arrow-down',label:'Нижняя койка',val:'100 000'}]
+          },
+          en: { badge:'Branch #2', name:'Branch 2 — 6th pass. Niyozbek', addr:'39, 6th pass. Niyozbek',
+            desc:'Modern cozy hostel in central Tashkent. Wi-Fi, hot water, daily cleaning. 10 min walk to metro.',
+            featsTitle:'Amenities', pricesTitle:'Prices', discTxt:'Monthly stay discounts',
+            callLbl:'Call Us', mapLbl:'Open Map', bookLbl:'Book Now',
+            prices:[{icon:'fa-arrow-up',label:'Upper bunk',val:'90 000'},{icon:'fa-arrow-down',label:'Lower bunk',val:'100 000'}]
+          }
+        },
+        feats: [
+          {icon:'fa-wifi',label_uz:'Bepul Wi-Fi',label_ru:'Бесплатный Wi-Fi',label_en:'Free Wi-Fi'},
+          {icon:'fa-shower',label_uz:'Issiq suv 24/7',label_ru:'Горячая вода 24/7',label_en:'Hot water 24/7'},
+          {icon:'fa-snowflake',label_uz:'Konditsioner',label_ru:'Кондиционер',label_en:'Air conditioning'},
+          {icon:'fa-broom',label_uz:'Kunlik tozalik',label_ru:'Ежедневная уборка',label_en:'Daily cleaning'},
+          {icon:'fa-lock',label_uz:'Xavfsiz seyflar',label_ru:'Сейфы в номере',label_en:'In-room safes'},
+          {icon:'fa-utensils',label_uz:'Oshxona',label_ru:'Кухня',label_en:'Kitchen'}
+        ]
+      },
+      hostel1: {
+        photos: [
+          'https://hostella.uz/photo_2026-02-21_02-30-39.jpg',
+          'https://hostella.uz/qr/Gemini_Generated_Image_xqmcrjxqmcrjxqmc.png',
+          'https://hostella.uz/qr/Gemini_Generated_Image_mypyflmypyflmypy.png',
+          'https://hostella.uz/qr/Gemini_Generated_Image_ya3djoya3djoya3d.png'
+        ],
+        phone: 'tel:+998555159990',
+        map: 'https://yandex.uz/maps/-/CLhVv29z',
+        info: {
+          uz: { badge:'Filial №1', name:"1-Filial — Niyozbek yo'li", addr:"Niyozbek yo'li, 43",
+            desc:"Toshkentning eng qulay va arzon hostellaridan biri. Zamonaviy dizayn, toza xonalar va do'stona muhit. Markazga yaqin.",
+            featsTitle:'Xizmatlar', pricesTitle:'Narxlar', discTxt:'Oylik yashashda chegirma',
+            callLbl:"Qo'ng'iroq", mapLbl:'Xarita', bookLbl:'Bron qilish',
+            prices:[{icon:'fa-arrow-up',label:'Yuqori joy',val:'70 000'},{icon:'fa-arrow-down',label:'Pastki joy',val:'80 000'}]
+          },
+          ru: { badge:'Филиал №1', name:'1-Филиал — ул. Ниёзбек Йули', addr:'ул. Ниёзбек Йули, 43',
+            desc:'Один из самых доступных хостелов Ташкента. Современный дизайн, чистые номера, дружелюбная атмосфера. Рядом с центром города.',
+            featsTitle:'Удобства', pricesTitle:'Цены', discTxt:'Скидки при проживании от месяца',
+            callLbl:'Позвонить', mapLbl:'На карте', bookLbl:'Забронировать',
+            prices:[{icon:'fa-arrow-up',label:'Верхняя койка',val:'70 000'},{icon:'fa-arrow-down',label:'Нижняя койка',val:'80 000'}]
+          },
+          en: { badge:'Branch #1', name:'Branch 1 — Niyozbek Yuli', addr:'43 Niyozbek Yuli str.',
+            desc:'One of the most affordable hostels in Tashkent. Modern design, clean rooms, friendly atmosphere. Close to city center.',
+            featsTitle:'Amenities', pricesTitle:'Prices', discTxt:'Monthly stay discounts',
+            callLbl:'Call Us', mapLbl:'Open Map', bookLbl:'Book Now',
+            prices:[{icon:'fa-arrow-up',label:'Upper bunk',val:'70 000'},{icon:'fa-arrow-down',label:'Lower bunk',val:'80 000'}]
+          }
+        },
+        feats: [
+          {icon:'fa-wifi',label_uz:'Bepul Wi-Fi',label_ru:'Бесплатный Wi-Fi',label_en:'Free Wi-Fi'},
+          {icon:'fa-shower',label_uz:'Issiq suv 24/7',label_ru:'Горячая вода 24/7',label_en:'Hot water 24/7'},
+          {icon:'fa-snowflake',label_uz:'Konditsioner',label_ru:'Кондиционер',label_en:'Air conditioning'},
+          {icon:'fa-broom',label_uz:'Kunlik tozalik',label_ru:'Ежедневная уборка',label_en:'Daily cleaning'},
+          {icon:'fa-suitcase',label_uz:'Bagaj saqlash',label_ru:'Хранение багажа',label_en:'Luggage storage'},
+          {icon:'fa-coffee',label_uz:'Choy/Kofe',label_ru:'Чай/Кофе',label_en:'Tea/Coffee'}
+        ]
+      }
+    };
+
+    let hmHostelId = null, hmCurPhoto = 0;
+
+    function openDetail(hostelId) {
+      hmHostelId = hostelId; hmCurPhoto = 0;
+      trackEvent('detail_' + hostelId);
+      trackEvent('detail_total');
+      const d = HOSTEL_DETAILS[hostelId];
+      const curLang = localStorage.getItem('hostella_lang') || 'ru';
+      const l = curLang === 'ru' ? 'ru' : curLang === 'en' ? 'en' : 'uz';
+      const info = d.info[l];
+      const track = document.getElementById('hm_gtrack');
+      track.innerHTML = d.photos.map(src=>`<div class="hm-gslide"><img src="${src}" alt="" loading="lazy"></div>`).join('');
+      track.style.transform = 'translateX(0)';
+      document.getElementById('hm_gcnt').textContent = '1 / ' + d.photos.length;
+      const thumbs = document.getElementById('hm_thumbs');
+      thumbs.innerHTML = d.photos.map((src,i)=>`<div class="hm-gthumb${i===0?' act':''}" onclick="hmGoPhoto(${i})"><img src="${src}" alt="" loading="lazy"></div>`).join('');
+      document.getElementById('hm_badge').innerHTML = `<i class="fas fa-star"></i> ${info.badge}`;
+      document.getElementById('hm_name').textContent = info.name;
+      document.getElementById('hm_addr').textContent = info.addr;
+      document.getElementById('hm_desc').textContent = info.desc;
+      document.getElementById('hm_feats_t').textContent = info.featsTitle;
+      document.getElementById('hm_prices_t').textContent = info.pricesTitle;
+      document.getElementById('hm_disc_txt').textContent = info.discTxt;
+      document.getElementById('hm_call_lbl').textContent = info.callLbl;
+      document.getElementById('hm_map_lbl').textContent = info.mapLbl;
+      document.getElementById('hm_book_lbl').textContent = info.bookLbl;
+      const lk = 'label_' + l;
+      document.getElementById('hm_feats').innerHTML = d.feats.map(f=>`<div class="hm-feat"><i class="fas ${f.icon}"></i><span>${f[lk]||f.label_ru}</span></div>`).join('');
+      const nightLabel = l==='ru' ? 'сум / ночь' : l==='en' ? 'UZS / night' : "so'm / kecha";
+      document.getElementById('hm_prows').innerHTML = info.prices.map(p=>`<div class="hm-prow"><div class="hm-prow-l"><i class="fas ${p.icon}"></i><span>${p.label}</span></div><div><div class="hm-pricenum">${p.val}</div><div class="hm-pricesub">${nightLabel}</div></div></div>`).join('');
+      document.getElementById('hm_call_btn').href = d.phone;
+      document.getElementById('hm_map_btn').href = d.map;
+      document.getElementById('hmOv').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeDetail() { document.getElementById('hmOv').classList.remove('open'); document.body.style.overflow = ''; }
+    function handleHmOvClick(e) { if (e.target === document.getElementById('hmOv')) closeDetail(); }
+    function hmGoPhoto(i) {
+      hmCurPhoto = i;
+      document.getElementById('hm_gtrack').style.transform = `translateX(-${i*100}%)`;
+      document.getElementById('hm_gcnt').textContent = (i+1) + ' / ' + HOSTEL_DETAILS[hmHostelId].photos.length;
+      document.querySelectorAll('.hm-gthumb').forEach((t,j) => t.classList.toggle('act', j===i));
+    }
+    function hmBook() { closeDetail(); setTimeout(() => openBooking(hmHostelId), 200); }
+
+    /* ═══ CAROUSEL ═══ */
+    function initCar(id) {
+      const w = document.getElementById(id); if (!w) return;
+      const track = w.querySelector('.car-track'), slides = w.querySelectorAll('.car-slide'), dots = w.querySelector('.car-dots');
+      let cur = 0, timer = null;
+      slides.forEach((_,i) => { const d = document.createElement('div'); d.className = 'dot'+(i===0?' active':''); d.onclick = (e) => { e.stopPropagation(); go(i); }; dots.appendChild(d); });
+      function go(i) { cur = i; track.style.transform = `translateX(-${cur*100}%)`; dots.querySelectorAll('.dot').forEach((d,j) => d.classList.toggle('active', j===cur)); }
+      function startAuto() { if (!timer) timer = setInterval(() => go((cur+1)%slides.length), 3500); }
+      function stopAuto() { clearInterval(timer); timer = null; }
+      if ('IntersectionObserver' in window) {
+        const obs = new IntersectionObserver(entries => { entries[0].isIntersecting ? startAuto() : stopAuto(); }, {threshold:.1});
+        obs.observe(w);
+      } else { startAuto(); }
+    }
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    /* ── Firebase ─────────────────────────────────────────────────────── */
+    const FB_CONFIG = {
+        apiKey:            'AIzaSyAoVj92dmnl5gBB7zYul0iG2Ekp5cbmkp0',
+        authDomain:        'hostella-app-a1e07.firebaseapp.com',
+        projectId:         'hostella-app-a1e07',
+        storageBucket:     'hostella-app-a1e07.firebasestorage.app',
+        messagingSenderId: '826787873496',
+        appId:             '1:826787873496:web:51a0c6e42631a28919cdad',
+    };
+    if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    const fbAuth = firebase.auth();
+
+    const DATA_PREFIX = 'artifacts/hostella-multi-v4/public/data';
+
+    /* ── Firestore REST API (именованная база 'hostella') ─────────────── */
+    const REST_BASE  = 'https://firestore.googleapis.com/v1/projects/hostella-app-a1e07/databases/hostella/documents';
+
+    /* ── Аналитика ────────────────────────────────────────────────────── */
+    const COMMIT_URL  = 'https://firestore.googleapis.com/v1/projects/hostella-app-a1e07/databases/hostella/documents:commit';
+    const STATS_COL   = 'artifacts/hostella-multi-v4/public/data/stats';   /* путь разрешён правилами */
+    const STATS_FPATH = 'projects/hostella-app-a1e07/databases/hostella/documents/' + STATS_COL;
+
+    async function trackEvent(field) {
+        try {
+            const token = await getAuthToken();
+            const today = new Date().toISOString().slice(0, 10);
+            const inc   = { integerValue: '1' };
+            const mkTr  = docPath => ({
+                transform: {
+                    document: docPath,
+                    fieldTransforms: [{ fieldPath: field, increment: inc }]
+                }
+            });
+            const res = await fetch(COMMIT_URL, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ writes: [
+                    mkTr(STATS_FPATH + '/landing_totals'),
+                    mkTr(STATS_FPATH + '/landing_daily_' + today),
+                ]})
+            });
+            if (!res.ok) console.warn('[track] error', res.status, await res.text());
+        } catch(e) { console.warn('[track]', e.message); }
+    }
+
+    async function getAuthToken() {
+        if (!fbAuth.currentUser) {
+            await Promise.race([
+                fbAuth.signInAnonymously(),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('auth-timeout')), 10000)),
+            ]);
+        }
+        return fbAuth.currentUser.getIdToken();
+    }
+
+    function parseRestValue(v) {
+        if (!v) return null;
+        if ('stringValue'    in v) return v.stringValue;
+        if ('integerValue'   in v) return parseInt(v.integerValue);
+        if ('doubleValue'    in v) return v.doubleValue;
+        if ('booleanValue'   in v) return v.booleanValue;
+        if ('nullValue'      in v) return null;
+        if ('timestampValue' in v) return new Date(v.timestampValue);
+        if ('mapValue'       in v) {
+            const obj = {};
+            for (const [k, vv] of Object.entries(v.mapValue.fields || {})) obj[k] = parseRestValue(vv);
+            return obj;
+        }
+        if ('arrayValue' in v) return (v.arrayValue.values || []).map(parseRestValue);
+        return null;
+    }
+
+    async function restGetCollection(colPath) {
+        const token = await getAuthToken();
+        let docs = [], pageToken = null;
+        do {
+            const url = `${REST_BASE}/${colPath}?pageSize=500` + (pageToken ? `&pageToken=${pageToken}` : '');
+            const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+            if (!resp.ok) { const b = await resp.json().catch(()=>({})); const e = new Error(`HTTP ${resp.status}`); e.status = resp.status; throw e; }
+            const body = await resp.json();
+            (body.documents || []).forEach(doc => {
+                const id   = doc.name.split('/').pop();
+                const data = {};
+                for (const [k, v] of Object.entries(doc.fields || {})) data[k] = parseRestValue(v);
+                docs.push({ id, ...data });
+            });
+            pageToken = body.nextPageToken || null;
+        } while (pageToken);
+        return docs;
+    }
+
+    async function restAddDoc(colPath, data) {
+        const token  = await getAuthToken();
+        const fields = {};
+        for (const [k, v] of Object.entries(data)) {
+            if (v === null || v === undefined) fields[k] = { nullValue: null };
+            else if (typeof v === 'boolean')  fields[k] = { booleanValue: v };
+            else if (typeof v === 'number')   fields[k] = { integerValue: String(v) };
+            else                              fields[k] = { stringValue: String(v) };
+        }
+        const resp = await fetch(`${REST_BASE}/${colPath}`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body:    JSON.stringify({ fields }),
+        });
+        if (!resp.ok) { const b = await resp.json().catch(()=>({})); const e = new Error(`HTTP ${resp.status}`); e.status = resp.status; throw e; }
+        return resp.json();
+    }
+
+    /* ── Данные хосталов ─────────────────────────────────────────────── */
+    const HOSTELS_INFO = {
+        hostel1: { name: 'Хостел №1', address: 'ул. Ниёзбек Йули, 43' },
+        hostel2: { name: 'Хостел №2', address: '6-й пр. Ниёзбек Йули, 39' },
+    };
+    const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                       'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+
+    /* ── Состояние виджета ───────────────────────────────────────────── */
+    const bm = {
+        hostelId:     'hostel1',
+        year:         new Date().getFullYear(),
+        month:        new Date().getMonth(),
+        selectedDate: null,
+        rooms:        [],
+        guests:       [],
+        loaded:       false,
+    };
+    const todayISO = toISO(new Date());
+
+    /* ── Утилиты дат ─────────────────────────────────────────────────── */
+    function toISO(d) {
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    }
+    function isoAddDays(iso, n) {
+        const d = new Date(iso + 'T12:00:00');
+        d.setDate(d.getDate() + n);
+        return toISO(d);
+    }
+    function isoFormat(iso, opts) {
+        return new Date(iso + 'T12:00:00').toLocaleDateString('ru', opts || { day:'numeric', month:'long', year:'numeric' });
+    }
+    function parseTs(s) {
+        if (!s) return null;
+        if (typeof s === 'object') {
+            if (typeof s.toDate === 'function') return s.toDate();
+            if (typeof s.seconds === 'number')  return new Date(s.seconds * 1000);
+            if (s instanceof Date) return s;
+        }
+        const d = new Date(s);
+        if (isNaN(d)) return null;
+        if (!String(s).includes('T')) d.setHours(12, 0, 0, 0);
+        return d;
+    }
+
+    /* ── Firebase: загрузка данных ───────────────────────────────────── */
+    async function loadData() {
+        if (bm.loaded) return;
+        try {
+            const [rooms, guests] = await Promise.all([
+                restGetCollection(DATA_PREFIX + '/rooms'),
+                restGetCollection(DATA_PREFIX + '/guests'),
+            ]);
+            bm.rooms  = rooms;
+            bm.guests = guests.filter(g => g.status !== 'checked_out');
+            bm.loaded = true;
+        } catch(e) {
+            console.warn('[Hostella] loadData error:', e.status, e.message);
+            bm.loaded = true; // продолжаем без данных доступности
+        }
+    }
+
+    /* ── Карта доступности ───────────────────────────────────────────── */
+    function buildAvailMap(hostelId) {
+        const hostelRooms = bm.rooms.filter(r => r.hostelId === hostelId);
+        const totalBeds   = hostelRooms.reduce((s, r) =>
+            s + (parseInt(r.capacity ?? r.beds ?? r.totalBeds ?? r.numberOfBeds) || 0), 0);
+        if (!totalBeds) return {};
+
+        const map = {};
+        const base = new Date(); base.setHours(0,0,0,0);
+        for (let i = 0; i < 120; i++) {
+            const d = new Date(base); d.setDate(d.getDate() + i);
+            map[toISO(d)] = { total: totalBeds, occupied: 0 };
+        }
+        bm.guests.forEach(g => {
+            if (!hostelRooms.find(r => r.id === g.roomId)) return;
+            const ci = parseTs(g.checkInDate || g.checkInDateTime);
+            const co = parseTs(g.checkOutDate);
+            if (!ci || !co) return;
+            let cur = new Date(ci); cur.setHours(0,0,0,0);
+            const end = new Date(co); end.setHours(0,0,0,0);
+            while (cur < end) {
+                const k = toISO(cur); if (map[k]) map[k].occupied++;
+                cur = new Date(cur); cur.setDate(cur.getDate() + 1);
+            }
+        });
+        return map;
+    }
+
+    /* ── Открытие / закрытие ─────────────────────────────────────────── */
+    function openBooking(hostelId) {
+        bm.hostelId = hostelId || 'hostel1';
+        trackEvent('booking_' + bm.hostelId);
+        trackEvent('booking_total');
+        document.getElementById('bookingOverlay').classList.add('open');
+        document.body.style.overflow = 'hidden';
+        syncTabs();
+        showStep('step_loading');
+        loadData().then(() => { renderCalendar(); showStep('step_calendar'); });
+    }
+    function closeBooking() {
+        document.getElementById('bookingOverlay').classList.remove('open');
+        document.body.style.overflow = '';
+    }
+    function handleOverlayClick(e) {
+        if (e.target === document.getElementById('bookingOverlay')) closeBooking();
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeBooking(); });
+
+    /* ── Табы ────────────────────────────────────────────────────────── */
+    function switchHostel(id) {
+        bm.hostelId = id;
+        bm.selectedDate = null;
+        syncTabs();
+        renderCalendar();
+    }
+    function syncTabs() {
+        document.querySelectorAll('.bm-tab').forEach(t =>
+            t.classList.toggle('active', t.dataset.hostel === bm.hostelId));
+        const info = HOSTELS_INFO[bm.hostelId];
+        document.getElementById('bm_hostel_name').textContent = info.name;
+        document.getElementById('bm_hostel_addr').textContent = info.address;
+    }
+
+    /* ── Шаги ────────────────────────────────────────────────────────── */
+    function showStep(id) {
+        document.querySelectorAll('.bm-step').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    /* ── Рендер календаря ────────────────────────────────────────────── */
+    function renderCalendar() {
+        const { year, month, hostelId, selectedDate } = bm;
+        document.getElementById('bm_month_label').textContent = MONTHS_RU[month] + ' ' + year;
+
+        const avMap   = buildAvailMap(hostelId);
+        const grid    = document.getElementById('bm_days_grid');
+        const first   = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const pad     = (first.getDay() + 6) % 7;
+
+        grid.innerHTML = '';
+        for (let i = 0; i < pad; i++) {
+            const e = document.createElement('div'); e.className = 'bm-day empty'; grid.appendChild(e);
+        }
+        for (let d = 1; d <= lastDay; d++) {
+            const iso  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const past = iso < todayISO;
+            const av   = avMap[iso];
+            let status, free = 0, total = 0;
+
+            if (past) {
+                status = 'past';
+            } else if (!av || av.total === 0) {
+                status = 'unknown';
+            } else {
+                free   = Math.max(0, av.total - av.occupied);
+                total  = av.total;
+                const pct = Math.round((av.occupied / av.total) * 100);
+                status = free === 0 ? 'full' : pct >= 75 ? 'tight' : pct >= 40 ? 'moderate' : 'free';
+            }
+
+            const btn = document.createElement('button');
+            btn.className = 'bm-day ' + status;
+            if (iso === todayISO)    btn.classList.add('today');
+            if (iso === selectedDate) btn.classList.add('selected');
+            btn.disabled = past || status === 'full';
+            btn.innerHTML = d + ((!past && status !== 'full' && total > 0)
+                ? `<span class="sub">${free}м</span>` : '');
+            if (!past && status !== 'full') {
+                btn.onclick = () => { bm.selectedDate = iso; openForm(iso); };
+            }
+            grid.appendChild(btn);
+        }
+    }
+
+    function bmPrevMonth() {
+        if (bm.month === 0) { bm.year--; bm.month = 11; } else bm.month--;
+        renderCalendar();
+    }
+    function bmNextMonth() {
+        if (bm.month === 11) { bm.year++; bm.month = 0; } else bm.month++;
+        renderCalendar();
+    }
+
+    /* ── Форма ───────────────────────────────────────────────────────── */
+    function openForm(iso) {
+        showStep('step_form');
+        document.getElementById('bm_form_meta').innerHTML =
+            `<i class="fas fa-calendar-day" style="margin-right:4px"></i>`
+            + `Заезд ${isoFormat(iso, { day:'numeric', month:'long', year:'numeric' })} · ${HOSTELS_INFO[bm.hostelId].name}`;
+        document.getElementById('bf_days').value = '1';
+        document.getElementById('bm_error').style.display = 'none';
+        updateCheckoutHint();
+    }
+
+    function updateCheckoutHint() {
+        const iso  = bm.selectedDate;
+        const days = parseInt(document.getElementById('bf_days').value) || 1;
+        if (!iso) return;
+        document.getElementById('bm_checkout_hint').textContent =
+            'Выезд: ' + isoFormat(isoAddDays(iso, days), { day:'numeric', month:'long' });
+    }
+
+    /* ── Отправка ────────────────────────────────────────────────────── */
+    async function submitBooking() {
+        const name    = document.getElementById('bf_name').value.trim();
+        const phone   = document.getElementById('bf_phone').value.trim();
+        const country = document.getElementById('bf_country').value;
+        const days    = parseInt(document.getElementById('bf_days').value);
+
+        if (!name)             return showBmError('Введите ФИО');
+        if (!phone)            return showBmError('Введите номер телефона');
+        if (!days || days < 1) return showBmError('Укажите количество дней');
+
+        hideBmError();
+        setBtnLoading(true);
+
+        const ci = bm.selectedDate;
+        const co = isoAddDays(ci, days);
+        const booking = {
+            fullName: name, phone, country, days,
+            checkInDate: ci, checkOutDate: co,
+            hostelId: bm.hostelId, status: 'booking', source: 'website',
+            totalPrice: 0, paidCash: 0, paidCard: 0, paidQR: 0,
+            roomId: null, bedId: null, roomNumber: null, passport: '',
+            createdAt: new Date().toISOString(),
+        };
+
+        try {
+            await restAddDoc(DATA_PREFIX + '/guests', booking);
+            showSuccess(booking);
+        } catch(e) {
+            console.error('[Hostella] submit error:', e.status, e.message);
+            const msg = e.message === 'auth-timeout'
+                ? 'Сервер авторизации не отвечает. Попробуйте позже.'
+                : e.status === 403
+                    ? 'Нет доступа к базе. Позвоните: +998 33 710 88 80'
+                    : e.status === 404
+                        ? 'База данных не найдена. Позвоните: +998 33 710 88 80'
+                        : 'Ошибка отправки. Позвоните: +998 33 710 88 80';
+            showBmError(msg);
+        } finally {
+            setBtnLoading(false);
+        }
+    }
+
+    function setBtnLoading(on) {
+        const btn  = document.getElementById('bm_submit_btn');
+        const icon = document.getElementById('bm_submit_icon');
+        const txt  = document.getElementById('bm_submit_text');
+        btn.disabled = on;
+        if (on) {
+            icon.outerHTML = '<div class="bm-spinner" id="bm_submit_icon"></div>';
+            txt.textContent = 'Отправляем...';
+        } else {
+            const sp = document.getElementById('bm_submit_icon');
+            if (sp) sp.outerHTML = '<i class="fas fa-check" id="bm_submit_icon"></i>';
+            txt.textContent = document.getElementById('bm_submit_text')
+                ? txt.textContent : 'Подтвердить бронь';
+        }
+    }
+
+    function showSuccess(b) {
+        showStep('step_success');
+        document.getElementById('sum_hostel').textContent   = HOSTELS_INFO[b.hostelId].name;
+        document.getElementById('sum_checkin').textContent  = isoFormat(b.checkInDate,  { day:'numeric', month:'long' });
+        document.getElementById('sum_checkout').textContent = isoFormat(b.checkOutDate, { day:'numeric', month:'long' });
+        document.getElementById('sum_name').textContent     = b.fullName;
+    }
+
+    function showBmError(msg) {
+        document.getElementById('bm_error_text').textContent = msg;
+        document.getElementById('bm_error').style.display = 'flex';
+    }
+    function hideBmError() { document.getElementById('bm_error').style.display = 'none'; }
+
+    function bmReset() {
+        bm.selectedDate = null;
+        document.getElementById('bf_name').value  = '';
+        document.getElementById('bf_phone').value = '';
+        document.getElementById('bf_days').value  = '1';
+        hideBmError();
+        renderCalendar();
+        showStep('step_calendar');
+    }
+
+    /* ================================================================
+       ПЕРЕВОДЫ
+    ================================================================ */
+    const TRANSLATIONS = {
+        ru: {
+            nav_about:'О нас', nav_branches:'Филиалы', nav_prices:'Цены', nav_contacts:'Контакты',
+            hero_badge_text:'Ташкент — 2 локации',
+            hero_title:'Уютное жильё —', hero_title2:'от 70 000 сум', hero_text:'Современные хостелы в самом центре Ташкента. Чистота, Wi-Fi и дружеская атмосфера.',
+            hero_btn_text:'Забронировать', hero_btn2_text:'Узнать больше',
+            stat_branches:'Филиала', stat_price:'от сум/день', stat_loc:'Центр города',
+            loader_text:'Загрузка...',
+            why_title:'Почему выбирают нас', why_sub:'Мы создаём не просто место для сна — мы создаём атмосферу.',
+            branch_header:'Наши Хостелы', branch_sub:'Оба филиала в шаговой доступности от метро.',
+            price_header:'Стоимость проживания', price_sub:'Честные цены без скрытых доплат.',
+            why_title:'Почему мы',
+            feat_wifi_title:'Wi-Fi', feat_wifi_text:'Быстрый интернет бесплатно',
+            feat_comfort_title:'Комфортный сон', feat_comfort_text:'Ортопедические матрасы',
+            feat_party_title:'Классная тусовка', feat_party_text:'Дружная атмосфера гостей',
+            feat_clean_title:'Чистота', feat_clean_text:'Ежедневная уборка',
+            branch_header:'Наши Локации',
+            tag_center1:'Центр Города', branch1_title:'Филиал №1', branch1_addr:'ул. Ниёзбек Йули, 43',
+            branch1_feat1:'Рядом Алайский рынок', branch1_feat2:'2 станции метро рядом', btn_select1_text:'Забронировать',
+            tag_center2:'Центр Города', branch2_title:'Филиал №2', branch2_addr:'6-й пр. Ниёзбек Йули, 39',
+            branch2_feat1:'Площадь Х. Алимжана', branch2_feat2:'Рестораны и кафе',   btn_select2_text:'Забронировать',
+            price_header:'Стоимость',
+            price_title1:'Филиал №1 (Ниёзбек)', bed_up1:'Верхняя койка', bed_down1:'Нижняя койка', discount_text1:'Скидки при проживании месяц',
+            price_title2:'Филиал №2 (6-й проезд)', bed_up2:'Верхняя койка', bed_down2:'Нижняя койка', discount_text2:'Скидки при проживании месяц',
+            bm_subtitle:'Онлайн бронирование', bm_loading_text:'Загружаем данные...',
+            lbl_fio:'ФИО', lbl_phone:'Телефон', lbl_country:'Страна', lbl_days:'Количество дней',
+            bm_select_hint:'Выберите дату заезда',
+            bm_form_title:'Оформление брони',
+            bm_success_title:'Заявка принята!',
+            bm_success_text:'Мы свяжемся с вами для подтверждения бронирования. Приготовьте документы при заезде.',
+            bm_new_btn:'Новая заявка',
+            sum_lbl_hostel:'Хостел', sum_lbl_checkin:'Дата заезда', sum_lbl_checkout:'Дата выезда', sum_lbl_name:'Имя',
+            leg_free:'Много мест', leg_mod:'Есть места', leg_tight:'Мало мест', leg_full:'Занято',
+            c2_name:'Филиал №2 — 6-й проезд', c2_addr:'6-й пр. Ниёзбек Йули, 39', c2_call:'Позвонить', c2_map:'На карте', c2_book:'Забронировать', c2_up:'Верхняя', c2_dn:'Нижняя', c2_disc:'Скидки при проживании месяц', c2_night1:'сум / ночь', c2_night2:'сум / ночь',
+            c1_name:'Филиал №1 — Ниёзбек', c1_addr:'ул. Ниёзбек Йули, 43', c1_call:'Позвонить', c1_map:'На карте', c1_book:'Забронировать', c1_up:'Верхняя', c1_dn:'Нижняя', c1_disc:'Скидки при проживании месяц', c1_night1:'сум / ночь', c1_night2:'сум / ночь',
+        },
+        uz: {
+            nav_about:"Biz haqimizda", nav_branches:"Filiallar", nav_prices:"Narxlar", nav_contacts:"Kontaktlar",
+            hero_badge_text:"Toshkent — 2 filial",
+            hero_title:"Shinam yashash —", hero_title2:"70 000 so'mdan", hero_text:"Toshkent markazidagi zamonaviy hostellar. Tozalik, Wi-Fi va do'stona muhit.",
+            hero_btn_text:"Bron qilish", hero_btn2_text:"Batafsil",
+            stat_branches:"Filial", stat_price:"so'm/kundan", stat_loc:"Shahar markazi",
+            loader_text:"Yuklanmoqda...",
+            why_title:"Nega bizni tanlaymiz", why_sub:"Biz nafaqat dam olish joyi — biz muhit yaratamiz.",
+            branch_header:"Bizning Hostellar", branch_sub:"Ikkala filial ham metro va diqqatga sazovor joylarga yurish masofasida.",
+            price_header:"Turar joy narxlari", price_sub:"Yashirin haq to'lovsiz halol narxlar.",
+            why_title:"Nega biz",
+            feat_wifi_title:"Wi-Fi", feat_wifi_text:"Tezkor bepul internet",
+            feat_comfort_title:"Qulay uyqu", feat_comfort_text:"Ortopedik matraslar",
+            feat_party_title:"Zo'r davra", feat_party_text:"Do'stona muhit",
+            feat_clean_title:"Tozalik", feat_clean_text:"Kunlik tozalash",
+            branch_header:"Bizning manzillar",
+            tag_center1:"Shahar Markazi", branch1_title:"1-Filial", branch1_addr:"Niyozbek Yo'li ko'ch., 43",
+            branch1_feat1:"Oloy bozori yonida", branch1_feat2:"2 ta metro bekati", btn_select1_text:"Bron qilish",
+            tag_center2:"Shahar Markazi", branch2_title:"2-Filial", branch2_addr:"6-tor Niyozbek Yo'li, 39",
+            branch2_feat1:"H. Olimjon maydoni", branch2_feat2:"Restoran va kafelar",   btn_select2_text:"Bron qilish",
+            price_header:"Narxlar",
+            price_title1:"1-Filial (Niyozbek)", bed_up1:"Yuqori joy", bed_down1:"Pastki joy", discount_text1:"Bir oy turganda chegirmalar",
+            price_title2:"2-Filial (6-tor)",    bed_up2:"Yuqori joy", bed_down2:"Pastki joy", discount_text2:"Bir oy turganda chegirmalar",
+            bm_subtitle:"Onlayn bron", bm_loading_text:"Ma'lumot yuklanmoqda...",
+            lbl_fio:"F.I.O.", lbl_phone:"Telefon", lbl_country:"Mamlakat", lbl_days:"Kunlar soni",
+            bm_select_hint:"Kelish sanasini tanlang",
+            bm_form_title:"Bronni rasmiylashtirish",
+            bm_success_title:"Ariza qabul qilindi!",
+            bm_success_text:"Bron tasdiqlash uchun siz bilan bog'lanamiz.",
+            bm_new_btn:"Yangi ariza",
+            sum_lbl_hostel:"Hostel", sum_lbl_checkin:"Kelish sanasi", sum_lbl_checkout:"Ketish sanasi", sum_lbl_name:"Ism",
+            leg_free:"Ko'p joy", leg_mod:"Joy bor", leg_tight:"Oz joy", leg_full:"To'liq",
+            c2_name:"2-Filial — 6-tor Niyozbek", c2_addr:"Niyozbek yo'li 6-tor, 39", c2_call:"Qo'ng'iroq", c2_map:"Xarita", c2_book:"Bron qilish", c2_up:"Yuqori", c2_dn:"Pastki", c2_disc:"Oylik yashashda chegirma", c2_night1:"so'm / kecha", c2_night2:"so'm / kecha",
+            c1_name:"1-Filial — Niyozbek yo'li", c1_addr:"Niyozbek yo'li, 43", c1_call:"Qo'ng'iroq", c1_map:"Xarita", c1_book:"Bron qilish", c1_up:"Yuqori", c1_dn:"Pastki", c1_disc:"Oylik yashashda chegirma", c1_night1:"so'm / kecha", c1_night2:"so'm / kecha",
+        },
+        en: {
+            nav_about:"About Us", nav_branches:"Branches", nav_prices:"Prices", nav_contacts:"Contacts",
+            hero_badge_text:"Tashkent — 2 locations",
+            hero_title:"Comfortable stay —", hero_title2:"from 70 000 UZS", hero_text:"Modern hostels in the heart of Tashkent. Cleanliness, Wi-Fi and a friendly atmosphere.",
+            hero_btn_text:"Book Now", hero_btn2_text:"Learn More",
+            stat_branches:"Branches", stat_price:"UZS/day from", stat_loc:"City Center",
+            loader_text:"Loading...",
+            why_title:"Why choose us", why_sub:"We don't just provide a bed — we create an atmosphere.",
+            branch_header:"Our Hostels", branch_sub:"Both locations are walking distance from the metro and major sights.",
+            price_header:"Stay prices", price_sub:"Honest prices with no hidden fees.",
+            why_title:"Why Us",
+            feat_wifi_title:"Wi-Fi", feat_wifi_text:"Fast free internet",
+            feat_comfort_title:"Comfort sleep", feat_comfort_text:"Orthopedic mattresses",
+            feat_party_title:"Cool vibes", feat_party_text:"Friendly atmosphere",
+            feat_clean_title:"Cleanliness", feat_clean_text:"Daily cleaning",
+            branch_header:"Our Locations",
+            tag_center1:"City Center", branch1_title:"Branch #1", branch1_addr:"Niyozbek Yuli str., 43",
+            branch1_feat1:"Near Alay Market", branch1_feat2:"2 metro stations nearby", btn_select1_text:"Book Now",
+            tag_center2:"City Center", branch2_title:"Branch #2", branch2_addr:"6th pass. Niyozbek Yuli, 39",
+            branch2_feat1:"H. Olimjon Square", branch2_feat2:"Restaurants & Cafes",    btn_select2_text:"Book Now",
+            price_header:"Prices",
+            price_title1:"Branch #1 (Niyozbek)", bed_up1:"Upper bed", bed_down1:"Lower bed", discount_text1:"Discounts for monthly stays",
+            price_title2:"Branch #2 (6th pass.)", bed_up2:"Upper bed", bed_down2:"Lower bed", discount_text2:"Discounts for monthly stays",
+            bm_subtitle:"Online Booking", bm_loading_text:"Loading data...",
+            lbl_fio:"Full Name", lbl_phone:"Phone", lbl_country:"Country", lbl_days:"Number of nights",
+            bm_select_hint:"Select check-in date",
+            bm_form_title:"Booking details",
+            bm_success_title:"Request accepted!",
+            bm_success_text:"We will contact you to confirm your booking.",
+            bm_new_btn:"New booking",
+            sum_lbl_hostel:"Hostel", sum_lbl_checkin:"Check-in", sum_lbl_checkout:"Check-out", sum_lbl_name:"Name",
+            leg_free:"Many beds", leg_mod:"Available", leg_tight:"Few beds", leg_full:"Full",
+            c2_name:"Branch #2 — 6th pass.", c2_addr:"6th pass. Niyozbek Yuli, 39", c2_call:"Call", c2_map:"Map", c2_book:"Book Now", c2_up:"Upper", c2_dn:"Lower", c2_disc:"Monthly stay discounts", c2_night1:"UZS / night", c2_night2:"UZS / night",
+            c1_name:"Branch #1 — Niyozbek", c1_addr:"Niyozbek Yuli str., 43", c1_call:"Call", c1_map:"Map", c1_book:"Book Now", c1_up:"Upper", c1_dn:"Lower", c1_disc:"Monthly stay discounts", c1_night1:"UZS / night", c1_night2:"UZS / night",
+        },
+    };
+
+    function setLanguage(lang) {
+        const t = TRANSLATIONS[lang] || TRANSLATIONS.ru;
+        for (const key in t) {
+            const el = document.getElementById(key);
+            if (el) el.innerText = t[key];
+        }
+        document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+        const active = Array.from(document.querySelectorAll('.lang-btn')).find(b => b.innerText.toLowerCase() === lang);
+        if (active) active.classList.add('active');
+        localStorage.setItem('hostella_lang', lang);
+        trackEvent('lang_' + lang);
+    }
+
+    /* ── Инициализация страницы ──────────────────────────────────────── */
+    window.addEventListener('load', function() {
+        setLanguage(localStorage.getItem('hostella_lang') || 'ru');
+        const isMobile = window.innerWidth < 768;
+        trackEvent('page_views');
+        trackEvent(isMobile ? 'device_mobile' : 'device_desktop');
+
+        const preloader   = document.getElementById('preloader');
+        const heroContent = document.querySelector('.hero-content');
+
+        setTimeout(() => {
+            preloader.classList.add('preloader-hidden');
+            heroContent.style.visibility = 'visible';
+
+            gsap.timeline()
+                .to('nav', { y: 0, opacity: 1, duration: .8, ease: 'power3.out' })
+                .from('.hero-badge',        { y: -20, opacity: 0, duration: .6, ease: 'power3.out' }, '-=.3')
+                .from('.hero-split h1',     { y: 40,  opacity: 0, duration: .8, ease: 'power3.out' }, '-=.4')
+                .from('.hero-split p',      { y: 25,  opacity: 0, duration: .7, ease: 'power3.out' }, '-=.6')
+                .from('.hero-btns',         { y: 20,  opacity: 0, duration: .6, ease: 'power3.out' }, '-=.55')
+                .from('.hero-stats',        { y: 20,  opacity: 0, duration: .6, ease: 'power3.out' }, '-=.5')
+                .from('.hero-split-cards',  { x: 60,  opacity: 0, duration: .9, ease: 'power3.out' }, '-=.65');
+
+            setTimeout(() => { preloader.style.display = 'none'; }, 900);
+        }, 700);
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initCar('car1'); initCar('car2');
+        /* Scroll-анимация feature-item */
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+        }, { threshold: .15 });
+        document.querySelectorAll('.feature-item').forEach(el => obs.observe(el));
+
+        /* GSAP ScrollTrigger для карточек */
+        if (window.innerWidth > 768) {
+            function animFrom(el, dir) {
+                dir = dir || 1;
+                let x = 0, y = dir * 80;
+                if (el.classList.contains('gs_reveal_left'))  { x = -80; y = 0; }
+                if (el.classList.contains('gs_reveal_right')) { x =  80; y = 0; }
+                gsap.fromTo(el, { x, y, autoAlpha: 0 }, {
+                    duration: 1.1, x: 0, y: 0, autoAlpha: 1, ease: 'expo', overwrite: 'auto'
+                });
+            }
+            gsap.utils.toArray('.gs_reveal_left, .gs_reveal_right, .gs_reveal').forEach(el => {
+                gsap.set(el, { autoAlpha: 0 });
+                ScrollTrigger.create({
+                    trigger: el,
+                    onEnter:     () => animFrom(el),
+                    onEnterBack: () => animFrom(el, -1),
+                    onLeave:     () => gsap.set(el, { autoAlpha: 0 }),
+                });
+            });
+        }
+    });
+    </script>
+</body>
+</html>

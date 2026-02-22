@@ -1,0 +1,293 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hostella — Аналитика</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#0f1117; --bg2:#181c27; --bg3:#1f2434;
+  --accent:#6c63ff; --accent2:#ff6584;
+  --green:#2dce89; --yellow:#ffc107; --red:#f5365c;
+  --text:#e8eaf6; --text2:#8892b0; --border:#2a2f45;
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+#login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px 48px;width:360px;text-align:center;}
+.login-box h1{font-size:1.5rem;margin-bottom:8px;}
+.login-box p{color:var(--text2);font-size:.85rem;margin-bottom:28px;}
+.login-box input{width:100%;padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:.95rem;outline:none;margin-bottom:14px;}
+.login-box input:focus{border-color:var(--accent);}
+.login-box button{width:100%;padding:12px;background:var(--accent);border:none;border-radius:10px;color:#fff;font-size:.95rem;font-weight:700;cursor:pointer;transition:opacity .2s;}
+.login-box button:hover{opacity:.85;}
+.login-err{color:var(--red);font-size:.82rem;margin-top:8px;display:none;}
+#dash{display:none;}
+.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.topbar-title{font-size:1.15rem;font-weight:700;display:flex;align-items:center;gap:10px;}
+.topbar-title span{color:var(--accent);}
+.topbar-right{display:flex;align-items:center;gap:14px;}
+.refresh-btn,.logout-btn{padding:7px 18px;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;border:none;transition:opacity .2s;}
+.refresh-btn{background:var(--bg3);color:var(--text);border:1px solid var(--border);}
+.refresh-btn:hover{opacity:.8;}
+.logout-btn{background:transparent;color:var(--text2);border:1px solid var(--border);}
+.logout-btn:hover{color:var(--red);border-color:var(--red);}
+.last-upd{font-size:.78rem;color:var(--text2);}
+.container{max-width:1400px;margin:0 auto;padding:28px 24px;}
+.section-title{font-size:1rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px;margin-top:32px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;}
+.kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px 22px;}
+.kpi-label{font-size:.75rem;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;}
+.kpi-val{font-size:2rem;font-weight:800;line-height:1;}
+.kpi-sub{font-size:.76rem;color:var(--text2);margin-top:6px;}
+.kpi-accent{color:var(--accent);} .kpi-green{color:var(--green);} .kpi-yellow{color:var(--yellow);} .kpi-red{color:var(--red);}
+.source-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.source-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px 24px;}
+.source-card h3{font-size:.85rem;font-weight:700;margin-bottom:16px;color:var(--text2);}
+.srow{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);}
+.srow:last-child{border-bottom:none;}
+.srow-lbl{font-size:.83rem;color:var(--text2);}
+.srow-val{font-size:.95rem;font-weight:700;}
+.charts-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px;}
+.chart-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px 24px;}
+.chart-card h3{font-size:.83rem;font-weight:700;color:var(--text2);margin-bottom:16px;text-transform:uppercase;letter-spacing:.04em;}
+.tbl-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border);}
+table{width:100%;border-collapse:collapse;font-size:.82rem;}
+thead tr{background:var(--bg3);}
+th{padding:10px 14px;text-align:left;color:var(--text2);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+td{padding:9px 14px;border-top:1px solid var(--border);white-space:nowrap;}
+tr:hover td{background:rgba(108,99,255,.05);}
+.loader{text-align:center;padding:60px;color:var(--text2);}
+.spinner{display:inline-block;width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:12px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:900px){.charts-grid{grid-template-columns:1fr 1fr;}}
+@media(max-width:600px){.source-grid{grid-template-columns:1fr;}.charts-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div id="login-screen">
+  <div class="login-box">
+    <h1>налитика</h1>
+    <p>Hostella — панель статистики</p>
+    <input type="password" id="pwd-input" placeholder="ароль" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">ойти</button>
+    <div class="login-err" id="login-err">еверный пароль</div>
+  </div>
+</div>
+<div id="dash">
+  <div class="topbar">
+    <div class="topbar-title">Hostella <span>Analytics</span></div>
+    <div class="topbar-right">
+      <span class="last-upd" id="last-upd"></span>
+      <button class="refresh-btn" onclick="loadAll()">бновить</button>
+      <button class="logout-btn" onclick="doLogout()">ыйти</button>
+    </div>
+  </div>
+  <div class="container">
+    <div id="loader-wrap" class="loader"><div class="spinner"></div><br>Загружаем данные…</div>
+    <div id="content" style="display:none">
+      <div class="section-title">Ключевые показатели</div>
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Landing-посещений</div><div class="kpi-val kpi-accent" id="k-landing-views">—</div><div class="kpi-sub">визитов на сайт</div></div>
+        <div class="kpi-card"><div class="kpi-label">QR-сканирований</div><div class="kpi-val kpi-accent" id="k-qr-views">—</div><div class="kpi-sub">переходов с QR</div></div>
+        <div class="kpi-card"><div class="kpi-label">Бронирований</div><div class="kpi-val kpi-green" id="k-bookings">—</div><div class="kpi-sub">всего заявок</div></div>
+        <div class="kpi-card"><div class="kpi-label">Звонков</div><div class="kpi-val kpi-yellow" id="k-calls">—</div><div class="kpi-sub">нажатий на звонок</div></div>
+        <div class="kpi-card"><div class="kpi-label">Конверсия Landing</div><div class="kpi-val kpi-green" id="k-conv-landing">—</div><div class="kpi-sub">посещение → бронь</div></div>
+        <div class="kpi-card"><div class="kpi-label">Конверсия QR</div><div class="kpi-val kpi-green" id="k-conv-qr">—</div><div class="kpi-sub">скан → бронь</div></div>
+      </div>
+      <div class="section-title">По источнику</div>
+      <div class="source-grid">
+        <div class="source-card"><h3>Landing Page</h3><div id="src-landing"></div></div>
+        <div class="source-card"><h3>QR-код</h3><div id="src-qr"></div></div>
+      </div>
+      <div class="section-title">Динамика и структура</div>
+      <div class="charts-grid">
+        <div class="chart-card" style="grid-column:1/-1"><h3>Ежедневные визиты (30 дней)</h3><div style="position:relative;height:220px"><canvas id="chart-daily"></canvas></div></div>
+        <div class="chart-card"><h3>Действия по хостелам</h3><div style="position:relative;height:220px"><canvas id="chart-hostel"></canvas></div></div>
+        <div class="chart-card"><h3>Устройства</h3><div style="position:relative;height:220px"><canvas id="chart-device"></canvas></div></div>
+        <div class="chart-card"><h3>Язык интерфейса</h3><div style="position:relative;height:220px"><canvas id="chart-lang"></canvas></div></div>
+      </div>
+      <div class="section-title">Детализация по дням</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Дата</th><th>L-визиты</th><th>QR-скан</th>
+            <th>L-брони</th><th>QR-брони</th>
+            <th>L-звонки</th><th>QR-звонки</th>
+            <th>L-карты</th><th>QR-карты</th>
+            <th>Конв.L</th><th>Конв.QR</th>
+          </tr></thead>
+          <tbody id="tbl-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const FB={apiKey:'AIzaSyAoVj92dmnl5gBB7zYul0iG2Ekp5cbmkp0',authDomain:'hostella-app-a1e07.firebaseapp.com',projectId:'hostella-app-a1e07',storageBucket:'hostella-app-a1e07.firebasestorage.app',messagingSenderId:'826787873496',appId:'1:826787873496:web:51a0c6e42631a28919cdad'};
+const DB_BASE='https://firestore.googleapis.com/v1/projects/hostella-app-a1e07/databases/hostella/documents';
+const STATS_COL='artifacts/hostella-multi-v4/public/data/stats';
+if(!firebase.apps.length) firebase.initializeApp(FB);
+const fbAuth=firebase.auth();
+
+async function doLogin(){
+  const v=document.getElementById('pwd-input').value.trim();
+  const err=document.getElementById('login-err');
+  
+  if (!v) {
+    err.style.display='block';
+    err.textContent='Введите пароль';
+    return;
+  }
+  
+  try {
+    // Call Cloud Function to verify password
+    const verifyPassword = firebase.functions().httpsCallable('verifyAdminPassword');
+    const result = await verifyPassword({ password: v });
+    
+    if (result.data.success) {
+      err.style.display='none';
+      document.getElementById('login-screen').style.display='none';
+      document.getElementById('dash').style.display='block';
+      loadAll();
+    }
+  } catch (error) {
+    err.style.display='block';
+    err.textContent=error.message || 'Неверный пароль';
+    document.getElementById('pwd-input').value='';
+    document.getElementById('pwd-input').focus();
+  }
+}
+function doLogout(){document.getElementById('dash').style.display='none';document.getElementById('login-screen').style.display='flex';document.getElementById('pwd-input').value='';}
+
+async function getToken(){
+  if(!fbAuth.currentUser) await Promise.race([fbAuth.signInAnonymously(),new Promise((_,r)=>setTimeout(()=>r(new Error('auth timeout')),10000))]);
+  return fbAuth.currentUser.getIdToken();
+}
+async function fsGet(path){
+  const token=await getToken();
+  const res=await fetch(`${DB_BASE}/${path}`,{headers:{Authorization:'Bearer '+token}});
+  if(res.status===404)return null;
+  if(!res.ok){console.warn('[fsGet]',res.status,path);return null;}
+  return res.json();
+}
+async function fsList(collPath){
+  const token=await getToken();
+  const res=await fetch(`${DB_BASE}/${collPath}?pageSize=300`,{headers:{Authorization:'Bearer '+token}});
+  if(!res.ok){console.warn('[fsList]',res.status,collPath);return[];}
+  const j=await res.json(); return j.documents||[];
+}
+function parseDoc(doc){
+  if(!doc||!doc.fields)return{};
+  const out={};
+  for(const[k,v] of Object.entries(doc.fields)){
+    if('integerValue' in v)out[k]=parseInt(v.integerValue)||0;
+    else if('doubleValue' in v)out[k]=v.doubleValue||0;
+    else if('stringValue' in v)out[k]=v.stringValue;
+    else out[k]=0;
+  }
+  return out;
+}
+const charts={};
+function mkChart(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart(document.getElementById(id),cfg);}
+
+async function loadAll(){
+  document.getElementById('loader-wrap').style.display='block';
+  document.getElementById('content').style.display='none';
+  try{
+    const[ltDoc,qtDoc,allDocs]=await Promise.all([fsGet(STATS_COL+'/landing_totals'),fsGet(STATS_COL+'/qr_totals'),fsList(STATS_COL)]);
+    const lt=parseDoc(ltDoc), qt=parseDoc(qtDoc);
+    const landingDaily={}, qrDaily={};
+    for(const doc of allDocs){
+      const name=doc.name.split('/').pop();
+      if(name.startsWith('landing_daily_')) landingDaily[name.replace('landing_daily_','')]=parseDoc(doc);
+      else if(name.startsWith('qr_daily_')) qrDaily[name.replace('qr_daily_','')]=parseDoc(doc);
+    }
+    renderDash(lt,qt,landingDaily,qrDaily);
+    document.getElementById('last-upd').textContent='Обновлено: '+new Date().toLocaleTimeString('ru-RU');
+  }catch(e){
+    console.error('[loadAll]',e);
+    document.getElementById('loader-wrap').innerHTML='<div style="color:#f5365c;padding:40px">Ошибка: '+e.message+'</div>';
+  }
+}
+function n(v){return v||0;}
+function pct(a,b){return b>0?(a/b*100).toFixed(1)+'%':'—';}
+function sf(lt,qt,f){return n(lt[f])+n(qt[f]);}
+
+function renderDash(lt,qt,ldaily,qdaily){
+  const lv=n(lt.page_views), qv=n(qt.page_views);
+  const lb=n(lt.booking_total), qb=n(qt.booking_total);
+  const lc=n(lt.call_hostel1)+n(lt.call_hostel2);
+  const qc=n(qt.call_hostel1)+n(qt.call_hostel2);
+  document.getElementById('k-landing-views').textContent=lv.toLocaleString();
+  document.getElementById('k-qr-views').textContent=qv.toLocaleString();
+  document.getElementById('k-bookings').textContent=(lb+qb).toLocaleString();
+  document.getElementById('k-calls').textContent=(lc+qc).toLocaleString();
+  document.getElementById('k-conv-landing').textContent=pct(lb,lv);
+  document.getElementById('k-conv-qr').textContent=pct(qb,qv);
+
+  function srcHtml(t){
+    const calls=n(t.call_hostel1)+n(t.call_hostel2);
+    const maps=n(t.map_hostel1)+n(t.map_hostel2);
+    return [['Визиты',n(t.page_views)],['Детали',n(t.detail_total)],['Бронирований',n(t.booking_total)],['Звонков',calls],['Карта',maps],['Моб.',n(t.device_mobile)],['Десктоп',n(t.device_desktop)],['RU',n(t.lang_ru)],['UZ',n(t.lang_uz)],['EN',n(t.lang_en)]]
+      .map(([l,v])=>`<div class="srow"><span class="srow-lbl">${l}</span><span class="srow-val">${v.toLocaleString()}</span></div>`).join('');
+  }
+  document.getElementById('src-landing').innerHTML=srcHtml(lt);
+  document.getElementById('src-qr').innerHTML=srcHtml(qt);
+
+  const today=new Date(), labels=[], ldV=[], qdV=[];
+  for(let i=29;i>=0;i--){
+    const d=new Date(today); d.setDate(d.getDate()-i);
+    const iso=d.toISOString().slice(0,10);
+    labels.push(d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}));
+    ldV.push(n((ldaily[iso]||{}).page_views));
+    qdV.push(n((qdaily[iso]||{}).page_views));
+  }
+  mkChart('chart-daily',{type:'line',data:{labels,datasets:[
+    {label:'Landing',data:ldV,borderColor:'#6c63ff',backgroundColor:'rgba(108,99,255,.15)',tension:.35,fill:true,pointRadius:3},
+    {label:'QR',data:qdV,borderColor:'#ff6584',backgroundColor:'rgba(255,101,132,.12)',tension:.35,fill:true,pointRadius:3}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8892b0',font:{size:11}}}},scales:{x:{ticks:{color:'#8892b0',font:{size:10},maxRotation:45},grid:{color:'#1f2434'}},y:{ticks:{color:'#8892b0',font:{size:10}},grid:{color:'#1f2434'},beginAtZero:true}}}});
+
+  mkChart('chart-hostel',{type:'bar',data:{labels:['Детали','Бронь','Звонок','Карта'],datasets:[
+    {label:'Хостел 1',data:[sf(lt,qt,'detail_hostel1'),sf(lt,qt,'booking_hostel1'),sf(lt,qt,'call_hostel1'),sf(lt,qt,'map_hostel1')],backgroundColor:'#6c63ff'},
+    {label:'Хостел 2',data:[sf(lt,qt,'detail_hostel2'),sf(lt,qt,'booking_hostel2'),sf(lt,qt,'call_hostel2'),sf(lt,qt,'map_hostel2')],backgroundColor:'#ff6584'}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8892b0',font:{size:11}}}},scales:{x:{ticks:{color:'#8892b0',font:{size:11}},grid:{color:'#1f2434'}},y:{ticks:{color:'#8892b0',font:{size:10}},grid:{color:'#1f2434'},beginAtZero:true}}}});
+
+  const mob=sf(lt,qt,'device_mobile'), desk=sf(lt,qt,'device_desktop');
+  mkChart('chart-device',{type:'doughnut',data:{labels:['Мобильный','Десктоп'],datasets:[{data:[mob,desk],backgroundColor:['#6c63ff','#2dce89'],borderColor:'#181c27',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8892b0',font:{size:11},padding:12}}}}});
+
+  mkChart('chart-lang',{type:'doughnut',data:{labels:['Русский','Узбекский','English'],datasets:[{data:[sf(lt,qt,'lang_ru'),sf(lt,qt,'lang_uz'),sf(lt,qt,'lang_en')],backgroundColor:['#6c63ff','#ffc107','#2dce89'],borderColor:'#181c27',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8892b0',font:{size:11},padding:12}}}}});
+
+  const allDates=new Set([...Object.keys(ldaily),...Object.keys(qdaily)]);
+  const sorted=[...allDates].sort().reverse().slice(0,30);
+  const tbody=document.getElementById('tbl-body');
+  tbody.innerHTML=sorted.length===0
+    ?'<tr><td colspan="11" style="text-align:center;color:var(--text2);padding:24px">Данных пока нет</td></tr>'
+    :sorted.map(date=>{
+      const ld=ldaily[date]||{}, qd=qdaily[date]||{};
+      const lv2=n(ld.page_views), qv2=n(qd.page_views);
+      const lb2=n(ld.booking_total), qb2=n(qd.booking_total);
+      const lc2=n(ld.call_hostel1)+n(ld.call_hostel2);
+      const qc2=n(qd.call_hostel1)+n(qd.call_hostel2);
+      const lm=n(ld.map_hostel1)+n(ld.map_hostel2);
+      const qm=n(qd.map_hostel1)+n(qd.map_hostel2);
+      return `<tr><td style="font-weight:600">${date}</td>
+        <td>${lv2||'—'}</td><td>${qv2||'—'}</td>
+        <td style="color:${lb2?'#2dce89':'inherit'}">${lb2||'—'}</td>
+        <td style="color:${qb2?'#2dce89':'inherit'}">${qb2||'—'}</td>
+        <td style="color:${lc2?'#ffc107':'inherit'}">${lc2||'—'}</td>
+        <td style="color:${qc2?'#ffc107':'inherit'}">${qc2||'—'}</td>
+        <td>${lm||'—'}</td><td>${qm||'—'}</td>
+        <td>${pct(lb2,lv2)}</td><td>${pct(qb2,qv2)}</td></tr>`;
+    }).join('');
+
+  document.getElementById('loader-wrap').style.display='none';
+  document.getElementById('content').style.display='block';
+}
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.getElementById('login-screen').style.display!=='none')doLogin();});
+</script>
+</body>
+</html>

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Hostella — Загрузка хостела</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f6f8fc; color: #1e293b; }
+  .widget { max-width: 460px; margin: 0 auto; padding: 16px; }
+  .header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .logo { width: 36px; height: 36px; border-radius: 10px; overflow: hidden; }
+  .logo img { width: 100%; height: 100%; object-fit: cover; }
+  .title { font-size: 16px; font-weight: 900; color: #1a3c40; }
+  .subtitle { font-size: 11px; color: #64748b; font-weight: 600; margin-top: 1px; }
+
+  .tabs { display: flex; gap: 4px; background: #e2e8f0; border-radius: 12px; padding: 4px; margin-bottom: 14px; }
+  .tab { flex: 1; padding: 7px 0; text-align: center; font-size: 12px; font-weight: 700;
+          border-radius: 9px; cursor: pointer; transition: all .15s; color: #64748b; border: none; background: none; }
+  .tab.active { background: #fff; color: #1a3c40; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+
+  .month-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .month-nav button { background: none; border: none; cursor: pointer; padding: 6px 10px;
+                       font-size: 18px; color: #64748b; border-radius: 8px; }
+  .month-nav button:hover { background: #e2e8f0; }
+  .month-title { font-size: 15px; font-weight: 900; color: #1e293b; }
+
+  .weekdays { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 4px; }
+  .weekday { text-align: center; font-size: 10px; font-weight: 800; color: #94a3b8; padding: 3px 0; }
+
+  .days { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+  .day { aspect-ratio: 1; border-radius: 8px; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .day .num { font-size: 13px; font-weight: 800; line-height: 1; }
+  .day .free-count { font-size: 9px; font-weight: 600; opacity: .7; margin-top: 1px; }
+  .day.past    { background: #f1f5f9; color: #cbd5e1; }
+  .day.full    { background: #fee2e2; color: #fca5a5; text-decoration: line-through; }
+  .day.tight   { background: #fef3c7; color: #d97706; }
+  .day.moderate{ background: #ccfbf1; color: #0f766e; }
+  .day.free    { background: #dcfce7; color: #15803d; }
+  .day.today   { outline: 2px solid #1a3c40; outline-offset: 1px; }
+  .day.empty   {}
+
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; justify-content: center; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: #64748b; }
+  .legend-dot  { width: 10px; height: 10px; border-radius: 3px; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; }
+  .stat-label  { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; }
+  .stat-value  { font-size: 22px; font-weight: 900; color: #1e293b; margin-top: 2px; line-height: 1; }
+  .stat-sub    { font-size: 11px; color: #64748b; margin-top: 3px; }
+  .stat.green .stat-value { color: #16a34a; }
+  .stat.red   .stat-value { color: #dc2626; }
+
+  .loader { text-align: center; padding: 40px; color: #94a3b8; font-weight: 600; }
+  .footer { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 14px; padding-bottom: 4px; }
+  .footer a { color: #1a3c40; font-weight: 700; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="widget">
+  <div class="header">
+    <div class="logo"><img src="https://hostella.uz/logo.png" alt="H" onerror="this.style.display='none'"/></div>
+    <div>
+      <div class="title">Hostella</div>
+      <div class="subtitle" id="subtitleEl">Загрузка хостела</div>
+    </div>
+  </div>
+
+  <div class="tabs" id="hostelTabs"></div>
+
+  <div id="content"><div class="loader">⏳ Загружаем данные...</div></div>
+
+  <div class="footer">© <a href="https://hostella.uz" target="_blank">hostella.uz</a></div>
+</div>
+
+<script type="module">
+import { initializeApp }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+const CONFIG = {
+  apiKey:            'AIzaSyAoVj92dmnl5gBB7zYul0iG2Ekp5cbmkp0',
+  authDomain:        'hostella-app-a1e07.firebaseapp.com',
+  projectId:         'hostella-app-a1e07',
+  storageBucket:     'hostella-app-a1e07.firebasestorage.app',
+  messagingSenderId: '826787873496',
+  appId:             '1:826787873496:web:51a0c6e42631a28919cdad',
+};
+const PATH     = ['artifacts','hostella-multi-v4','public','data'];
+const HOSTELS  = { hostel1: 'Хостел №1', hostel2: 'Хостел №2' };
+const MONTHS   = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const WDAYS    = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
+const app  = initializeApp(CONFIG);
+const db   = getFirestore(app, 'hostella');
+const auth = getAuth(app);
+
+let allRooms  = [];
+let allGuests = [];
+let hostelId  = 'hostel1';
+let viewYear  = new Date().getFullYear();
+let viewMonth = new Date().getMonth();
+
+const toISO = d => { const o = d.getTimezoneOffset()*60000; return new Date(d-o).toISOString().slice(0,10); };
+const addDays= (d,n) => { const r=new Date(d); r.setDate(r.getDate()+n); return r; };
+const today  = toISO(new Date());
+
+const parseDate = s => {
+  if (!s) return null;
+  if (typeof s==='object' && s.seconds) return new Date(s.seconds*1000);
+  if (typeof s==='object' && s.toDate)  return s.toDate();
+  const d = new Date(s);
+  if (!String(s).includes('T')) d.setHours(12,0,0,0);
+  return isNaN(d) ? null : d;
+};
+
+function buildAvailability() {
+  const hostelRooms = allRooms.filter(r => r.hostelId === hostelId);
+  const total = hostelRooms.reduce((s,r) => s + (parseInt(r.capacity||r.beds||0)||0), 0);
+  const map = {};
+  for (let i=0; i<120; i++) {
+    const d = addDays(new Date(), i);
+    map[toISO(d)] = { total, occupied: 0 };
+  }
+  allGuests.forEach(g => {
+    if (!hostelRooms.find(r=>r.id===g.roomId)) return;
+    if (g.status==='checked_out') return;
+    const ci = parseDate(g.checkInDate||g.checkInDateTime);
+    const co = parseDate(g.checkOutDate);
+    if (!ci||!co) return;
+    let cur = new Date(ci); cur.setHours(0,0,0,0);
+    const end = new Date(co); end.setHours(0,0,0,0);
+    while (cur < end) { const k=toISO(cur); if (map[k]) map[k].occupied++; cur=addDays(cur,1); }
+  });
+  return map;
+}
+
+function getStatus(av, iso) {
+  if (!av) return iso < today ? 'past' : 'free';
+  const free = Math.max(0, av.total - av.occupied);
+  const pct  = av.total ? (av.occupied/av.total)*100 : 0;
+  if (iso < today) return 'past';
+  if (free === 0)  return 'full';
+  if (pct >= 75)   return 'tight';
+  if (pct >= 40)   return 'moderate';
+  return 'free';
+}
+
+function renderCalendar() {
+  const av    = buildAvailability();
+  const first = new Date(viewYear, viewMonth, 1);
+  const last  = new Date(viewYear, viewMonth+1, 0);
+  const pad   = (first.getDay()+6) % 7;
+
+  // Stats today
+  const todayAv   = av[today] || { total: 0, occupied: 0 };
+  const freeBeds  = Math.max(0, todayAv.total - todayAv.occupied);
+  const occupancy = todayAv.total ? Math.round((todayAv.occupied/todayAv.total)*100) : 0;
+
+  let html = `
+    <div class="stats">
+      <div class="stat ${freeBeds > 0 ? 'green' : 'red'}">
+        <div class="stat-label">Свободно сегодня</div>
+        <div class="stat-value">${freeBeds}</div>
+        <div class="stat-sub">из ${todayAv.total} мест</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Занятость сегодня</div>
+        <div class="stat-value">${occupancy}%</div>
+        <div class="stat-sub">${todayAv.occupied} гостей</div>
+      </div>
+    </div>
+
+    <div class="month-nav">
+      <button id="prevBtn">‹</button>
+      <div class="month-title">${MONTHS[viewMonth]} ${viewYear}</div>
+      <button id="nextBtn">›</button>
+    </div>
+
+    <div class="weekdays">${WDAYS.map(d=>`<div class="weekday">${d}</div>`).join('')}</div>
+    <div class="days">`;
+
+  for (let i=0; i<pad; i++) html += `<div class="day empty"></div>`;
+  for (let d=1; d<=last.getDate(); d++) {
+    const iso = toISO(new Date(viewYear, viewMonth, d));
+    const a   = av[iso];
+    const st  = getStatus(a, iso);
+    const isT = iso === today;
+    const free = a ? Math.max(0, a.total - a.occupied) : '';
+    html += `<div class="day ${st}${isT?' today':''}">
+      <span class="num">${d}</span>
+      ${st !== 'past' && a && a.total ? `<span class="free-count">${free}м</span>` : ''}
+    </div>`;
+  }
+  html += `</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#dcfce7"></div>Много</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ccfbf1"></div>Есть</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fef3c7"></div>Мало</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fee2e2"></div>Занято</div>
+    </div>`;
+
+  document.getElementById('content').innerHTML = html;
+  document.getElementById('prevBtn').onclick = () => {
+    if (viewMonth===0) { viewYear--; viewMonth=11; } else viewMonth--;
+    renderCalendar();
+  };
+  document.getElementById('nextBtn').onclick = () => {
+    if (viewMonth===11) { viewYear++; viewMonth=0; } else viewMonth++;
+    renderCalendar();
+  };
+}
+
+function renderTabs() {
+  const tabs = document.getElementById('hostelTabs');
+  tabs.innerHTML = Object.entries(HOSTELS).map(([id,name]) =>
+    `<button class="tab${id===hostelId?' active':''}" data-id="${id}">${name}</button>`
+  ).join('');
+  tabs.querySelectorAll('.tab').forEach(btn => {
+    btn.onclick = () => { hostelId = btn.dataset.id; renderTabs(); renderCalendar();
+      document.getElementById('subtitleEl').textContent = `Загрузка — ${HOSTELS[hostelId]}`; };
+  });
+}
+
+async function init() {
+  try {
+    await signInAnonymously(auth);
+    const [rSnap, gSnap] = await Promise.all([
+      getDocs(collection(db, ...PATH, 'rooms')),
+      getDocs(collection(db, ...PATH, 'guests')),
+    ]);
+    allRooms  = rSnap.docs.map(d => ({id:d.id, ...d.data()}));
+    allGuests = gSnap.docs.map(d => ({id:d.id, ...d.data()})).filter(g => g.status !== 'checked_out');
+    renderTabs();
+    renderCalendar();
+    document.getElementById('subtitleEl').textContent = `Загрузка — ${HOSTELS[hostelId]}`;
+  } catch(e) {
+    document.getElementById('content').innerHTML =
+      `<div class="loader" style="color:#ef4444">Ошибка загрузки данных</div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

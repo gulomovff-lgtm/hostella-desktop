@@ -13,6 +13,7 @@ build/
 .env
 .env.local
 .env.production
+functions/.env.local
 
 # Editor
 .vscode/

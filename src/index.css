@@ -2,21 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Дальше ваши стили... */
+/* ── Safe-area utilities (Telegram Mini App / iPhone notch) ── */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* ── Scrollable hide ── */
+.scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
 
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
+  color-scheme: light;
+  color: #213547;
+  background-color: #f0f2f5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Переменные мобильного меню */
+  --mob-nav-bg: #ffffff;
+  --mob-nav-border: #e2e8f0;
+  --mob-nav-muted: #94a3b8;
+  --mob-nav-chip: #f1f5f9;
 }
 
 a {
@@ -30,15 +44,9 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+  min-height: 100dvh;
+  background-color: #f0f2f5;
 }
 
 button {
@@ -48,27 +56,58 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: transparent;
   cursor: pointer;
   transition: border-color 0.25s;
 }
-button:hover {
-  border-color: #646cff;
-}
 button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: none;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+/* ── Custom scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #9ecdd0;
+  border-radius: 99px;
+  transition: background 0.2s;
+}
+
+/* ── Disable scroll on number inputs (spin buttons) ── */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ── Small screen layout adjustments ── */
+/* Compact content padding on narrow/short windows */
+@media (max-width: 1100px) {
+  /* Cards and panels: reduce padding */
+  .p-5 { padding: 0.875rem !important; }
+  .p-6 { padding: 1rem !important; }
+  .px-6 { padding-left: 1rem !important; padding-right: 1rem !important; }
+}
+
+@media (max-width: 900px) {
+  /* Further reduce base type size on very small windows */
+  :root { font-size: 14px; }
+}
+
+/* Min sizes so content never collapses completely */
+.app-root { min-width: 640px; min-height: 400px; }
+::-webkit-scrollbar-thumb:hover {
+  background: #2a5c60;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

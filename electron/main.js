@@ -1,45 +1,60 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, ipcMain } = electron;
 const path = require('path');
-const { autoUpdater } = require('electron-updater');
-
-// Проверка: упаковано приложение или нет (вместо electron-is-dev)
-const isDev = !app.isPackaged; 
-
-// Логирование
-const log = require('electron-log');
-autoUpdater.logger = log;
-autoUpdater.logger.transports.file.level = 'info';
 
 let mainWindow;
 
+const isDev = !app.isPackaged;
+const url = isDev ? 'http://localhost:5173' : `file://${path.join(__dirname, '../dist/index.html')}`;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
+    width: 1200,
     height: 800,
-	autoHideMenuBar: true,
+    frame: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false, 
-      webSecurity: false // Помогает, если локальные картинки не грузятся
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
-    // Убедитесь, что иконка существует, или удалите эту строку, если её нет
-    // icon: path.join(__dirname, '../public/icon.ico') 
   });
 
-  // В разработке - localhost, в сборке - файл index.html
-  const startUrl = isDev
-    ? 'http://localhost:5173'
-    : `file://${path.join(__dirname, '../dist/index.html')}`;
+  mainWindow.loadURL(url);
 
-  mainWindow.loadURL(startUrl);
-
-  mainWindow.on('closed', () => (mainWindow = null));
-  
-  // Проверяем обновления только в готовом приложении
-  if (!isDev) {
-    autoUpdater.checkForUpdatesAndNotify();
+  if (isDev) {
+    mainWindow.webContents.openDevTools();
   }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
+
+// IPC Handlers for window control
+ipcMain.handle('window-minimize', () => {
+  mainWindow.minimize();
+});
+
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow.isMaximized()) {
+    mainWindow.restore();
+  } else {
+    mainWindow.maximize();
+  }
+});
+
+ipcMain.handle('window-restore', () => {
+  mainWindow.restore();
+});
+
+ipcMain.handle('window-close', () => {
+  mainWindow.close();
+});
+
+ipcMain.handle('window-isMaximized', () => {
+  return mainWindow.isMaximized();
+});
 
 app.on('ready', createWindow);
 
@@ -53,26 +68,4 @@ app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
   }
-});
-
-// --- ЛОГИКА ОБНОВЛЕНИЙ ---
-autoUpdater.on('update-available', () => {
-  log.info('Обновление найдено. Скачиваем...');
-});
-
-autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Доступно обновление',
-    message: 'Новая версия скачана. Перезапустить и установить?',
-    buttons: ['Да', 'Позже']
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall(false, true);
-    }
-  });
-});
-
-autoUpdater.on('error', (err) => {
-  log.error('Ошибка обновления: ', err);
 });

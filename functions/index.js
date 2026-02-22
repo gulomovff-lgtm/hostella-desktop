@@ -2,6 +2,11 @@ const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const vision = require("@google-cloud/vision");
 
+// Load environment variables from .env.local (for local development)
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 if (!admin.apps.length) {
   admin.initializeApp();
 }
@@ -187,3 +192,120 @@ function parseDateYYMMDD(yymmdd) {
 function isUpperCase(str) {
     return str === str.toUpperCase() && /[A-Z]/.test(str);
 }
+
+// --- TELEGRAM MESSAGE FUNCTION ---
+// Reads recipients from Firestore settings/telegram, filters by notificationType
+exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated to send messages');
+    }
+    if (!data || !data.text) {
+        throw new functions.https.HttpsError('invalid-argument', 'Message text is required');
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+        throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
+    }
+
+    let targetChatIds = [];
+
+    // If explicit chatIds override is provided (e.g. test sends), use them directly
+    if (Array.isArray(data.chatIds) && data.chatIds.length > 0) {
+        targetChatIds = data.chatIds;
+    } else {
+        // Read recipients from Firestore
+        try {
+            // Determine the app settings path to match the frontend PUBLIC_DATA_PATH
+            // path: artifacts/{appId}/public/data/settings/telegram
+            const APP_ID = 'hostella-multi-v4';
+            const settingsRef = admin.firestore()
+                .doc(`artifacts/${APP_ID}/public/data/settings/telegram`);
+            const settingsSnap = await settingsRef.get();
+            const settings = settingsSnap.exists ? settingsSnap.data() : null;
+
+            const recipients = settings?.recipients || [];
+            const disabledTypes = new Set(settings?.disabledTypes || []);
+            const notificationType = data.notificationType || null;
+
+            // If this notification type is globally disabled, skip
+            if (notificationType && disabledTypes.has(notificationType)) {
+                return { success: true, sent: 0, total: 0, skipped: 'type_disabled' };
+            }
+
+            // Filter active recipients subscribed to this notification type
+            targetChatIds = recipients
+                .filter(r => {
+                    if (!r.active) return false;
+                    if (!r.telegramId) return false;
+                    // If a type is specified, check per-recipient subscription
+                    if (notificationType) {
+                        return r.notifications?.[notificationType] !== false;
+                    }
+                    return true;
+                })
+                .map(r => r.telegramId);
+
+            // No Firestore settings yet — use hardcoded fallback IDs
+            if (targetChatIds.length === 0 && recipients.length === 0) {
+                targetChatIds = ["7029598539", "6953132612", "972047654"];
+            }
+        } catch (e) {
+            console.error('Failed to read Telegram settings, using fallback:', e.message);
+            targetChatIds = ["7029598539", "6953132612", "972047654"];
+        }
+    }
+
+    if (targetChatIds.length === 0) {
+        return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
+    }
+
+    const sendOne = async (chatId) => {
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: data.text, parse_mode: 'HTML' })
+        });
+        const json = await res.json();
+        if (!json.ok) {
+            // Return error details so the caller can report them
+            return { ok: false, chatId, errorCode: json.error_code, description: json.description };
+        }
+        return { ok: true, chatId };
+    };
+
+    const results = await Promise.allSettled(targetChatIds.map(sendOne));
+    const successful = results.filter(r => r.status === 'fulfilled' && r.value?.ok).length;
+    const failed = results
+        .filter(r => r.status === 'fulfilled' && !r.value?.ok)
+        .map(r => ({ chatId: r.value.chatId, code: r.value.errorCode, msg: r.value.description }));
+    const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
+
+    console.log(`Telegram [${data.notificationType || 'manual'}]: ${successful}/${targetChatIds.length} sent`, failed.length ? { failed } : '');
+
+    return { success: successful > 0, sent: successful, total: targetChatIds.length, failed, errors };
+});
+
+// Admin Stats Password Verification
+// Secure password check for admin-stats.html
+exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
+    const submittedPassword = data?.password;
+    const adminPassword = process.env.ADMIN_STATS_PASSWORD || 'NOT_SET';
+
+    if (!submittedPassword || !adminPassword || adminPassword === 'NOT_SET') {
+        throw new functions.https.HttpsError(
+            'unavailable',
+            'Password verification not configured'
+        );
+    }
+
+    // Compare passwords
+    if (submittedPassword === adminPassword) {
+        return { success: true, message: 'Password accepted' };
+    } else {
+        throw new functions.https.HttpsError(
+            'permission-denied',
+            'Invalid password'
+        );
+    }
+});
