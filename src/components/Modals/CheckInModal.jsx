@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
+import { COUNTRIES } from '../../constants/countries';
 
 // --- COUNTRY_FLAGS ---
 const COUNTRY_FLAGS = {
@@ -397,6 +398,21 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             <div className="grid grid-cols-2 gap-4">
                                 <SimpleInput label="Дата выдачи паспорта" type="date" value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)}/>
                                 <SimpleInput label="Телефон" value={formData.phone} onChange={val => handleChange('phone', val)} placeholder="+998..." icon={Phone}/>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-600 uppercase ml-1">Страна</label>
+                                <div className="relative">
+                                    <select
+                                        value={formData.country}
+                                        onChange={e => handleChange('country', e.target.value)}
+                                        className="w-full bg-white border border-slate-300 rounded-lg py-2.5 pl-3 pr-8 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all shadow-sm appearance-none cursor-pointer">
+                                        {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                                        <ChevronDown size={16}/>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mt-2">

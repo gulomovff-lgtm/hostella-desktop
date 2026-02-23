@@ -544,6 +544,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Выдан</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passportIssueDate} onChange={e=>setEditForm({...editForm,passportIssueDate:e.target.value})}/></div>
                                 <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Телефон</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></div>
                             </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Страна</label>
+                                <select className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-white" value={editForm.country||'Узбекистан'} onChange={e=>setEditForm({...editForm,country:e.target.value})}>
+                                    {COUNTRIES_LIST.map(c=><option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
                             <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Тариф/ночь</label><input type="number" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.pricePerNight} onChange={e=>setEditForm({...editForm,pricePerNight:e.target.value})}/></div>
                             <button onClick={handleSaveInfo} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold mt-2">СОХРАНИТЬ</button>
                         </div>
