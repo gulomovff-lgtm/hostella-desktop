@@ -201,7 +201,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [currencyMode, setCurrencyMode] = useState('UZS'); // 'UZS' | 'USD'
 
     // --- Scan + Photo ---
-    const [scanMode, setScanMode] = useState(false);
+    const [scanMode, setScanMode] = useState(false); // false | 'usb' | 'ocr'
+    const [ocrLoading, setOcrLoading] = useState(false);
     const scanInputRef = useRef(null);
     const scanTimerRef = useRef(null);
     const photoInputRef = useRef(null);
@@ -232,9 +233,44 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const handlePhotoChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        // Сначала сохраняем фото
         const b64 = await compressPhoto(file);
         setFormData(p => ({ ...p, passportPhoto: b64 }));
         e.target.value = '';
+        // Пробуем OCR (Tesseract.js)
+        setOcrLoading(true);
+        try {
+            const { createWorker } = await import('tesseract.js');
+            const worker = await createWorker('eng', 1, {
+                logger: () => {},
+                errorHandler: () => {},
+            });
+            await worker.setParameters({
+                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
+                tessedit_pageseg_mode: '6',
+            });
+            const { data: { text } } = await worker.recognize(file);
+            await worker.terminate();
+            const result = parseMRZ(text);
+            if (result && (result.fullName || result.passport)) {
+                setFormData(p => ({
+                    ...p,
+                    passportPhoto: b64,
+                    fullName:  result.fullName  ? result.fullName.toUpperCase()  : p.fullName,
+                    passport:  result.passport  ? result.passport.toUpperCase()  : p.passport,
+                    birthDate: result.birthDate || p.birthDate,
+                    country:   result.country   || p.country,
+                }));
+                notify('\u2705 Данные из фото извлечены', 'success');
+            } else {
+                notify('\u{1F4F7} Фото сохранено', 'success');
+            }
+        } catch (err) {
+            console.warn('OCR error:', err);
+            notify('\u{1F4F7} Фото сохранено', 'success');
+        } finally {
+            setOcrLoading(false);
+        }
     };
 
     const { rates } = useExchangeRate();
@@ -454,16 +490,21 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             {/* Scan + Photo buttons */}
                             <div className="flex gap-2 flex-wrap">
                                 <button type="button"
-                                    onClick={() => { setScanMode(true); setTimeout(() => scanInputRef.current?.focus(), 80); }}
+                                    onClick={() => { setScanMode('usb'); setTimeout(() => scanInputRef.current?.focus(), 80); }}
                                     className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-bold transition-colors">
-                                    <ScanLine size={14}/> Скан паспорта
+                                    <ScanLine size={14}/> Скан (USB)
                                 </button>
                                 <button type="button"
                                     onClick={() => photoInputRef.current?.click()}
-                                    className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-xs font-bold transition-colors ${formData.passportPhoto ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'}`}>
-                                    <Camera size={14}/> {formData.passportPhoto ? '✓ Фото загружено' : 'Фото паспорта'}
+                                    disabled={ocrLoading}
+                                    className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-xs font-bold transition-colors ${
+                                        ocrLoading ? 'bg-amber-50 border-amber-200 text-amber-600 cursor-wait'
+                                        : formData.passportPhoto ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
+                                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'}`}>
+                                    <Camera size={14}/>
+                                    {ocrLoading ? 'Распознаю...' : formData.passportPhoto ? '✓ Сменить фото' : 'Фото → MRZ'}
                                 </button>
-                                <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange}/>
+                                <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoChange}/>
                             </div>
                             {formData.passportPhoto && (
                                 <div className="relative inline-block">
@@ -496,12 +537,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                                 <SimpleInput label="Паспорт" value={formData.passport} onChange={val => handleChange('passport', val)} placeholder="AA 1234567" icon={FileText} error={errors.passport}/>
                                 <SimpleInput label="Дата рождения" type="date" value={formData.birthDate} onChange={val => handleChange('birthDate', val)} error={errors.birthDate}/>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                                 <SimpleInput label="Дата выдачи паспорта" type="date" value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)}/>
                                 <SimpleInput label="Телефон" value={formData.phone} onChange={val => handleChange('phone', val)} placeholder="+998..." icon={Phone}/>
                             </div>
@@ -523,7 +564,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mt-2">
                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-100 pb-2">Условия проживания</h3>
-                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
                                     <SimpleInput label="Дата заезда" type="date" value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
                                     <SimpleInput label="Цена за ночь" type="number" value={formData.pricePerNight} onChange={val => handleChange('pricePerNight', val)}
                                         rightElement={<span className="text-xs font-bold text-slate-400">сум</span>} error={errors.pricePerNight}/>
@@ -651,8 +692,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 </div>
             </div>
 
-            {/* Scan overlay */}
-            {scanMode && (
+            {/* Scan overlay (USB scanner) */}
+            {scanMode === 'usb' && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm rounded-xl">
                     <div className="bg-white rounded-2xl p-8 shadow-2xl w-72 text-center">
                         <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{background:'#eff6ff'}}>
@@ -675,6 +716,24 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             className="text-xs text-slate-400 hover:text-slate-600 border border-slate-200 px-5 py-2 rounded-lg transition-colors">
                             Отмена
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* OCR loading overlay */}
+            {ocrLoading && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm rounded-xl">
+                    <div className="bg-white rounded-2xl p-8 shadow-2xl w-72 text-center">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{background:'#fffbeb'}}>
+                            <Camera size={32} className="text-amber-500 animate-pulse"/>
+                        </div>
+                        <h3 className="font-black text-slate-800 mb-1 text-base">Читаю паспорт...</h3>
+                        <p className="text-xs text-slate-400 mb-5">Распознаю текст MRZ из фото</p>
+                        <div className="flex justify-center gap-1">
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce" style={{animationDelay:`${i*100}ms`}}/>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}

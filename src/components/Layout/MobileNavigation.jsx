@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
-    LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText,
+    LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -56,6 +56,7 @@ const MobileNavigation = ({
     selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter,
     onLogout,
     canPerformActions, onOpenCheckIn, onOpenGroupCheckIn, onOpenRoomRental,
+    onOpenShiftClosing,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const [drawerOpen, setDrawerOpen]   = useState(false);
@@ -173,6 +174,14 @@ const MobileNavigation = ({
                                 </button>
                             ))}
                         </div>
+                        {/* Close shift button for cashiers */}
+                        <button
+                            onClick={() => { setDrawerOpen(false); onOpenShiftClosing?.(); }}
+                            className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
+                            style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}
+                        >
+                            <Lock size={15}/> Закрыть смену
+                        </button>
                     </div>
                 )}
 

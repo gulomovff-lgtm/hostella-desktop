@@ -1738,6 +1738,7 @@ return (
             onOpenCheckIn={() => setCheckInModal({ open: true, room: null, bedId: null, date: null, bookingId: null })}
             onOpenGroupCheckIn={() => setGroupCheckInModal(true)}
             onOpenRoomRental={() => setRoomRentalModal(true)}
+            onOpenShiftClosing={() => setShiftModal(true)}
         />
 
         {notification && (

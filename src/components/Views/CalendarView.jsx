@@ -130,8 +130,9 @@ const GuestTooltip = ({ guest, room, mousePos, lang }) => {
 // --- CalendarView ---
 const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
-    const [zoom, setZoom]             = useState(21);
+    const [zoom, setZoom]             = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768) ? 7 : 21);
     const [colScale, setColScale]     = useState(1.0);
     const [search, setSearch]         = useState('');
     const [hoveredGuest, setHoveredGuest] = useState(null);
@@ -140,10 +141,11 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const ttRef = useRef(null);
     const rafRef = useRef(null);
     const calRef = useRef(null);
-    const BASE_DAY_W = zoom <= 14 ? 60 : zoom <= 21 ? 46 : 38;
+    const swipeTouchRef = useRef(null);
+    const BASE_DAY_W = zoom <= 7 ? 46 : zoom <= 14 ? 52 : zoom <= 21 ? 46 : 38;
     const DAY_W = Math.round(BASE_DAY_W * colScale);
-    const ROW_H = 40;
-    const LABEL_W = 148;
+    const ROW_H = isMobile ? 36 : 40;
+    const LABEL_W = isMobile ? 90 : 148;
 
     useEffect(() => {
         const el = calRef.current;
@@ -171,6 +173,26 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
     const goToday  = useCallback(() => { const d = new Date(); d.setHours(0,0,0,0); setStartDate(d); }, []);
     const shift    = useCallback((n) => setStartDate(p => { const d = new Date(p); d.setDate(d.getDate() + n); return d; }), []);
+
+    // Touch swipe to navigate
+    useEffect(() => {
+        const el = calRef.current;
+        if (!el || !isMobile) return;
+        const onTouchStart = (e) => { swipeTouchRef.current = e.touches[0].clientX; };
+        const onTouchEnd = (e) => {
+            if (swipeTouchRef.current === null) return;
+            const dx = e.changedTouches[0].clientX - swipeTouchRef.current;
+            swipeTouchRef.current = null;
+            if (Math.abs(dx) < 50) return; // threshold
+            shift(dx < 0 ? zoom : -zoom);
+        };
+        el.addEventListener('touchstart', onTouchStart, { passive: true });
+        el.addEventListener('touchend',   onTouchEnd,   { passive: true });
+        return () => {
+            el.removeEventListener('touchstart', onTouchStart);
+            el.removeEventListener('touchend',   onTouchEnd);
+        };
+    }, [isMobile, shift, zoom]);
 
     const days = useMemo(() => Array.from({ length: zoom }, (_, i) => {
         const d = new Date(startDate); d.setDate(d.getDate() + i);
@@ -318,32 +340,26 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                 </div>
             </div>
 
-            {/* Toolbar — mobile (2 строки) */}
+            {/* Toolbar — mobile (compact 1 row) */}
             <div className="md:hidden shrink-0 bg-white border-b border-slate-200 shadow-sm z-50">
-                {/* Строка 1: навигация + заголовок */}
-                <div className="flex items-center gap-1.5 px-2 pt-2 pb-1">
-                    <button onClick={() => shift(-7)} className="p-2 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200"><ChevronsLeft size={16}/></button>
-                    <button onClick={() => shift(-1)} className="p-2 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200"><ChevronLeft size={16}/></button>
-                    <button onClick={goToday} className="flex-1 py-2 bg-slate-800 text-white rounded-lg text-xs font-black active:bg-slate-700">Сегодня</button>
-                    <div className="flex-[2] text-center text-xs font-bold text-slate-700 capitalize leading-tight truncate px-1">{monthLabel}</div>
-                    <button onClick={() => shift(1)} className="p-2 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200"><ChevronRight size={16}/></button>
-                    <button onClick={() => shift(7)} className="p-2 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200"><ChevronsRight size={16}/></button>
-                </div>
-                {/* Строка 2: зум + поиск */}
-                <div className="flex items-center gap-2 px-2 pb-2">
+                <div className="flex items-center gap-1 px-2 py-1.5">
+                    <button onClick={() => shift(-zoom)} className="p-1.5 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200 shrink-0"><ChevronLeft size={16}/></button>
+                    <button onClick={goToday} className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-black active:bg-slate-700 shrink-0">Сег</button>
+                    <button onClick={() => shift(zoom)} className="p-1.5 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200 shrink-0"><ChevronRight size={16}/></button>
+                    <span className="flex-1 text-center text-xs font-bold text-slate-700 capitalize truncate px-1">{monthLabel}</span>
                     <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 shrink-0">
-                        {[7, 14, 21, 30].map(z => (
+                        {[7, 14, 21].map(z => (
                             <button key={z} onClick={() => setZoom(z)}
-                                className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition-all ${
+                                className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${
                                     zoom === z ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'
                                 }`}>{z}д</button>
                         ))}
                     </div>
-                    <div className="relative flex-1">
-                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск гостя…"
-                            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none"/>
-                    </div>
+                </div>
+                <div className="relative px-2 pb-1.5">
+                    <Search size={11} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"/>
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск гостя…"
+                        className="w-full pl-6 pr-3 py-1 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none"/>
                 </div>
             </div>
 
@@ -410,10 +426,11 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                     const hasCurrent = bedGuests.some(g => g.status === 'active');
                                     return (
                                         <div key={bedId} className={`flex relative border-b border-slate-100 group/row ${hasCurrent ? '' : 'bg-white'}`} style={{ height: ROW_H }}>
-                                            <div className={`shrink-0 flex items-center gap-2 px-3 border-r-2 border-slate-200 sticky left-0 z-20 text-xs font-bold text-slate-500 ${hasCurrent ? 'bg-emerald-50' : 'bg-white'}`} style={{ width: LABEL_W }}>
-                                                <BedDouble size={13} className={hasCurrent ? 'text-emerald-500' : 'text-slate-300'}/>
-                                                <span>Место {bedId}</span>
-                                                {!hasCurrent && <span className="ml-auto text-[9px] text-emerald-500 font-black">свободно</span>}
+                                            <div className={`shrink-0 flex items-center border-r-2 border-slate-200 sticky left-0 z-20 text-xs font-bold text-slate-500 ${hasCurrent ? 'bg-emerald-50' : 'bg-white'} ${isMobile ? 'gap-1 px-2' : 'gap-2 px-3'}`} style={{ width: LABEL_W }}>
+                                                <BedDouble size={isMobile ? 11 : 13} className={hasCurrent ? 'text-emerald-500' : 'text-slate-300'}/>
+                                                <span className="truncate">{isMobile ? `М.${bedId}` : `Место ${bedId}`}</span>
+                                                {!hasCurrent && !isMobile && <span className="ml-auto text-[9px] text-emerald-500 font-black">свободно</span>}
+                                                {!hasCurrent && isMobile && <span className="ml-auto text-[8px] text-emerald-500 font-black">✓</span>}
                                             </div>
                                             <div className="relative flex-1" style={{ width: zoom * DAY_W }}>
                                                 <div className="absolute inset-0 flex pointer-events-none">
