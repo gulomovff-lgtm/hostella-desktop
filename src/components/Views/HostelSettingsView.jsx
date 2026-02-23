@@ -58,7 +58,7 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                         value={s.name} onChange={e => onChange(hostelId, 'name', e.target.value)}/>
                 </div>
                 {/* Адрес + телефон */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Адрес</label>
                         <div className="relative">

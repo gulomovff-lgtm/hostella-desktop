@@ -1712,6 +1712,10 @@ return (
             availableHostels={availableHostelsForUser}
             setSelectedHostelFilter={setSelectedHostelFilter}
             onLogout={handleLogout}
+            canPerformActions={canPerformActions}
+            onOpenCheckIn={() => setCheckInModal({ open: true, room: null, bedId: null, date: null, bookingId: null })}
+            onOpenGroupCheckIn={() => setGroupCheckInModal(true)}
+            onOpenRoomRental={() => setRoomRentalModal(true)}
         />
 
         {notification && (
@@ -1744,7 +1748,7 @@ return (
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pt-2 pb-32 md:pb-6">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-6 pt-2 pb-32 md:pb-6">
                 {activeTab === 'dashboard' && currentUser.role === 'admin' && (
                     <DashboardView
                         rooms={filteredRooms}
