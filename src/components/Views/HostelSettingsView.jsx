@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
     Settings, Upload, Save, RefreshCw, Download, Database, Image as ImageIcon,
-    Building2, Phone, MapPin, Globe, Shield, CheckCircle2, AlertTriangle, X, Info, FileText
+    Building2, Phone, MapPin, Globe, Shield, CheckCircle2, AlertTriangle, X, Info, FileText, Link
 } from 'lucide-react';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -84,6 +84,20 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                         <input className="w-full px-4 py-2.5 pl-8 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700"
                             value={s.website || ''} onChange={e => onChange(hostelId, 'website', e.target.value)} placeholder="https://myhostel.uz"/>
                     </div>
+                </div>
+                {/* Booking.com iCal */}
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 bg-[#003580] text-white text-[10px] font-black px-1.5 py-0.5 rounded-md">booking</span>
+                        iCal URL
+                    </label>
+                    <div className="relative">
+                        <Link size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                        <input className="w-full px-4 py-2.5 pl-8 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700"
+                            value={s.icalUrl || ''} onChange={e => onChange(hostelId, 'icalUrl', e.target.value)}
+                            placeholder="https://ical.booking.com/v1/export?t=..."/>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Booking.com → Объект → Настройки → Синхронизация календаря → iCal</p>
                 </div>
             </div>
         </div>

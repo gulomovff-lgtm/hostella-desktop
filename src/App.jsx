@@ -1791,6 +1791,8 @@ return (
                         bookings={websiteBookings}
                         onAccept={handleAcceptBooking}
                         onReject={handleRejectBooking}
+                        currentUser={currentUser}
+                        lang={lang}
                     />
                 )}
 
