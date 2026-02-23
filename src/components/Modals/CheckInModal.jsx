@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES } from '../../constants/countries';
@@ -71,6 +71,51 @@ const getRoomPrice = (room, bedId) => {
     if (!bedNum) return lower;
     return bedNum > Math.ceil(cap / 2) ? upper : lower;
 };
+
+// --- MRZ Parser (Machine Readable Zone) ---
+const parseMRZ = (raw) => {
+    const lines = raw.replace(/\r/g, '\n').split('\n').map(l => l.trim()).filter(l => l.length >= 20);
+    if (!lines.length) return null;
+    const line1 = lines.find(l => /^P</i.test(l)) || lines[0] || '';
+    const line2 = lines.find(l => l !== line1 && /^[A-Z0-9]{9}/.test(l)) || lines[1] || '';
+    // ФИО из первой строки MRZ
+    let fullName = '';
+    if (line1.length >= 10) {
+        const section = line1.slice(5, 44).replace(/</g, ' ').trim().replace(/\s{2,}/, '  ');
+        const parts = section.split(/  +/);
+        const surname  = (parts[0] || '').replace(/ /g, '');
+        const first    = (parts.slice(1).join(' ') || '').trim();
+        fullName = [surname, first].filter(Boolean).join(' ');
+    }
+    // Данные из второй строки
+    const passport   = line2 ? line2.slice(0, 9).replace(/</g, '').trim() : '';
+    const natCode    = line2 ? line2.slice(10, 13) : '';
+    const bdRaw      = line2 ? line2.slice(13, 19) : '';
+    let birthDate = '';
+    if (bdRaw.length === 6 && /^\d+$/.test(bdRaw)) {
+        const yy = parseInt(bdRaw.slice(0, 2));
+        const year = yy > 30 ? 1900 + yy : 2000 + yy;
+        birthDate = `${year}-${bdRaw.slice(2, 4)}-${bdRaw.slice(4, 6)}`;
+    }
+    const NAT = { UZB:'Узбекистан', RUS:'Россия', KAZ:'Казахстан', KGZ:'Кыргызстан', TJK:'Таджикистан', TKM:'Туркмения', UKR:'Украина', BLR:'Белоруссия', GBR:'Великобритания', USA:'США', DEU:'Германия', FRA:'Франция', CHN:'Китай', IND:'Индия', TUR:'Турция', ARE:'ОАЭ', IRN:'Иран', AFG:'Афганистан', AZE:'Азербайджан', ARM:'Армения', GEO:'Грузия', MNG:'Монголия', PAK:'Пакистан', KOR:'Корея (Южная)' };
+    const country = NAT[natCode] || '';
+    return { fullName, passport, birthDate, country };
+};
+
+// --- Photo Compressor ---
+const compressPhoto = (file) => new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+        const max = 640;
+        const ratio = Math.min(max / img.width, max / img.height, 1);
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * ratio);
+        c.height = Math.round(img.height * ratio);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.6));
+    };
+    img.src = URL.createObjectURL(file);
+});
 
 // --- Sub-components ---
 const StepIndicator = ({ step, total }) => (
@@ -146,6 +191,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         paidCash: '',
         paidCard: '',
         paidQR: '',
+        passportPhoto: '',
         status: 'active'
     });
 
@@ -153,6 +199,43 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [errors, setErrors] = useState({});
     const [currencyMode, setCurrencyMode] = useState('UZS'); // 'UZS' | 'USD'
+
+    // --- Scan + Photo ---
+    const [scanMode, setScanMode] = useState(false);
+    const scanInputRef = useRef(null);
+    const scanTimerRef = useRef(null);
+    const photoInputRef = useRef(null);
+
+    const processAndCloseScan = (val) => {
+        if (val.trim().length > 15) {
+            const result = parseMRZ(val);
+            if (result) {
+                setFormData(p => ({
+                    ...p,
+                    fullName:  result.fullName  ? result.fullName.toUpperCase()  : p.fullName,
+                    passport:  result.passport  ? result.passport.toUpperCase()  : p.passport,
+                    birthDate: result.birthDate || p.birthDate,
+                    country:   result.country   || p.country,
+                }));
+                notify('\u2705 Паспорт считан', 'success');
+            }
+        }
+        setScanMode(false);
+    };
+
+    const handleScanInput = (e) => {
+        clearTimeout(scanTimerRef.current);
+        const val = e.target.value;
+        scanTimerRef.current = setTimeout(() => processAndCloseScan(val), 400);
+    };
+
+    const handlePhotoChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const b64 = await compressPhoto(file);
+        setFormData(p => ({ ...p, passportPhoto: b64 }));
+        e.target.value = '';
+    };
 
     const { rates } = useExchangeRate();
     const usdRate = rates?.USD?.rate || 0;
@@ -257,7 +340,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-800/50 backdrop-blur-none p-4 animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
+            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] relative">
 
                 <div className="px-6 py-4 bg-white border-b border-slate-200 flex justify-between items-center shrink-0">
                     <div>
@@ -368,6 +451,29 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     {/* Step 2: Guest data */}
                     {step === 2 && (
                         <div className="space-y-5 animate-in slide-in-from-right duration-200">
+                            {/* Scan + Photo buttons */}
+                            <div className="flex gap-2 flex-wrap">
+                                <button type="button"
+                                    onClick={() => { setScanMode(true); setTimeout(() => scanInputRef.current?.focus(), 80); }}
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-bold transition-colors">
+                                    <ScanLine size={14}/> Скан паспорта
+                                </button>
+                                <button type="button"
+                                    onClick={() => photoInputRef.current?.click()}
+                                    className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-xs font-bold transition-colors ${formData.passportPhoto ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'}`}>
+                                    <Camera size={14}/> {formData.passportPhoto ? '✓ Фото загружено' : 'Фото паспорта'}
+                                </button>
+                                <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange}/>
+                            </div>
+                            {formData.passportPhoto && (
+                                <div className="relative inline-block">
+                                    <img src={formData.passportPhoto} alt="Паспорт" className="h-20 rounded-xl border border-slate-200 object-cover shadow-sm"/>
+                                    <button type="button" onClick={() => setFormData(p => ({ ...p, passportPhoto: '' }))}
+                                        className="absolute -top-2 -right-2 w-5 h-5 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-500 hover:text-rose-500 shadow-sm">
+                                        <X size={10}/>
+                                    </button>
+                                </div>
+                            )}
                             <div className="relative z-50">
                                 <SimpleInput
                                     label="ФИО Гостя" value={formData.fullName}
@@ -544,6 +650,34 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     )}
                 </div>
             </div>
+
+            {/* Scan overlay */}
+            {scanMode && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm rounded-xl">
+                    <div className="bg-white rounded-2xl p-8 shadow-2xl w-72 text-center">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{background:'#eff6ff'}}>
+                            <ScanLine size={32} className="text-blue-500 animate-pulse"/>
+                        </div>
+                        <h3 className="font-black text-slate-800 mb-1 text-base">Приложите паспорт</h3>
+                        <p className="text-xs text-slate-400 mb-5">Ожидаем данные от сканера...</p>
+                        <div className="flex justify-center gap-1 mb-5">
+                            {[0,1,2,3,4].map(i => (
+                                <div key={i} className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:`${i*100}ms`}}/>
+                            ))}
+                        </div>
+                        <textarea
+                            ref={scanInputRef}
+                            onChange={handleScanInput}
+                            className="opacity-0 absolute w-0 h-0 pointer-events-none"
+                            autoFocus
+                        />
+                        <button onClick={() => { clearTimeout(scanTimerRef.current); setScanMode(false); }}
+                            className="text-xs text-slate-400 hover:text-slate-600 border border-slate-200 px-5 py-2 rounded-lg transition-colors">
+                            Отмена
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

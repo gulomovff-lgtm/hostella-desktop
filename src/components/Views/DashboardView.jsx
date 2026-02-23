@@ -123,9 +123,12 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 
 // ---------------------------------------------------------------------------
 
-const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users }) => {
+const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [tab, setTab] = useState('overview');
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [bulkDays, setBulkDays] = useState('1');
     const nowMs = useNow();
     const now = new Date(nowMs);
 
@@ -669,6 +672,14 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 <span className="font-bold text-slate-800 text-sm">Все активные гости</span>
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs text-slate-400">{data.activeGuests.length}</span>
+                                    {selectMode && selectedIds.length > 0 && (
+                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Выбрано: {selectedIds.length}</span>
+                                    )}
+                                    <button
+                                        onClick={() => { setSelectMode(m => { if (m) setSelectedIds([]); return !m; }); }}
+                                        className={`text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors ${selectMode ? 'bg-indigo-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>
+                                        {selectMode ? 'Готово' : 'Выбрать'}
+                                    </button>
                                     <button onClick={() => exportGuestsToExcel(data.activeGuests, currentHostelId)}
                                         title="Экспорт в Excel"
                                         className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">
@@ -680,8 +691,16 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 {data.activeGuests.map(g => {
                                     const debt = (g.totalPrice || 0) - getTotalPaid(g);
                                     const lbl = g.checkOutDate ? getTimeLeftLabel(g.checkOutDate, nowMs) : null;
+                                    const isSelected = selectedIds.includes(g.id);
                                     return (
-                                        <div key={g.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 hover:bg-slate-50">
+                                        <div key={g.id}
+                                            onClick={() => selectMode && setSelectedIds(ids => isSelected ? ids.filter(i => i !== g.id) : [...ids, g.id])}
+                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-indigo-50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-indigo-50' : ''}`}>
+                                            {selectMode && (
+                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                                                    {isSelected && <CheckCircle2 size={10} className="text-white" strokeWidth={3}/>}
+                                                </div>
+                                            )}
                                             {COUNTRY_FLAGS[g.country] ? <Flag code={COUNTRY_FLAGS[g.country]} size={16}/> : <User size={14} className="text-slate-300 shrink-0"/>}
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-xs font-bold text-slate-800 truncate">{g.fullName}</div>
@@ -693,6 +712,38 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                     );
                                 })}
                             </div>
+                            {selectMode && data.activeGuests.length > 0 && (
+                                <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                                    <button
+                                        onClick={() => setSelectedIds(ids => ids.length === data.activeGuests.length ? [] : data.activeGuests.map(g => g.id))}
+                                        className="text-xs text-slate-500 hover:text-slate-700 font-bold underline">
+                                        {selectedIds.length === data.activeGuests.length ? 'Снять всё' : 'Выбрать всех'}
+                                    </button>
+                                    <div className="flex-1"/>
+                                    {selectedIds.length > 0 && (
+                                        <>
+                                            <span className="text-xs text-slate-500 font-semibold">Продлить ({selectedIds.length} чел.):</span>
+                                            <input
+                                                type="number" min="1" max="30"
+                                                value={bulkDays}
+                                                onChange={e => setBulkDays(e.target.value)}
+                                                className="w-14 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-black text-center focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                            />
+                                            <span className="text-xs text-slate-400">дн.</span>
+                                            <button
+                                                onClick={() => {
+                                                    const d = parseInt(bulkDays) || 1;
+                                                    onBulkExtend?.(selectedIds, d);
+                                                    setSelectedIds([]);
+                                                    setSelectMode(false);
+                                                }}
+                                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black transition-colors">
+                                                + Продлить
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

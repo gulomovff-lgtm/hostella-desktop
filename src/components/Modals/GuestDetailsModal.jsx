@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
-    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown
+    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -141,6 +141,24 @@ const COUNTRIES_LIST = [
 ];
 
 // --- GuestDetailsModal ---
+const compressPhotoGDM = (file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+            const MAX = 640;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width  = Math.round(img.width  * scale);
+            canvas.height = Math.round(img.height * scale);
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
 const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
@@ -155,6 +173,15 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
     const [extendDays, setExtendDays] = useState(1);
     const [checkoutManualRefund, setCheckoutManualRefund] = useState('');
+    const photoInputRef = useRef(null);
+    const handlePhotoUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const b64 = await compressPhotoGDM(file);
+        onUpdate(guest.id, { passportPhoto: b64 });
+        notify('Фото паспорта сохранено', 'success');
+    };
+
     const [editForm, setEditForm] = useState({ 
         fullName: guest.fullName || '', 
         birthDate: guest.birthDate || '', 
@@ -400,7 +427,17 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             </div>
 
                             <div className="bg-white rounded-xl border border-slate-200 p-3">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Личные данные</div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center justify-between">
+                                    <span>Личные данные</span>
+                                    <button onClick={()=>photoInputRef.current?.click()} className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-[10px] font-bold"><Camera size={12}/> Фото</button>
+                                    <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload}/>
+                                </div>
+                                {guest.passportPhoto && (
+                                    <div className="mb-2 relative inline-block">
+                                        <img src={guest.passportPhoto} alt="Паспорт" className="h-20 rounded-xl border border-slate-200 object-cover shadow-sm"/>
+                                        <button onClick={()=>onUpdate(guest.id,{passportPhoto:''})} className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-xs font-bold">×</button>
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                                     {[
                                         ['Паспорт',    guest.passport || '—'],
@@ -551,6 +588,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 </select>
                             </div>
                             <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Тариф/ночь</label><input type="number" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.pricePerNight} onChange={e=>setEditForm({...editForm,pricePerNight:e.target.value})}/></div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Фото паспорта</label>
+                                <button type="button" onClick={()=>photoInputRef.current?.click()} className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 font-bold text-sm flex items-center justify-center gap-2 hover:border-indigo-300 hover:text-indigo-600">
+                                    <Camera size={16}/> {guest.passportPhoto ? 'Заменить фото' : 'Загрузить фото'}
+                                </button>
+                                {guest.passportPhoto && <img src={guest.passportPhoto} alt="Паспорт" className="mt-2 h-24 rounded-xl border border-slate-200 object-cover"/>}
+                            </div>
                             <button onClick={handleSaveInfo} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold mt-2">СОХРАНИТЬ</button>
                         </div>
                     </div>

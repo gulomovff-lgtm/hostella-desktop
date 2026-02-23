@@ -1256,8 +1256,30 @@ const filterByHostel = (items) => {
       }
   };
 
+  const handleBulkExtend = async (guestIds, days) => {
+      if (!guestIds?.length || !days) return;
+      let count = 0;
+      for (const guestId of guestIds) {
+          const guest = guests.find(g => g.id === guestId);
+          if (!guest || guest.status !== 'active') continue;
+          const newDays  = parseInt(guest.days || 1) + days;
+          const newTotal = parseInt(guest.pricePerNight || 0) * newDays;
+          const co       = new Date(guest.checkOutDate || Date.now());
+          co.setDate(co.getDate() + days);
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+              days: newDays,
+              totalPrice: newTotal,
+              checkOutDate: co.toISOString(),
+              status: 'active',
+          });
+          count++;
+      }
+      if (count > 0) showNotification(`Продлено на ${days} дн. для ${count} гостей`, 'success');
+  };
+
  const handleCheckOut = async (guest, final) => {
     setGuestDetailsModal({open:false, guest:null});
+
     
     const actualRefund = final.refundAmount || 0;
     
@@ -1758,6 +1780,7 @@ return (
                         lang={lang}
                         currentHostelId={selectedHostelFilter}
                         users={usersList}
+                        onBulkExtend={handleBulkExtend}
                     />
                 )}
 
