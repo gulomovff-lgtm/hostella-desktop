@@ -1793,6 +1793,7 @@ return (
                         onReject={handleRejectBooking}
                         currentUser={currentUser}
                         lang={lang}
+                        rooms={rooms}
                     />
                 )}
 

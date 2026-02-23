@@ -131,23 +131,38 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
     );
 };
 
-const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang }) => {
-    const [tab, setTab]         = useState('website');
-    const [bcData, setBcData]   = useState([]);   // Booking.com reservations
-    const [syncing, setSyncing] = useState(false);
-    const [syncMsg, setSyncMsg] = useState('');
+const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }) => {
+    const [tab, setTab]           = useState('website');
+    const [bcData, setBcData]     = useState([]);
+    const [syncing, setSyncing]   = useState(false);
+    const [syncMsg, setSyncMsg]   = useState('');
     const [lastSync, setLastSync] = useState(null);
+    const [roomMapping, setRoomMapping] = useState({});  // { roomId: 'Booking.com room name' }
 
     const hostelId = currentUser?.hostelId || 'hostel1';
 
-    // ── Load stored Booking.com reservations from Firestore ──────────────────
+    // Build reverse map: 'Booking.com name (lowercase)' → room object
+    const bookingNameToRoom = React.useMemo(() => {
+        const map = {};
+        if (!rooms || !roomMapping) return map;
+        Object.entries(roomMapping).forEach(([roomId, bcName]) => {
+            if (bcName) map[bcName.toLowerCase().trim()] = rooms.find(r => r.id === roomId);
+        });
+        return map;
+    }, [rooms, roomMapping]);
+
+    // ── Load stored data from Firestore ───────────────────────────────────────
     useEffect(() => {
-        const docRef = doc(db, ...PUBLIC_DATA_PATH, 'bookingCom', hostelId);
-        getDoc(docRef).then(snap => {
+        const docRef  = doc(db, ...PUBLIC_DATA_PATH, 'bookingCom', hostelId);
+        const cfgRef  = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
+        Promise.all([getDoc(docRef), getDoc(cfgRef)]).then(([snap, cfg]) => {
             if (snap.exists()) {
                 const d = snap.data();
                 setBcData(d.reservations || []);
                 setLastSync(d.syncedAt || null);
+            }
+            if (cfg.exists()) {
+                setRoomMapping(cfg.data()?.[hostelId]?.roomMapping || {});
             }
         });
     }, [hostelId]);
@@ -171,6 +186,11 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang }) => {
 
             // 3. Parse
             const reservations = parseIcal(text);
+
+            // 4. Reload roomMapping (might have been updated)
+            const freshCfg = await getDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig'));
+            const freshMapping = freshCfg.data()?.[hostelId]?.roomMapping || {};
+            setRoomMapping(freshMapping);
 
             // 4. Save to Firestore
             const now    = new Date().toISOString();
@@ -314,7 +334,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang }) => {
                             <>
                                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">Предстоящие — {upcoming.length}</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-6">
-                                    {upcoming.map(r => <BookingComCard key={r.uid} res={r} />)}
+                        {upcoming.map(r => <BookingComCard key={r.uid} res={r} matchedRoom={bookingNameToRoom[r.room?.toLowerCase()?.trim()]} />)}
                                 </div>
                             </>
                         )}
@@ -322,7 +342,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang }) => {
                             <>
                                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Прошедшие — {past.length}</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 opacity-60">
-                                    {past.map(r => <BookingComCard key={r.uid} res={r} />)}
+                                {past.map(r => <BookingComCard key={r.uid} res={r} matchedRoom={bookingNameToRoom[r.room?.toLowerCase()?.trim()]} />)}
                                 </div>
                             </>
                         )}
@@ -334,7 +354,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang }) => {
 };
 
 // ── Booking.com reservation card ──────────────────────────────────────────────
-const BookingComCard = ({ res }) => {
+const BookingComCard = ({ res, matchedRoom }) => {
     const fmtDate = (d) => {
         if (!d) return '—';
         try { return new Date(d + 'T00:00:00').toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' }); }
@@ -371,7 +391,17 @@ const BookingComCard = ({ res }) => {
                 {res.room && (
                     <div className="flex items-center gap-2">
                         <BedDouble size={13} className="text-slate-400 shrink-0" />
-                        <span className="text-sm text-slate-600 font-medium">{res.room}</span>
+                        <span className="text-sm text-slate-600 font-medium">
+                            {res.room}
+                            {matchedRoom && (
+                                <span className="ml-2 text-[11px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                                    ℑ6{String(matchedRoom.number)}{matchedRoom.name ? ` - ${matchedRoom.name}` : ''}
+                                </span>
+                            )}
+                            {!matchedRoom && (
+                                <span className="ml-2 text-[10px] text-amber-500 font-bold" title="Название не связано с комнатой">? не сопоставлено</span>
+                            )}
+                        </span>
                     </div>
                 )}
                 <div className="flex gap-4 pt-0.5">

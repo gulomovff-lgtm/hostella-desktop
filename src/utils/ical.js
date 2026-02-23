@@ -47,9 +47,10 @@ export function parseIcal(text) {
             if (/closed|not available|unavailable|block/i.test(summary)) return null;
 
             const nameMatch  = desc.match(/(?:^|\n)Name:\s*(.+)/im);
-            const resIdDesc  = desc.match(/Reservation ID:\s*(\S+)/i)?.[1];
+            const resIdDesc  = desc.match(/Reservation\s*(?:ID)?:\s*(\S+)/i)?.[1];
             const resIdSum   = summary.match(/Reservation\s+(\S+)/i)?.[1];
-            const roomMatch  = desc.match(/Room[^:]*:\s*(.+)/i);
+            // Booking.com uses "Room type:" or "Room:" 
+            const roomMatch  = desc.match(/Room\s*(?:type)?:\s*(.+)/i);
             const guestMatch = desc.match(/Number of guests:\s*(\d+)/i);
 
             return {
