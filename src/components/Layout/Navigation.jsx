@@ -63,10 +63,14 @@ const Navigation = ({
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
     const isSuper = currentUser.role === 'super';
 
-    const [profileOpen, setProfileOpen] = React.useState(false);
-    const [profilePos, setProfilePos]   = React.useState({ top: 0 });
-    const profileBtnRef = React.useRef(null);
-    const profileRef    = React.useRef(null);
+    const [profileOpen,  setProfileOpen]  = React.useState(false);
+    const [profilePos,    setProfilePos]    = React.useState({ top: 0 });
+    const [checkinOpen,   setCheckinOpen]   = React.useState(false);
+    const [checkinPos,    setCheckinPos]    = React.useState({ top: 0 });
+    const profileBtnRef  = React.useRef(null);
+    const profileRef     = React.useRef(null);
+    const checkinBtnRef  = React.useRef(null);
+    const checkinMenuRef = React.useRef(null);
 
     React.useEffect(() => {
         const handler = (e) => {
@@ -74,10 +78,22 @@ const Navigation = ({
                 profileRef.current    && !profileRef.current.contains(e.target) &&
                 profileBtnRef.current && !profileBtnRef.current.contains(e.target)
             ) setProfileOpen(false);
+            if (
+                checkinMenuRef.current && !checkinMenuRef.current.contains(e.target) &&
+                checkinBtnRef.current  && !checkinBtnRef.current.contains(e.target)
+            ) setCheckinOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, []);
+
+    const handleCheckinToggle = () => {
+        if (!checkinOpen && checkinBtnRef.current) {
+            const rect = checkinBtnRef.current.getBoundingClientRect();
+            setCheckinPos({ top: rect.top, left: rect.right + 8 });
+        }
+        setCheckinOpen(o => !o);
+    };
 
     const handleProfileToggle = () => {
         if (!profileOpen && profileBtnRef.current) {
@@ -198,32 +214,41 @@ const Navigation = ({
                     </button>
                     {canCheckin && (<>
                         <button
-                            onClick={onOpenCheckIn} title={t('checkin')}
+                            ref={checkinBtnRef}
+                            onClick={handleCheckinToggle}
                             className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
-                            style={{ ...btnBase, background: 'rgba(94,234,212,0.13)', color: '#5eead4', border: '1px solid rgba(94,234,212,0.22)', gap: 3 }}
+                            style={{ ...btnBase, background: checkinOpen ? 'rgba(94,234,212,0.28)' : 'rgba(94,234,212,0.13)', color: checkinOpen ? '#fff' : '#5eead4', border: '1px solid rgba(94,234,212,0.22)', gap: 3 }}
                             onMouseOver={e => { e.currentTarget.style.background = 'rgba(94,234,212,0.28)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(94,234,212,0.13)'; e.currentTarget.style.color = '#5eead4'; }}
+                            onMouseOut={e  => { e.currentTarget.style.background = checkinOpen ? 'rgba(94,234,212,0.28)' : 'rgba(94,234,212,0.13)'; e.currentTarget.style.color = checkinOpen ? '#fff' : '#5eead4'; }}
                         >
                             <UserPlus size={17} /><span style={{ fontSize: 9, fontWeight: 700 }}>{t('checkin')}</span>
                         </button>
-                        <button
-                            onClick={onOpenGroupCheckIn} title="Группа"
-                            className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
-                            style={{ ...btnBase, background: 'rgba(99,102,241,0.14)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)', gap: 3 }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.30)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(99,102,241,0.14)'; e.currentTarget.style.color = '#a5b4fc'; }}
-                        >
-                            <Users2 size={17} /><span style={{ fontSize: 9, fontWeight: 700 }}>Группа</span>
-                        </button>
-                        <button
-                            onClick={onOpenRoomRental} title="Аренда"
-                            className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
-                            style={{ ...btnBase, background: 'rgba(16,185,129,0.13)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.22)', gap: 3 }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.28)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(16,185,129,0.13)'; e.currentTarget.style.color = '#6ee7b7'; }}
-                        >
-                            <Building2 size={17} /><span style={{ fontSize: 9, fontWeight: 700 }}>Аренда</span>
-                        </button>
+                        {checkinOpen && ReactDOM.createPortal(
+                            <div ref={checkinMenuRef} style={{
+                                position: 'fixed', left: checkinPos.left, top: checkinPos.top,
+                                width: 170, background: '#1e4a4f',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+                                zIndex: 99999, overflow: 'hidden',
+                            }}>
+                                {[
+                                    { label: 'Один гость',  Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
+                                    { label: 'Группа',      Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
+                                    { label: 'Аренда',      Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
+                                ].map(({ label, Icon, color, action }) => (
+                                    <button key={label} onClick={action}
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
+                                        style={{ color, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s' }}
+                                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                                        onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        <Icon size={15} strokeWidth={2} />
+                                        <span style={{ fontWeight: 600 }}>{label}</span>
+                                    </button>
+                                ))}
+                            </div>,
+                            document.body,
+                        )}
                         <button
                             onClick={onOpenShift} title={t('shift')}
                             className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
