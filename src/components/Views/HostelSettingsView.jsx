@@ -98,44 +98,8 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                             placeholder="https://ical.booking.com/v1/export?t=..."/>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">Booking.com → Объект → Настройки → Синхронизация календаря → iCal</p>
+                    <p className="text-[10px] text-slate-500 mt-2 font-semibold">Сопоставление комнат: укажите «Уникальное название» в настройках каждой комнаты (Раздел «Комнаты» → редактировать).</p>
                 </div>
-                {/* Booking.com room mapping */}
-                {rooms && rooms.filter(r => r.hostelId === hostelId).length > 0 && (
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
-                            <span className="inline-flex items-center bg-[#003580] text-white text-[10px] font-black px-1.5 py-0.5 rounded-md">booking</span>
-                            Названия комнат в Booking.com
-                        </label>
-                        <p className="text-[10px] text-slate-400 mb-2">Точное название комнаты как оно указано в Booking → Room (e.g. «Dorm 6-Bed Mixed»). Используется для связки броней iCal с комнатами в системе.</p>
-                        <div className="rounded-xl border border-slate-200 overflow-hidden">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="bg-slate-50">
-                                        <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase w-1/3">Комната в системе</th>
-                                        <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase">Название в Booking.com</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {rooms.filter(r => r.hostelId === hostelId).sort((a, b) => (a.number || 0) - (b.number || 0)).map((room, idx) => (
-                                        <tr key={room.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                                            <td className="px-3 py-2 font-bold text-slate-700">
-                                                ℑ6{String(room.number)}{room.name ? ` — ${room.name}` : ''}
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <input
-                                                    className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-indigo-400 transition-colors"
-                                                    placeholder="напр. Dorm 6-Bed Mixed"
-                                                    value={(s.roomMapping || {})[room.id] || ''}
-                                                    onChange={e => onChange(hostelId, 'roomMapping', { ...(s.roomMapping || {}), [room.id]: e.target.value })}
-                                                />
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );
