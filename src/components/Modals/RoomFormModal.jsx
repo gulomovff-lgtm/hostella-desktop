@@ -12,7 +12,8 @@ const RoomFormModal = ({ title, initialData = {}, onClose, onSubmit, lang }) => 
     const [form, setForm] = useState({ 
         number: initialData.number || '', 
         capacity: initialData.capacity || '4', 
-        prices: initialData.prices || { lower: 0, upper: 0 } 
+        prices: initialData.prices || { lower: 0, upper: 0 },
+        bookingName: initialData.bookingName || '',
     });
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
@@ -36,6 +37,22 @@ const RoomFormModal = ({ title, initialData = {}, onClose, onSubmit, lang }) => 
                             <label className={labelClass}>{t('price')} (Up)</label>
                             <input type="number" className={inputClass} value={form.prices.upper} onChange={e => setForm({...form, prices: {...form.prices, upper: e.target.value}})} />
                         </div>
+                    </div>
+                    <div>
+                        <label className={labelClass} style={{display:'flex', alignItems:'center', gap:6}}>
+                            <span style={{background:'#003580',color:'#fff',fontSize:9,fontWeight:900,padding:'1px 6px',borderRadius:4}}>booking</span>
+                            Уникальное название (необязательно)
+                        </label>
+                        <input
+                            className={inputClass}
+                            value={form.bookingName}
+                            onChange={e => setForm({...form, bookingName: e.target.value})}
+                            placeholder="напр. Bed in Dorm"
+                        />
+                        <p style={{fontSize:10,color:'#94a3b8',marginTop:4,marginLeft:4}}>
+                            Booking.com → Комнаты → Редактировать → «Уникальное название».
+                            Используется для супоставления броней из iCal.
+                        </p>
                     </div>
                     <Button onClick={() => onSubmit(form)} className="w-full mt-4">{t('save')}</Button>
                     <Button variant="secondary" onClick={onClose} className="w-full">{t('cancel')}</Button>

@@ -17,7 +17,7 @@ const HOSTEL_META = {
     hostel2: { display: 'Хостел №2', color: 'teal' },
 };
 
-const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChange, rooms }) => {
+const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChange }) => {
     const meta = HOSTEL_META[hostelId];
     const accentBg = hostelId === 'hostel1' ? 'from-indigo-500 to-violet-600' : 'from-teal-500 to-emerald-600';
     return (
@@ -306,8 +306,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
 
             {/* ── Hostel Cards ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <HostelBlock hostelId="hostel1" s={settings.hostel1} uploadingLogo={uploadingLogo.hostel1} fileRef={fileRef1} onLogoClick={handleLogoUpload} onChange={handleChange} rooms={rooms}/>
-                <HostelBlock hostelId="hostel2" s={settings.hostel2} uploadingLogo={uploadingLogo.hostel2} fileRef={fileRef2} onLogoClick={handleLogoUpload} onChange={handleChange} rooms={rooms}/>
+                <HostelBlock hostelId="hostel1" s={settings.hostel1} uploadingLogo={uploadingLogo.hostel1} fileRef={fileRef1} onLogoClick={handleLogoUpload} onChange={handleChange}/>
+                <HostelBlock hostelId="hostel2" s={settings.hostel2} uploadingLogo={uploadingLogo.hostel2} fileRef={fileRef2} onLogoClick={handleLogoUpload} onChange={handleChange}/>
             </div>
 
             {/* ── Template Editor ── */}

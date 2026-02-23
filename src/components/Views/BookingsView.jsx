@@ -137,32 +137,27 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
     const [syncing, setSyncing]   = useState(false);
     const [syncMsg, setSyncMsg]   = useState('');
     const [lastSync, setLastSync] = useState(null);
-    const [roomMapping, setRoomMapping] = useState({});  // { roomId: 'Booking.com room name' }
 
     const hostelId = currentUser?.hostelId || 'hostel1';
 
-    // Build reverse map: 'Booking.com name (lowercase)' → room object
+    // Build reverse map: room.bookingName (lowercase) → room object
     const bookingNameToRoom = React.useMemo(() => {
         const map = {};
-        if (!rooms || !roomMapping) return map;
-        Object.entries(roomMapping).forEach(([roomId, bcName]) => {
-            if (bcName) map[bcName.toLowerCase().trim()] = rooms.find(r => r.id === roomId);
+        if (!rooms) return map;
+        rooms.forEach(room => {
+            if (room.bookingName) map[room.bookingName.toLowerCase().trim()] = room;
         });
         return map;
-    }, [rooms, roomMapping]);
+    }, [rooms]);
 
     // ── Load stored data from Firestore ───────────────────────────────────────
     useEffect(() => {
-        const docRef  = doc(db, ...PUBLIC_DATA_PATH, 'bookingCom', hostelId);
-        const cfgRef  = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
-        Promise.all([getDoc(docRef), getDoc(cfgRef)]).then(([snap, cfg]) => {
+        const docRef = doc(db, ...PUBLIC_DATA_PATH, 'bookingCom', hostelId);
+        getDoc(docRef).then(snap => {
             if (snap.exists()) {
                 const d = snap.data();
                 setBcData(d.reservations || []);
                 setLastSync(d.syncedAt || null);
-            }
-            if (cfg.exists()) {
-                setRoomMapping(cfg.data()?.[hostelId]?.roomMapping || {});
             }
         });
     }, [hostelId]);
@@ -186,11 +181,6 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
 
             // 3. Parse
             const reservations = parseIcal(text);
-
-            // 4. Reload roomMapping (might have been updated)
-            const freshCfg = await getDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig'));
-            const freshMapping = freshCfg.data()?.[hostelId]?.roomMapping || {};
-            setRoomMapping(freshMapping);
 
             // 4. Save to Firestore
             const now    = new Date().toISOString();

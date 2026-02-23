@@ -1001,7 +1001,17 @@ const filterByHostel = (items) => {
   };
 
   const handleCloneRoom = async (r) => { };
-  const handleEditRoom = async (d) => { };
+  const handleEditRoom = async (d) => {
+    if (!editRoomModal.room?.id) return;
+    const { id } = editRoomModal.room;
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', id), {
+      number:      d.number,
+      capacity:    d.capacity,
+      prices:      d.prices,
+      bookingName: d.bookingName || '',
+    });
+    setEditRoomModal({ open: false, room: null });
+  };
   const handleDeleteRoom = async (r) => { };
 
   const logTransaction = async (guestId, amounts, staffId) => {
