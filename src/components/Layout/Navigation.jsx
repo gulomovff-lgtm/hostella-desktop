@@ -13,7 +13,7 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount) => [
     {
         id: 'main', label: null,
         items: [
-            { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
+            { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
             { id: 'rooms',     icon: BedDouble,        label: t('rooms') },
             { id: 'calendar',  icon: Calendar,          label: t('calendar') },
         ],
@@ -21,17 +21,17 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount) => [
     {
         id: 'ops', label: 'ОПЕРАЦИИ',
         items: [
-            { id: 'bookings', icon: Globe,       label: 'Брони',    badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0 },
-            { id: 'debts',    icon: AlertCircle, label: t('debts') },
+            { id: 'bookings', icon: Globe,       label: 'Брони',    badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+            { id: 'debts',    icon: AlertCircle, label: t('debts'), permKey: 'viewDebts' },
             { id: 'tasks',    icon: CheckSquare, label: t('tasks'), badge: pendingTasksCount },
-            { id: 'clients',  icon: Users,       label: t('clients') },
+            { id: 'clients',  icon: Users,       label: t('clients'), permKey: 'viewClients' },
         ],
     },
     {
         id: 'finance', label: 'ФИНАНСЫ',
         items: [
-            { id: 'reports',  icon: FileText, label: t('reports'),  adminOnly: true },
-            { id: 'expenses', icon: Wallet,   label: t('expenses'), adminOnly: true },
+            { id: 'reports',  icon: FileText, label: t('reports'),  adminOnly: true, permKey: 'viewReports'  },
+            { id: 'expenses', icon: Wallet,   label: t('expenses'), adminOnly: true, permKey: 'viewExpenses' },
         ],
     },
     {
@@ -93,7 +93,19 @@ const Navigation = ({
     const roleLabel   = isSuper ? t('superAdmin') : isAdmin ? t('admin') : t('cashier');
     const filterItem  = (item) => {
         if (item.superOnly) return isSuper;
-        if (item.adminOnly) return isAdmin;
+        // adminOnly items: visible to admins always, to cashiers only if explicit perm=true
+        if (item.adminOnly) {
+            if (isAdmin) {
+                // admin still respects permKey if set (e.g. viewReports/viewExpenses)
+                if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
+                return true;
+            }
+            // cashier: only if they have explicit permission granted
+            if (item.permKey) return currentUser.permissions?.[item.permKey] === true;
+            return false;
+        }
+        // Non-adminOnly items with permKey: visible unless explicitly blocked
+        if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
         return true;
     };
     const visibleGroups = NAV_GROUPS(t, pendingBookingsCount, pendingTasksCount)

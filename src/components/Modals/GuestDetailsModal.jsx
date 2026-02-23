@@ -189,6 +189,9 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const isCheckedOut = guest.status === 'checked_out';
     const isAdmin      = currentUser.role === 'admin' || currentUser.role === 'super';
     const canMoveDate  = isAdmin || currentUser.login === 'fazliddin';
+    const canPay = !isAdmin
+        && !(guest.hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false)
+        && !(guest.hostelId === 'hostel2' && currentUser.permissions?.canPayInHostel2 === false);
 
     const today    = new Date();
     const checkIn  = new Date(guest.checkInDate);
@@ -426,7 +429,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 </div>
                             ) : !isCheckedOut ? (
                                 <div className="grid grid-cols-2 gap-2">
-                                    {currentUser.role !== 'admin' && (
+                                    {canPay && (
                                         <button onClick={()=>setCurrentView('pay')} className="py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 flex items-center justify-center gap-1.5"><Wallet size={15}/> Оплата</button>
                                     )}
                                     <button onClick={()=>setCurrentView('extend')}   className="py-3 rounded-xl bg-sky-500    text-white font-bold text-sm hover:bg-sky-600    flex items-center justify-center gap-1.5"><Clock size={15}/> Продлить</button>

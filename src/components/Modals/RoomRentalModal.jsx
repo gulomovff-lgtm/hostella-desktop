@@ -119,7 +119,10 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
         }
     };
 
-    const canPay = currentUser?.role !== 'admin';
+    const guestHostelId = currentUser?.hostelId;
+    const canPay = currentUser?.role !== 'admin'
+        && !(guestHostelId === 'hostel1' && currentUser?.permissions?.canPayInHostel1 === false)
+        && !(guestHostelId === 'hostel2' && currentUser?.permissions?.canPayInHostel2 === false);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">

@@ -725,13 +725,11 @@ function App() {
     showNotification('Промокод удалён', 'success');
   };
 
-  // ?ИСПРАВЛЕННЫЙ БЛОК - ВСЕ ПРОВЕРКИ НА null
-  const filterByHostel = (items) => {
+const filterByHostel = (items) => {
     if (!currentUser) return [];
     if (currentUser.role === 'super') return items;
     
-    // ? ВАЖНО: Тут тоже ставим || (ИЛИ)
-    if (currentUser.login === 'fazliddin' || currentUser.canViewHostel1) {
+    if (currentUser.canViewHostel1) {
         return items.filter(i => i.hostelId === selectedHostelFilter);
     }
     
@@ -817,8 +815,7 @@ function App() {
       return Object.keys(HOSTELS);
     }
     
-    // ? ВАЖНО: Используем || (ИЛИ), чтобы пускало просто по логину
-    if (currentUser.login === 'fazliddin' || currentUser.canViewHostel1) {
+    if (currentUser.canViewHostel1) {
       return ['hostel1', 'hostel2'];
     }
     
@@ -826,11 +823,11 @@ function App() {
   }, [currentUser]);
 
   const canPerformActions = useMemo(() => {
-    if (!currentUser) return false; // ? ПРОВЕРКА
+    if (!currentUser) return false;
     if (currentUser.role === 'admin' || currentUser.role === 'super') return true;
-    if (currentUser.login === 'fazliddin') {
-      return selectedHostelFilter === 'hostel2';
-    }
+    const hostelId = selectedHostelFilter || currentUser.hostelId;
+    if (hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false) return false;
+    if (hostelId === 'hostel2' && currentUser.permissions?.canPayInHostel2 === false) return false;
     return true;
   }, [currentUser, selectedHostelFilter]);
 
@@ -1789,7 +1786,7 @@ return (
                     </div>
                 )}
                 
-                {activeTab === 'bookings' && (
+                {activeTab === 'bookings' && currentUser.permissions?.viewBookings !== false && (
                     <BookingsView
                         bookings={websiteBookings}
                         onAccept={handleAcceptBooking}
@@ -1797,7 +1794,11 @@ return (
                     />
                 )}
 
-                {activeTab === 'reports' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {activeTab === 'reports' && (
+                    (currentUser.role === 'admin' || currentUser.role === 'super')
+                        ? currentUser.permissions?.viewReports !== false
+                        : currentUser.permissions?.viewReports === true
+                ) && (
                     <ReportsView 
                         payments={filteredPayments} 
                         expenses={filteredExpenses} 
@@ -1809,7 +1810,7 @@ return (
                     />
                 )}
                 
-                {activeTab === 'debts' && (
+                {activeTab === 'debts' && currentUser.permissions?.viewDebts !== false && (
     <DebtsView 
         guests={filteredGuests} 
         users={usersList} 
@@ -1855,7 +1856,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'clients' && (
+                {activeTab === 'clients' && currentUser.permissions?.viewClients !== false && (
                     <ClientsView 
                         clients={clients} 
                         onUpdateClient={handleUpdateClient} 
@@ -1879,7 +1880,11 @@ return (
                     />
                 )}
                 
-                {activeTab === 'expenses' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {activeTab === 'expenses' && (
+                    (currentUser.role === 'admin' || currentUser.role === 'super')
+                        ? currentUser.permissions?.viewExpenses !== false
+                        : currentUser.permissions?.viewExpenses === true
+                ) && (
                     <ExpensesView
                         filteredExpenses={filteredExpenses}
                         expenseCatFilter={expenseCatFilter}

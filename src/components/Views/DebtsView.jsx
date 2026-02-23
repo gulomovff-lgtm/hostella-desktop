@@ -109,7 +109,9 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
 
     const totalDebt = aggregatedDebts.reduce((sum, item) => sum + item.totalDebt, 0);
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
-    const canPay   = currentUser.role !== 'admin';
+    const canPay  = !isAdmin
+        && !(currentUser.hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false)
+        && !(currentUser.hostelId === 'hostel2' && currentUser.permissions?.canPayInHostel2 === false);
     
     const [selectedDebtor, setSelectedDebtor] = useState(null);
     const [payCash, setPayCash] = useState('');

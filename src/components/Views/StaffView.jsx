@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, Eye, EyeOff, Edit, X, Check, Users } from 'lucide-react';
+import { Trash2, Plus, Eye, EyeOff, Edit, X, Check, Users, ShieldCheck, ChevronDown, ChevronUp } from 'lucide-react';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const ROLE_META = {
@@ -17,7 +17,84 @@ const avColor  = (s = '') => AV_COLORS[(s.charCodeAt(0) || 0) % AV_COLORS.length
 const avInit   = (s = '') => s.trim().split(/\s+/).map(c => c[0]).join('').slice(0, 2).toUpperCase() || '?';
 
 const INP  = "w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all";
-const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1' };
+
+// ─── Permissions ─────────────────────────────────────────────────────────────
+const PERM_DEFS = [
+    { key: 'canPayInHostel1', label: 'Принимать оплату — Хостел №1', group: 'payment' },
+    { key: 'canPayInHostel2', label: 'Принимать оплату — Хостел №2', group: 'payment' },
+    { key: 'viewStats',       label: 'Статистика (дашборд)',          group: 'view'    },
+    { key: 'viewBookings',    label: 'Онлайн-брони',                  group: 'view'    },
+    { key: 'viewDebts',       label: 'Долги',                         group: 'view'    },
+    { key: 'viewClients',     label: 'База клиентов',                 group: 'view'    },
+    { key: 'viewReports',     label: 'Отчёты',                        group: 'view'    },
+    { key: 'viewExpenses',    label: 'Расходы',                       group: 'view'    },
+];
+
+const defaultPerms = (role) => ({
+    canPayInHostel1: role === 'cashier',
+    canPayInHostel2: role === 'cashier',
+    viewStats:    false,
+    viewBookings: true,
+    viewDebts:    true,
+    viewClients:  true,
+    viewReports:  role !== 'cashier',
+    viewExpenses: role !== 'cashier',
+});
+
+// ─── PermissionsPanel ─────────────────────────────────────────────────────────
+const PermissionsPanel = ({ role, perms, onChange }) => {
+    const [open, setOpen] = useState(false);
+    const isCashier = role === 'cashier';
+    const payDefs  = PERM_DEFS.filter(d => d.group === 'payment');
+    const viewDefs = PERM_DEFS.filter(d => d.group === 'view');
+
+    const toggle = (key) => onChange({ ...perms, [key]: !perms[key] });
+
+    const PermRow = ({ d }) => (
+        <label className="flex items-center gap-2.5 cursor-pointer group py-1">
+            <div
+                onClick={() => toggle(d.key)}
+                className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors
+                    ${perms[d.key]
+                        ? 'bg-indigo-600 border-indigo-600'
+                        : 'bg-white border-slate-300 group-hover:border-indigo-400'}`}
+            >
+                {perms[d.key] && <Check size={10} className="text-white" strokeWidth={3}/>}
+            </div>
+            <span className="text-xs text-slate-600 select-none">{d.label}</span>
+        </label>
+    );
+
+    return (
+        <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <button
+                type="button"
+                onClick={() => setOpen(v => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+            >
+                <ShieldCheck size={14} className="text-indigo-500" />
+                <span className="text-xs font-bold text-slate-600 flex-1">Права доступа</span>
+                {open ? <ChevronUp size={13} className="text-slate-400"/> : <ChevronDown size={13} className="text-slate-400"/>}
+            </button>
+            {open && (
+                <div className="px-3 pb-3 pt-1 space-y-3 bg-white">
+                    {isCashier && (
+                        <div>
+                            <p className="text-[10px] font-bold text-rose-400 uppercase mb-1">🔒 Оплаты</p>
+                            {payDefs.map(d => <PermRow key={d.key} d={d}/>)}
+                        </div>
+                    )}
+                    <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">👁 Видимость разделов</p>
+                        {viewDefs.map(d => <PermRow key={d.key} d={d}/>)}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1', permissions: defaultPerms('cashier') };
 
 // ─── Component ──────────────────────────────────────────────────────────────
 const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
@@ -37,7 +114,11 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
     };
     const startEdit = u => {
         setEditId(u.id);
-        setEditForm({ name: u.name, login: u.login, pass: u.pass || '', role: u.role, hostelId: u.hostelId || 'hostel1' });
+        setEditForm({
+            name: u.name, login: u.login, pass: u.pass || '',
+            role: u.role, hostelId: u.hostelId || 'hostel1',
+            permissions: { ...defaultPerms(u.role), ...(u.permissions || {}) },
+        });
         setShowEditPwd(false);
     };
     const cancelEdit = () => { setEditId(null); setEditForm({}); };
@@ -95,6 +176,16 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${hostel.bg} ${hostel.text}`}>
                                                     {u.canViewHostel1 ? `${hostel.label} + №1` : hostel.label}
                                                 </span>
+                                                {u.role === 'cashier' && u.permissions?.canPayInHostel1 === false && (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-500 border border-rose-200">
+                                                        🚫 Хостел №1
+                                                    </span>
+                                                )}
+                                                {u.role === 'cashier' && u.permissions?.canPayInHostel2 === false && (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-500 border border-rose-200">
+                                                        🚫 Хостел №2
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="mt-1.5">
                                                 <span className="text-xs font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200">
@@ -158,7 +249,10 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                             <div>
                                                 <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Роль</label>
                                                 <select className={INP} value={editForm.role}
-                                                    onChange={e => setEditForm({ ...editForm, role: e.target.value })}>
+                                                    onChange={e => {
+                                                        const r = e.target.value;
+                                                        setEditForm(f => ({ ...f, role: r, permissions: { ...defaultPerms(r), ...(f.permissions || {}) } }));
+                                                    }}>
                                                     <option value="cashier">Кассир</option>
                                                     <option value="admin">Администратор</option>
                                                 </select>
@@ -173,6 +267,11 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                                 </select>
                                             </div>
                                         </div>
+                                        <PermissionsPanel
+                                            role={editForm.role}
+                                            perms={editForm.permissions || defaultPerms(editForm.role)}
+                                            onChange={p => setEditForm(f => ({ ...f, permissions: p }))}
+                                        />
                                         <div className="flex gap-2 pt-1">
                                             <button onClick={saveEdit}
                                                 className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 transition-colors shadow-sm shadow-indigo-200">
@@ -224,7 +323,10 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                         <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Роль</label>
                             <select className={INP} value={addForm.role}
-                                onChange={e => setAddForm({ ...addForm, role: e.target.value })}>
+                                onChange={e => {
+                                    const r = e.target.value;
+                                    setAddForm(f => ({ ...f, role: r, permissions: defaultPerms(r) }));
+                                }}>
                                 <option value="cashier">Кассир</option>
                                 <option value="admin">Администратор</option>
                             </select>
@@ -238,6 +340,11 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                 <option value="all">Все</option>
                             </select>
                         </div>
+                        <PermissionsPanel
+                            role={addForm.role}
+                            perms={addForm.permissions || defaultPerms(addForm.role)}
+                            onChange={p => setAddForm(f => ({ ...f, permissions: p }))}
+                        />
                         <button onClick={handleAdd}
                             disabled={!addForm.name.trim() || !addForm.login.trim() || !addForm.pass.trim()}
                             className="w-full py-3 mt-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm shadow-indigo-200">

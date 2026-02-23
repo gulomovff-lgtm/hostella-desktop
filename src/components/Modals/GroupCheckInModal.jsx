@@ -234,7 +234,10 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                         const total  = price * (parseInt(days) || 1);
                         const paid   = paidForGuest(g);
                         const debt   = Math.max(0, total - paid);
-                        const canPay = currentUser?.role !== 'admin';
+                        const hostelId = currentUser?.hostelId;
+                        const canPay = currentUser?.role !== 'admin'
+                            && !(hostelId === 'hostel1' && currentUser?.permissions?.canPayInHostel1 === false)
+                            && !(hostelId === 'hostel2' && currentUser?.permissions?.canPayInHostel2 === false);
                         return (
                             <div key={g.id} className="bg-white rounded-xl border-2 border-slate-200 shadow-sm overflow-hidden">
                                 <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
