@@ -11,7 +11,8 @@
     "react-start": "vite",
     "electron-start": "wait-on tcp:5173 && electron .",
     "build": "vite build",
-    "dist": "npm run build && electron-builder build --publish always"
+    "clean": "npx rimraf dist",
+    "dist": "npm run clean && npm run build && electron-builder build --publish always"
   },
   "build": {
     "appId": "com.hostella.app",
