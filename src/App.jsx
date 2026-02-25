@@ -1761,7 +1761,7 @@ return (
             onOpenShiftClosing={() => setShiftModal(true)}
             anyModalOpen={
                 checkInModal.open || guestDetailsModal.open || moveGuestModal.open ||
-                expenseModal || shiftModal || addRoomModal || editRoomModal ||
+                expenseModal || shiftModal || addRoomModal || editRoomModal.open ||
                 clientHistoryModal?.open || groupCheckInModal || roomRentalModal ||
                 undoHistoryOpen
             }
