@@ -183,8 +183,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             if (swipeTouchRef.current === null) return;
             const dx = e.changedTouches[0].clientX - swipeTouchRef.current;
             swipeTouchRef.current = null;
-            if (Math.abs(dx) < 50) return; // threshold
-            shift(dx < 0 ? zoom : -zoom);
+            if (Math.abs(dx) < 40) return; // threshold
+            shift(dx < 0 ? 1 : -1); // сдвиг на 1 день
         };
         el.addEventListener('touchstart', onTouchStart, { passive: true });
         el.addEventListener('touchend',   onTouchEnd,   { passive: true });

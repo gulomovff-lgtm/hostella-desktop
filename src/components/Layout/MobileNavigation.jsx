@@ -56,7 +56,7 @@ const MobileNavigation = ({
     selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter,
     onLogout,
     canPerformActions, onOpenCheckIn, onOpenGroupCheckIn, onOpenRoomRental,
-    onOpenShiftClosing,
+    onOpenShiftClosing, anyModalOpen,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const [drawerOpen, setDrawerOpen]   = useState(false);
@@ -233,7 +233,7 @@ const MobileNavigation = ({
             </div>
 
             {/* ── Floating Checkin FAB (cashiers only) ── */}
-            {canPerformActions && isCashier && (
+            {canPerformActions && isCashier && !anyModalOpen && (
                 <div
                     ref={checkinRef}
                     className="fixed z-[90] md:hidden"

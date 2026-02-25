@@ -1759,6 +1759,12 @@ return (
             onOpenGroupCheckIn={() => setGroupCheckInModal(true)}
             onOpenRoomRental={() => setRoomRentalModal(true)}
             onOpenShiftClosing={() => setShiftModal(true)}
+            anyModalOpen={
+                checkInModal.open || guestDetailsModal.open || moveGuestModal.open ||
+                expenseModal || shiftModal || addRoomModal || editRoomModal ||
+                clientHistoryModal?.open || groupCheckInModal || roomRentalModal ||
+                undoHistoryOpen
+            }
         />
 
         {notification && (
