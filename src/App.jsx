@@ -230,7 +230,8 @@ function App() {
   const [notification, setNotification] = useState(null);
   const [lang, setLang] = useState('ru');
   const [hasUpdate, setHasUpdate] = useState(false);
-  
+  const [updateDownloaded, setUpdateDownloaded] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(null); // 0-100
 
   const showNotification = (message, type = 'success') => { 
     setNotification({ message, type }); 
@@ -378,33 +379,34 @@ function App() {
     return () => window.removeEventListener('keydown', handleEsc);
   }, [checkInModal, guestDetailsModal, moveGuestModal, expenseModal, shiftModal, addRoomModal, editRoomModal, clientHistoryModal]);
 
+  // Авто-обновление через electron-updater (IPC)
   useEffect(() => {
-    const checkUpdates = async () => {
-      const lastCheck = localStorage.getItem('app_version_check');
-      const now = Date.now();
-      
-      // Check every 5 minutes
-      if (!lastCheck || now - parseInt(lastCheck) > 5 * 60 * 1000) {
-        try {
-          // Try to fetch version info from public folder
-          const response = await fetch('./version.json?t=' + Date.now());
-          if (response.ok) {
-            const data = await response.json();
-            const currentVersion = '0.1.2'; // From package.json
-            const hasNewVersion = data.version && data.version !== currentVersion;
-            setHasUpdate(hasNewVersion);
-          }
-        } catch (e) {
-          // Version check failed, that's okay - don't show update notification
-          setHasUpdate(false);
-        }
-        localStorage.setItem('app_version_check', String(now));
-      }
-    };
-    
-    checkUpdates();
-    const interval = setInterval(checkUpdates, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    const api = window.electronAPI;
+    if (!api) return; // в браузере не работаем
+
+    if (api.onUpdateAvailable) {
+      api.onUpdateAvailable((info) => {
+        setHasUpdate(true);
+        setUpdateProgress(0);
+      });
+    }
+    if (api.onUpdateProgress) {
+      api.onUpdateProgress((p) => {
+        setUpdateProgress(Math.round(p.percent || 0));
+      });
+    }
+    if (api.onUpdateDownloaded) {
+      api.onUpdateDownloaded(() => {
+        setUpdateProgress(null);
+        setUpdateDownloaded(true);
+      });
+    }
+    if (api.onUpdateError) {
+      api.onUpdateError((msg) => {
+        setHasUpdate(false);
+        setUpdateProgress(null);
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -1715,6 +1717,21 @@ const t = (k) => TRANSLATIONS[lang][k];
 
 return (
     <div className="app-root w-screen font-sans flex flex-col overflow-hidden text-slate-800 bg-[#f0f2f5]" style={{height:'100dvh', paddingTop:'env(safe-area-inset-top, 0px)' }}>
+
+        {/* Баннер обновления */}
+        {updateDownloaded && (
+          <div className="flex items-center justify-between px-4 py-2 bg-green-600 text-white text-sm z-50">
+            <span>✅ Обновление загружено. Перезапустить приложение для установки.</span>
+            <button onClick={() => window.electronAPI?.installUpdate()} className="ml-4 px-3 py-1 bg-white text-green-700 rounded font-semibold text-xs hover:bg-green-50">Перезапустить</button>
+          </div>
+        )}
+        {hasUpdate && !updateDownloaded && updateProgress !== null && (
+          <div className="px-4 py-1.5 bg-blue-600 text-white text-xs z-50">
+            ⏬ Загрузка обновления... {updateProgress}%
+            <div className="mt-0.5 h-1 bg-blue-400 rounded overflow-hidden"><div className="h-full bg-white transition-all" style={{width: `${updateProgress}%`}} /></div>
+          </div>
+        )}
+
         <TopBar
             isOnline={isOnline}
             lang={lang}

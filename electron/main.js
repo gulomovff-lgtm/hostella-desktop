@@ -3,8 +3,22 @@ const { app, BrowserWindow, ipcMain } = electron;
 const path = require('path');
 const https = require('https');
 const http  = require('http');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+// Направляем логи обновлятора в файл
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = 'info';
+// Не устанавливаем автоматически — спрашиваем пользователя
+autoUpdater.autoInstallOnAppQuit = true;
 
 let mainWindow;
+
+function sendToWindow(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
 
 const isDev = !app.isPackaged;
 const url = isDev ? 'http://localhost:5173' : `file://${path.join(__dirname, '../dist/index.html')}`;
@@ -31,6 +45,13 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Проверяем обновления через 3 секунды после запуска (только в production)
+  if (!isDev) {
+    setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
+    // Повторно каждые 2 часа
+    setInterval(() => autoUpdater.checkForUpdates(), 2 * 60 * 60 * 1000);
+  }
 }
 
 // IPC Handlers for window control
@@ -75,6 +96,39 @@ ipcMain.handle('fetch-ical', (event, url) => {
         };
         doGet(url);
     });
+});
+
+// ─── Auto-updater events ─────────────────────────────────────────────────────
+autoUpdater.on('checking-for-update', () => {
+  log.info('Проверка обновлений...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  log.info('Доступно обновление:', info.version);
+  sendToWindow('update-available', info);
+});
+
+autoUpdater.on('update-not-available', () => {
+  log.info('Обновлений нет.');
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  sendToWindow('update-progress', progress);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  log.info('Обновление загружено:', info.version);
+  sendToWindow('update-downloaded', info);
+});
+
+autoUpdater.on('error', (err) => {
+  log.error('Ошибка обновления:', err.message);
+  sendToWindow('update-error', err.message);
+});
+
+// IPC: renderer просит установить обновление
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
 });
 
 app.on('ready', createWindow);
