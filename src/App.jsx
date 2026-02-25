@@ -293,11 +293,14 @@ function App() {
             // ВАЖНО: Логируем для отладки
 
 
-            // 3. Защита: Если есть переплата (будущий платеж) на >= 1 сутки, не выселяем
+            // 3. Защита: Если есть непогашенный долг — не выселяем автоматически
+            // (менеджер должен выселить вручную после оплаты)
             const paid = getTotalPaid(guest);
             const totalPrice = guest.totalPrice || 0;
+            if (paid < totalPrice) return;
+
+            // 4. Защита: Если есть переплата (будущий платеж) на >= 1 сутки, не выселяем
             const balance = paid - totalPrice;
-            
             if (balance > 0 && balance >= (Number(guest.pricePerNight) || 1)) {
                 return;
             }
@@ -310,7 +313,7 @@ function App() {
                 batch.update(guestRef, {
                     status: 'checked_out',
                     autoCheckedOut: true, // Метка, что выселила система
-                    systemComment: 'Авто-выселение (тайм-аут > 24ч)'
+                    systemComment: 'Авто-выселение (тайм-аут > 24ч, долг 0)'
                 });
 
                 // 2. Освобождаем комнату
