@@ -166,3 +166,18 @@ input[type="number"]::-webkit-inner-spin-button {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ── Desktop zoom scaling (не затрагивает мобильный вид) ── */
+/* 1280–1439px (ноутбуки HD) */
+@media screen and (min-width: 769px) and (max-width: 1439px) {
+  .app-root {
+    zoom: 0.8;
+  }
+}
+/* 1440–1919px (Full HD / небольшие мониторы) */
+@media screen and (min-width: 1440px) and (max-width: 1919px) {
+  .app-root {
+    zoom: 0.9;
+  }
+}
+/* 1920px+ — без изменений, выглядит идеально */
