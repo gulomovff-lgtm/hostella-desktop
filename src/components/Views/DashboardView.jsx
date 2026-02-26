@@ -123,7 +123,7 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 
 // ---------------------------------------------------------------------------
 
-const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend }) => {
+const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [tab, setTab] = useState('overview');
     const [selectMode, setSelectMode] = useState(false);
@@ -405,13 +405,17 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                     const debt = (g.totalPrice || 0) - getTotalPaid(g);
                                     const co = parseDate(g.checkOutDate);
                                     const lbl = co ? getTimeLeftLabel(g.checkOutDate, nowMs) : null;
+                                    const client = onGuestClick ? clients.find(c => c.passport && c.passport === g.passport) : null;
                                     return (
                                         <div key={g.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-50 hover:bg-slate-50">
                                             <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
                                                 {COUNTRY_FLAGS[g.country] ? <Flag code={COUNTRY_FLAGS[g.country]} size={18}/> : <User size={12} className="text-indigo-600"/>}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-xs text-slate-800 truncate">{g.fullName}</div>
+                                                <div
+                                                    className={`font-semibold text-xs truncate ${client ? 'text-indigo-600 cursor-pointer hover:underline' : 'text-slate-800'}`}
+                                                    onClick={() => client && onGuestClick(client)}
+                                                >{g.fullName}</div>
                                                 <div className="text-[10px] text-slate-400">К.{g.roomNumber} М.{g.bedId}</div>
                                             </div>
                                             {lbl && <span className={`text-[10px] font-bold ${lbl.color} shrink-0`}>{lbl.text}</span>}
@@ -717,8 +721,15 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                     const isSelected = selectedIds.includes(g.id);
                                     return (
                                         <div key={g.id}
-                                            onClick={() => selectMode && setSelectedIds(ids => isSelected ? ids.filter(i => i !== g.id) : [...ids, g.id])}
-                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-indigo-50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-indigo-50' : ''}`}>
+                                            onClick={() => {
+                                                if (selectMode) {
+                                                    setSelectedIds(ids => isSelected ? ids.filter(i => i !== g.id) : [...ids, g.id]);
+                                                } else if (onGuestClick) {
+                                                    const client = clients.find(c => c.passport && c.passport === g.passport);
+                                                    if (client) onGuestClick(client);
+                                                }
+                                            }}
+                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-indigo-50' : onGuestClick ? 'cursor-pointer hover:bg-indigo-50/50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-indigo-50' : ''}`}>
                                             {selectMode && (
                                                 <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
                                                     {isSelected && <CheckCircle2 size={10} className="text-white" strokeWidth={3}/>}

@@ -114,7 +114,7 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
 };
 
 // --- ClientsView ---
-const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, lang, currentUser, onOpenClientHistory }) => {
+const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, lang, currentUser, onOpenClientHistory, activePassports = new Set() }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [search, setSearch] = useState('');
     const [editingClient, setEditingClient] = useState(null);
@@ -131,7 +131,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
 
     const filtered = useMemo(() => {
         const nowMs = Date.now();
-        return clients.filter(c => {
+        const result = clients.filter(c => {
             const matchesSearch = !search ||
                 (c.fullName || '').toLowerCase().includes(search.toLowerCase()) ||
                 (c.passport || '').includes(search.toUpperCase());
@@ -143,7 +143,16 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
             })();
             return matchesSearch && matchesCountry && matchesRecency;
         });
-    }, [clients, search, countryFilter, recencyFilter]);
+        // Активные гости — вперед
+        if (activePassports.size > 0) {
+            result.sort((a, b) => {
+                const aActive = a.passport && activePassports.has(a.passport) ? 0 : 1;
+                const bActive = b.passport && activePassports.has(b.passport) ? 0 : 1;
+                return aActive - bActive;
+            });
+        }
+        return result;
+    }, [clients, search, countryFilter, recencyFilter, activePassports]);
 
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     const paginatedClients = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -222,7 +231,14 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                                     {COUNTRY_FLAGS[c.country] ? <Flag code={COUNTRY_FLAGS[c.country]} size={40}/> : <span className="text-2xl">??</span>}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-slate-900 text-sm leading-tight truncate">{c.fullName}</div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <div className="font-bold text-slate-900 text-sm leading-tight truncate">{c.fullName}</div>
+                                        {c.passport && activePassports.has(c.passport) && (
+                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"/>Живёт
+                                            </span>
+                                        )}
+                                    </div>
                                     <div className="text-xs text-slate-500 mt-0.5 truncate">{c.country || '—'}</div>
                                 </div>
                                 <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

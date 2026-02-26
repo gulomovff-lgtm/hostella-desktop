@@ -2037,6 +2037,8 @@ return (
                         currentHostelId={selectedHostelFilter}
                         users={usersList}
                         onBulkExtend={handleBulkExtend}
+                        clients={clients}
+                        onGuestClick={(client) => handleOpenClientHistory(client)}
                     />
                 )}
 
@@ -2164,6 +2166,7 @@ return (
                         lang={lang} 
                         currentUser={currentUser} 
                         onOpenClientHistory={handleOpenClientHistory}
+                        activePassports={new Set(filteredGuests.filter(g => g.status === 'active' && g.passport).map(g => g.passport))}
                     />
                 )}
 
