@@ -1,7 +1,7 @@
 {
   "name": "hostella-desktop",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Hostella Management System",
   "author": "Fazliddin Gulomov",
   "main": "electron/main.js",
@@ -11,8 +11,9 @@
     "react-start": "vite",
     "electron-start": "wait-on tcp:5173 && electron .",
     "build": "vite build",
+    "build:electron": "vite build --config vite.electron.config.js",
     "clean": "npx rimraf release",
-    "dist": "npm run clean && npm run build && electron-builder build --publish always"
+    "dist": "npm run clean && npm run build:electron && electron-builder build --publish always"
   },
   "build": {
     "appId": "com.hostella.app",
