@@ -146,6 +146,11 @@ import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import { logAction } from './utils/auditLog';
+import { useGuestActions }        from './hooks/useGuestActions';
+import { useClientActions }       from './hooks/useClientActions';
+import { useShiftActions }        from './hooks/useShiftActions';
+import { useRegistrationActions } from './hooks/useRegistrationActions';
+import { useExpenseActions }      from './hooks/useExpenseActions';
 import CheckInModal from './components/Modals/CheckInModal';
 import ClientHistoryModal from './components/Modals/ClientHistoryModal';
 import GuestRegistrationModal from './components/Modals/GuestRegistrationModal';
@@ -468,287 +473,97 @@ function App() {
   };
   
   // ? ФУНКЦИЯ ЗАСЕЛЕНИЯ (ИСПРАВЛЕННАЯ)
-  const handleCheckInSubmit = async (formData) => {
-    try {
-      // 1. Определяем ID хостела (если у админа выбран конкретный, или его родной)
-      const targetHostelId = (!currentUser.hostelId || currentUser.hostelId === 'all') 
-          ? (formData.hostelId || selectedHostelFilter || 'hostel1') 
-          : currentUser.hostelId;
+  // ─── Action hooks ────────────────────────────────────────────────────────
 
-      const safeStaffId = currentUser.id || currentUser.login || 'unknown';
+  const {
+    handleUndo, pushUndo,
+    handleCheckInSubmit, handleCheckIn,
+    handleCheckOut, handlePayment, handleExtendGuest,
+    handleSuperPayment, handleBulkExtend,
+    handleCreateDebt, handleActivateBooking,
+    handleSplitGuest, handleMoveGuest, handleDeleteGuest,
+    handleRescheduleGuest, handleGuestUpdate,
+    handleAdminReduceDays, handleAdminReduceDaysNoRefund,
+    handlePayDebt, handleAdminAdjustDebt,
+    handleRejectBooking,
+  } = useGuestActions({
+    currentUser, rooms, guests, clients,
+    selectedHostelFilter, lang,
+    checkInModal, setCheckInModal,
+    setGuestDetailsModal, setMoveGuestModal,
+    setUndoStack, setUndoHistoryOpen,
+    showNotification,
+  });
 
-      // 2. Подготовка данных гостя
-      const newGuest = {
-        ...formData,
-        hostelId: targetHostelId,
-        staffId: safeStaffId, // Привязываем к кассиру
-        checkInDate: new Date(formData.checkInDate).toISOString(),
-        checkOutDate: new Date(formData.checkOutDate).toISOString(),
-        createdAt: new Date().toISOString(),
-        createdBy: currentUser.login || 'admin',
-        // Очищаем паспорт от пробелов для поиска истории
-        passportClean: formData.passport ? formData.passport.replace(/\s/g, '').toUpperCase() : ''
-      };
+  const {
+    handleUpdateClient, handleImportClients, handleDeduplicate,
+    handleBulkDeleteClients, handleNormalizeCountries, handleSyncClientsFromGuests,
+  } = useClientActions({ currentUser, clients, showNotification });
 
-      // 3. Сохраняем гостя в ПРАВИЛЬНУЮ базу (добавлен ...PUBLIC_DATA_PATH)
-      const docRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
-      const guestId = docRef.id;
+  const {
+    handleStartShift, handleEndShift,
+    handleTransferShift, handleTransferToMe,
+    handleAdminAddShift, handleAdminUpdateShift,
+    handleAddUser, handleUpdateUser, handleDeleteUser: deleteUserById,
+    handleChangePassword,
+  } = useShiftActions({
+    currentUser, setCurrentUser,
+    usersList, shifts,
+    showNotification, onLogout: handleLogout,
+  });
 
-      // 4. Если была оплата сразу при заселении — создаем запись в кассе
-      const totalPaid = (Number(formData.paidCash) || 0) + (Number(formData.paidCard) || 0) + (Number(formData.paidQR) || 0);
-      let checkinPaymentIds = [];
-      if (totalPaid > 0) {
-         // ИСПРАВЛЕНО: добавлен ...PUBLIC_DATA_PATH
-         const payRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
-            guestId,
-            staffId: safeStaffId,
-            guestName: formData.fullName,
-            roomId: formData.roomId,
-            roomNumber: formData.roomNumber,
-            amount: totalPaid,
-            cash: Number(formData.paidCash) || 0,
-            card: Number(formData.paidCard) || 0,
-            qr: Number(formData.paidQR) || 0,
-            date: new Date().toISOString(),
-            type: 'income',
-            category: 'accommodation', // проживание
-            comment: formData.fullName,
-            hostelId: targetHostelId,
-            admin: currentUser.login || 'admin',
-            method: Number(formData.paidCash) > 0 ? 'cash' : (Number(formData.paidCard) > 0 ? 'card' : 'qr')
-         });
-         checkinPaymentIds = [payRef.id];
-      }
+  const {
+    handleRegistrationSubmit, handleExtendRegistration,
+    handleRemoveFromEmehmon, handleDeleteRegistration,
+  } = useRegistrationActions({
+    currentUser, selectedHostelFilter, lang,
+    setRegistrationModal, showNotification,
+  });
 
-      // 5. Увеличиваем счетчик занятых мест в комнате
-      if (formData.status === 'active') { 
-          const room = rooms.find(r => r.id === formData.roomId); 
-          if (room) {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), {
-                  occupied: increment(1)
-              }); 
-          }
-      }
+  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV } = useExpenseActions({
+    currentUser, selectedHostelFilter,
+    expenses, usersList, lang,
+    setExpenseModal, setUndoStack,
+    showNotification,
+  });
 
-      // 6. Если это заселение из заявки с сайта — удаляем исходную бронь
-      if (checkInModal.bookingId) {
-        try {
-          await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId));
-        } catch (e) {
+  // ─── UI-only handlers (remain in App) ────────────────────────────────────
 
-        }
-      }
-
-      // 7. Успех
-      showNotification(lang === 'ru' ? 'Гость успешно заселен!' : 'Mehmon muvaffaqiyatli joylashtirildi!', 'success');
-
-      // Audit log
-      logAction(currentUser, newGuest.status === 'active' ? 'checkin' : 'booking_add', {
-        guestName: newGuest.fullName,
-        roomNumber: newGuest.roomNumber,
-        bedId: newGuest.bedId,
-        amount: totalPaid,
-      });
-
-      // Telegram — заселение
-      if (newGuest.status === 'active') {
-        const hostelLabel = targetHostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-        sendTelegramMessage(
-          `🏨 <b>Новое заселение</b>\n👤 ${newGuest.fullName}\n🛏 ${hostelLabel} · Ком. ${newGuest.roomNumber || '—'}, место ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} дн.)\n💰 Оплачено: ${totalPaid.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
-          'checkin'
-        );
-      }
-
-      // Undo snapshot
-      if (newGuest.status === 'active') {
-          pushUndo({
-              type: 'checkin',
-              label: `${newGuest.fullName} — комн. ${newGuest.roomNumber}, место ${newGuest.bedId}`,
-              guestId,
-              paymentIds: checkinPaymentIds,
-              roomId: formData.roomId,
-              wasActive: true,
-          });
-      }
-
-      // Upsert клиента при активном заселении
-      if (formData.passport && formData.status === 'active') {
-          const existingClient = clients.find(c => c.passport && c.passport === formData.passport);
-          if (existingClient) {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', existingClient.id), {
-                  lastVisit: new Date().toISOString(),
-                  visits: (existingClient.visits || 0) + 1,
-                  fullName: existingClient.fullName || formData.fullName || '',
-              });
-          } else {
-              await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
-                  fullName: formData.fullName || '',
-                  passport: formData.passport || '',
-                  birthDate: formData.birthDate || '',
-                  country: formData.country || '',
-                  phone: formData.phone || '',
-                  passportIssueDate: formData.passportIssueDate || '',
-                  lastVisit: new Date().toISOString(),
-                  visits: 1,
-              });
-          }
-      }
-
-      // Закрываем окно
-      setCheckInModal({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null });
-
-    } catch (error) {
-      console.error("Error adding guest:", error);
-      showNotification('Ошибка при заселении', 'error');
-    }
-  };
-
-  // ? ВСТАВЬТЕ СЮДА (между функциями)
   const handleRepeatStay = (client) => {
-    // Закрываем историю
     setClientHistoryModal({ open: false, client: null });
-    
-    // Ищем комнату и открываем заселение
     const room = rooms.find(r => r.id === client.roomId);
-    setCheckInModal({ 
-        open: true, 
-        room: room || null, 
-        bedId: client.bedId || null, 
-        date: null, 
-        client: client 
-    });
-  };
-  
-  const handleEndShift = async () => {
-      if (currentUser && currentUser.id) { 
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', currentUser.id), { 
-          lastShiftEnd: new Date().toISOString() 
-        }); 
-      }
-      const myOpenShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
-      if (myOpenShift) {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', myOpenShift.id), { 
-            endTime: new Date().toISOString() 
-          });
-      }
-      handleLogout();
+    setCheckInModal({ open: true, room: room || null, bedId: client.bedId || null, date: null, client });
   };
 
-  const handleTransferToMe = async (shiftId) => {
-      if (!currentUser) return;
-      try {
-        const batch = writeBatch(db);
-        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', shiftId), { 
-          endTime: new Date().toISOString() 
-        });
-        const newShiftRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'));
-        batch.set(newShiftRef, {
-            staffId: currentUser.id,
-            hostelId: currentUser.hostelId,
-            startTime: new Date().toISOString(),
-            endTime: null
-        });
-        await batch.commit();
-        showNotification("Смена принята успешно!", "success");
-      } catch (e) {
-        showNotification("Ошибка передачи смены: " + e.message, "error");
-      }
-  };
+  const handleOpenClientHistory = (client) => setClientHistoryModal({ open: true, client });
 
-  const handleChangePassword = async (userId, newPassword) => {
-      // newPassword is already hashed by ChangePasswordModal
-      try {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', userId), { 
-              pass: newPassword 
-          });
-          
-          const updatedUser = {...currentUser, pass: newPassword};
-          setCurrentUser(updatedUser);
-          sessionStorage.setItem('hostella_user_v4', JSON.stringify(updatedUser));
-          
-          showNotification("Пароль успешно изменен!", 'success');
-      } catch (e) {
-          showNotification("Ошибка изменения пароля: " + e.message, 'error');
-      }
-  };
-
-  const handleOpenClientHistory = (client) => {
-    setClientHistoryModal({ open: true, client });
-  };
-
-  // Data subscriptions have been moved to useAppData hook (src/hooks/useAppData.js)
-
-  const seedUsers = async () => { 
-    if (usersList.length === DEFAULT_USERS.length && usersList[0].id === undefined) { 
-      try { 
-        for(const u of DEFAULT_USERS) { 
-          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'users'), u); 
-        } 
-        showNotification("Database initialized successfully", 'success'); 
-      } catch(e) {
-        showNotification("Error initializing database: " + e.message, 'error');
-      } 
-    } 
-  };
-
-  const handleAddUser = async (d) => {
-    const hashed = await hashPassword(d.pass);
-    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'users'), { ...d, pass: hashed });
-  };
-
-  const handleUpdateUser = async (id, d) => {
-    try {
-      let payload = { ...d };
-      if (d.pass) {
-        payload.pass = await hashPassword(d.pass);
-      }
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id), payload);
-      // Если редактируют текущего пользователя — обновляем сессию
-      if (currentUser?.id === id) {
-        const updatedUser = { ...currentUser, ...payload };
-        setCurrentUser(updatedUser);
-        sessionStorage.setItem('hostella_user_v4', JSON.stringify(updatedUser));
-      }
-      showNotification('Сотрудник обновлён', 'success');
-    } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
-    }
-  };
-
-    const handleDeleteUser = async (id) => {
-    setConfirmDeleteUser(id);
-  };
-
+  const handleDeleteUser       = (id) => setConfirmDeleteUser(id);
   const handleConfirmDeleteUser = async () => {
     if (!confirmDeleteUser) return;
-    try {
-      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', confirmDeleteUser));
-      showNotification('Сотрудник удалён', 'success');
-    } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
-    } finally {
-      setConfirmDeleteUser(null);
+    await deleteUserById(confirmDeleteUser);
+    setConfirmDeleteUser(null);
+  };
+
+  // ─── Settings ────────────────────────────────────────────────────────────
+
+  const seedUsers = async () => {
+    if (usersList.length === DEFAULT_USERS.length && usersList[0].id === undefined) {
+      try {
+        for (const u of DEFAULT_USERS) await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'users'), u);
+        showNotification('Database initialized successfully', 'success');
+      } catch (e) { showNotification('Error initializing database: ' + e.message, 'error'); }
     }
   };
 
   const handleSaveTgSettings = async (data) => {
-    try {
-      await setDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'telegram'), data);
-    } catch (e) {
-      showNotification('Ошибка сохранения настроек: ' + e.message, 'error');
-      throw e;
-    }
+    try { await setDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'telegram'), data); }
+    catch (e) { showNotification('Ошибка сохранения настроек: ' + e.message, 'error'); throw e; }
   };
 
   const handleTestTgMessage = async ({ text, chatIds }) => {
     let result;
-    try {
-      result = await sendTelegramMessage(text, null, chatIds, true);
-    } catch (e) {
-      // Cloud Function error (auth, config, etc.)
-      const msg = e?.message || String(e);
-      throw new Error(`Ошибка Cloud Function: ${msg}`);
-    }
+    try { result = await sendTelegramMessage(text, null, chatIds, true); }
+    catch (e) { throw new Error(`Ошибка Cloud Function: ${e?.message || String(e)}`); }
     if (!result) throw new Error('Нет ответа от сервера — попробуйте позже');
     if (result.sent === 0) {
       const detail = result.failed?.[0]?.msg || result.errors?.[0] || 'неизвестная ошибка';
@@ -757,15 +572,12 @@ function App() {
     return result;
   };
 
-  // ── Промокоды ─────────────────────────────────────────────────────────
+  // ─── Promos ───────────────────────────────────────────────────────────────
+
   const handleSavePromo = async (promo) => {
     const existing = promos.find(p => p.id === promo.id);
-    if (existing) {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'promos', promo.id), promo);
-    } else {
-      const { id: _id, ...promoData } = promo;
-      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'promos'), promoData);
-    }
+    if (existing) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'promos', promo.id), promo);
+    else { const { id: _id, ...d } = promo; await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'promos'), d); }
     logAction(currentUser, 'promo_create', { code: promo.code, discount: promo.discount, type: promo.type });
     showNotification('Промокод сохранён', 'success');
   };
@@ -908,15 +720,6 @@ const filterByHostel = (items) => {
       } 
   }, [canPerformActions, currentUser]);
 
-  const handleRejectBooking = async (booking) => {
-    try {
-      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', booking.id));
-      showNotification('Бронь отклонена');
-    } catch (e) {
-      showNotification('Ошибка', 'error');
-    }
-  };
-
   const handleAcceptBooking = (booking) => {
     // Открываем CheckInModal с предзаполненными данными гостя
     if (!canPerformActions && currentUser.role !== 'admin') {
@@ -931,116 +734,6 @@ const filterByHostel = (items) => {
       bookingId: booking.id,
       client: booking,
     });
-  };
-
-  const handleUpdateClient = async (id, d) => { 
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', id), d); 
-    showNotification("Updated"); 
-  };
-
-  const handleImportClients = async (newClients) => {
-    if (newClients.length === 0) return;
-    try {
-        const batch = writeBatch(db);
-        let updated = 0; 
-        let created = 0;
-        
-        newClients.forEach(nc => {
-            const existing = clients.find(c => 
-              (c.passport && nc.passport && c.passport === nc.passport) || 
-              (c.fullName === nc.fullName && c.passport === nc.passport)
-            );
-            
-            if (existing) {
-                batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), { 
-                  fullName: existing.fullName || nc.fullName, 
-                  passport: existing.passport || nc.passport, 
-                  birthDate: existing.birthDate || nc.birthDate, 
-                  country: existing.country || nc.country 
-                });
-                updated++;
-            } else {
-                batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), { 
-                  ...nc, 
-                  visits: 0, 
-                  lastVisit: new Date().toISOString() 
-                });
-                created++;
-            }
-        });
-        
-        await batch.commit(); 
-        showNotification(`Success! New: ${created}, Merged: ${updated}`, 'success');
-    } catch (e) { 
-      console.error(e); 
-      showNotification("Import failed", 'error'); 
-    }
-  };
-
-  const handleDeduplicate = async () => {
-    if(!confirm("Start auto deduplication?")) return;
-    try {
-        const map = {}; 
-        const duplicates = [];
-        
-        clients.forEach(c => { 
-          const key = c.passport ? `P:${c.passport}` : `N:${c.fullName}`; 
-          if (!map[key]) map[key] = c; 
-          else duplicates.push({ original: map[key], duplicate: c }); 
-        });
-        
-        if (duplicates.length === 0) return showNotification("No duplicates found!");
-        
-        const batch = writeBatch(db);
-        duplicates.forEach(({ original, duplicate }) => {
-            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', original.id), { 
-              visits: (original.visits||0) + (duplicate.visits||0), 
-              lastVisit: new Date(original.lastVisit) > new Date(duplicate.lastVisit) ? original.lastVisit : duplicate.lastVisit 
-            });
-            batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', duplicate.id));
-        });
-        
-        await batch.commit(); 
-        showNotification(`Merged ${duplicates.length} duplicates!`, 'success');
-    } catch(e) { 
-      console.error(e); 
-      showNotification("Deduplication failed", 'error'); 
-    }
-  };
-
-  const handleBulkDeleteClients = async (ids) => {
-      try { 
-        const batch = writeBatch(db); 
-        ids.forEach(id => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', id))); 
-        await batch.commit(); 
-        showNotification(`Deleted ${ids.length} clients`, 'success'); 
-      } catch (e) { 
-        showNotification("Bulk delete failed", 'error'); 
-      }
-  };
-  
-  const handleNormalizeCountries = async () => {
-      try { 
-        const batch = writeBatch(db); 
-        let count = 0; 
-        
-        clients.forEach(c => { 
-          const normalized = getNormalizedCountry(c.country); 
-          if (normalized !== c.country) { 
-            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id), { country: normalized }); 
-            count++; 
-          } 
-        }); 
-        
-        if (count > 0) { 
-          await batch.commit(); 
-          showNotification(`Normalized ${count} countries`, 'success'); 
-        } else {
-          showNotification("All normalized");
-        }
-      } catch(e) { 
-        showNotification("Normalization failed", 'error'); 
-      }
   };
 
   const handleCreateRoom = async (d) => { 
@@ -1066,690 +759,6 @@ const filterByHostel = (items) => {
   };
   const handleDeleteRoom = async (r) => { };
 
-  const logTransaction = async (guestId, amounts, staffId) => {
-      const { cash, card, qr } = amounts;
-      const date = new Date().toISOString();
-      const items = [];
-      const ids   = [];
-      
-      if(cash > 0) items.push({ guestId, staffId, amount: cash, method: 'cash', date, hostelId: currentUser.hostelId });
-      if(card > 0) items.push({ guestId, staffId, amount: card, method: 'card', date, hostelId: currentUser.hostelId });
-      if(qr > 0)   items.push({ guestId, staffId, amount: qr,   method: 'qr',   date, hostelId: currentUser.hostelId });
-      
-      for(const item of items) {
-          const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), item);
-          ids.push(ref.id);
-      }
-      return ids;
-  };
-
-  // ── Undo stack helpers ────────────────────────────────────────────────────
-  const pushUndo = (item) => {
-      setUndoStack(prev => [
-          { ...item, id: Date.now(), timestamp: new Date().toISOString() },
-          ...prev,
-      ].slice(0, 5));
-  };
-
-  const handleUndo = async (item) => {
-      try {
-          const fb = writeBatch(db);
-          if (item.type === 'checkin') {
-              fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId));
-              (item.paymentIds || []).forEach(pid =>
-                  fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid))
-              );
-              if (item.wasActive && item.roomId) {
-                  fb.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', item.roomId), { occupied: increment(-1) });
-              }
-          } else if (item.type === 'payment') {
-              (item.paymentIds || []).forEach(pid =>
-                  fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid))
-              );
-              fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
-                  paidCash:   increment(-item.cash),
-                  paidCard:   increment(-item.card),
-                  paidQR:     increment(-item.qr),
-                  amountPaid: increment(-(item.cash + item.card + item.qr)),
-              });
-          } else if (item.type === 'extend') {
-              fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
-                  days:        item.prevDays,
-                  totalPrice:  item.prevTotalPrice,
-                  checkOutDate:item.prevCheckOut,
-                  status:      item.prevStatus || 'active',
-              });
-              (item.paymentIds || []).forEach(pid =>
-                  fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid))
-              );
-              const rev = (item.payCash || 0) + (item.payCard || 0) + (item.payQR || 0);
-              if (rev > 0) {
-                  fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
-                      paidCash:   increment(-(item.payCash || 0)),
-                      paidCard:   increment(-(item.payCard || 0)),
-                      paidQR:     increment(-(item.payQR   || 0)),
-                      amountPaid: increment(-rev),
-                  });
-              }
-          } else if (item.type === 'expense') {
-              fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
-          }
-          await fb.commit();
-          setUndoStack(prev => prev.filter(u => u.id !== item.id));
-          setUndoHistoryOpen(false);
-          showNotification('Действие отменено ↩', 'success');
-          logAction(currentUser, 'undo', { originalAction: item.type, label: item.label });
-      } catch(e) {
-          showNotification('Ошибка отмены: ' + e.message, 'error');
-      }
-  };
-
-  const handleCheckIn = async (data) => {
-      setCheckInModal({open:false, room:null, bedId:null, date:null}); 
-      try {
-          const safeStaffId = currentUser.id || currentUser.login || 'unknown';
-          const docRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), {
-            ...data, 
-            staffId: safeStaffId
-          });
-          
-          const total = (data.paidCash||0) + (data.paidCard||0) + (data.paidQR||0);
-          if (total > 0) await logTransaction(docRef.id, {
-            cash:data.paidCash, 
-            card:data.paidCard, 
-            qr:data.paidQR
-          }, safeStaffId);
-          
-          if (data.status === 'active') { 
-            const r = rooms.find(i=>i.id===data.roomId); 
-            if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {
-              occupied:(r.occupied||0)+1
-            });
-            // Upsert клиента
-            if (data.passport) {
-                const ec = clients.find(c => c.passport && c.passport === data.passport);
-                if (ec) {
-                    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
-                        lastVisit: new Date().toISOString(),
-                        visits: (ec.visits || 0) + 1,
-                    });
-                } else {
-                    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
-                        fullName: data.fullName || '',
-                        passport: data.passport || '',
-                        birthDate: data.birthDate || '',
-                        country: data.country || '',
-                        phone: data.phone || '',
-                        passportIssueDate: data.passportIssueDate || '',
-                        lastVisit: new Date().toISOString(),
-                        visits: 1,
-                    });
-                }
-            }
-          }
-          
-          showNotification(data.status==='booking' ? "Booking created" : "Checked In!");
-      } catch(e) { 
-        showNotification(e.message, 'error'); 
-      }
-  };
-  
-  const handleCreateDebt = async (client, amount) => {
-      try {
-          const safeStaffId = currentUser.id || currentUser.login || 'unknown';
-          const debtData = { 
-            fullName: client.fullName, 
-            passport: client.passport, 
-            country: client.country, 
-            birthDate: client.birthDate, 
-            staffId: safeStaffId, 
-            checkInDate: new Date().toISOString(), 
-            days: 0, 
-            roomId: 'DEBT_ONLY', 
-            roomNumber: '-', 
-            bedId: '-', 
-            pricePerNight: 0, 
-            totalPrice: amount, 
-            paidCash: 0, 
-            paidCard: 0, 
-            paidQR: 0, 
-            amountPaid: 0, 
-            status: 'debt', 
-            hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId 
-          };
-          
-          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), debtData);
-          // Telegram — новый долг
-          sendTelegramMessage(
-            `⚠️ <b>Создан долг</b>\n👤 ${client.fullName}\n💰 Сумма: ${amount.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
-            'debtAlert'
-          );
-          showNotification("Debt created successfully");
-      } catch (e) { 
-        showNotification("Error creating debt", 'error'); 
-      }
-  };
-
-  const handleActivateBooking = async (guest) => {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
-        status: 'active'
-      });
-      
-      const r = rooms.find(i=>i.id===guest.roomId); 
-      if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {
-        occupied:(r.occupied||0)+1
-      });
-
-      // Upsert клиента при активации брони
-      if (guest.passport) {
-          const ec = clients.find(c => c.passport && c.passport === guest.passport);
-          if (ec) {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
-                  lastVisit: new Date().toISOString(),
-                  visits: (ec.visits || 0) + 1,
-              });
-          } else {
-              await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
-                  fullName: guest.fullName || '',
-                  passport: guest.passport || '',
-                  birthDate: guest.birthDate || '',
-                  country: guest.country || '',
-                  phone: guest.phone || '',
-                  passportIssueDate: guest.passportIssueDate || '',
-                  lastVisit: new Date().toISOString(),
-                  visits: 1,
-              });
-          }
-      }
-      
-      setGuestDetailsModal({open:false, guest:null}); 
-      showNotification("Activated");
-  };
-
-  // ── Регистрации (E-mehmon) ────────────────────────────────────────────────
-  const registrationsAlertCount = useMemo(() => {
-    const now = Date.now();
-    return (registrations || []).filter(r => {
-      if (r.status === 'removed') return false;
-      const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
-      return end <= now; // expired
-    }).length;
-  }, [registrations]);
-
-  const handleRegistrationSubmit = async (formData) => {
-    try {
-      const safeStaffId = currentUser.id || currentUser.login || 'unknown';
-      const targetHostelId = (!currentUser.hostelId || currentUser.hostelId === 'all')
-        ? (selectedHostelFilter || 'hostel1')
-        : currentUser.hostelId;
-      const regData = {
-        ...formData,
-        hostelId: targetHostelId,
-        staffId: safeStaffId,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        createdBy: currentUser.login || 'unknown',
-      };
-      const docRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'registrations'), regData);
-      // Записываем оплату в кассу
-      const totalPaid = (formData.paidCash || 0) + (formData.paidCard || 0) + (formData.paidQR || 0);
-      if (totalPaid > 0) {
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
-          registrationId: docRef.id,
-          guestId: docRef.id,
-          staffId: safeStaffId,
-          guestName: formData.fullName,
-          amount: totalPaid,
-          cash: formData.paidCash || 0,
-          card: formData.paidCard || 0,
-          qr: formData.paidQR || 0,
-          date: new Date().toISOString(),
-          type: 'income',
-          category: 'registration',
-          comment: `E-mehmon: ${formData.fullName} (${formData.startDate} – ${formData.endDate})`,
-          hostelId: targetHostelId,
-          method: (formData.paidCash || 0) > 0 ? 'cash' : (formData.paidCard || 0) > 0 ? 'card' : 'qr',
-        });
-      }
-      setRegistrationModal(false);
-      showNotification(lang === 'ru' ? 'Гость зарегистрирован в E-mehmon!' : 'Mehmon E-mehmon\'da ro\'yxatga olindi!', 'success');
-      logAction(currentUser, 'registration_add', { fullName: formData.fullName, passport: formData.passport, days: formData.days });
-      sendTelegramMessage(
-        `🪪 <b>Регистрация (E-mehmon)</b>\n👤 ${formData.fullName}\n🪪 ${formData.passport} · ${formData.country || ''}\n📅 ${formData.startDate} → ${formData.endDate} (${formData.days} дн.)\n💰 ${totalPaid.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
-        'registration'
-      );
-    } catch (e) {
-      console.error(e);
-      showNotification('Ошибка регистрации: ' + e.message, 'error');
-    }
-  };
-
-  const handleExtendRegistration = async (reg, extData) => {
-    try {
-      const safeStaffId = currentUser.id || currentUser.login || 'unknown';
-      const newDays = (reg.days || 0) + extData.days;
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', reg.id), {
-        endDate: extData.newEndDate,
-        days: newDays,
-        status: 'active',
-      });
-      if (extData.amount > 0) {
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
-          registrationId: reg.id,
-          guestId: reg.id,
-          staffId: safeStaffId,
-          guestName: reg.fullName,
-          amount: extData.amount,
-          cash: extData.paidCash || 0,
-          card: extData.paidCard || 0,
-          qr: extData.paidQR || 0,
-          date: new Date().toISOString(),
-          type: 'income',
-          category: 'registration',
-          comment: `E-mehmon продление: ${reg.fullName} (+${extData.days} дн. → ${extData.newEndDate})`,
-          hostelId: reg.hostelId,
-          method: (extData.paidCash || 0) > 0 ? 'cash' : (extData.paidCard || 0) > 0 ? 'card' : 'qr',
-        });
-      }
-      showNotification(lang === 'ru' ? `Регистрация продлена до ${extData.newEndDate}` : `Ro'yxat ${extData.newEndDate} gacha uzaytirildi`, 'success');
-      logAction(currentUser, 'registration_extend', { id: reg.id, fullName: reg.fullName, newEndDate: extData.newEndDate });
-    } catch (e) {
-      showNotification('Ошибка продления: ' + e.message, 'error');
-    }
-  };
-
-  const handleRemoveFromEmehmon = async (reg) => {
-    if (!window.confirm(lang === 'ru' ? `Подтвердить вывод "${reg.fullName}" из E-mehmon?` : `"${reg.fullName}" ni E-mehmondan chiqarishni tasdiqlaysizmi?`)) return;
-    try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', reg.id), {
-        status: 'removed',
-        removedAt: new Date().toISOString(),
-        removedBy: currentUser.login || currentUser.id,
-      });
-      showNotification(lang === 'ru' ? `${reg.fullName} выведен из E-mehmon` : `${reg.fullName} E-mehmondan chiqarildi`, 'success');
-      logAction(currentUser, 'registration_remove', { id: reg.id, fullName: reg.fullName });
-    } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
-    }
-  };
-
-  const handleDeleteRegistration = async (reg) => {
-    if (!window.confirm(lang === 'ru' ? `Удалить запись регистрации "${reg.fullName}"?` : `"${reg.fullName}" ro'yxatini o'chirishni tasdiqlaysizmi?`)) return;
-    try {
-      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', reg.id));
-      showNotification(lang === 'ru' ? 'Запись удалена' : 'Yozuv o\'chirildi', 'success');
-    } catch (e) {
-      showNotification('Ошибка удаления: ' + e.message, 'error');
-    }
-  };
-  // ── Конец регистраций ────────────────────────────────────────────────────
-
-  const handleGuestUpdate = async (id, d) => { 
-    if(guestDetailsModal.open) setGuestDetailsModal({open:false, guest:null}); 
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), d); 
-  };
-
-  const handlePayment = async (guestId, amounts) => {
-      try {
-          const safeStaffId = currentUser.id || currentUser.login;
-          const { cash = 0, card = 0, qr = 0 } = amounts;
-          const total = cash + card + qr;
-          
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { 
-            paidCash: increment(cash), 
-            paidCard: increment(card), 
-            paidQR: increment(qr), 
-            amountPaid: increment(total) 
-          });
-          
-          const paymentIds = await logTransaction(guestId, amounts, safeStaffId);
-          if (total > 0) {
-              const g = guests.find(x => x.id === guestId);
-              pushUndo({
-                  type: 'payment',
-                  label: `${total.toLocaleString()} сум — ${g?.fullName || guestId}`,
-                  guestId,
-                  paymentIds,
-                  cash, card, qr,
-              });
-          }
-          // Telegram — оплата
-          if (g && total > 0) {
-            const hostelLabelPay = (g.hostelId === 'hostel1') ? 'Хостел №1' : 'Хостел №2';
-            sendTelegramMessage(
-              `💵 <b>Оплата принята</b>\n👤 ${g.fullName}\n🛏 ${hostelLabelPay} · Ком. ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
-              'paymentAdded'
-            );
-          }
-          setGuestDetailsModal({open:false, guest:null}); 
-          showNotification('Оплата принята', 'success');
-      } catch(e) { 
-        showNotification(e.message, 'error'); 
-      }
-  };
-
-  const handleExtendGuest = async (guestId, extData) => {
-      try {
-          const safeStaffId = currentUser.id || currentUser.login;
-          const { extendDays, payCash = 0, payCard = 0, payQR = 0,
-                  prevDays, prevTotalPrice, prevCheckOut, prevStatus,
-                  newDays, newTotalPrice, newCheckOut } = extData;
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-              days: newDays,
-              totalPrice: newTotalPrice,
-              checkOutDate: newCheckOut,
-              status: 'active',
-          });
-          let paymentIds = [];
-          const payTotal = payCash + payCard + payQR;
-          if (payTotal > 0) {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-                  paidCash:   increment(payCash),
-                  paidCard:   increment(payCard),
-                  paidQR:     increment(payQR),
-                  amountPaid: increment(payTotal),
-              });
-              paymentIds = await logTransaction(guestId, { cash: payCash, card: payCard, qr: payQR }, safeStaffId);
-          }
-          const g = guests.find(x => x.id === guestId);
-          pushUndo({
-              type: 'extend',
-              label: `+${extendDays} дн. — ${g?.fullName || guestId}`,
-              guestId,
-              prevDays, prevTotalPrice, prevCheckOut, prevStatus,
-              paymentIds,
-              payCash, payCard, payQR,
-          });
-          // Telegram — продление
-          if (g) {
-            sendTelegramMessage(
-              `📅 <b>Продление проживания</b>\n👤 ${g.fullName}\n➕ +${extendDays} дн. → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 Доплачено: ${payTotal.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
-              'guestExtended'
-            );
-          }
-          setGuestDetailsModal({ open: false, guest: null });
-          showNotification(`Продлено на ${extendDays} дн.`, 'success');
-      } catch(e) {
-          showNotification('Ошибка продления: ' + e.message, 'error');
-      }
-  };
-
-  // Super-only hidden payment: reduces debt but does NOT appear in financial reports
-  const handleSuperPayment = async (guestId, amount) => {
-      try {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-              paidCash: increment(amount),
-              amountPaid: increment(amount),
-              superAdjusted: increment(amount),
-          });
-          setGuestDetailsModal({open:false, guest:null});
-          showNotification('Сумма зачтена');
-      } catch(e) {
-          showNotification(e.message, 'error');
-      }
-  };
-
-  const handleBulkExtend = async (guestIds, days) => {
-      if (!guestIds?.length || !days) return;
-      let count = 0;
-      for (const guestId of guestIds) {
-          const guest = guests.find(g => g.id === guestId);
-          if (!guest || guest.status !== 'active') continue;
-          const newDays  = parseInt(guest.days || 1) + days;
-          const newTotal = parseInt(guest.pricePerNight || 0) * newDays;
-          const co       = new Date(guest.checkOutDate || Date.now());
-          co.setDate(co.getDate() + days);
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-              days: newDays,
-              totalPrice: newTotal,
-              checkOutDate: co.toISOString(),
-              status: 'active',
-          });
-          count++;
-      }
-      if (count > 0) showNotification(`Продлено на ${days} дн. для ${count} гостей`, 'success');
-  };
-
- const handleCheckOut = async (guest, final) => {
-    setGuestDetailsModal({open:false, guest:null});
-
-    
-    const actualRefund = final.refundAmount || 0;
-    
-    // ? ИСПРАВЛЕНИЕ: Правильная логика для checkOutDate
-    const today = new Date();
-    const originalCheckOut = new Date(guest.checkOutDate);
-    originalCheckOut.setHours(12, 0, 0, 0);
-    today.setHours(12, 0, 0, 0);
-    
-    // Если сегодня РАНЬШЕ оригинального checkOut - выселяем досрочно (уменьшаем полоску)
-    // Если сегодня ПОЗЖЕ или РАВНО - оставляем оригинальную дату (не растягиваем)
-    const finalCheckOutDate = today < originalCheckOut 
-        ? today.toISOString() 
-        : guest.checkOutDate; // ? ОСТАВЛЯЕМ ОРИГИНАЛЬНУЮ ДАТУ
-    
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
-        totalPrice: final.totalPrice,
-        status: 'checked_out', 
-        checkOutDate: finalCheckOutDate // ? ИСПОЛЬЗУЕМ ПРАВИЛЬНУЮ ДАТУ
-    });
-    
-    const r = rooms.find(i=>i.id===guest.roomId); 
-    if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {
-        occupied:Math.max(0, (r.occupied||1)-1)
-    });
-
-    // Telegram — выселение
-    const hostelLabelCO = guest.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-    sendTelegramMessage(
-      `🚪 <b>Выселение</b>\n👤 ${guest.fullName}\n🛏 ${hostelLabelCO} · Ком. ${guest.roomNumber || '—'}\n📅 Заехал: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 Итого: ${(final.totalPrice || 0).toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
-      'checkout'
-    );
-
-    if (actualRefund > 0) {
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
-            amount: actualRefund,
-            category: 'Возврат',
-            comment: `Возврат: ${guest.fullName} (${guest.passport})`,
-            date: new Date().toISOString(),
-            staffId: currentUser.id || currentUser.login,
-            hostelId: currentUser.hostelId || guest.hostelId
-        });
-        
-        sendTelegramMessage(`💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${actualRefund.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`, 'refund');
-    }
-};
-
-  const handleSplitGuest = async (orig, splitAfterDays, gapDays) => {
-      try {
-          const price = parseInt(orig.pricePerNight);
-          const firstLegDays = parseInt(splitAfterDays);
-          const gap = parseInt(gapDays);
-          const totalOriginalDays = parseInt(orig.days);
-          const remainingDays = totalOriginalDays - firstLegDays;
-          if (remainingDays <= 0) return;
-          
-          const totalPaid = orig.amountPaid || 0;
-          const ratio1 = firstLegDays / totalOriginalDays; 
-          const ratio2 = remainingDays / totalOriginalDays;
-          const firstLegTotal = firstLegDays * price;
-          const stay1 = getStayDetails(orig.checkInDate, firstLegDays);
-          
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), { 
-            days: firstLegDays, 
-            totalPrice: firstLegTotal, 
-            amountPaid: Math.floor(totalPaid * ratio1), 
-            paidCash: Math.floor((orig.paidCash||0) * ratio1), 
-            paidCard: Math.floor((orig.paidCard||0) * ratio1), 
-            paidQR: Math.floor((orig.paidQR||0) * ratio1), 
-            checkOutDate: stay1.end.toISOString() 
-          });
-
-          const gapStart = new Date(stay1.end);
-          const secondStart = new Date(gapStart); 
-          secondStart.setDate(secondStart.getDate() + gap); 
-          secondStart.setHours(12, 0, 0, 0);
-          const stay2 = getStayDetails(secondStart.toISOString(), remainingDays);
-          
-          const newGuest = { 
-            ...orig, 
-            checkInDate: secondStart.toISOString(), 
-            checkOutDate: stay2.end.toISOString(), 
-            days: remainingDays, 
-            pricePerNight: price, 
-            totalPrice: remainingDays * price, 
-            amountPaid: Math.floor(totalPaid * ratio2), 
-            paidCash: Math.floor((orig.paidCash||0) * ratio2), 
-            paidCard: Math.floor((orig.paidCard||0) * ratio2), 
-            paidQR: Math.floor((orig.paidQR||0) * ratio2), 
-            status: 'active', 
-            checkInDateTime: null, 
-            checkIn: null 
-          };
-          delete newGuest.id;
-          
-          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
-          showNotification("Split successful!");
-      } catch (e) { 
-        console.error(e); 
-        showNotification("Split Error", 'error'); 
-      }
-  };
-
-  const handleMoveGuest = async (g, rid, rnum, bid) => { 
-      try { 
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { 
-          roomId: rid, 
-          roomNumber: rnum, 
-          bedId: bid 
-        }); 
-        setMoveGuestModal({open: false, guest: null}); 
-        setGuestDetailsModal({open: false, guest: null}); 
-        showNotification("Moved!"); 
-      } catch (e) { 
-        showNotification("Error: " + e.message, 'error'); 
-      }
-  };
-  
-  const handleDeleteGuest = async (g) => {
-      let guestId = typeof g === 'string' ? g : g.id;
-      let guestData = typeof g === 'object' ? g : guests.find(guest => guest.id === guestId);
-      
-      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId));
-      
-      if(guestData && guestData.status==='active' && guestData.roomId !== 'DEBT_ONLY') { 
-        const r=rooms.find(i=>i.id===guestData.roomId); 
-        if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {
-          occupied:Math.max(0,(r.occupied||1)-1)
-        }); 
-      }
-      
-      // Telegram — удаление гостя
-      if (guestData) {
-        const hostelLabelDG = (guestData.hostelId === 'hostel1') ? 'Хостел №1' : 'Хостел №2';
-        sendTelegramMessage(
-          `🚫 <b>Удалена запись гостя</b>\n👤 ${guestData.fullName || '—'}\n🛏 ${hostelLabelDG} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`,
-          'deleteGuest'
-        );
-      }
-      setGuestDetailsModal({open:false, guest:null}); 
-      showNotification("Deleted");
-  };
-
-  const handleRescheduleGuest = async (guestId, newCheckIn, newCheckOut) => {
-    try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-        checkInDate: newCheckIn,
-        checkOutDate: newCheckOut
-      });
-      showNotification('Даты обновлены ?');
-    } catch(e) {
-      showNotification('Ошибка: ' + e.message, 'error');
-    }
-  };
-
-  const handleDeletePayment = async (id, type, record = {}) => { 
-    if(!confirm("Удалить запись?")) return;
-
-    // Удаляем запись платежа / расхода
-    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
-
-    // Если это платёж гостя — сминусовываем с гостя, создавая долг
-    if (type === 'income' && record.guestId && record.category !== 'registration') {
-      try {
-        const cash   = Number(record.cash)   || 0;
-        const card   = Number(record.card)   || 0;
-        const qr     = Number(record.qr)     || 0;
-        const total  = Number(record.amount) || (cash + card + qr);
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', record.guestId), {
-          paidCash:   increment(-cash),
-          paidCard:   increment(-card),
-          paidQR:     increment(-qr),
-          amountPaid: increment(-total),
-        });
-      } catch (e) {
-        console.warn('Не удалось обновить баланс гостя:', e.message);
-      }
-    }
-
-    // Строим информативное уведомление
-    let msg = `🗑 <b>Удалена запись</b>\nТип: ${type === 'income' ? 'Платёж' : record.category === 'Возврат' ? 'Возврат' : 'Расход'}`;
-    if (type === 'income') {
-      if (record.guestName || record.guest)  msg += `\n👤 Гость: ${record.guestName || record.guest}`;
-      if (record.amount)   msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
-      if (record.method)   msg += `\n💳 Метод: ${record.method}`;
-      if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
-    } else {
-      if (record.category) msg += `\n📂 Категория: ${record.category}`;
-      if (record.amount)   msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
-      if (record.comment)  msg += `\n💬 ${record.comment}`;
-      if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
-    }
-    msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
-
-    sendTelegramMessage(msg, 'deleteRecord'); 
-    showNotification("Запись удалена"); 
-  };
-
-  const handleAddExpense = async (d) => { 
-    try {
-      const expRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
-        ...d, 
-        hostelId: currentUser.role === 'admin' || currentUser.role === 'super'
-          ? selectedHostelFilter
-          : currentUser.hostelId, 
-        staffId: currentUser.id || currentUser.login, 
-        date: new Date().toISOString()
-      });
-      pushUndo({
-          type: 'expense',
-          label: `${d.category}: ${(+d.amount).toLocaleString()} сум${d.comment ? ' — ' + d.comment : ''}`,
-          expenseId: expRef.id,
-      });
-      setExpenseModal(false);
-      showNotification('Расход добавлен', 'success');
-      logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
-      // Telegram — расход (не возврат)
-      if (d.category !== 'Возврат') {
-        const expHostelId = (currentUser.role === 'admin' || currentUser.role === 'super')
-          ? selectedHostelFilter
-          : currentUser.hostelId;
-        const expHostelLabel = expHostelId === 'hostel1' ? 'Хостел №1' : expHostelId === 'hostel2' ? 'Хостел №2' : expHostelId || '—';
-        const expRoleLabel = (currentUser.role === 'admin' || currentUser.role === 'super') ? 'Админ' : 'Кассир';
-        const tgResult = await sendTelegramMessage(
-          `💳 <b>Расход</b>\n🏨 ${expHostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 ${expRoleLabel}: ${currentUser.name || currentUser.login}`,
-          'expenseAdded'
-        );
-        if (!tgResult || tgResult.sent === 0) {
-          console.warn('Telegram expense notification not sent:', tgResult);
-        }
-      }
-    } catch (err) {
-      console.error('Ошибка добавления расхода:', err);
-      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
-    }
-  };
-
   const handleAddTask = async (task) => { 
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), task); 
     showNotification("Task Added"); 
@@ -1768,215 +777,6 @@ const filterByHostel = (items) => {
     await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'tasks', id)); 
     showNotification("Task Deleted"); 
   };
-  
-  const handleStartShift = async () => {
-    if (!currentUser || !currentUser.id) return;
-    
-    const activeShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
-    if (activeShift) {
-        return;
-    }
-    
-    try {
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), { 
-            staffId: currentUser.id, 
-            hostelId: currentUser.hostelId, 
-            startTime: new Date().toISOString(), 
-            endTime: null 
-        });
-        showNotification("? Смена начата автоматически", 'success');
-    } catch (e) {
-        console.error('Error starting shift:', e);
-    }
-  };
-
-  const handleTransferShift = async (currentShiftId, targetUserId) => {
-      if(!targetUserId) return;
-      const batch = writeBatch(db);
-      const shiftRef = doc(db, ...PUBLIC_DATA_PATH, 'shifts', currentShiftId);
-      batch.update(shiftRef, { endTime: new Date().toISOString() });
-      const targetUser = usersList.find(u => u.id === targetUserId);
-      const newShiftRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'));
-      batch.set(newShiftRef, { 
-        staffId: targetUserId, 
-        hostelId: targetUser ? targetUser.hostelId : currentUser.hostelId, 
-        startTime: new Date().toISOString(), 
-        endTime: null 
-      });
-      await batch.commit(); 
-      showNotification("Shift Transferred");
-  };
-
-  const handleAdminAddShift = async (shiftData) => {
-      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), shiftData);
-      showNotification("Смена добавлена вручную");
-  };
-
-  const handleAdminUpdateShift = async (id, data) => {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id), data);
-      showNotification("Смена обновлена");
-  };
-
-  const handleAdminReduceDays = async (g, rd) => { 
-      const newDays = parseInt(g.days) - parseInt(rd); 
-      const newTotal = newDays * parseInt(g.pricePerNight); 
-      const refundAmount = parseInt(rd) * parseInt(g.pricePerNight);
-      
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { 
-        days: newDays, 
-        totalPrice: newTotal, 
-        amountPaid: (g.amountPaid || 0) - refundAmount, 
-        paidCash: (g.paidCash || 0) - refundAmount 
-      });
-      
-      const stay = getStayDetails(g.checkInDate, newDays); 
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { 
-        checkOutDate: stay.end.toISOString() 
-      });
-      
-      showNotification("Days reduced");
-  };
-
-  const handleAdminReduceDaysNoRefund = async (g, rd) => {
-      const newDays = parseInt(g.days) - parseInt(rd); 
-      const newTotal = newDays * parseInt(g.pricePerNight);
-      
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { 
-        days: newDays, 
-        totalPrice: newTotal 
-      });
-      
-      const stay = getStayDetails(g.checkInDate, newDays); 
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { 
-        checkOutDate: stay.end.toISOString() 
-      });
-      
-      showNotification("Reduced (No Refund)");
-  };
-
-  const handlePayDebt = async (targets, amount, methods = { cash: amount, card: 0, qr: 0 }) => {
-    try {
-        const safeStaffId = currentUser.id || currentUser.login; 
-        let remaining = amount;
-        
-        for (const target of targets) {
-            if (remaining <= 0) break;
-            const pay = Math.min(remaining, target.currentDebt); 
-            const ratio = pay / amount;
-            const cashPay = Math.floor(methods.cash * ratio); 
-            const cardPay = Math.floor(methods.card * ratio); 
-            const qrPay = Math.floor(methods.qr * ratio);
-            
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), { 
-                paidCash: increment(cashPay), 
-                paidCard: increment(cardPay), 
-                paidQR: increment(qrPay), 
-                amountPaid: increment(pay) 
-            });
-            
-            await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId); 
-            remaining -= pay;
-        }
-        
-        showNotification("Debt Paid!");
-    } catch(e) { 
-        showNotification("Error paying debt", 'error'); 
-    }
-};
-
-const handleAdminAdjustDebt = async (guestId, adjustment) => {
-    try { 
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { 
-            totalPrice: increment(adjustment) 
-        }); 
-        showNotification("Debt Adjusted"); 
-    } catch(e) { 
-        showNotification("Error adjusting", 'error'); 
-    }
-};
-
-const downloadExpensesCSV = () => {
-    const t = (k) => TRANSLATIONS[lang][k];
-    
-    const exportData = filteredExpenses.map(e => {
-        const staff = usersList.find(u => u.id === e.staffId || u.login === e.staffId)?.name || 'N/A';
-        const hostelName = HOSTELS[e.hostelId]?.name || e.hostelId || '-';
-        
-        return {
-            date: new Date(e.date).toLocaleString(),
-            hostel: hostelName,
-            category: e.category,
-            amount: parseInt(e.amount),
-            staff: staff,
-            comment: e.comment || '-'
-        };
-    });
-    
-    const totalExpenses = exportData.reduce((sum, item) => sum + item.amount, 0);
-    
-    let table = `
-        <html>
-        <head>
-            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-            <style>
-                body { font-family: Arial, sans-serif; }
-                table { border-collapse: collapse; width: 100%; }
-                th, td { border: 1px solid #000000; padding: 8px; text-align: left; }
-                th { background-color: #dc2626; color: #ffffff; font-weight: bold; }
-                .amount { text-align: right; color: #991b1b; font-weight: bold; }
-                .total-row { background-color: #fee2e2; font-weight: bold; border-top: 3px solid #991b1b; }
-                .total-label { text-align: right; font-size: 14px; }
-            </style>
-        </head>
-        <body>
-            <h2 style="text-align:center;">Отчет по расходам</h2>
-            <p style="text-align:center;">Период: ${new Date().toLocaleDateString()}</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Дата</th>
-                        <th>Хостел</th>
-                        <th>Категория</th>
-                        <th>Сумма</th>
-                        <th>Кассир</th>
-                        <th>Комментарий</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-    
-    exportData.forEach(row => {
-        table += `
-            <tr>
-                <td>${row.date}</td>
-                <td>${row.hostel}</td>
-                <td>${row.category}</td>
-                <td class="amount">${row.amount.toLocaleString()}</td>
-                <td>${row.staff}</td>
-                <td>${row.comment}</td>
-            </tr>
-        `;
-    });
-    
-    table += `
-        <tr class="total-row">
-            <td colspan="3" class="total-label">ИТОГО РАСХОДОВ:</td>
-            <td class="amount">${totalExpenses.toLocaleString()}</td>
-            <td colspan="2"></td>
-        </tr>
-    `;
-    
-    table += `</tbody></table></body></html>`;
-    
-    const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `Expenses_Report_${new Date().toISOString().split('T')[0]}.xls`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-};
-
 if (isLoadingAuth) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <Loader2 className="animate-spin text-indigo-600" size={40}/>
