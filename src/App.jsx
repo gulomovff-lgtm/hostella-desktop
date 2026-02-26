@@ -38,6 +38,7 @@ import {
   Flag
 } from './utils/helpers';
 import { sendTelegramMessage } from './utils/telegram';
+import { hashPassword } from './utils/hash';
 
 import { 
   LayoutDashboard, 
@@ -632,6 +633,7 @@ function App() {
   };
 
   const handleChangePassword = async (userId, newPassword) => {
+      // newPassword is already hashed by ChangePasswordModal
       try {
           await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', userId), { 
               pass: newPassword 
@@ -666,16 +668,21 @@ function App() {
     } 
   };
 
-  const handleAddUser = async (d) => { 
-    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'users'), d); 
+  const handleAddUser = async (d) => {
+    const hashed = await hashPassword(d.pass);
+    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'users'), { ...d, pass: hashed });
   };
 
   const handleUpdateUser = async (id, d) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id), d);
+      let payload = { ...d };
+      if (d.pass) {
+        payload.pass = await hashPassword(d.pass);
+      }
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id), payload);
       // Если редактируют текущего пользователя — обновляем сессию
       if (currentUser?.id === id) {
-        const updatedUser = { ...currentUser, ...d };
+        const updatedUser = { ...currentUser, ...payload };
         setCurrentUser(updatedUser);
         sessionStorage.setItem('hostella_user_v4', JSON.stringify(updatedUser));
       }
@@ -871,7 +878,7 @@ const filterByHostel = (items) => {
           if(!canPerformActions) {
               showNotification("Режим просмотра", 'error');
           } else if(currentUser.role === 'admin' || currentUser.role === 'super') {
-              alert("Admin cannot check-in");
+              showNotification('Администратор не может выполнять заселение', 'error');
           } else {
               setCheckInModal({ open: true, room, bedId, date: null, bookingId: null });
           }
@@ -2058,7 +2065,7 @@ return (
                                     if(!canPerformActions) {
                                         showNotification("Режим просмотра", 'error');
                                     } else if(currentUser.role === 'admin' || currentUser.role === 'super') {
-                                        alert("Admin cannot check-in");
+                                        showNotification('Администратор не может выполнять заселение', 'error');
                                     } else {
                                         setCheckInModal({ open: true, room, bedId, date: dateISO, bookingId: null });
                                     }

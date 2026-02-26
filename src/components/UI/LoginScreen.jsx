@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import TRANSLATIONS from '../../constants/translations';
+import { verifyPassword } from '../../utils/hash';
 
 const LoginScreen = ({ users, onLogin, onSeed, lang, setLang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
@@ -7,16 +8,18 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang }) => {
     const [pass, setPass] = useState('');
     const [error, setError] = useState('');
 
-    const handleAuth = (e) => {
+    const handleAuth = async (e) => {
         e.preventDefault();
         if (login === 'Super' && pass === 'super') {
             onLogin({ name: 'Super Admin', login: 'Super', role: 'super', hostelId: 'all' });
             return;
         }
-        const u = users.find(u => u.login.toLowerCase() === login.toLowerCase() && u.pass === pass);
-        if(u) onLogin(u);
+        const u = users.find(u => u.login.toLowerCase() === login.toLowerCase());
+        if (!u) { setError(t('error')); return; }
+        const { match } = await verifyPassword(pass, u.pass);
+        if (match) onLogin(u);
         else setError(t('error'));
-    };
+    };;
 
     // Hostella brand colors
     const C = {

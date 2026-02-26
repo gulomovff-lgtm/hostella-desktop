@@ -222,6 +222,28 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         });
         const staffTodayList = Object.entries(staffToday).sort((a, b) => b[1] - a[1]);
 
+        // Room income: sum payments via guest-room mapping
+        const guestRoomMap = {};
+        relGuests.forEach(g => { if (g.roomId) guestRoomMap[g.id] = { roomId: g.roomId, roomNumber: g.roomNumber }; });
+        const roomIncomeMap = {};
+        relPayments.forEach(p => {
+            const rm = guestRoomMap[p.guestId];
+            if (!rm) return;
+            if (!roomIncomeMap[rm.roomId]) roomIncomeMap[rm.roomId] = { cash: 0, card: 0, qr: 0 };
+            const amt = parseInt(p.amount) || 0;
+            if (p.method === 'cash') roomIncomeMap[rm.roomId].cash += amt;
+            else if (p.method === 'card') roomIncomeMap[rm.roomId].card += amt;
+            else if (p.method === 'qr') roomIncomeMap[rm.roomId].qr += amt;
+            else roomIncomeMap[rm.roomId].cash += amt;
+        });
+        const maxRoomIncome = Math.max(1, ...Object.values(roomIncomeMap).map(r => r.cash + r.card + r.qr));
+        const roomIncome = relRooms.map(r => {
+            const m = roomIncomeMap[r.id] || { cash: 0, card: 0, qr: 0 };
+            const total = m.cash + m.card + m.qr;
+            const occ = roomOccupancy.find(ro => ro.id === r.id);
+            return { ...r, income: total, cash: m.cash, card: m.card, qr: m.qr, pct: occ?.pct || 0, occupied: occ?.occupied || 0 };
+        }).sort((a, b) => b.income - a.income);
+
         return {
             relRooms, relGuests, totalBeds, activeGuests, occupancyGuests, occupancyPct, occupancyRaw, isOverCapacity,
             pay30, last7, totalIncome, totalExpense, incomeToday, incomeWeek, incomeMonth,
@@ -229,7 +251,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             guestsWithDebt, totalDebt,
             arrivalsToday, dep, arrivalsTomorrow, depTomorrow,
             expired, topCountries, recentPayments, roomOccupancy,
-            avgStay, staffTodayList,
+            avgStay, staffTodayList, roomIncome, maxRoomIncome,
         };
     }, [rooms, guests, payments, expenses, currentHostelId, nowMs]);
 
@@ -289,6 +311,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         { id: 'finance', label: 'Финансы', icon: TrendingUp },
         { id: 'occupancy', label: 'Загрузка', icon: BedDouble },
         { id: 'guests', label: 'Гости', icon: Users },
+        { id: 'rooms', label: 'Доходность', icon: BarChart3 },
         { id: 'debts', label: 'Долги', icon: AlertCircle },
     ];
 
@@ -378,7 +401,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             <div className="overflow-y-auto" style={{ maxHeight: 280 }}>
                                 {data.activeGuests.length === 0 ? (
                                     <div className="p-6 text-center text-slate-400 text-sm">Нет активных гостей</div>
-                                ) : data.activeGuests.slice(0, 20).map(g => {
+                                ) : data.activeGuests.map(g => {
                                     const debt = (g.totalPrice || 0) - getTotalPaid(g);
                                     const co = parseDate(g.checkOutDate);
                                     const lbl = co ? getTimeLeftLabel(g.checkOutDate, nowMs) : null;
@@ -745,6 +768,59 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB: ROOMS */}
+            {tab === 'rooms' && (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <StatCard label="Всего комнат" value={data.relRooms.length} icon={BedDouble} color="indigo" />
+                        <StatCard label="Общий доход" value={data.roomIncome.reduce((s,r)=>s+r.income,0).toLocaleString()} icon={TrendingUp} color="emerald" sub="UZS" />
+                        <StatCard label="Лучшая комната" value={data.roomIncome[0] ? `№${data.roomIncome[0].number}` : '—'} icon={BarChart3} color="amber" sub={data.roomIncome[0] ? data.roomIncome[0].income.toLocaleString() : ''} />
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-100">
+                            <span className="font-bold text-slate-800 text-sm">Доход по комнатам</span>
+                            <span className="text-xs text-slate-400 ml-2">за всё время</span>
+                        </div>
+                        {data.roomIncome.length === 0 ? (
+                            <div className="p-10 text-center text-slate-400 text-sm">Нет данных</div>
+                        ) : (
+                            <div className="p-4 space-y-3">
+                                {data.roomIncome.map(r => (
+                                    <div key={r.id} className="border border-slate-100 rounded-xl p-3 hover:bg-slate-50 transition-colors">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center shrink-0">
+                                                    <BedDouble size={16} className="text-indigo-600"/>
+                                                </div>
+                                                <div>
+                                                    <div className="font-black text-slate-800 text-sm">Комната №{r.number}</div>
+                                                    <div className="text-[10px] text-slate-400">{r.occupied}/{r.capacity} мест занято · {r.pct}%</div>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-black text-emerald-600 text-base">{r.income.toLocaleString()}</div>
+                                                <div className="text-[10px] text-slate-400">UZS</div>
+                                            </div>
+                                        </div>
+                                        <div className="mb-2">
+                                            <MiniBar value={r.income} max={data.maxRoomIncome} color="emerald" />
+                                        </div>
+                                        {r.income > 0 && (
+                                            <div className="flex gap-3 text-[10px] font-bold text-slate-500">
+                                                <span className="flex items-center gap-1"><DollarSign size={9} className="text-emerald-500"/>Наличные: {r.cash.toLocaleString()}</span>
+                                                <span className="flex items-center gap-1"><CreditCard size={9} className="text-indigo-500"/>Карта: {r.card.toLocaleString()}</span>
+                                                <span className="flex items-center gap-1"><QrCode size={9} className="text-purple-500"/>QR: {r.qr.toLocaleString()}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

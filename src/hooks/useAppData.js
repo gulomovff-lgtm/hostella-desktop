@@ -1,15 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-
-// Fallback users when Firestore is empty
-const DEFAULT_USERS = [
-  { login: 'admin',     pass: 'admin', name: 'Aziz Yuldashev', role: 'admin',   hostelId: 'all'     },
-  { login: 'dilafruz',  pass: '123',   name: 'Dilafruz',        role: 'cashier', hostelId: 'hostel1' },
-  { login: 'nargiza',   pass: '123',   name: 'Nargiza',          role: 'cashier', hostelId: 'hostel1' },
-  { login: 'fazliddin', pass: '123',   name: 'Fazliddin',        role: 'cashier', hostelId: 'hostel2', canViewHostel1: true },
-  { login: 'olimjon',   pass: '123',   name: 'Olimjon',          role: 'cashier', hostelId: 'hostel2' },
-];
+import { DEFAULT_USERS } from '../constants/config';
 
 /**
  * Custom hook that subscribes to all Firestore collections and returns live data.

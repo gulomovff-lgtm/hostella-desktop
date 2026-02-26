@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Lock, XCircle, AlertCircle } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
+import { verifyPassword, hashPassword } from '../../utils/hash';
 
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
 const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
@@ -13,10 +14,11 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         setError('');
 
-        if (oldPassword !== currentUser.pass) {
+        const { match } = await verifyPassword(oldPassword, currentUser.pass);
+        if (!match) {
             setError(t('wrongPassword'));
             return;
         }
@@ -31,7 +33,8 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
             return;
         }
 
-        onChangePassword(currentUser.id, newPassword);
+        const hashed = await hashPassword(newPassword);
+        onChangePassword(currentUser.id, hashed);
         onClose();
     };
 

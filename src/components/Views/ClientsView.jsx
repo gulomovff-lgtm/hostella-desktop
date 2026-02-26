@@ -123,18 +123,27 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(25);
     const [countryFilter, setCountryFilter] = useState('');
+    const [recencyFilter, setRecencyFilter] = useState('');
+    const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false);
+    const [confirmNormalizeOpen, setConfirmNormalizeOpen] = useState(false);
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
     const filtered = useMemo(() => {
+        const nowMs = Date.now();
         return clients.filter(c => {
             const matchesSearch = !search ||
                 (c.fullName || '').toLowerCase().includes(search.toLowerCase()) ||
                 (c.passport || '').includes(search.toUpperCase());
             const matchesCountry = !countryFilter || c.country === countryFilter;
-            return matchesSearch && matchesCountry;
+            const matchesRecency = !recencyFilter || (() => {
+                if (!c.lastVisit) return true;
+                const daysSince = (nowMs - new Date(c.lastVisit).getTime()) / 86400000;
+                return daysSince >= parseInt(recencyFilter);
+            })();
+            return matchesSearch && matchesCountry && matchesRecency;
         });
-    }, [clients, search, countryFilter]);
+    }, [clients, search, countryFilter, recencyFilter]);
 
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     const paginatedClients = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -144,7 +153,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
         return Array.from(countries).sort();
     }, [clients]);
 
-    useEffect(() => { setCurrentPage(1); }, [search, countryFilter, itemsPerPage]);
+    useEffect(() => { setCurrentPage(1); }, [search, countryFilter, recencyFilter, itemsPerPage]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) setSelectedIds(new Set(paginatedClients.map(c => c.id)));
@@ -158,13 +167,10 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
     };
 
     const handleBulkDelete = () => {
-        if (confirm(`${t('deleteSelected')} (${selectedIds.size})?`)) {
-            onBulkDelete(Array.from(selectedIds));
-            setSelectedIds(new Set());
-        }
+        setConfirmBulkDeleteOpen(true);
     };
 
-    const handleNormalize = () => { if (confirm("Normalize all countries?")) onNormalizeCountries(); };
+    const handleNormalize = () => { setConfirmNormalizeOpen(true); };
 
     return (
         <div className="space-y-4 pb-20">
@@ -177,6 +183,13 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                     <select className="w-full sm:w-52 py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
                         <option value="">Все страны</option>
                         {uniqueCountries.map(country => <option key={country} value={country}>{country}</option>)}
+                    </select>
+                    <select className="w-full sm:w-52 py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none" value={recencyFilter} onChange={e => setRecencyFilter(e.target.value)}>
+                        <option value="">Все визиты</option>
+                        <option value="30">Не были 30+ дней</option>
+                        <option value="60">Не были 60+ дней</option>
+                        <option value="90">Не были 90+ дней</option>
+                        <option value="180">Не были 180+ дней</option>
                     </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -256,6 +269,42 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
 
             {editingClient && <ClientEditModal client={editingClient} onClose={() => setEditingClient(null)} onSave={(d) => { onUpdateClient(editingClient.id, d); setEditingClient(null); }} lang={lang}/>}
             {isImportModalOpen && <ClientImportModal onClose={() => setIsImportModalOpen(false)} onImport={(data) => { onImportClients(data); setIsImportModalOpen(false); }} lang={lang}/>}
+
+            {confirmBulkDeleteOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+                        <div className="text-center mb-5">
+                            <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <Trash2 size={22} className="text-rose-600"/>
+                            </div>
+                            <h3 className="font-bold text-slate-800 text-lg">{t('deleteSelected')}</h3>
+                            <p className="text-sm text-slate-500 mt-1">Выбрано гостей: <strong>{selectedIds.size}</strong>. Действие необратимо.</p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => setConfirmBulkDeleteOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                            <button onClick={() => { onBulkDelete(Array.from(selectedIds)); setSelectedIds(new Set()); setConfirmBulkDeleteOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Удалить</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {confirmNormalizeOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+                        <div className="text-center mb-5">
+                            <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <Globe size={22} className="text-indigo-600"/>
+                            </div>
+                            <h3 className="font-bold text-slate-800 text-lg">{t('normalizeCountries')}</h3>
+                            <p className="text-sm text-slate-500 mt-1">Нормализация названий стран для всех клиентов.</p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => setConfirmNormalizeOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                            <button onClick={() => { onNormalizeCountries(); setConfirmNormalizeOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm">Нормализовать</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
