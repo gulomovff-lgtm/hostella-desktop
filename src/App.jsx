@@ -1028,7 +1028,8 @@ return (
                         onImportClients={handleImportClients} 
                         onDeduplicate={handleDeduplicate} 
                         onBulkDelete={handleBulkDeleteClients} 
-                        onNormalizeCountries={handleNormalizeCountries} 
+                        onNormalizeCountries={handleNormalizeCountries}
+                        onSyncFromGuests={() => handleSyncClientsFromGuests(filteredGuests)}
                         lang={lang} 
                         currentUser={currentUser} 
                         onOpenClientHistory={handleOpenClientHistory}

@@ -102,28 +102,50 @@ export function useClientActions({ currentUser, clients, showNotification }) {
   const handleSyncClientsFromGuests = async (guests) => {
     try {
       const batch = writeBatch(db);
-      let created = 0, updated = 0;
-      const activeGuests = guests.filter(g => g.status === 'active' && g.passport);
+      let created = 0, updated = 0, skipped = 0;
+      const activeGuests = guests.filter(g => g.status === 'active' && (g.passport || g.fullName));
+
       for (const g of activeGuests) {
-        const ec = clients.find(c => c.passport && c.passport === g.passport);
+        // Ищем по паспорту, если нет — по ФИО
+        const ec = g.passport
+          ? clients.find(c => c.passport && c.passport === g.passport)
+          : clients.find(c => !c.passport && c.fullName === g.fullName);
+
         if (ec) {
-          batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
-            lastVisit: ec.lastVisit || new Date().toISOString(),
-          });
-          updated++;
+          // Обновляем только если данных не хватает
+          const updates = {};
+          if (!ec.fullName && g.fullName) updates.fullName = g.fullName;
+          if (!ec.birthDate && g.birthDate) updates.birthDate = g.birthDate;
+          if (!ec.country && g.country) updates.country = g.country;
+          if (!ec.phone && g.phone) updates.phone = g.phone;
+          if (!ec.passport && g.passport) updates.passport = g.passport;
+          if (Object.keys(updates).length > 0) {
+            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), updates);
+            updated++;
+          } else {
+            skipped++;
+          }
         } else {
           batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), {
-            fullName: g.fullName || '', passport: g.passport || '',
-            birthDate: g.birthDate || '', country: g.country || '',
-            phone: g.phone || '', passportIssueDate: g.passportIssueDate || '',
-            lastVisit: new Date().toISOString(), visits: 1,
+            fullName: g.fullName || '',
+            passport: g.passport || '',
+            birthDate: g.birthDate || '',
+            country: g.country || '',
+            phone: g.phone || '',
+            passportIssueDate: g.passportIssueDate || '',
+            lastVisit: new Date().toISOString(),
+            visits: 1,
           });
           created++;
         }
       }
+
       if (created + updated > 0) await batch.commit();
-      showNotification(`Синхронизировано: ${created} новых, ${updated} обновлено`, 'success');
-      logAction(currentUser, 'sync_clients', { created, updated });
+      showNotification(
+        `✅ Готово: ${created} добавлено, ${updated} обновлено${skipped ? `, ${skipped} без изменений` : ''}`,
+        'success'
+      );
+      logAction(currentUser, 'sync_clients', { created, updated, skipped });
     } catch (e) {
       showNotification('Ошибка синхронизации: ' + e.message, 'error');
     }

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, ChevronLeft, ChevronRight, Upload, RefreshCw } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import ClientEditModal from '../Modals/ClientEditModal';
@@ -114,7 +114,7 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
 };
 
 // --- ClientsView ---
-const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, lang, currentUser, onOpenClientHistory, activePassports = new Set() }) => {
+const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set() }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [search, setSearch] = useState('');
     const [editingClient, setEditingClient] = useState(null);
@@ -126,6 +126,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
     const [recencyFilter, setRecencyFilter] = useState('');
     const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false);
     const [confirmNormalizeOpen, setConfirmNormalizeOpen] = useState(false);
+    const [confirmSyncOpen, setConfirmSyncOpen] = useState(false);
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
@@ -206,6 +207,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                         <Button icon={Merge} variant="secondary" onClick={onDeduplicate}>{t('deduplicate')}</Button>
                         <Button icon={Globe} variant="secondary" onClick={handleNormalize}>{t('normalizeCountries')}</Button>
                         <Button icon={FileSpreadsheet} variant="secondary" onClick={() => setIsImportModalOpen(true)}>CSV</Button>
+                        {onSyncFromGuests && <Button icon={RefreshCw} variant="secondary" onClick={() => setConfirmSyncOpen(true)}>Синхр. гостей</Button>}
                         {selectedIds.size > 0 && <Button icon={Trash2} variant="danger" onClick={handleBulkDelete}>{selectedIds.size} уд.</Button>}
                     </>}
                     <div className="ml-auto flex items-center gap-2 text-xs text-slate-500 font-medium">
@@ -317,6 +319,24 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                         <div className="flex gap-3">
                             <button onClick={() => setConfirmNormalizeOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
                             <button onClick={() => { onNormalizeCountries(); setConfirmNormalizeOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm">Нормализовать</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {confirmSyncOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+                        <div className="text-center mb-5">
+                            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <RefreshCw size={22} className="text-emerald-600"/>
+                            </div>
+                            <h3 className="font-bold text-slate-800 text-lg">Синхронизация гостей</h3>
+                            <p className="text-sm text-slate-500 mt-1">Все активные гости с паспортными данными будут добавлены в базу клиентов (если их там ещё нет).</p>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => setConfirmSyncOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                            <button onClick={() => { onSyncFromGuests(); setConfirmSyncOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">Синхронизировать</button>
                         </div>
                     </div>
                 </div>
