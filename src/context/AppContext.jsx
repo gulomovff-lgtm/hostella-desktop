@@ -28,7 +28,8 @@ export function AppProvider({ children }) {
 
   const login = useCallback((user) => {
     setCurrentUser(user);
-    sessionStorage.setItem('hostella_user_v4', JSON.stringify(user));
+    const { pass: _p, ...sessionUser } = user;
+    sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser));
     if (user.hostelId && user.hostelId !== 'all') setSelectedHostelFilter(user.hostelId);
     setActiveTab(user.role === 'cashier' ? 'rooms' : 'dashboard');
   }, []);

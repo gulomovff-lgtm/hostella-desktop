@@ -461,7 +461,8 @@ function App() {
 
   const handleLogin = (user) => { 
     setCurrentUser(user); 
-    sessionStorage.setItem('hostella_user_v4', JSON.stringify(user)); 
+    const { pass: _p, ...sessionUser } = user;
+    sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser)); 
     if (user.hostelId && user.hostelId !== 'all') setSelectedHostelFilter(user.hostelId);
     if (user.role === 'cashier') setActiveTab('rooms'); 
     else setActiveTab('dashboard'); 

@@ -107,8 +107,8 @@ export function useShiftActions({
       if (d.pass) payload.pass = await hashPassword(d.pass);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id), payload);
       if (currentUser?.id === id) {
-        const updatedUser = { ...currentUser, ...payload };
-        setCurrentUser(updatedUser);
+        const { pass: _p, ...updatedUser } = { ...currentUser, ...payload };
+        setCurrentUser({ ...currentUser, ...payload });
         sessionStorage.setItem('hostella_user_v4', JSON.stringify(updatedUser));
       }
       showNotification('Сотрудник обновлён', 'success');
@@ -129,9 +129,9 @@ export function useShiftActions({
   const handleChangePassword = async (userId, newPassword) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', userId), { pass: newPassword });
-      const updatedUser = { ...currentUser, pass: newPassword };
-      setCurrentUser(updatedUser);
-      sessionStorage.setItem('hostella_user_v4', JSON.stringify(updatedUser));
+      const { pass: _p, ...sessionUser } = { ...currentUser, pass: newPassword };
+      setCurrentUser({ ...currentUser, pass: newPassword });
+      sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser));
       showNotification('Пароль успешно изменен!', 'success');
     } catch (e) {
       showNotification('Ошибка изменения пароля: ' + e.message, 'error');
