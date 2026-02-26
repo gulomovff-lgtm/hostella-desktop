@@ -396,7 +396,7 @@ function App() {
     if (api.onUpdateAvailable) {
       api.onUpdateAvailable((info) => {
         setHasUpdate(true);
-        setUpdateProgress(0);
+        setUpdateProgress(prev => (prev !== null && prev > 0) ? prev : 0);
       });
     }
     if (api.onUpdateProgress) {

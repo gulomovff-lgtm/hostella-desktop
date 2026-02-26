@@ -13,6 +13,7 @@ autoUpdater.logger.transports.file.level = 'info';
 autoUpdater.autoInstallOnAppQuit = true;
 
 let mainWindow;
+let isDownloading = false;
 
 function sendToWindow(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -49,8 +50,10 @@ function createWindow() {
   // Проверяем обновления через 3 секунды после запуска (только в production)
   if (!isDev) {
     setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
-    // Повторно каждые 2 часа
-    setInterval(() => autoUpdater.checkForUpdates(), 2 * 60 * 60 * 1000);
+    // Повторно каждые 2 часа (только если не идёт скачивание)
+    setInterval(() => {
+      if (!isDownloading) autoUpdater.checkForUpdates();
+    }, 2 * 60 * 60 * 1000);
   }
 }
 
@@ -105,6 +108,7 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
   log.info('Доступно обновление:', info.version);
+  isDownloading = true;
   sendToWindow('update-available', info);
 });
 
@@ -118,11 +122,17 @@ autoUpdater.on('download-progress', (progress) => {
 
 autoUpdater.on('update-downloaded', (info) => {
   log.info('Обновление загружено:', info.version);
+  isDownloading = false;
   sendToWindow('update-downloaded', info);
+});
+
+autoUpdater.on('update-not-available', () => {
+  isDownloading = false;
 });
 
 autoUpdater.on('error', (err) => {
   log.error('Ошибка обновления:', err.message);
+  isDownloading = false;
   sendToWindow('update-error', err.message);
 });
 
