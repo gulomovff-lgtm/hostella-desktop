@@ -112,6 +112,23 @@ const SAMPLE_DATA = {
 const fillTemplate = (tpl, data) =>
     tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => data[k] ?? `{{${k}}}`);
 
+// Безопасный рендер шаблона для предпросмотра: экранируем весь HTML,
+// затем разрешаем только <b> и <i> из тела шаблона.
+const escHtml = (s) =>
+    String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const safeRenderTemplate = (tpl, data) => {
+    // 1. Экранируем весь HTML в теле шаблона
+    const escaped = escHtml(tpl);
+    // 2. Заменяем {{key}} на экранированные значения переменных
+    const filled = escaped.replace(/\{\{(\w+)\}\}/g, (_, k) =>
+        escHtml(String(data[k] ?? `{{${k}}}`)));
+    // 3. Восстанавливаем только &lt;b&gt; → <strong> и &lt;i&gt; → <em>
+    return filled
+        .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/gs, '<strong>$1</strong>')
+        .replace(/&lt;i&gt;(.*?)&lt;\/i&gt;/gs, '<em>$1</em>');
+};
+
 // ─── Input style ──────────────────────────────────────────────────────────────
 const inp = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm text-slate-700";
 const card = "bg-white rounded-2xl border border-slate-200 shadow-sm";
@@ -336,9 +353,7 @@ const TemplateEditor = ({ typeKey, template, onSave, onClose }) => {
                                 </div>
                                 <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed"
                                     dangerouslySetInnerHTML={{
-                                        __html: fillTemplate(body, SAMPLE_DATA)
-                                            .replace(/<b>(.*?)<\/b>/g, '<strong>$1</strong>')
-                                            .replace(/<i>(.*?)<\/i>/g, '<em>$1</em>')
+                                        __html: safeRenderTemplate(body, SAMPLE_DATA)
                                     }}
                                 />
                             </div>
@@ -795,9 +810,7 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                                 <div className="bg-white rounded-xl p-3 shadow-sm inline-block max-w-xs w-full">
                                     <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed"
                                         dangerouslySetInnerHTML={{
-                                            __html: fillTemplate(templates[testType] || DEFAULT_TEMPLATES[testType] || '🔔 Тест', SAMPLE_DATA)
-                                                .replace(/<b>(.*?)<\/b>/g, '<strong>$1</strong>')
-                                                .replace(/<i>(.*?)<\/i>/g, '<em>$1</em>')
+                                            __html: safeRenderTemplate(templates[testType] || DEFAULT_TEMPLATES[testType] || '🔔 Тест', SAMPLE_DATA)
                                         }}
                                     />
                                 </div>
