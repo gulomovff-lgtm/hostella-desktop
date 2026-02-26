@@ -9,18 +9,28 @@ import {
 
 // ─── Notification types catalogue ────────────────────────────────────────────
 export const NOTIFICATION_TYPES = {
-    checkin:         { label: 'Заселение гостя',        icon: '🏨', category: 'guests',  color: '#10b981' },
-    checkout:        { label: 'Выселение гостя',        icon: '🚪', category: 'guests',  color: '#6366f1' },
-    autoCheckout:    { label: 'Авто-выселение',         icon: '⏰', category: 'guests',  color: '#f59e0b' },
-    newBooking:      { label: 'Онлайн-бронь (новая)',   icon: '📋', category: 'booking', color: '#8b5cf6' },
-    bookingAccepted: { label: 'Бронь принята',          icon: '✅', category: 'booking', color: '#10b981' },
-    bookingRejected: { label: 'Бронь отклонена',        icon: '❌', category: 'booking', color: '#ef4444' },
-    debtAlert:       { label: 'Новая задолженность',    icon: '💸', category: 'finance', color: '#ef4444' },
-    debtPaid:        { label: 'Долг оплачен',           icon: '💰', category: 'finance', color: '#10b981' },
-    expenseAdded:    { label: 'Расход добавлен',        icon: '💳', category: 'finance', color: '#f59e0b' },
-    shiftStart:      { label: 'Начало смены',           icon: '🟢', category: 'staff',   color: '#10b981' },
-    shiftEnd:        { label: 'Конец смены',            icon: '🔴', category: 'staff',   color: '#6366f1' },
-    dailyReport:     { label: 'Ежедневный отчёт',       icon: '📊', category: 'reports', color: '#3b82f6' },
+    // ── Гости ──────────────────────────────────────────────────────────────
+    checkin:         { label: 'Заселение гостя',             icon: '🏨', category: 'guests',  color: '#10b981' },
+    checkout:        { label: 'Выселение гостя',             icon: '🚪', category: 'guests',  color: '#6366f1' },
+    autoCheckout:    { label: 'Авто-выселение',              icon: '⏰', category: 'guests',  color: '#f59e0b' },
+    guestExtended:   { label: 'Продление проживания',        icon: '📅', category: 'guests',  color: '#3b82f6' },
+    deleteGuest:     { label: 'Удаление записи гостя',       icon: '🚫', category: 'guests',  color: '#ef4444' },
+    // ── Бронирование ───────────────────────────────────────────────────────
+    newBooking:      { label: 'Онлайн-бронь (новая)',        icon: '📋', category: 'booking', color: '#8b5cf6' },
+    bookingAccepted: { label: 'Бронь принята',               icon: '✅', category: 'booking', color: '#10b981' },
+    bookingRejected: { label: 'Бронь отклонена',             icon: '❌', category: 'booking', color: '#ef4444' },
+    // ── Финансы ────────────────────────────────────────────────────────────
+    paymentAdded:    { label: 'Оплата принята',              icon: '💵', category: 'finance', color: '#10b981' },
+    debtAlert:       { label: 'Новая задолженность',         icon: '⚠️', category: 'finance', color: '#ef4444' },
+    debtPaid:        { label: 'Долг оплачен',                icon: '💰', category: 'finance', color: '#10b981' },
+    refund:          { label: 'Возврат средств гостю',       icon: '💸', category: 'finance', color: '#f59e0b' },
+    expenseAdded:    { label: 'Расход добавлен',             icon: '💳', category: 'finance', color: '#f59e0b' },
+    deleteRecord:    { label: 'Удаление финансовой записи',  icon: '🗑', category: 'finance', color: '#94a3b8' },
+    // ── Персонал ────────────────────────────────────────────────────────────
+    shiftStart:      { label: 'Начало смены',                icon: '🟢', category: 'staff',   color: '#10b981' },
+    shiftEnd:        { label: 'Закрытие смены',              icon: '🔴', category: 'staff',   color: '#6366f1' },
+    // ── Отчёты ──────────────────────────────────────────────────────────────
+    dailyReport:     { label: 'Ежедневный отчёт',            icon: '📊', category: 'reports', color: '#3b82f6' },
 };
 
 const CATEGORIES = {
@@ -33,15 +43,20 @@ const CATEGORIES = {
 
 // ─── Default templates ────────────────────────────────────────────────────────
 export const DEFAULT_TEMPLATES = {
-    checkin:         '🏨 <b>Новое заселение</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Комната {{room}}, место {{bed}}\n📅 {{checkIn}} → {{checkOut}} ({{days}} дн.)\n💰 Оплачено: {{amount}} сум',
-    checkout:        '🚪 <b>Выселение</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Комната {{room}}\n📅 Заехал: {{checkIn}}\n💰 Итого: {{amount}} сум',
+    checkin:         '🏨 <b>Новое заселение</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Комната {{room}}, место {{bed}}\n📅 {{checkIn}} → {{checkOut}} ({{days}} дн.)\n💰 Оплачено: {{amount}} сум\n👷 Кассир: {{staffName}}',
+    checkout:        '🚪 <b>Выселение</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Комната {{room}}\n📅 Заехал: {{checkIn}}\n💰 Итого: {{amount}} сум\n👷 Кассир: {{staffName}}',
     autoCheckout:    '⏰ <b>Авто-выселение</b>\n👤 {{guestName}} — просрочка > 24ч\n🛏 {{hostel}} · Комната {{room}}\n📅 Должен был выехать: {{checkOut}}',
+    guestExtended:   '📅 <b>Продление проживания</b>\n👤 {{guestName}}\n➕ +{{extendDays}} дн. → {{checkOut}}\n💵 Доплачено: {{amount}} сум\n👷 Кассир: {{staffName}}',
+    deleteGuest:     '🚫 <b>Удалена запись гостя</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Ком. {{room}}\n📅 {{checkIn}} → {{checkOut}}\n👤 Удалил: {{staffName}}',
     newBooking:      '📋 <b>Новая онлайн-бронь</b>\n👤 {{guestName}}\n📅 {{checkIn}} → {{checkOut}}\n🏨 {{hostel}}\n📞 {{phone}}',
     bookingAccepted: '✅ <b>Бронь принята</b>\n👤 {{guestName}}\n📅 {{checkIn}}\n🏨 {{hostel}}',
     bookingRejected: '❌ <b>Бронь отклонена</b>\n👤 {{guestName}}\n📅 {{checkIn}}\n🏨 {{hostel}}',
-    debtAlert:       '💸 <b>Новая задолженность</b>\n👤 {{guestName}}\n💰 Долг: {{debtAmount}} сум\n🏨 {{hostel}} · Комната {{room}}',
-    debtPaid:        '💰 <b>Долг погашен</b>\n👤 {{guestName}}\n✅ Оплачено: {{amount}} сум',
+    paymentAdded:    '💵 <b>Оплата принята</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Ком. {{room}}\n💰 {{amount}} сум\n👷 Кассир: {{staffName}}',
+    debtAlert:       '⚠️ <b>Новая задолженность</b>\n👤 {{guestName}}\n💰 Долг: {{debtAmount}} сум\n👷 Кассир: {{staffName}}',
+    debtPaid:        '💰 <b>Долг погашен</b>\n👤 {{guestName}}\n✅ Оплачено: {{amount}} сум\n👷 Кассир: {{staffName}}',
+    refund:          '💸 <b>Возврат средств</b>\n👤 {{guestName}}\n💵 Сумма: {{amount}} сум\n👷 Кассир: {{staffName}}',
     expenseAdded:    '💳 <b>Расход</b>\n📂 {{category}}\n💰 {{amount}} сум\n👤 Кассир: {{staffName}}\n💬 {{comment}}',
+    deleteRecord:    '🗑 <b>Удалена финансовая запись</b>\nТип: {{recordType}}\n👤 {{guestName}}\n💵 {{amount}} сум\n📅 {{checkIn}}\n👤 Удалил: {{staffName}}',
     shiftStart:      '🟢 <b>Смена начата</b>\n👤 {{staffName}}\n🏨 {{hostel}}\n🕐 {{time}}',
     shiftEnd:        '🔴 <b>Смена закрыта</b>\n👤 {{staffName}}\n🏨 {{hostel}}\n💰 Наличные: {{cash}} | Терминал: {{card}} | QR: {{qr}}\n🕐 {{time}}',
     dailyReport:     '📊 <b>Ежедневный отчёт — {{date}}</b>\n🏨 {{hostel}}\n👥 Гостей: {{activeGuests}}\n📈 Выручка: {{revenue}} сум\n💸 Расходы: {{expenses}} сум',
@@ -49,15 +64,20 @@ export const DEFAULT_TEMPLATES = {
 
 // Variables per type
 const TEMPLATE_VARS = {
-    checkin:         ['guestName','hostel','room','bed','checkIn','checkOut','days','amount'],
-    checkout:        ['guestName','hostel','room','checkIn','amount'],
+    checkin:         ['guestName','hostel','room','bed','checkIn','checkOut','days','amount','staffName'],
+    checkout:        ['guestName','hostel','room','checkIn','amount','staffName'],
     autoCheckout:    ['guestName','hostel','room','checkOut'],
+    guestExtended:   ['guestName','extendDays','checkOut','amount','staffName'],
+    deleteGuest:     ['guestName','hostel','room','checkIn','checkOut','staffName'],
     newBooking:      ['guestName','hostel','checkIn','checkOut','phone'],
     bookingAccepted: ['guestName','hostel','checkIn'],
     bookingRejected: ['guestName','hostel','checkIn'],
-    debtAlert:       ['guestName','hostel','room','debtAmount'],
-    debtPaid:        ['guestName','amount'],
+    paymentAdded:    ['guestName','hostel','room','amount','staffName'],
+    debtAlert:       ['guestName','debtAmount','staffName'],
+    debtPaid:        ['guestName','amount','staffName'],
+    refund:          ['guestName','amount','staffName'],
     expenseAdded:    ['category','amount','staffName','comment'],
+    deleteRecord:    ['recordType','guestName','amount','checkIn','staffName'],
     shiftStart:      ['staffName','hostel','time'],
     shiftEnd:        ['staffName','hostel','cash','card','qr','time'],
     dailyReport:     ['date','hostel','activeGuests','revenue','expenses'],
@@ -85,6 +105,8 @@ const SAMPLE_DATA = {
     activeGuests: '12',
     revenue: '850 000',
     expenses: '45 000',
+    extendDays: '3',
+    recordType: 'Расход',
 };
 
 const fillTemplate = (tpl, data) =>

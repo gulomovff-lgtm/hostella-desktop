@@ -546,6 +546,15 @@ function App() {
         amount: totalPaid,
       });
 
+      // Telegram — заселение
+      if (newGuest.status === 'active') {
+        const hostelLabel = targetHostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
+        sendTelegramMessage(
+          `🏨 <b>Новое заселение</b>\n👤 ${newGuest.fullName}\n🛏 ${hostelLabel} · Ком. ${newGuest.roomNumber || '—'}, место ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} дн.)\n💰 Оплачено: ${totalPaid.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
+          'checkin'
+        );
+      }
+
       // Undo snapshot
       if (newGuest.status === 'active') {
           pushUndo({
@@ -1150,7 +1159,12 @@ const filterByHostel = (items) => {
             hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId 
           };
           
-          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), debtData); 
+          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), debtData);
+          // Telegram — новый долг
+          sendTelegramMessage(
+            `⚠️ <b>Создан долг</b>\n👤 ${client.fullName}\n💰 Сумма: ${amount.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
+            'debtAlert'
+          );
           showNotification("Debt created successfully");
       } catch (e) { 
         showNotification("Error creating debt", 'error'); 
@@ -1200,6 +1214,14 @@ const filterByHostel = (items) => {
                   cash, card, qr,
               });
           }
+          // Telegram — оплата
+          if (g && total > 0) {
+            const hostelLabelPay = (g.hostelId === 'hostel1') ? 'Хостел №1' : 'Хостел №2';
+            sendTelegramMessage(
+              `💵 <b>Оплата принята</b>\n👤 ${g.fullName}\n🛏 ${hostelLabelPay} · Ком. ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
+              'paymentAdded'
+            );
+          }
           setGuestDetailsModal({open:false, guest:null}); 
           showNotification('Оплата принята', 'success');
       } catch(e) { 
@@ -1239,6 +1261,13 @@ const filterByHostel = (items) => {
               paymentIds,
               payCash, payCard, payQR,
           });
+          // Telegram — продление
+          if (g) {
+            sendTelegramMessage(
+              `📅 <b>Продление проживания</b>\n👤 ${g.fullName}\n➕ +${extendDays} дн. → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 Доплачено: ${payTotal.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
+              'guestExtended'
+            );
+          }
           setGuestDetailsModal({ open: false, guest: null });
           showNotification(`Продлено на ${extendDays} дн.`, 'success');
       } catch(e) {
@@ -1311,6 +1340,13 @@ const filterByHostel = (items) => {
         occupied:Math.max(0, (r.occupied||1)-1)
     });
 
+    // Telegram — выселение
+    const hostelLabelCO = guest.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
+    sendTelegramMessage(
+      `🚪 <b>Выселение</b>\n👤 ${guest.fullName}\n🛏 ${hostelLabelCO} · Ком. ${guest.roomNumber || '—'}\n📅 Заехал: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 Итого: ${(final.totalPrice || 0).toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
+      'checkout'
+    );
+
     if (actualRefund > 0) {
         await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
             amount: actualRefund,
@@ -1321,7 +1357,7 @@ const filterByHostel = (items) => {
             hostelId: currentUser.hostelId || guest.hostelId
         });
         
-        sendTelegramMessage(`💸 <b>Возврат гостю</b>\n👤 ${guest.fullName}\n💵 Сумма: ${actualRefund.toLocaleString()}\n👷 Кассир: ${currentUser.name}`, 'debtPaid');
+        sendTelegramMessage(`💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${actualRefund.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`, 'refund');
     }
 };
 
@@ -1409,6 +1445,14 @@ const filterByHostel = (items) => {
         }); 
       }
       
+      // Telegram — удаление гостя
+      if (guestData) {
+        const hostelLabelDG = (guestData.hostelId === 'hostel1') ? 'Хостел №1' : 'Хостел №2';
+        sendTelegramMessage(
+          `🚫 <b>Удалена запись гостя</b>\n👤 ${guestData.fullName || '—'}\n🛏 ${hostelLabelDG} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`,
+          'deleteGuest'
+        );
+      }
       setGuestDetailsModal({open:false, guest:null}); 
       showNotification("Deleted");
   };
@@ -1444,7 +1488,7 @@ const filterByHostel = (items) => {
     }
     msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
 
-    sendTelegramMessage(msg); 
+    sendTelegramMessage(msg, 'deleteRecord'); 
     showNotification("Запись удалена"); 
   };
 
@@ -1466,6 +1510,13 @@ const filterByHostel = (items) => {
       setExpenseModal(false);
       showNotification('Расход добавлен', 'success');
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
+      // Telegram — расход (не возврат)
+      if (d.category !== 'Возврат') {
+        sendTelegramMessage(
+          `💳 <b>Расход</b>\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 Кассир: ${currentUser.name || currentUser.login}`,
+          'expenseAdded'
+        );
+      }
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
       showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
