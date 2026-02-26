@@ -627,6 +627,16 @@ const filterByHostel = (items) => {
     return filteredTasks.filter(t => t.status !== 'done').length;
   }, [filteredTasks]);
 
+  // Регистрации E-mehmon с истёкшим сроком
+  const registrationsAlertCount = useMemo(() => {
+    const now = Date.now();
+    return (registrations || []).filter(r => {
+      if (r.status === 'removed') return false;
+      const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
+      return end <= now;
+    }).length;
+  }, [registrations]);
+
   // Бронирования с сайта (все гости, не фильтруем по хостелу — админ видит все)
   const websiteBookings = useMemo(() => {
     if (!currentUser) return [];
