@@ -134,12 +134,17 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     const setNotif = (k, v) => setForm(f => ({ ...f, notifications: { ...f.notifications, [k]: v } }));
 
+    // Detect if user entered a group ID without the required -100 prefix
+    const tid = form.telegramId.trim();
+    const looksLikeWrongGroupId = tid.startsWith('-') && !tid.startsWith('-100') && /^-\d+$/.test(tid);
+    const fixedGroupId = tid.startsWith('-') ? `-100${tid.slice(1)}` : tid;
+
     const handleSave = () => {
         if (!form.name.trim()) { setErr('Введите имя'); return; }
         if (!form.telegramId.trim()) { setErr('Введите Telegram ID'); return; }
-        if (!/^-?\d+$/.test(form.telegramId.trim())) { setErr('Telegram ID — только цифры (для групп можно с минусом)'); return; }
+        if (!/^-?\d+$/.test(tid)) { setErr('Telegram ID — только цифры (для групп можно с минусом)'); return; }
         if (form.threadId && !/^\d+$/.test(form.threadId.trim())) { setErr('Thread ID — только цифры'); return; }
-        onSave({ ...form, telegramId: form.telegramId.trim(), name: form.name.trim(), threadId: form.threadId?.trim() || '' });
+        onSave({ ...form, telegramId: tid, name: form.name.trim(), threadId: form.threadId?.trim() || '' });
     };
 
     const selectAll = (val) =>
@@ -157,6 +162,13 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
                     </button>
                 </div>
                 <div className="p-6 space-y-4">
+                    {/* Инструкция: как узнать ID */}
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
+                        <div className="font-black text-blue-800 mb-1">📖 Как узнать Telegram ID?</div>
+                        <div><b>Личный чат:</b> напишите боту <code className="bg-blue-100 px-1 rounded">@userinfobot</code> — он пришлёт ваш ID (число без минуса)</div>
+                        <div><b>Группа/канал:</b> добавьте <code className="bg-blue-100 px-1 rounded">@getidsbot</code> в группу → он напишет ID вида <code className="bg-blue-100 px-1 rounded">-100123456789</code></div>
+                        <div><b>Thread ID вкладки:</b> в теме форум-группы перешлите любое сообщение боту <code className="bg-blue-100 px-1 rounded">@getidsbot</code> — он покажет <code className="bg-blue-100 px-1 rounded">message_thread_id</code></div>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Имя / Описание</label>
@@ -167,6 +179,20 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
                             <input className={inp} placeholder="123456789 или -100123456789" value={form.telegramId} onChange={e => set('telegramId', e.target.value)}/>
                         </div>
                     </div>
+                    {/* Предупреждение о неправильном формате группового ID */}
+                    {looksLikeWrongGroupId && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 flex items-start gap-2">
+                            <span className="text-amber-500 mt-0.5">⚠️</span>
+                            <div className="flex-1 text-xs text-amber-800">
+                                <div className="font-bold mb-1">Возможно неверный формат ID группы</div>
+                                <div>Супергруппы Telegram требуют префикс <code className="bg-amber-100 px-1 rounded font-mono">-100</code>. Ваш ID <code className="bg-amber-100 px-1 rounded font-mono">{tid}</code> скорее всего должен быть <code className="bg-amber-100 px-1 rounded font-mono">{fixedGroupId}</code></div>
+                                <button onClick={() => set('telegramId', fixedGroupId)}
+                                    className="mt-1.5 px-3 py-1 bg-amber-500 text-white rounded-lg font-bold text-[11px] hover:bg-amber-600 transition-colors">
+                                    Исправить автоматически → {fixedGroupId}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Thread ID <span className="text-slate-400 normal-case">(вкладка группы)</span></label>
