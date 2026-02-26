@@ -143,7 +143,13 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         const matchesDate = tTime >= startTime && tTime <= endTime;
         const matchesStaff = filters.staffId ? (t.staffId === filters.staffId || (users.find(u=>u.id===filters.staffId)?.login === t.staffId)) : true;
         const matchesMethod = filters.method ? t.method === filters.method : true;
-        const matchesType = filters.type ? t.type === filters.type : true;
+        const matchesType = filters.type === 'refund'
+            ? (t.type === 'expense' && t.category === 'Возврат')
+            : filters.type === 'expense'
+                ? (t.type === 'expense' && t.category !== 'Возврат')
+                : filters.type === 'income'
+                    ? t.type === 'income'
+                    : true;
         const matchesHostel = filters.hostelId ? t.hostelId === filters.hostelId : true;
         if (parseInt(t.amount) === 0) return false;
         return matchesDate && matchesStaff && matchesMethod && matchesType && matchesHostel;
@@ -291,6 +297,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             <option value="">Все</option>
                             <option value="income">Приход</option>
                             <option value="expense">Расход</option>
+                            <option value="refund">Возврат</option>
                         </select>
                     </div>
                     <div>
@@ -346,8 +353,8 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-slate-100">
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700' }`}>
-                                    {isIncome ? 'ПРИХОД' : 'РАСХОД'}
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : item.category === 'Возврат' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700' }`}>
+                                    {isIncome ? 'ПРИХОД' : item.category === 'Возврат' ? 'ВОЗВРАТ' : 'РАСХОД'}
                                 </span>
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">{item.method||'—'}</span>
                                 {currentUser.role==='super' && (
@@ -388,9 +395,9 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{new Date(item.date).toLocaleString('ru')}</td>
                                         <td className="px-4 py-3 text-xs font-semibold text-slate-600">{hostelName}</td>
                                         <td className="px-4 py-3">
-                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700' }`}>
+                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : item.category === 'Возврат' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700' }`}>
                                                 {isIncome ? <TrendingUp size={10}/> : <TrendingDown size={10}/>}
-                                                {isIncome ? 'ПРИХОД' : 'РАСХОД'}
+                                                {isIncome ? 'ПРИХОД' : item.category === 'Возврат' ? 'ВОЗВРАТ' : 'РАСХОД'}
                                             </span>
                                         </td>
                                         <td className={`px-4 py-3 font-black text-sm ${ isIncome ? 'text-emerald-600' : 'text-rose-600' }`}>
