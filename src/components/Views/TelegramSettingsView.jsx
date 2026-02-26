@@ -137,8 +137,9 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
     const handleSave = () => {
         if (!form.name.trim()) { setErr('Введите имя'); return; }
         if (!form.telegramId.trim()) { setErr('Введите Telegram ID'); return; }
-        if (!/^\d+$/.test(form.telegramId.trim())) { setErr('Telegram ID — только цифры'); return; }
-        onSave({ ...form, telegramId: form.telegramId.trim(), name: form.name.trim() });
+        if (!/^-?\d+$/.test(form.telegramId.trim())) { setErr('Telegram ID — только цифры (для групп можно с минусом)'); return; }
+        if (form.threadId && !/^\d+$/.test(form.threadId.trim())) { setErr('Thread ID — только цифры'); return; }
+        onSave({ ...form, telegramId: form.telegramId.trim(), name: form.name.trim(), threadId: form.threadId?.trim() || '' });
     };
 
     const selectAll = (val) =>
@@ -162,13 +163,23 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
                             <input className={inp} placeholder="Например: Азиз (директор)" value={form.name} onChange={e => set('name', e.target.value)}/>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Telegram ID <span className="text-slate-400 normal-case">(только цифры)</span></label>
-                            <input className={inp} placeholder="123456789" value={form.telegramId} onChange={e => set('telegramId', e.target.value)}/>
+                            <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Telegram ID <span className="text-slate-400 normal-case">(личный или группа)</span></label>
+                            <input className={inp} placeholder="123456789 или -100123456789" value={form.telegramId} onChange={e => set('telegramId', e.target.value)}/>
                         </div>
                     </div>
-                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                        <span className="text-sm font-semibold text-slate-700">Получатель активен</span>
-                        <Toggle val={form.active} onChange={v => set('active', v)}/>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Thread ID <span className="text-slate-400 normal-case">(вкладка группы)</span></label>
+                            <input className={inp} placeholder="Необязательно" value={form.threadId || ''} onChange={e => set('threadId', e.target.value)}/>
+                            <p className="text-[10px] text-slate-400 mt-1">Для форум-групп: ID темы/вкладки куда слать сообщения</p>
+                        </div>
+                        <div className="flex items-center p-3 bg-slate-50 rounded-xl">
+                            <div className="flex-1">
+                                <div className="text-sm font-semibold text-slate-700">Активный</div>
+                                <div className="text-[10px] text-slate-400">Получает уведомления</div>
+                            </div>
+                            <Toggle val={form.active} onChange={v => set('active', v)}/>
+                        </div>
                     </div>
 
                     <div>
@@ -573,7 +584,7 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                         </div>
                     ) : (
                         recipients.map(r => {
-                            const enabledCount = Object.values(r.notifications || {}).filter(Boolean).length;
+                            const enabledCount = Object.keys(allTypes).filter(k => r.notifications?.[k] !== false).length;
                             const totalCount = Object.keys(allTypes).length;
                             const isExpanded = expandedRecipient === r.id;
 
@@ -590,7 +601,7 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                                                     {!r.active && <span className="text-[10px] font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">Отключён</span>}
                                                 </div>
                                                 <div className="text-xs text-slate-400 font-mono mt-0.5">
-                                                    ID: {r.telegramId} · {enabledCount}/{totalCount} уведомлений
+                                                    ID: {r.telegramId}{r.threadId ? ` · 💬 Вкл. ${r.threadId}` : ''} · {enabledCount}/{totalCount} уведомлений
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">

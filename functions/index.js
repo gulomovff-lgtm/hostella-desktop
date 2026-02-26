@@ -234,17 +234,19 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
             }
 
             // Filter active recipients subscribed to this notification type
-            targetChatIds = recipients
-                .filter(r => {
-                    if (!r.active) return false;
-                    if (!r.telegramId) return false;
-                    // If a type is specified, check per-recipient subscription
-                    if (notificationType) {
-                        return r.notifications?.[notificationType] !== false;
-                    }
-                    return true;
-                })
-                .map(r => r.telegramId);
+            const filteredRecipients = recipients.filter(r => {
+                if (!r.active) return false;
+                if (!r.telegramId) return false;
+                if (notificationType) {
+                    return r.notifications?.[notificationType] !== false;
+                }
+                return true;
+            });
+
+            targetChatIds = filteredRecipients.map(r => ({
+                chatId: r.telegramId,
+                threadId: r.threadId || null
+            }));
 
             // If no recipients configured in Firestore — skip silently
             if (targetChatIds.length === 0 && recipients.length === 0) {
@@ -260,15 +262,18 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
     }
 
-    const sendOne = async (chatId) => {
+    const sendOne = async (target) => {
+        const chatId = typeof target === 'string' ? target : target.chatId;
+        const threadId = typeof target === 'object' && target.threadId ? parseInt(target.threadId) : null;
+        const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+        if (threadId) payload.message_thread_id = threadId;
         const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: data.text, parse_mode: 'HTML' })
+            body: JSON.stringify(payload)
         });
         const json = await res.json();
         if (!json.ok) {
-            // Return error details so the caller can report them
             return { ok: false, chatId, errorCode: json.error_code, description: json.description };
         }
         return { ok: true, chatId };
