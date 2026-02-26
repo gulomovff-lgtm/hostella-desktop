@@ -229,14 +229,16 @@ function App() {
   const [roomFilter, setRoomFilter] = useState('all');
   const [selectedHostelFilter, setSelectedHostelFilter] = useState('hostel1');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [notification, setNotification] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
   const [lang, setLang] = useState('ru');
   const [hasUpdate, setHasUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(null); // 0-100
 
-  const showNotification = (message, type = 'success') => { 
-    setNotification({ message, type }); 
+  const showNotification = (message, type = 'success') => {
+    const id = Date.now() + Math.random();
+    setNotifications(prev => [...prev.slice(-2), { id, message, type }]);
   };
   
   // --- Data from Firebase (via custom hook) ---
@@ -683,14 +685,19 @@ function App() {
     }
   };
 
-    const handleDeleteUser = async (id) => { 
-    if(confirm("Удалить этого сотрудника?")) {
-      try {
-        await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id));
-        showNotification('Сотрудник удалён', 'success');
-      } catch (e) {
-        showNotification('Ошибка удаления: ' + e.message, 'error');
-      }
+    const handleDeleteUser = async (id) => {
+    setConfirmDeleteUser(id);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!confirmDeleteUser) return;
+    try {
+      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', confirmDeleteUser));
+      showNotification('Сотрудник удалён', 'success');
+    } catch (e) {
+      showNotification('Ошибка: ' + e.message, 'error');
+    } finally {
+      setConfirmDeleteUser(null);
     }
   };
 
@@ -1982,13 +1989,12 @@ return (
             registrationsAlertCount={registrationsAlertCount}
         />
 
-        {notification && (
-            <Notification
-                message={notification.message}
-                type={notification.type}
-                onClose={() => setNotification(null)}
-            />
-        )}
+        <div className="fixed top-12 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
+            {notifications.map(n => (
+                <Notification key={n.id} message={n.message} type={n.type}
+                    onClose={() => setNotifications(prev => prev.filter(x => x.id !== n.id))} />
+            ))}
+        </div>
 
         {/* Below top nav: sidebar + content */}
         <div className="flex flex-1 overflow-hidden">
@@ -2135,7 +2141,8 @@ return (
                         lang={lang} 
                         hostelId={currentUser.hostelId} 
                         onAdminAddShift={handleAdminAddShift} 
-                        onAdminUpdateShift={handleAdminUpdateShift} 
+                        onAdminUpdateShift={handleAdminUpdateShift}
+                        payments={payments}
                     />
                 )}
 
@@ -2445,6 +2452,29 @@ return (
                     onClose={() => setUndoHistoryOpen(false)}
                     onUndo={handleUndo}
                 />
+            )}
+
+            {/* Confirm delete user modal */}
+            {confirmDeleteUser && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center">
+                        <div className="w-14 h-14 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-4">
+                            <span className="text-2xl">🗑️</span>
+                        </div>
+                        <h3 className="font-black text-slate-800 text-lg mb-2">Удалить сотрудника?</h3>
+                        <p className="text-sm text-slate-500 mb-6">Это действие нельзя отменить.</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setConfirmDeleteUser(null)}
+                                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                                Отмена
+                            </button>
+                            <button onClick={handleConfirmDeleteUser}
+                                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold transition-colors">
+                                Удалить
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
         </div>

@@ -75,8 +75,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             if (g.status === 'booking') return;
             const totalPaid = getTotalPaid(g);
             const debt = (g.totalPrice || 0) - totalPaid;
-            if (debt > 0) {
-                const dateMatch = startDate ? g.checkInDate >= startDate : true;
+            const dateMatch = startDate ? g.checkInDate >= startDate : true;
+            if (debt > 0 && dateMatch) {
                 const key = g.passport || g.fullName;
                 if (!debtMap[key]) {
                     debtMap[key] = {

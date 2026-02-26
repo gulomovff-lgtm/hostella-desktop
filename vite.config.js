@@ -16,6 +16,13 @@ export default defineConfig({
         main:    './index.html',
         booking: './booking.html',
       },
+      output: {
+        manualChunks: {
+          'vendor-react':    ['react', 'react-dom'],
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/functions', 'firebase/storage'],
+          'vendor-icons':    ['lucide-react'],
+        },
+      },
     },
   },
 })

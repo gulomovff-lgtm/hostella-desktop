@@ -136,7 +136,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         return [...incomes, ...outcomes].sort((a,b) => new Date(b.date) - new Date(a.date));
     }, [payments, expenses, users]);
 
-    const filteredData = allTransactions.filter(t => {
+    const filteredData = useMemo(() => allTransactions.filter(t => {
         const tTime = new Date(t.date).getTime();
         const startTime = filters.start ? new Date(filters.start).getTime() : 0;
         const endTime = filters.end ? new Date(filters.end).getTime() : Infinity;
@@ -153,15 +153,16 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         const matchesHostel = filters.hostelId ? t.hostelId === filters.hostelId : true;
         if (parseInt(t.amount) === 0) return false;
         return matchesDate && matchesStaff && matchesMethod && matchesType && matchesHostel;
-    });
+    }), [allTransactions, filters, users]);
 
     const availableCashiers = useMemo(() => {
         if (!tempFilters.hostelId) return users; 
         return users.filter(u => u.hostelId === tempFilters.hostelId || u.hostelId === 'all');
     }, [users, tempFilters.hostelId]);
 
-    const totalIncome = filteredData.filter(t => t.type === 'income').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
-    const totalExpense = filteredData.filter(t => t.type === 'expense').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
+    const totalIncome  = filteredData.filter(t => t.type === 'income').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
+    const totalRefund  = filteredData.filter(t => t.type === 'expense' && t.category === 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
+    const totalExpense = filteredData.filter(t => t.type === 'expense' && t.category !== 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
 
     const handleExport = () => {
         const exportData = filteredData.map(item => ({
@@ -195,7 +196,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         const nf = { ...tempFilters, start: getLocalDatetimeString(s), end: getLocalDatetimeString(e) };
         setTempFilters(nf); setFilters(nf);
     };
-    const net = totalIncome - totalExpense;
+    const net = totalIncome - totalExpense - totalRefund;
 
     // ── Top Cashiers ──────────────────────────────────────────────────────
     const topCashiers = useMemo(() => {
@@ -221,7 +222,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     return (
         <div className="space-y-4 animate-in fade-in">
             {/* -- SUMMARY CARDS -- */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
                     <div className="flex items-center gap-2 mb-2 opacity-80"><TrendingUp size={16}/><span className="text-xs font-bold uppercase tracking-wide">Приход</span></div>
                     <div className="text-xl sm:text-2xl font-black">+{totalIncome.toLocaleString()}</div>
@@ -230,7 +231,12 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-4 text-white shadow-lg">
                     <div className="flex items-center gap-2 mb-2 opacity-80"><TrendingDown size={16}/><span className="text-xs font-bold uppercase tracking-wide">Расход</span></div>
                     <div className="text-xl sm:text-2xl font-black">-{totalExpense.toLocaleString()}</div>
-                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.filter(x=>x.type==='expense').length} операций</div>
+                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.filter(x=>x.type==='expense'&&x.category!=='Возврат').length} операций</div>
+                </div>
+                <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl p-4 text-white shadow-lg">
+                    <div className="flex items-center gap-2 mb-2 opacity-80"><TrendingDown size={16}/><span className="text-xs font-bold uppercase tracking-wide">Возврат</span></div>
+                    <div className="text-xl sm:text-2xl font-black">-{totalRefund.toLocaleString()}</div>
+                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.filter(x=>x.type==='expense'&&x.category==='Возврат').length} операций</div>
                 </div>
                 <div className={`rounded-2xl p-4 text-white shadow-lg bg-gradient-to-br ${ net >= 0 ? 'from-indigo-500 to-purple-600' : 'from-slate-600 to-slate-700'}`}>
                     <div className="flex items-center gap-2 mb-2 opacity-80"><Wallet size={16}/><span className="text-xs font-bold uppercase tracking-wide">Баланс</span></div>
