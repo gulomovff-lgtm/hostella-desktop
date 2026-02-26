@@ -125,18 +125,20 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                             const debt   = (stay.totalPrice||0) - paid;
                             const active = stay.status === 'active';
                             const booking= stay.status === 'booking';
+                            const isDebt = stay.status === 'debt';
                             const canAct = isAdmin && (active || booking);
 
                             return (
                                 <div key={stay.id||i} className={`bg-white rounded-xl border p-4 ${
                                     active  ? 'border-indigo-300 ring-2 ring-indigo-100' :
                                     booking ? 'border-amber-300 ring-2 ring-amber-50' :
+                                    isDebt  ? 'border-rose-200 ring-1 ring-rose-50' :
                                               'border-slate-200'
                                 }`}>
                                     <div className="flex items-start justify-between gap-2 mb-3">
                                         <div>
                                             <div className="font-black text-slate-800 text-base leading-tight">
-                                                Комната {stay.roomNumber} · Место {stay.bedId}
+                                                {isDebt ? 'Доп. оплата / Долг' : `Комната ${stay.roomNumber} · Место ${stay.bedId}`}
                                             </div>
                                             <div className="text-xs text-slate-400 mt-0.5">
                                                 {fmtFull(stay.checkInDate)} → {fmtFull(stay.checkOutDate)}
@@ -145,10 +147,11 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                         <span className={`text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap shrink-0 ${
                                             active  ? 'bg-indigo-100 text-indigo-700' :
                                             booking ? 'bg-amber-100 text-amber-700' :
+                                            isDebt  ? 'bg-rose-100 text-rose-700' :
                                             debt>0  ? 'bg-rose-100 text-rose-700' :
                                                       'bg-slate-100 text-slate-500'
                                         }`}>
-                                            {active ? 'Живёт' : booking ? 'Бронь' : debt > 0 ? 'Долг' : 'Выселен'}
+                                            {active ? 'Живёт' : booking ? 'Бронь' : isDebt ? (debt > 0 ? 'Долг' : 'Оплачен') : debt > 0 ? 'Долг' : 'Выселен'}
                                         </span>
                                     </div>
 

@@ -571,6 +571,29 @@ function App() {
           });
       }
 
+      // Upsert клиента при активном заселении
+      if (formData.passport && formData.status === 'active') {
+          const existingClient = clients.find(c => c.passport && c.passport === formData.passport);
+          if (existingClient) {
+              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', existingClient.id), {
+                  lastVisit: new Date().toISOString(),
+                  visits: (existingClient.visits || 0) + 1,
+                  fullName: existingClient.fullName || formData.fullName || '',
+              });
+          } else {
+              await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
+                  fullName: formData.fullName || '',
+                  passport: formData.passport || '',
+                  birthDate: formData.birthDate || '',
+                  country: formData.country || '',
+                  phone: formData.phone || '',
+                  passportIssueDate: formData.passportIssueDate || '',
+                  lastVisit: new Date().toISOString(),
+                  visits: 1,
+              });
+          }
+      }
+
       // Закрываем окно
       setCheckInModal({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null });
 
@@ -1141,7 +1164,28 @@ const filterByHostel = (items) => {
             const r = rooms.find(i=>i.id===data.roomId); 
             if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {
               occupied:(r.occupied||0)+1
-            }); 
+            });
+            // Upsert клиента
+            if (data.passport) {
+                const ec = clients.find(c => c.passport && c.passport === data.passport);
+                if (ec) {
+                    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
+                        lastVisit: new Date().toISOString(),
+                        visits: (ec.visits || 0) + 1,
+                    });
+                } else {
+                    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
+                        fullName: data.fullName || '',
+                        passport: data.passport || '',
+                        birthDate: data.birthDate || '',
+                        country: data.country || '',
+                        phone: data.phone || '',
+                        passportIssueDate: data.passportIssueDate || '',
+                        lastVisit: new Date().toISOString(),
+                        visits: 1,
+                    });
+                }
+            }
           }
           
           showNotification(data.status==='booking' ? "Booking created" : "Checked In!");
@@ -1170,7 +1214,7 @@ const filterByHostel = (items) => {
             paidCard: 0, 
             paidQR: 0, 
             amountPaid: 0, 
-            status: 'active', 
+            status: 'debt', 
             hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId 
           };
           
@@ -1195,6 +1239,28 @@ const filterByHostel = (items) => {
       if(r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), {
         occupied:(r.occupied||0)+1
       });
+
+      // Upsert клиента при активации брони
+      if (guest.passport) {
+          const ec = clients.find(c => c.passport && c.passport === guest.passport);
+          if (ec) {
+              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
+                  lastVisit: new Date().toISOString(),
+                  visits: (ec.visits || 0) + 1,
+              });
+          } else {
+              await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
+                  fullName: guest.fullName || '',
+                  passport: guest.passport || '',
+                  birthDate: guest.birthDate || '',
+                  country: guest.country || '',
+                  phone: guest.phone || '',
+                  passportIssueDate: guest.passportIssueDate || '',
+                  lastVisit: new Date().toISOString(),
+                  visits: 1,
+              });
+          }
+      }
       
       setGuestDetailsModal({open:false, guest:null}); 
       showNotification("Activated");
