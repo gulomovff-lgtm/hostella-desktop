@@ -269,69 +269,67 @@ function App() {
 
     const runAutoCheckout = async () => {
         const now = new Date();
+
+        // Начало сегодняшнего дня (00:00:00)
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+
+        // Безопасный порог: выселяем только если просрочка > 48 часов
+        // Защита от выселения "сегодняшних" гостей при любых часах
+        const safeThreshold = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
         const batch = writeBatch(db);
         let updatesCount = 0;
 
         guests.forEach(guest => {
-            // Проверяем только активных
+            // Только активных
             if (guest.status !== 'active') return;
 
-            // 1. Защита: Если даты нет, пропускаем (чтобы не выселить ошибочно)
+            // Нет даты — пропускаем
             if (!guest.checkOutDate) return;
 
-            // Определяем дату выезда
             let checkOut = new Date(guest.checkOutDate);
-            
-            // 2. Защита: Если дата некорректна (Invalid Date), пропускаем
             if (isNaN(checkOut.getTime())) return;
 
-            // Если дата без времени (только дата), устанавливаем конец дня (23:59)
+            // Если дата без времени — считаем конец дня (23:59)
             if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
                 checkOut.setHours(23, 59, 59, 999);
             }
 
-            // Считаем разницу во времени
-            const diffMs = now - checkOut;
-            const hoursOverdue = diffMs / (1000 * 60 * 60);
+            // ── ЗАЩИТА 1 ──────────────────────────────────────────────────────
+            // Дата выезда сегодня или в будущем — НЕ выселяем ни при каких условиях
+            if (checkOut >= todayStart) return;
 
-            // ВАЖНО: Логируем для отладки
+            // ── ЗАЩИТА 2 ──────────────────────────────────────────────────────
+            // Просрочка меньше 48 часов — даём буфер (сегодняшние + вчерашние)
+            if (checkOut >= safeThreshold) return;
 
-
-            // 3. Защита: Если есть непогашенный долг — не выселяем автоматически
-            // (менеджер должен выселить вручную после оплаты)
+            // ── ЗАЩИТА 3 ──────────────────────────────────────────────────────
+            // Есть долг (оплачено меньше чем должен) — менеджер должен закрыть вручную
             const paid = getTotalPaid(guest);
             const totalPrice = guest.totalPrice || 0;
             if (paid < totalPrice) return;
 
-            // 4. Защита: Если есть переплата (будущий платеж) на >= 1 сутки, не выселяем
+            // ── ЗАЩИТА 4 ──────────────────────────────────────────────────────
+            // Переплата >= цены за сутки — вероятно продлён, не трогаем
             const balance = paid - totalPrice;
-            if (balance > 0 && balance >= (Number(guest.pricePerNight) || 1)) {
-                return;
-            }
+            if (balance >= (Number(guest.pricePerNight) || 1)) return;
 
-            // ТОЛЬКО выселяем если просрочка больше 24 часов И дата четко в прошлом
-            if (hoursOverdue > 24 && checkOut < now) {
-                
-                // 1. Обновляем статус гостя на выселен (долг остается в totalPrice)
-                const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
-                batch.update(guestRef, {
-                    status: 'checked_out',
-                    autoCheckedOut: true, // Метка, что выселила система
-                    systemComment: 'Авто-выселение (тайм-аут > 24ч, долг 0)'
+            // ── Все проверки пройдены — выселяем ─────────────────────────────
+            const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
+            batch.update(guestRef, {
+                status: 'checked_out',
+                autoCheckedOut: true,
+                systemComment: 'Авто-выселение (просрочка > 48ч, долг 0)',
+            });
+
+            const room = rooms.find(r => r.id === guest.roomId);
+            if (room) {
+                batch.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), {
+                    occupied: increment(-1),
                 });
-
-                // 2. Освобождаем комнату
-                // Находим комнату, чтобы уменьшить occupied
-                const room = rooms.find(r => r.id === guest.roomId);
-                if (room) {
-                    const roomRef = doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id);
-                    // Важно: используем increment(-1), чтобы избежать гонок данных
-                    batch.update(roomRef, {
-                        occupied: increment(-1)
-                    });
-                }
-                updatesCount++;
             }
+            updatesCount++;
         });
 
         if (updatesCount > 0) {
