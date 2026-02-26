@@ -163,11 +163,12 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
                 </div>
                 <div className="p-6 space-y-4">
                     {/* Инструкция: как узнать ID */}
-                    <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1.5">
                         <div className="font-black text-blue-800 mb-1">📖 Как узнать Telegram ID?</div>
-                        <div><b>Личный чат:</b> напишите боту <code className="bg-blue-100 px-1 rounded">@userinfobot</code> — он пришлёт ваш ID (число без минуса)</div>
-                        <div><b>Группа/канал:</b> добавьте <code className="bg-blue-100 px-1 rounded">@getidsbot</code> в группу → он напишет ID вида <code className="bg-blue-100 px-1 rounded">-100123456789</code></div>
-                        <div><b>Thread ID вкладки:</b> в теме форум-группы перешлите любое сообщение боту <code className="bg-blue-100 px-1 rounded">@getidsbot</code> — он покажет <code className="bg-blue-100 px-1 rounded">message_thread_id</code></div>
+                        <div><b>Личный ID:</b> напишите <code className="bg-blue-100 px-1 rounded">@userinfobot</code> — он пришлёт ваш ID</div>
+                        <div><b>ID группы (способ 1):</b> откройте группу на <code className="bg-blue-100 px-1 rounded">web.telegram.org</code> → в адресной строке будет <code className="bg-blue-100 px-1 rounded">.../#-1001234567890</code> — это и есть ID</div>
+                        <div><b>ID группы (способ 2):</b> перешлите любое сообщение из группы боту <code className="bg-blue-100 px-1 rounded">@userinfobot</code> — он покажет ID группы</div>
+                        <div><b>Thread ID вкладки:</b> перешлите сообщение из темы боту <code className="bg-blue-100 px-1 rounded">@RawDataBot</code> — ищите <code className="bg-blue-100 px-1 rounded">message_thread_id</code></div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
