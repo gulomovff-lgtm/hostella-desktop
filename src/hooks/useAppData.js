@@ -30,10 +30,11 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [payments,    setPayments   ] = useState([]);
   const [usersList,   setUsersList  ] = useState([]);
   const [tasks,       setTasks      ] = useState([]);
-  const [shifts,      setShifts     ] = useState([]);
-  const [tgSettings,  setTgSettings ] = useState(null);
-  const [auditLog,    setAuditLog   ] = useState([]);
-  const [promos,      setPromos     ] = useState([]);
+  const [shifts,         setShifts        ] = useState([]);
+  const [tgSettings,    setTgSettings   ] = useState(null);
+  const [auditLog,      setAuditLog     ] = useState([]);
+  const [promos,        setPromos       ] = useState([]);
+  const [registrations, setRegistrations] = useState([]);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
@@ -125,7 +126,19 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); };
+    // Registrations (E-mehmon)
+    const registrationsCol = collection(db, ...PUBLIC_DATA_PATH, 'registrations');
+    const u11 = onSnapshot(
+      registrationsCol,
+      (snap) => setRegistrations(
+        snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      ),
+      () => setRegistrations([])
+    );
+
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -140,6 +153,7 @@ export const useAppData = (firebaseUser, currentUser) => {
     tgSettings,
     auditLog,
     promos,
+    registrations,
     isOnline,
     permissionError,
     isDataReady,

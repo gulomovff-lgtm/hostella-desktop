@@ -4,12 +4,12 @@ import {
     LayoutDashboard, BedDouble, Calendar, FileText, AlertCircle,
     CheckSquare, Wallet, Users, UserCog, Clock, Lock, LogOut,
     UserPlus, Power, Globe, BellRing, Tag, ClipboardList,
-    Settings, Users2, Building2,
+    Settings, Users2, Building2, ClipboardCheck,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Menu groups definition ───────────────────────────────────────────────────
-const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount) => [
+const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount) => [
     {
         id: 'main', label: null,
         items: [
@@ -21,10 +21,11 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount) => [
     {
         id: 'ops', label: 'ОПЕРАЦИИ',
         items: [
-            { id: 'bookings', icon: Globe,       label: 'Брони',    badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-            { id: 'debts',    icon: AlertCircle, label: t('debts'), permKey: 'viewDebts' },
-            { id: 'tasks',    icon: CheckSquare, label: t('tasks'), badge: pendingTasksCount },
-            { id: 'clients',  icon: Users,       label: t('clients'), permKey: 'viewClients' },
+            { id: 'bookings',      icon: Globe,          label: 'Брони',         badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+            { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon',      badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+            { id: 'debts',         icon: AlertCircle,    label: t('debts'),      permKey: 'viewDebts' },
+            { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),      badge: pendingTasksCount },
+            { id: 'clients',       icon: Users,          label: t('clients'),    permKey: 'viewClients' },
         ],
     },
     {
@@ -58,6 +59,7 @@ const Navigation = ({
     canPerformActions, onOpenExpense, onOpenCheckIn, onOpenShift,
     onOpenGroupCheckIn, onOpenRoomRental,
     onLogout, setLang, onOpenChangePassword,
+    registrationsAlertCount = 0,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
@@ -124,7 +126,7 @@ const Navigation = ({
         if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
         return true;
     };
-    const visibleGroups = NAV_GROUPS(t, pendingBookingsCount, pendingTasksCount)
+    const visibleGroups = NAV_GROUPS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount)
         .map(g => ({ ...g, items: g.items.filter(filterItem) }))
         .filter(g => g.items.length > 0);
 

@@ -167,17 +167,13 @@ input[type="number"]::-webkit-inner-spin-button {
   background: transparent;
 }
 
-/* ── Desktop zoom scaling (не затрагивает мобильный вид) ── */
-/* 1280–1439px (ноутбуки HD) */
-@media screen and (min-width: 769px) and (max-width: 1439px) {
-  .app-root {
-    zoom: 0.8;
-  }
+/* ── Desktop: app always fills full viewport ── */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
-/* 1440–1919px (Full HD / небольшие мониторы) */
-@media screen and (min-width: 1440px) and (max-width: 1919px) {
-  .app-root {
-    zoom: 0.9;
-  }
+.app-root {
+  width: 100% !important;
+  height: 100dvh !important;
 }
-/* 1920px+ — без изменений, выглядит идеально */

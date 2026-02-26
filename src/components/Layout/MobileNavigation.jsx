@@ -3,6 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
+    ClipboardCheck,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -19,9 +20,10 @@ const MORE_GROUPS = (t) => [
     {
         label: 'Главное',
         items: [
-            { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
-            { id: 'debts',     icon: AlertCircle,     label: t('debts') },
-            { id: 'clients',   icon: Users,           label: t('clients') },
+            { id: 'dashboard',     icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
+            { id: 'registrations', icon: ClipboardCheck,  label: 'E-mehmon',     badgeKey: 'registrations' },
+            { id: 'debts',         icon: AlertCircle,     label: t('debts') },
+            { id: 'clients',       icon: Users,           label: t('clients') },
         ],
     },
     {
@@ -57,6 +59,7 @@ const MobileNavigation = ({
     onLogout,
     canPerformActions, onOpenCheckIn, onOpenGroupCheckIn, onOpenRoomRental,
     onOpenShiftClosing, anyModalOpen,
+    registrationsAlertCount = 0,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const [drawerOpen, setDrawerOpen]   = useState(false);
@@ -68,8 +71,9 @@ const MobileNavigation = ({
     const isCashier = !isAdmin;
 
     const badges = {
-        bookings: pendingBookingsCount || 0,
-        tasks:    pendingTasksCount    || 0,
+        bookings:      pendingBookingsCount   || 0,
+        tasks:         pendingTasksCount      || 0,
+        registrations: registrationsAlertCount || 0,
     };
 
     // Close checkin popup on outside interaction
@@ -198,17 +202,28 @@ const MobileNavigation = ({
                                 {visibleItems.map(item => {
                                     const Icon = item.icon;
                                     const act  = activeTab === item.id;
+                                    const badge = item.badgeKey ? (badges[item.badgeKey] || 0) : 0;
                                     return (
                                         <button
                                             key={item.id}
                                             onClick={() => { setActiveTab(item.id); setDrawerOpen(false); }}
-                                            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95"
+                                            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95 relative"
                                             style={{
                                                 background: act ? 'rgba(232,140,64,0.2)'    : 'rgba(255,255,255,0.05)',
                                                 border:     act ? '1px solid rgba(232,140,64,0.45)' : '1px solid transparent',
                                             }}
                                         >
-                                            <Icon size={19} style={{ color: act ? ACTIVE_CLR : MUTED_CLR }} strokeWidth={act ? 2.5 : 2} />
+                                            <div className="relative">
+                                                <Icon size={19} style={{ color: act ? ACTIVE_CLR : MUTED_CLR }} strokeWidth={act ? 2.5 : 2} />
+                                                {badge > 0 && (
+                                                    <span
+                                                        className="absolute -top-1.5 -right-2 min-w-[14px] h-3.5 px-0.5 rounded-full flex items-center justify-center text-white"
+                                                        style={{ background: '#ef4444', fontSize: 7, fontWeight: 900 }}
+                                                    >
+                                                        {badge > 9 ? '9+' : badge}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <span className="text-[9px] font-bold leading-tight text-center" style={{ color: act ? ACTIVE_CLR : MUTED_CLR }}>
                                                 {item.label}
                                             </span>
@@ -365,7 +380,17 @@ const MobileNavigation = ({
                         className="flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-colors"
                         style={{ color: drawerOpen || activeInMore ? ACTIVE_CLR : MUTED_CLR }}
                     >
-                        <MoreHorizontal size={21} strokeWidth={2} />
+                        <div className="relative">
+                            <MoreHorizontal size={21} strokeWidth={2} />
+                            {registrationsAlertCount > 0 && (
+                                <span
+                                    className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-0.5 rounded-full flex items-center justify-center text-white"
+                                    style={{ background: '#ef4444', fontSize: 8, fontWeight: 900 }}
+                                >
+                                    {registrationsAlertCount > 9 ? '9+' : registrationsAlertCount}
+                                </span>
+                            )}
+                        </div>
                         <span className="text-[9px] font-bold">Ещё</span>
                         {(drawerOpen || activeInMore) && (
                             <span

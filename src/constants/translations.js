@@ -127,7 +127,16 @@ const TRANSLATIONS = {
     average: "Среднее",
     percent: "Процент",
     increase: "Рост",
-    decrease: "Снижение"
+    decrease: "Снижение",
+    // E-mehmon registration
+    registration: "Регистрация",
+    registrations: "Регистрации",
+    registerGuest: "Зарегистрировать",
+    registrationPeriod: "Период регистрации",
+    removeFromEmehmon: "Вывести из E-mehmon",
+    registrationActive: "Регистрация активна",
+    registrationExpired: "Регистрация истекла",
+    registrationRemoved: "Выведен из E-mehmon"
   },
   uz: {
     dashboard: "Boshqaruv", rooms: "Xonalar", calendar: "Kalendar", reports: "Hisobotlar", debts: "Qarzlar", tasks: "Vazifalar", expenses: "Xarajatlar", clients: "Mijozlar", staff: "Xodimlar", shifts: "Smenalar",
@@ -257,7 +266,16 @@ const TRANSLATIONS = {
     average: "O'rtacha",
     percent: "Foiz",
     increase: "O'sish",
-    decrease: "Kamayish"
+    decrease: "Kamayish",
+    // E-mehmon registration
+    registration: "Ro'yxatga olish",
+    registrations: "Ro'yxatlar",
+    registerGuest: "Ro'yxatga olish",
+    registrationPeriod: "Ro'yxat muddati",
+    removeFromEmehmon: "E-mehmondan chiqarish",
+    registrationActive: "Ro'yxat faol",
+    registrationExpired: "Ro'yxat tugadi",
+    registrationRemoved: "E-mehmondan chiqarildi"
   }
 };
 
