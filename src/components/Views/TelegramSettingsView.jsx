@@ -457,7 +457,7 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
         try {
             const recipient = recipients.find(r => r.id === testRecipientId);
             const body = templates[testType] || DEFAULT_TEMPLATES[testType] || '🔔 Тест';
-            const text = fillTemplate(body, { ...SAMPLE_DATA, _test: true });
+            const text = `🧪 <b>ТЕСТОВАЯ ЗАПИСЬ</b>\n${fillTemplate(body, { ...SAMPLE_DATA, _test: true })}`;
             await onTestMessage({ text, chatIds: [recipient.telegramId] });
             setTestResult({ ok: true, msg: `Отправлено на ${recipient.name} (${recipient.telegramId})` });
         } catch (e) {
@@ -527,7 +527,7 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                     </div>
 
                     {recipients.length === 0 ? (
-                        <div className={`${card} p-12 text-center`}>
+                        <div className={`${card} p-8 text-center`}>
                             <div className="text-5xl mb-3">📭</div>
                             <div className="text-lg font-black text-slate-700 mb-1">Список получателей пуст</div>
                             <div className="text-sm text-slate-400 mb-5">Добавьте Telegram ID пользователей, которым<br/>должны приходить уведомления</div>
@@ -535,6 +535,19 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                                 className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors">
                                 <Plus size={16}/> Добавить первого получателя
                             </button>
+                            <div className="mt-5 pt-5 border-t border-slate-100">
+                                <div className="text-xs text-slate-400 mb-3">Или импортировать предустановленных получателей</div>
+                                <button onClick={async () => {
+                                    const defaults = [
+                                        { id: Date.now().toString(), name: 'Admin 1 (Sherzod)', telegramId: '7029598539', active: true, notifications: Object.fromEntries(Object.keys(allTypes).map(k => [k, true])) },
+                                        { id: (Date.now()+1).toString(), name: 'Admin 2 (Farhodjon)', telegramId: '6953132612', active: true, notifications: Object.fromEntries(Object.keys(allTypes).map(k => [k, true])) },
+                                        { id: (Date.now()+2).toString(), name: 'Admin 3 (Sardor)', telegramId: '972047654', active: true, notifications: Object.fromEntries(Object.keys(allTypes).map(k => [k, true])) },
+                                    ];
+                                    await saveSettings({ recipients: defaults });
+                                }} className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors">
+                                    ⬆️ Импортировать 3 предустановленных
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         recipients.map(r => {

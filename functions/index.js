@@ -246,13 +246,13 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
                 })
                 .map(r => r.telegramId);
 
-            // No Firestore settings yet — use hardcoded fallback IDs
+            // If no recipients configured in Firestore — skip silently
             if (targetChatIds.length === 0 && recipients.length === 0) {
-                targetChatIds = ["7029598539", "6953132612", "972047654"];
+                return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
             }
         } catch (e) {
-            console.error('Failed to read Telegram settings, using fallback:', e.message);
-            targetChatIds = ["7029598539", "6953132612", "972047654"];
+            console.error('Failed to read Telegram settings:', e.message);
+            return { success: false, sent: 0, total: 0, skipped: 'settings_error', error: e.message };
         }
     }
 
