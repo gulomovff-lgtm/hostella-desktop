@@ -1591,8 +1591,28 @@ const filterByHostel = (items) => {
   };
 
   const handleDeletePayment = async (id, type, record = {}) => { 
-    if(!confirm("Удалить запись?")) return; 
-    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id)); 
+    if(!confirm("Удалить запись?")) return;
+
+    // Удаляем запись платежа / расхода
+    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
+
+    // Если это платёж гостя — сминусовываем с гостя, создавая долг
+    if (type === 'income' && record.guestId && record.category !== 'registration') {
+      try {
+        const cash   = Number(record.cash)   || 0;
+        const card   = Number(record.card)   || 0;
+        const qr     = Number(record.qr)     || 0;
+        const total  = Number(record.amount) || (cash + card + qr);
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', record.guestId), {
+          paidCash:   increment(-cash),
+          paidCard:   increment(-card),
+          paidQR:     increment(-qr),
+          amountPaid: increment(-total),
+        });
+      } catch (e) {
+        console.warn('Не удалось обновить баланс гостя:', e.message);
+      }
+    }
 
     // Строим информативное уведомление
     let msg = `🗑 <b>Удалена запись</b>\nТип: ${type === 'income' ? 'Платёж' : record.category === 'Возврат' ? 'Возврат' : 'Расход'}`;
