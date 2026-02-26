@@ -218,8 +218,11 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         try {
             // Determine the app settings path to match the frontend PUBLIC_DATA_PATH
             // path: artifacts/{appId}/public/data/settings/telegram
+            // NOTE: frontend uses named database "hostella", admin SDK must use it too
             const APP_ID = 'hostella-multi-v4';
-            const settingsRef = admin.firestore()
+            const { getFirestore } = require('firebase-admin/firestore');
+            const hostellaDb = getFirestore('hostella');
+            const settingsRef = hostellaDb
                 .doc(`artifacts/${APP_ID}/public/data/settings/telegram`);
             const settingsSnap = await settingsRef.get();
             const settings = settingsSnap.exists ? settingsSnap.data() : null;
