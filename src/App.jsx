@@ -1425,11 +1425,27 @@ const filterByHostel = (items) => {
     }
   };
 
-  const handleDeletePayment = async (id, type) => { 
-    if(!confirm("Delete?")) return; 
+  const handleDeletePayment = async (id, type, record = {}) => { 
+    if(!confirm("Удалить запись?")) return; 
     await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id)); 
-    sendTelegramMessage(`⚠️ <b>Delete Record</b>\nID: ${id}\nType: ${type}`); 
-    showNotification("Deleted"); 
+
+    // Строим информативное уведомление
+    let msg = `🗑 <b>Удалена запись</b>\nТип: ${type === 'income' ? 'Платёж' : record.category === 'Возврат' ? 'Возврат' : 'Расход'}`;
+    if (type === 'income') {
+      if (record.guestName || record.guest)  msg += `\n👤 Гость: ${record.guestName || record.guest}`;
+      if (record.amount)   msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
+      if (record.method)   msg += `\n💳 Метод: ${record.method}`;
+      if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
+    } else {
+      if (record.category) msg += `\n📂 Категория: ${record.category}`;
+      if (record.amount)   msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
+      if (record.comment)  msg += `\n💬 ${record.comment}`;
+      if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
+    }
+    msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
+
+    sendTelegramMessage(msg); 
+    showNotification("Запись удалена"); 
   };
 
   const handleAddExpense = async (d) => { 
@@ -1961,7 +1977,7 @@ return (
                         usersList={usersList}
                         onDownloadCSV={downloadExpensesCSV}
                         onAddExpense={() => setExpenseModal(true)}
-                        onDeleteExpense={(id) => handleDeletePayment(id, 'expense')}
+                        onDeleteExpense={(id, rec) => handleDeletePayment(id, 'expense', rec)}
                     />
                 )}
 

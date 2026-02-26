@@ -37,7 +37,7 @@ const getCat = (c) => {
  *   usersList         - all users array
  *   onDownloadCSV     - () => void
  *   onAddExpense      - () => void  (opens expense modal)
- *   onDeleteExpense   - (id) => void
+ *   onDeleteExpense   - (id, record) => void
  */
 const ExpensesView = ({
     filteredExpenses,
@@ -53,23 +53,26 @@ const ExpensesView = ({
     const now = new Date();
 
     const displayed = expenseCatFilter === 'Все'
-        ? filteredExpenses
-        : filteredExpenses.filter(e => e.category === expenseCatFilter);
+        ? filteredExpenses.filter(e => e.category !== 'Возврат')
+        : filteredExpenses.filter(e => e.category === expenseCatFilter && e.category !== 'Возврат');
+    const refunds = filteredExpenses.filter(e => e.category === 'Возврат');
     const sorted = [...displayed].sort((a,b) => new Date(b.date)-new Date(a.date));
+    const sortedRefunds = [...refunds].sort((a,b) => new Date(b.date)-new Date(a.date));
 
-    const totalAll = filteredExpenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const totalAll = filteredExpenses.filter(e=>e.category!=='Возврат').reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const totalRefunds = refunds.reduce((s,e)=>s+(Number(e.amount)||0),0);
     const thisMonthExp = filteredExpenses.filter(e => {
-        const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
+        const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear() && e.category!=='Возврат';
     });
     const thisMonth = thisMonthExp.reduce((s,e)=>s+(Number(e.amount)||0),0);
     const prevMonthExp = filteredExpenses.filter(e => {
         const d=new Date(e.date); const pm=new Date(now.getFullYear(),now.getMonth()-1,1);
-        return d.getMonth()===pm.getMonth()&&d.getFullYear()===pm.getFullYear();
+        return d.getMonth()===pm.getMonth()&&d.getFullYear()===pm.getFullYear() && e.category!=='Возврат';
     });
     const prevMonth = prevMonthExp.reduce((s,e)=>s+(Number(e.amount)||0),0);
     const monthDiff = prevMonth ? Math.round((thisMonth-prevMonth)/prevMonth*100) : null;
 
-    const cats = Array.from(new Set(filteredExpenses.map(e=>e.category).filter(Boolean)));
+    const cats = Array.from(new Set(filteredExpenses.filter(e=>e.category!=='Возврат').map(e=>e.category).filter(Boolean)));
     const byCategory = cats.map(c => ({
         name:c, total: filteredExpenses.filter(e=>e.category===c).reduce((s,e)=>s+(Number(e.amount)||0),0)
     })).sort((a,b)=>b.total-a.total);
@@ -96,7 +99,7 @@ const ExpensesView = ({
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                     <h2 className="text-xl font-black text-slate-800">Расходы</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">{filteredExpenses.length} записей · все категории</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{filteredExpenses.filter(e=>e.category!=='Возврат').length} записей · {refunds.length > 0 ? `${refunds.length} возвратов` : 'все категории'}</p>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={onDownloadCSV}
@@ -247,10 +250,10 @@ const ExpensesView = ({
                                                 <span className="text-base font-black text-rose-600 shrink-0 tabular-nums">
                                                     ₊{fmt(e.amount)}
                                                 </span>
-                                                <button onClick={() => onDeleteExpense(e.id)}
+                                                <button onClick={() => onDeleteExpense(e.id, e)}
                                                     className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
                                                     title="Удалить">
-                                                    <Trash2 size={15}/>
+                                    <Trash2 size={15}/>
                                                 </button>
                                             </div>
                                         );
@@ -259,6 +262,46 @@ const ExpensesView = ({
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Возвраты — отдельная секция */}
+            {sortedRefunds.length > 0 && (
+                <div className="bg-white rounded-2xl border border-teal-200 overflow-hidden shadow-sm">
+                    <div className="flex items-center justify-between px-5 py-3 bg-teal-50 border-b border-teal-100">
+                        <span className="text-sm font-black text-teal-700">💚 Возвраты гостям</span>
+                        <span className="text-sm font-black text-teal-600">{fmt(totalRefunds)} сум · {sortedRefunds.length} записей</span>
+                    </div>
+                    <div className="divide-y divide-slate-50">
+                        {sortedRefunds.map(e => {
+                            const staff = usersList.find(u=>u.id===e.staffId||u.login===e.staffId);
+                            const d = new Date(e.date);
+                            const dateStr = `${d.getDate()} ${d.toLocaleDateString('ru',{month:'short'})}`;
+                            return (
+                                <div key={e.id} className="group flex items-center gap-3 px-5 py-3.5 hover:bg-teal-50 transition-colors">
+                                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 font-bold bg-teal-100">
+                                        💚
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-bold text-teal-700">Возврат</span>
+                                            {staff && <span className="text-xs text-slate-400">{staff.name.split(' ')[0]}</span>}
+                                        </div>
+                                        {e.comment && <div className="text-xs text-slate-500 truncate mt-0.5">{e.comment}</div>}
+                                    </div>
+                                    <span className="text-xs text-slate-400 shrink-0 hidden sm:block">{dateStr}</span>
+                                    <span className="text-base font-black text-teal-600 shrink-0 tabular-nums">
+                                        ↩ {fmt(e.amount)}
+                                    </span>
+                                    <button onClick={() => onDeleteExpense(e.id, e)}
+                                        className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                        title="Удалить">
+                                        <Trash2 size={15}/>
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
         </div>

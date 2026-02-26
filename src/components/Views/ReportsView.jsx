@@ -351,7 +351,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 </span>
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">{item.method||'—'}</span>
                                 {currentUser.role==='super' && (
-                                    <button onClick={()=>onDeletePayment(item.id,item.type)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
+                                    <button onClick={()=>onDeletePayment(item.id,item.type,item)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
                                 )}
                             </div>
                         </div>
@@ -401,7 +401,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{detail}</td>
                                         {currentUser.role==='super' && (
                                             <td className="px-4 py-3">
-                                                <button onClick={()=>onDeletePayment(item.id,item.type)} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>
+                                                <button onClick={()=>onDeletePayment(item.id,item.type,item)} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>
                                             </td>
                                         )}
                                     </tr>
