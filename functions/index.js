@@ -264,9 +264,13 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
 
     const sendOne = async (target) => {
         const chatId = typeof target === 'string' ? target : target.chatId;
-        const threadId = typeof target === 'object' && target.threadId ? parseInt(target.threadId) : null;
+        const rawThreadId = typeof target === 'object' ? (target.threadId || '').toString().trim() : '';
+        const threadId = rawThreadId ? parseInt(rawThreadId, 10) : null;
         const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
-        if (threadId) payload.message_thread_id = threadId;
+        if (threadId && !isNaN(threadId)) payload.message_thread_id = threadId;
+
+        console.log(`Sending to chatId=${chatId} threadId=${threadId ?? 'none'} payload_keys=${Object.keys(payload).join(',')}`);
+
         const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -274,7 +278,8 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         });
         const json = await res.json();
         if (!json.ok) {
-            return { ok: false, chatId, errorCode: json.error_code, description: json.description };
+            console.error(`Telegram error for chatId=${chatId} threadId=${threadId}: ${json.error_code} — ${json.description}`);
+            return { ok: false, chatId, threadId, errorCode: json.error_code, description: json.description };
         }
         return { ok: true, chatId };
     };
@@ -283,7 +288,7 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
     const successful = results.filter(r => r.status === 'fulfilled' && r.value?.ok).length;
     const failed = results
         .filter(r => r.status === 'fulfilled' && !r.value?.ok)
-        .map(r => ({ chatId: r.value.chatId, code: r.value.errorCode, msg: r.value.description }));
+        .map(r => ({ chatId: r.value.chatId, threadId: r.value.threadId, code: r.value.errorCode, msg: r.value.description }));
     const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
 
     console.log(`Telegram [${data.notificationType || 'manual'}]: ${successful}/${targetChatIds.length} sent`, failed.length ? { failed } : '');

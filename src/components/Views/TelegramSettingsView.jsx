@@ -518,7 +518,7 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
             const recipient = recipients.find(r => r.id === testRecipientId);
             const body = templates[testType] || DEFAULT_TEMPLATES[testType] || '🔔 Тест';
             const text = `🧪 <b>ТЕСТОВАЯ ЗАПИСЬ</b>\n${fillTemplate(body, { ...SAMPLE_DATA, _test: true })}`;
-            await onTestMessage({ text, chatIds: [recipient.telegramId] });
+            await onTestMessage({ text, chatIds: [{ chatId: recipient.telegramId, threadId: recipient.threadId || '' }] });
             setTestResult({ ok: true, msg: `Отправлено на ${recipient.name} (${recipient.telegramId})` });
         } catch (e) {
             setTestResult({ ok: false, msg: e.message || 'Ошибка отправки' });
