@@ -72,24 +72,44 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
         const totalSal = finished.reduce((s,x) => s + calculateSalary(x.startTime, x.endTime), 0);
         const active   = displayedShifts.filter(s => !s.endTime).length;
         const avgH     = finished.length ? totalH / finished.length : 0;
-        // Финансовые итоги за период (payments внутри дат displayedShifts)
-        const shiftStart = displayedShifts.length ? Math.min(...displayedShifts.map(s=>new Date(s.startTime).getTime())) : 0;
-        const shiftEnd   = displayedShifts.length ? Math.max(...displayedShifts.map(s=>new Date(s.endTime||Date.now()).getTime())) : Date.now();
+
+        // Финансовые итоги за период
+        // Для admin — используем dateRange напрямую (надёжно)
+        // Для кассира — используем диапазон его смен
+        let payStart, payEnd;
+        if (isAdmin) {
+            const s = new Date(dateRange.start); s.setHours(0, 0, 0, 0);
+            const e = new Date(dateRange.end);   e.setHours(23, 59, 59, 999);
+            payStart = s.getTime();
+            payEnd   = e.getTime();
+        } else {
+            if (!displayedShifts.length) {
+                return { totalH: totalH.toFixed(1), totalSal, active, avgH: avgH.toFixed(1), count: 0, totalCash: 0, totalCard: 0, totalQR: 0, totalInc: 0 };
+            }
+            payStart = Math.min(...displayedShifts.map(s => new Date(s.startTime).getTime()));
+            payEnd   = Math.max(...displayedShifts.map(s => new Date(s.endTime || Date.now()).getTime()));
+        }
+
         const relPay = payments.filter(p => {
             const pt = new Date(p.date).getTime();
-            if (pt < shiftStart || pt > shiftEnd) return false;
-            // если выбран конкретный сотрудник — фильтруем по staffId
-            if (filterCashierId) return p.staffId === filterCashierId || p.staffId === users.find(u=>u.id===filterCashierId)?.login;
-            // если кассир (не admin) — только его платежи
+            if (pt < payStart || pt > payEnd) return false;
+            // если выбран конкретный сотрудник — фильтруем строго по его staffId
+            if (filterCashierId) {
+                const u = users.find(u => u.id === filterCashierId);
+                return p.staffId === filterCashierId || (u && p.staffId === u.login);
+            }
+            // если кассир смотрит свою статистику — только его платежи
             if (!isAdmin) return p.staffId === currentUser.id || p.staffId === currentUser.login;
+            // для admin без фильтра — все платежи за период
             return true;
         });
+
         const totalCash = relPay.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
         const totalCard = relPay.filter(p=>p.method==='card').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
         const totalQR   = relPay.filter(p=>p.method==='qr').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
         const totalInc  = totalCash + totalCard + totalQR;
         return { totalH: totalH.toFixed(1), totalSal, active, avgH: avgH.toFixed(1), count: displayedShifts.length, totalCash, totalCard, totalQR, totalInc };
-    }, [displayedShifts, payments]);
+    }, [displayedShifts, payments, filterCashierId, users, isAdmin, currentUser, dateRange]);
 
     const gridDays = useMemo(() => {
         const days = [];
@@ -237,7 +257,10 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
             {/* Финансовая статистика за период */}
             {kpi.totalInc > 0 && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center flex-wrap gap-4">
-                    <div className="text-xs font-black text-slate-500 uppercase tracking-wide">💵 Приход за период:</div>
+                    <div className="flex flex-col">
+                        <div className="text-xs font-black text-slate-500 uppercase tracking-wide">💵 Приход за период:</div>
+                        {isAdmin && <div className="text-[10px] text-slate-400 mt-0.5">{dateRange.start} — {dateRange.end}{filterCashierId ? ` · ${users.find(u=>u.id===filterCashierId)?.name || ''}` : ''}</div>}
+                    </div>
                     <div className="flex gap-4 flex-wrap">
                         {kpi.totalCash > 0 && <div><span className="text-xs text-slate-400 font-semibold">Наличные: </span><span className="font-black text-slate-800">{fmt(kpi.totalCash)}</span></div>}
                         {kpi.totalCard > 0 && <div><span className="text-xs text-slate-400 font-semibold">Карта: </span><span className="font-black text-slate-800">{fmt(kpi.totalCard)}</span></div>}
