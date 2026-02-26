@@ -528,16 +528,18 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <button onClick={()=>setExtendDays(d=>d+1)} className="w-14 h-14 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200"><Plus size={28}/></button>
                             </div>
                             <div className="flex gap-2 justify-center">{[1,3,7,30].map(d=><button key={d} onClick={()=>setExtendDays(d)} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-sm font-bold hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600">+{d}</button>)}</div>
+                            {!isAdmin && (
                             <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
                                 <div className="text-xs font-bold text-slate-400 uppercase mb-3">Оплатить сейчас (опц.)</div>
                                 {payFields}
                             </div>
+                            )}
                             <div className="flex justify-between items-center px-1">
                                 <span className="text-slate-500 font-bold">Стоимость:</span>
                                 <span className="text-2xl font-black text-indigo-600">+{(extendDays*parseInt(guest.pricePerNight)).toLocaleString()}</span>
                             </div>
-                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                {((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
+                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                {(!isAdmin && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
                             </button>
                         </div>
                     </div>
