@@ -50,8 +50,11 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
     const [shiftForm, setShiftForm] = useState({ staffId: '', startTime: '', endTime: '', hostelId: 'hostel1' });
     const [hoveredCell, setHoveredCell] = useState(null);
 
+    const cashierIds = useMemo(() => new Set(users.filter(u => u.role === 'cashier').map(u => u.id)), [users]);
+
     const displayedShifts = useMemo(() => {
-        let list = shifts;
+        // Смены только кассиров — admin не учитывается
+        let list = shifts.filter(s => cashierIds.has(s.staffId));
         if (!isAdmin) {
             list = list.filter(s => s.staffId === currentUser.id);
         } else {
@@ -61,7 +64,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
             if (filterCashierId) list = list.filter(s => s.staffId === filterCashierId);
         }
         return list.sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
-    }, [shifts, isAdmin, currentUser.id, dateRange, filterCashierId]);
+    }, [shifts, cashierIds, isAdmin, currentUser.id, dateRange, filterCashierId]);
 
     const kpi = useMemo(() => {
         const finished = displayedShifts.filter(s => s.endTime);
@@ -73,8 +76,13 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
         const shiftStart = displayedShifts.length ? Math.min(...displayedShifts.map(s=>new Date(s.startTime).getTime())) : 0;
         const shiftEnd   = displayedShifts.length ? Math.max(...displayedShifts.map(s=>new Date(s.endTime||Date.now()).getTime())) : Date.now();
         const relPay = payments.filter(p => {
-            const t = new Date(p.date).getTime();
-            return t >= shiftStart && t <= shiftEnd;
+            const pt = new Date(p.date).getTime();
+            if (pt < shiftStart || pt > shiftEnd) return false;
+            // если выбран конкретный сотрудник — фильтруем по staffId
+            if (filterCashierId) return p.staffId === filterCashierId || p.staffId === users.find(u=>u.id===filterCashierId)?.login;
+            // если кассир (не admin) — только его платежи
+            if (!isAdmin) return p.staffId === currentUser.id || p.staffId === currentUser.login;
+            return true;
         });
         const totalCash = relPay.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
         const totalCard = relPay.filter(p=>p.method==='card').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
@@ -92,7 +100,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
     }, [dateRange]);
 
     const staffList = useMemo(() =>
-        isAdmin ? users.filter(u => u.role !== 'super') : [currentUser],
+        isAdmin ? users.filter(u => u.role === 'cashier') : [currentUser],
     [users, isAdmin, currentUser]);
 
     const getShiftSlots = (shift) => {
@@ -250,7 +258,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                     <select className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
                         value={filterCashierId} onChange={e => setFilterCashierId(e.target.value)}>
                         <option value="">Все сотрудники</option>
-                        {users.filter(u=>u.role!=='super').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                        {users.filter(u=>u.role==='cashier').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                 </>}
 
@@ -266,7 +274,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                         </button>
                     </div>
                     {isAdmin && <>
-                        <button onClick={() => { setEditingShift(null); setShiftForm({staffId:users.filter(u=>u.role!=='super')[0]?.id||'',startTime:'',endTime:'',hostelId:'hostel1'}); setIsAddModalOpen(true); }}
+                        <button onClick={() => { setEditingShift(null); setShiftForm({staffId:users.filter(u=>u.role==='cashier')[0]?.id||'',startTime:'',endTime:'',hostelId:'hostel1'}); setIsAddModalOpen(true); }}
                             className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-bold transition-colors">
                             <Plus size={15}/> Добавить
                         </button>
@@ -559,7 +567,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                                         <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">Сотрудник</label>
                                         <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white font-semibold"
                                             value={shiftForm.staffId} onChange={e=>setShiftForm(f=>({...f,staffId:e.target.value}))}>
-                                            {users.filter(u=>u.role!=='super').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                                            {users.filter(u=>u.role==='cashier').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
