@@ -1633,10 +1633,18 @@ const filterByHostel = (items) => {
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
       // Telegram — расход (не возврат)
       if (d.category !== 'Возврат') {
-        sendTelegramMessage(
-          `💳 <b>Расход</b>\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 Кассир: ${currentUser.name || currentUser.login}`,
+        const expHostelId = (currentUser.role === 'admin' || currentUser.role === 'super')
+          ? selectedHostelFilter
+          : currentUser.hostelId;
+        const expHostelLabel = expHostelId === 'hostel1' ? 'Хостел №1' : expHostelId === 'hostel2' ? 'Хостел №2' : expHostelId || '—';
+        const expRoleLabel = (currentUser.role === 'admin' || currentUser.role === 'super') ? 'Админ' : 'Кассир';
+        const tgResult = await sendTelegramMessage(
+          `💳 <b>Расход</b>\n🏨 ${expHostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 ${expRoleLabel}: ${currentUser.name || currentUser.login}`,
           'expenseAdded'
         );
+        if (!tgResult || tgResult.sent === 0) {
+          console.warn('Telegram expense notification not sent:', tgResult);
+        }
       }
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
