@@ -194,14 +194,23 @@ const MobileNavigation = ({
                                 </button>
                             ))}
                         </div>
-                        {/* Close shift button for cashiers */}
-                        <button
-                            onClick={() => { setDrawerOpen(false); onOpenShiftClosing?.(); }}
-                            className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
-                            style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}
-                        >
-                            <Lock size={15}/> Закрыть смену
-                        </button>
+                        {/* Expense + Close shift buttons for cashiers */}
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                            <button
+                                onClick={() => { setDrawerOpen(false); onOpenExpense?.(); }}
+                                className="flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
+                                style={{ background: 'rgba(232,140,64,0.18)', border: '1px solid rgba(232,140,64,0.35)', color: '#f6ad6b' }}
+                            >
+                                <Wallet size={14}/> Расход
+                            </button>
+                            <button
+                                onClick={() => { setDrawerOpen(false); onOpenShiftClosing?.(); }}
+                                className="flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
+                                style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}
+                            >
+                                <Lock size={14}/> Смену
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -263,8 +272,8 @@ const MobileNavigation = ({
                 </div>
             </div>
 
-            {/* ── Floating Expense FAB (admins only) ── */}
-            {canPerformActions && isAdmin && !anyModalOpen && (
+            {/* ── Floating Expense FAB (admins + cashiers) ── */}
+            {canPerformActions && !anyModalOpen && (
                 <div
                     className="fixed z-[90] md:hidden"
                     style={{
