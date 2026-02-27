@@ -58,7 +58,7 @@ const MobileNavigation = ({
     selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter,
     onLogout,
     canPerformActions, onOpenCheckIn, onOpenGroupCheckIn, onOpenRoomRental,
-    onOpenShiftClosing, anyModalOpen,
+    onOpenShiftClosing, onOpenExpense, anyModalOpen,
     registrationsAlertCount = 0,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
@@ -156,6 +156,22 @@ const MobileNavigation = ({
                     </button>
                 </div>
 
+                {/* Admin expense quick-action */}
+                {canPerformActions && isAdmin && (
+                    <div className="px-4 pt-4 pb-1">
+                        <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'rgba(158,205,208,0.5)' }}>
+                            Быстрые действия
+                        </div>
+                        <button
+                            onClick={() => { setDrawerOpen(false); onOpenExpense?.(); }}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
+                            style={{ background: 'rgba(232,140,64,0.18)', border: '1px solid rgba(232,140,64,0.35)', color: '#f6ad6b' }}
+                        >
+                            <Wallet size={15}/> Добавить расход
+                        </button>
+                    </div>
+                )}
+
                 {/* Cashier check-in actions */}
                 {canPerformActions && isCashier && (
                     <div className="px-4 pt-4 pb-1">
@@ -246,6 +262,36 @@ const MobileNavigation = ({
                     </button>
                 </div>
             </div>
+
+            {/* ── Floating Expense FAB (admins only) ── */}
+            {canPerformActions && isAdmin && !anyModalOpen && (
+                <div
+                    className="fixed z-[90] md:hidden"
+                    style={{
+                        bottom: `calc(env(safe-area-inset-bottom, 0px) + ${showHostelBar ? 92 : 68}px)`,
+                        right: 16,
+                    }}
+                >
+                    <button
+                        onClick={() => onOpenExpense?.()}
+                        className="w-13 h-13 rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-all"
+                        style={{
+                            width: 52,
+                            height: 52,
+                            background: '#1a3c40',
+                            border: `2.5px solid ${ACTIVE_CLR}`,
+                            color: ACTIVE_CLR,
+                            boxShadow: '0 4px 20px rgba(232,140,64,0.4)',
+                        }}
+                    >
+                        <Wallet size={20} strokeWidth={2.5} />
+                    </button>
+                    <span
+                        className="absolute -top-1 left-1/2 -translate-x-1/2 text-[9px] font-black whitespace-nowrap px-1.5 py-0.5 rounded-full"
+                        style={{ background: ACTIVE_CLR, color: '#fff', letterSpacing: '0.03em' }}
+                    >Расход</span>
+                </div>
+            )}
 
             {/* ── Floating Checkin FAB (cashiers only) ── */}
             {canPerformActions && isCashier && !anyModalOpen && (
