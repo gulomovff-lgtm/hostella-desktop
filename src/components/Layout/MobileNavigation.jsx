@@ -43,6 +43,7 @@ const MORE_GROUPS = (t) => [
     {
         label: 'Прочее',
         items: [
+            { id: 'referrals',    icon: Users2,        label: 'Бонусы' },
             { id: 'telegram',     icon: BellRing,     label: 'Telegram',  adminOnly: true },
             { id: 'promos',       icon: Tag,           label: 'Промокоды', adminOnly: true },
             { id: 'hostelconfig', icon: Settings,      label: 'Настройки', adminOnly: true },

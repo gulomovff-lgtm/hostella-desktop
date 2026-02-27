@@ -47,6 +47,7 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
         items: [
             { id: 'telegram',    icon: BellRing,     label: 'Telegram',   adminOnly: true },
             { id: 'promos',      icon: Tag,           label: 'Промокоды', adminOnly: true },
+            { id: 'referrals',   icon: Users2,        label: 'Бонусы' },
             { id: 'hostelconfig',icon: Settings,      label: 'Настройки', adminOnly: true },
             { id: 'auditlog',    icon: ClipboardList, label: 'История',   superOnly: true },
         ],

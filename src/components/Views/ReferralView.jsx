@@ -586,6 +586,8 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
 
   const hasParticipants = nodes[0]?.children?.length > 0;
 
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+
   /* Deselect on outside click */
   useEffect(() => {
     const h = (e) => {
@@ -618,10 +620,12 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
             <StatChip label="Бонусов" value={stats.totalBonusPending}
               sub={stats.totalBonusUsed > 0 ? `${stats.totalBonusUsed} исп.` : null} />
             <StatChip label="Заработано" value={stats.totalBonusEarned} />
-            <button onClick={() => setShowSettings(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-800/80 border border-white/10 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium transition-all self-center">
-              <Settings size={14} /> Настройки
-            </button>
+            {isAdmin && (
+              <button onClick={() => setShowSettings(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-800/80 border border-white/10 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium transition-all self-center">
+                <Settings size={14} /> Настройки
+              </button>
+            )}
           </div>
         </div>
       </div>
