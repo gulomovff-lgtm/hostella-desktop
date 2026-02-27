@@ -103,22 +103,27 @@ export function useClientActions({ currentUser, clients, showNotification }) {
     try {
       const batch = writeBatch(db);
       let created = 0, updated = 0, skipped = 0;
-      const activeGuests = guests.filter(g => g.status === 'active' && (g.passport || g.fullName));
+      // Sync ALL guests (active + checked_out) that have at least a name
+      const allGuests = guests.filter(g => (g.passport || g.fullName));
 
-      for (const g of activeGuests) {
-        // Ищем по паспорту, если нет — по ФИО
+      for (const g of allGuests) {
+        // Search by passport first, then by fullName
         const ec = g.passport
           ? clients.find(c => c.passport && c.passport === g.passport)
           : clients.find(c => !c.passport && c.fullName === g.fullName);
 
         if (ec) {
-          // Обновляем только если данных не хватает
           const updates = {};
           if (!ec.fullName && g.fullName) updates.fullName = g.fullName;
           if (!ec.birthDate && g.birthDate) updates.birthDate = g.birthDate;
           if (!ec.country && g.country) updates.country = g.country;
           if (!ec.phone && g.phone) updates.phone = g.phone;
           if (!ec.passport && g.passport) updates.passport = g.passport;
+          // Update lastVisit if this guest's checkInDate is newer
+          const gDate = g.checkInDate || g.checkOutDate;
+          if (gDate && (!ec.lastVisit || new Date(gDate) > new Date(ec.lastVisit))) {
+            updates.lastVisit = gDate;
+          }
           if (Object.keys(updates).length > 0) {
             batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), updates);
             updated++;
@@ -133,7 +138,7 @@ export function useClientActions({ currentUser, clients, showNotification }) {
             country: g.country || '',
             phone: g.phone || '',
             passportIssueDate: g.passportIssueDate || '',
-            lastVisit: new Date().toISOString(),
+            lastVisit: g.checkOutDate || g.checkInDate || new Date().toISOString(),
             visits: 1,
           });
           created++;

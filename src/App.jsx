@@ -1068,7 +1068,7 @@ return (
                         onDeduplicate={handleDeduplicate} 
                         onBulkDelete={handleBulkDeleteClients} 
                         onNormalizeCountries={handleNormalizeCountries}
-                        onSyncFromGuests={() => handleSyncClientsFromGuests(filteredGuests)}
+                        onSyncFromGuests={() => handleSyncClientsFromGuests(currentUser.role === 'super' ? guests : filteredGuests)}
                         lang={lang} 
                         currentUser={currentUser} 
                         onOpenClientHistory={handleOpenClientHistory}

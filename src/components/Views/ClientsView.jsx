@@ -332,7 +332,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                                 <RefreshCw size={22} className="text-emerald-600"/>
                             </div>
                             <h3 className="font-bold text-slate-800 text-lg">Синхронизация гостей</h3>
-                            <p className="text-sm text-slate-500 mt-1">Все активные гости с паспортными данными будут добавлены в базу клиентов (если их там ещё нет).</p>
+                            <p className="text-sm text-slate-500 mt-1">Все гости (проживающие и выселенные) будут добавлены в базу клиентов — в том числе без паспорта. Уже существующие записи обновятся.</p>
                         </div>
                         <div className="flex gap-3">
                             <button onClick={() => setConfirmSyncOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>

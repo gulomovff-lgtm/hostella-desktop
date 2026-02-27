@@ -58,14 +58,21 @@ export function useGuestActions(ctx) {
     ].slice(0, 5));
   };
 
-  const upsertClient = async (data) => {
-    if (!data.passport) return;
-    const ec = clients.find(c => c.passport && c.passport === data.passport);
+  const upsertClient = async (data, opts = {}) => {
+    if (!data.passport && !data.fullName) return;
+    // Search by passport first, then by fullName
+    const ec = data.passport
+      ? clients.find(c => c.passport && c.passport === data.passport)
+      : clients.find(c => !c.passport && c.fullName && c.fullName === data.fullName);
     if (ec) {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
         lastVisit: new Date().toISOString(),
-        visits: (ec.visits || 0) + 1,
+        ...(opts.incrementVisits !== false ? { visits: (ec.visits || 0) + 1 } : {}),
         fullName: ec.fullName || data.fullName || '',
+        ...(data.passport && !ec.passport ? { passport: data.passport } : {}),
+        ...(data.birthDate && !ec.birthDate ? { birthDate: data.birthDate } : {}),
+        ...(data.country && !ec.country ? { country: data.country } : {}),
+        ...(data.phone && !ec.phone ? { phone: data.phone } : {}),
       });
     } else {
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
@@ -231,6 +238,9 @@ export function useGuestActions(ctx) {
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
       totalPrice: final.totalPrice, status: 'checked_out', checkOutDate: finalCheckOutDate,
     });
+
+    // Sync to clients collection on checkout (don't increment visits — already counted on check-in)
+    await upsertClient({ ...guest, checkOutDate: finalCheckOutDate }, { incrementVisits: false });
 
     const r = rooms.find(i => i.id === guest.roomId);
     if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: Math.max(0, (r.occupied || 1) - 1) });
