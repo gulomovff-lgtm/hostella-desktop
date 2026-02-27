@@ -20,7 +20,6 @@
 import { useEffect, useCallback } from 'react';
 import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-import { sendTelegramMessage } from '../utils/telegram';
 import { HOSTELS } from '../utils/helpers';
 
 const recurringCol = () => collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
@@ -64,11 +63,6 @@ export const useRecurringExpenses = ({
               staffId:     'auto',
               recurringId: tmpl.id,
             });
-            const hostelLabel = HOSTELS[hid]?.name || hid;
-            sendTelegramMessage(
-              `🔄 <b>Авторасход</b>\n🏨 ${hostelLabel}\n📂 ${tmpl.category}\n💰 ${Number(tmpl.amount).toLocaleString()} сум\n📝 ${tmpl.name}`,
-              'expenseAdded'
-            );
             fired = true;
           } catch (e) {
             console.error('[recurring] fire error', e);
