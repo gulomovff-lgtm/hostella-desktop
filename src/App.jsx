@@ -536,6 +536,25 @@ function App() {
     recurringExpenses, showNotification,
   });
 
+  const handleAddAdvance = async ({ staffExpense, amount }) => {
+    try {
+      const hostelId = staffExpense.hostelId || selectedHostelFilter || currentUser.hostelId;
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
+        category: 'Аванс',
+        amount: Number(amount),
+        comment: `Аванс${staffExpense.comment ? ': ' + staffExpense.comment : ''}`,
+        hostelId,
+        staffId: staffExpense.staffId || currentUser.id || currentUser.login,
+        date: new Date().toISOString(),
+        linkedSalaryId: staffExpense.id,
+      });
+      showNotification('Аванс зафиксирован', 'success');
+    } catch (err) {
+      console.error('Ошибка аванса:', err);
+      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+    }
+  };
+
   // ─── UI-only handlers (remain in App) ────────────────────────────────────
 
   const handleRepeatStay = (client) => {
@@ -1102,6 +1121,7 @@ return (
                         onDeleteRecurring={deleteRecurring}
                         onToggleActive={toggleRecurringActive}
                         onFireNow={fireRecurringNow}
+                        onAddAdvance={handleAddAdvance}
                     />
                 )}
 

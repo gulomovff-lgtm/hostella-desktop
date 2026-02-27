@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Download, Plus, Search, Trash2, ToggleLeft, ToggleRight, Play, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react';
+import { Download, Plus, Search, Trash2, ToggleLeft, ToggleRight, Play, ChevronDown, ChevronUp, Pencil, X, Check } from 'lucide-react';
 
 const CAT_META = [
     { key:'Аренда',              icon:'🏠', bg:'#ede9fe', text:'#6d28d9', bar:'#7c3aed' },
     { key:'Коммунальные услуги', icon:'💡', bg:'#e0f2fe', text:'#0369a1', bar:'#0284c7' },
     { key:'Зарплата',            icon:'💼', bg:'#eef2ff', text:'#4338ca', bar:'#4f46e5' },
+    { key:'Аванс',               icon:'💰', bg:'#fef9c3', text:'#a16207', bar:'#ca8a04' },
     { key:'Продукты',            icon:'🛒', bg:'#dcfce7', text:'#15803d', bar:'#16a34a' },
     { key:'Канцелярия',          icon:'📎', bg:'#f1f5f9', text:'#475569', bar:'#94a3b8' },
     { key:'Ремонт',              icon:'🔧', bg:'#ffedd5', text:'#c2410c', bar:'#ea580c' },
@@ -55,6 +56,7 @@ const ExpensesView = ({
     onDeleteRecurring,
     onToggleActive,
     onFireNow,
+    onAddAdvance,
     currentUser,
 }) => {
     const now = new Date();
@@ -64,6 +66,8 @@ const ExpensesView = ({
     const [form, setForm] = useState({ name: '', category: 'Аренда', amount: '', comment: '', dayOfMonth: 1, hostelId: 'all' });
     const [editId, setEditId] = useState(null);
     const [editForm, setEditForm] = useState({});
+    const [advanceTargetId, setAdvanceTargetId] = useState(null);
+    const [advanceAmt, setAdvanceAmt] = useState('');
 
     const CATS = ['Аренда','Коммунальные услуги','Зарплата','Продукты','Канцелярия','Ремонт','Интернет','Реклама','Другое'];
 
@@ -91,6 +95,8 @@ const ExpensesView = ({
 
     const today = now.getDate();
 
+    const amtFn = e => e.category === 'Аванс' ? -(Number(e.amount)||0) : (Number(e.amount)||0);
+
     const displayed = expenseCatFilter === 'Все'
         ? filteredExpenses.filter(e => e.category !== 'Возврат')
         : filteredExpenses.filter(e => e.category === expenseCatFilter && e.category !== 'Возврат');
@@ -98,17 +104,17 @@ const ExpensesView = ({
     const sorted = [...displayed].sort((a,b) => new Date(b.date)-new Date(a.date));
     const sortedRefunds = [...refunds].sort((a,b) => new Date(b.date)-new Date(a.date));
 
-    const totalAll = filteredExpenses.filter(e=>e.category!=='Возврат').reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const totalAll = filteredExpenses.filter(e=>e.category!=='Возврат').reduce((s,e)=>s+amtFn(e),0);
     const totalRefunds = refunds.reduce((s,e)=>s+(Number(e.amount)||0),0);
     const thisMonthExp = filteredExpenses.filter(e => {
         const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear() && e.category!=='Возврат';
     });
-    const thisMonth = thisMonthExp.reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const thisMonth = thisMonthExp.reduce((s,e)=>s+amtFn(e),0);
     const prevMonthExp = filteredExpenses.filter(e => {
         const d=new Date(e.date); const pm=new Date(now.getFullYear(),now.getMonth()-1,1);
         return d.getMonth()===pm.getMonth()&&d.getFullYear()===pm.getFullYear() && e.category!=='Возврат';
     });
-    const prevMonth = prevMonthExp.reduce((s,e)=>s+(Number(e.amount)||0),0);
+    const prevMonth = prevMonthExp.reduce((s,e)=>s+amtFn(e),0);
     const monthDiff = prevMonth ? Math.round((thisMonth-prevMonth)/prevMonth*100) : null;
 
     const cats = Array.from(new Set(filteredExpenses.filter(e=>e.category!=='Возврат').map(e=>e.category).filter(Boolean)));
@@ -122,7 +128,7 @@ const ExpensesView = ({
         const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
         if(!byMonth[key]) byMonth[key]={label:d.toLocaleDateString('ru',{month:'long',year:'numeric'}),items:[],total:0};
         byMonth[key].items.push(e);
-        byMonth[key].total += Number(e.amount)||0;
+        byMonth[key].total += amtFn(e);
     });
 
     const searchLow = expSearch.toLowerCase();
@@ -478,7 +484,7 @@ const ExpensesView = ({
                             <div key={mk} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                                 <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-100">
                                     <span className="text-sm font-black text-slate-700 capitalize">{mg.label}</span>
-                                    <span className="text-sm font-black text-rose-600">₊{fmt(mg.items.filter(matchFn).reduce((s,e)=>s+(Number(e.amount)||0),0))}</span>
+                                    <span className="text-sm font-black text-rose-600">₊{fmt(mg.items.filter(matchFn).reduce((s,e)=>s+amtFn(e),0))}</span>
                                 </div>
                                 <div className="divide-y divide-slate-50">
                                     {monthItems.map(e => {
@@ -486,28 +492,80 @@ const ExpensesView = ({
                                         const staff = usersList.find(u=>u.id===e.staffId||u.login===e.staffId);
                                         const d = new Date(e.date);
                                         const dateStr = `${d.getDate()} ${d.toLocaleDateString('ru',{month:'short'})}`;
+                                        const isSalary = e.category === 'Зарплата';
+                                        const isAdvanceRow = e.category === 'Аванс';
+                                        const staffAdvances = isSalary
+                                            ? monthItems.filter(x => x.category === 'Аванс' && x.staffId === e.staffId)
+                                            : [];
+                                        const totalAdvances = staffAdvances.reduce((s,x)=>s+(Number(x.amount)||0),0);
+                                        const remaining = (Number(e.amount)||0) - totalAdvances;
+                                        const isAdvanceOpen = advanceTargetId === e.id;
                                         return (
-                                            <div key={e.id} className="group flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
-                                                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 font-bold"
-                                                     style={{background: m.bg}}>
-                                                    {m.icon}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-bold" style={{color: m.text}}>{e.category}</span>
-                                                        {staff && <span className="text-xs text-slate-400">{staff.name.split(' ')[0]}</span>}
+                                            <div key={e.id} className={`group flex flex-col gap-0 ${isAdvanceRow ? 'bg-amber-50/40' : ''}`}>
+                                                <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                                                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 font-bold"
+                                                         style={{background: m.bg}}>
+                                                        {m.icon}
                                                     </div>
-                                                    {e.comment && <div className="text-xs text-slate-500 truncate mt-0.5">{e.comment}</div>}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-bold" style={{color: m.text}}>{e.category}</span>
+                                                            {staff && <span className="text-xs text-slate-400">{staff.name.split(' ')[0]}</span>}
+                                                            {isAdvanceRow && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">аванс</span>}
+                                                        </div>
+                                                        {e.comment && <div className="text-xs text-slate-500 truncate mt-0.5">{e.comment}</div>}
+                                                        {isSalary && totalAdvances > 0 && (
+                                                            <div className="text-xs text-amber-700 mt-0.5 font-semibold">
+                                                                аванс: −{fmt(totalAdvances)} · <span className="text-indigo-600">к выплате: {fmt(remaining < 0 ? 0 : remaining)}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs text-slate-400 shrink-0 hidden sm:block">{dateStr}</span>
+                                                    {isAdvanceRow ? (
+                                                        <span className="text-base font-black text-amber-600 shrink-0 tabular-nums">−{fmt(e.amount)}</span>
+                                                    ) : (
+                                                        <span className="text-base font-black text-rose-600 shrink-0 tabular-nums">₊{fmt(e.amount)}</span>
+                                                    )}
+                                                    {isSalary && !isAdvanceOpen && (
+                                                        <button
+                                                            onClick={() => { setAdvanceTargetId(e.id); setAdvanceAmt(''); }}
+                                                            title="Выдать аванс"
+                                                            className="w-7 h-7 flex items-center justify-center rounded-lg text-amber-400 hover:bg-amber-50 transition-colors shrink-0 text-base"
+                                                        >💰</button>
+                                                    )}
+                                                    <button onClick={() => onDeleteExpense(e.id, e)}
+                                                        className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                                        title="Удалить">
+                                                        <Trash2 size={15}/>
+                                                    </button>
                                                 </div>
-                                                <span className="text-xs text-slate-400 shrink-0 hidden sm:block">{dateStr}</span>
-                                                <span className="text-base font-black text-rose-600 shrink-0 tabular-nums">
-                                                    ₊{fmt(e.amount)}
-                                                </span>
-                                                <button onClick={() => onDeleteExpense(e.id, e)}
-                                                    className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
-                                                    title="Удалить">
-                                    <Trash2 size={15}/>
-                                                </button>
+                                                {isAdvanceOpen && (
+                                                    <form
+                                                        onSubmit={async (ev) => {
+                                                            ev.preventDefault();
+                                                            if (!advanceAmt) return;
+                                                            await onAddAdvance?.({ staffExpense: e, amount: Number(advanceAmt) });
+                                                            setAdvanceTargetId(null);
+                                                            setAdvanceAmt('');
+                                                        }}
+                                                        className="flex items-center gap-2 px-5 py-2.5 bg-amber-50 border-t border-amber-100"
+                                                    >
+                                                        <span className="text-xs font-semibold text-amber-700 shrink-0">💰 Сумма аванса:</span>
+                                                        <input
+                                                            type="number" min="1" autoFocus
+                                                            value={advanceAmt}
+                                                            onChange={ev => setAdvanceAmt(ev.target.value)}
+                                                            placeholder="0"
+                                                            className="flex-1 min-w-0 text-sm px-3 py-1.5 border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-300"
+                                                        />
+                                                        <button type="submit" className="w-8 h-8 flex items-center justify-center rounded-xl bg-amber-400 hover:bg-amber-500 text-white transition-colors shrink-0">
+                                                            <Check size={14} />
+                                                        </button>
+                                                        <button type="button" onClick={() => setAdvanceTargetId(null)} className="w-8 h-8 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:bg-slate-100 transition-colors shrink-0">
+                                                            <X size={14} />
+                                                        </button>
+                                                    </form>
+                                                )}
                                             </div>
                                         );
                                     })}
