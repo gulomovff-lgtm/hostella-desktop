@@ -33,18 +33,20 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
         const statusPriority = { active: 0, booking: 1, checked_out: 2 };
         const personMap = new Map();
         guests.forEach(g => {
-            if (!g.fullName.toLowerCase().includes(lowerQ) &&
-                !(g.passport && g.passport.toLowerCase().includes(lowerQ))) return;
-            const key = (g.fullName + '|' + (g.passport || '')).toLowerCase();
+            const name = (g.fullName || g.name || '').toLowerCase();
+            const passport = (g.passport || '').toLowerCase();
+            if (!name.includes(lowerQ) && !passport.includes(lowerQ)) return;
+            const key = (name + '|' + passport);
             const existing = personMap.get(key);
             const prio = statusPriority[g.status] ?? 3;
             const existingPrio = existing ? (statusPriority[existing.status] ?? 3) : 99;
             if (!existing || prio < existingPrio) personMap.set(key, g);
         });
-        // Only show active/booking guests; checked_out only if no active record for same person
+        // personMap already deduplicates: active beats booking beats checked_out.
+        // If checked_out remains in map → no active/booking record exists for that person → show it.
         const foundGuests = [...personMap.values()]
-            .filter(g => g.status !== 'checked_out')
-            .slice(0, 8);
+            .sort((a, b) => (statusPriority[a.status] ?? 3) - (statusPriority[b.status] ?? 3))
+            .slice(0, 10);
 
         const foundRooms = rooms.filter(r =>
             String(r.number).includes(lowerQ)
@@ -114,28 +116,31 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
                                     <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Гости</div>
                                     {results.guests.map(guest => {
                                         const isOld = guest.status === 'checked_out';
+                                        const isBooking = guest.status === 'booking';
+                                        const displayName = guest.fullName || guest.name || '—';
                                         return (
                                             <button
                                                 key={guest.id}
                                                 onClick={() => { onSelectGuest(guest); onClose(); }}
                                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border border-transparent transition-all group text-left
-                                                    ${isOld ? 'hover:bg-slate-100 hover:border-slate-200' : 'hover:bg-white hover:shadow-md hover:border-indigo-100 bg-white/40'}
+                                                    ${isOld ? 'hover:bg-slate-100 hover:border-slate-200' : isBooking ? 'hover:bg-amber-50 hover:border-amber-100 bg-white/40' : 'hover:bg-white hover:shadow-md hover:border-indigo-100 bg-white/40'}
                                                 `}
                                             >
                                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm
-                                                    ${isOld ? 'bg-slate-200 text-slate-500' : 'bg-gradient-to-br from-indigo-500 to-purple-500 text-white'}
+                                                    ${isOld ? 'bg-slate-200 text-slate-500' : isBooking ? 'bg-amber-100 text-amber-600' : 'bg-gradient-to-br from-indigo-500 to-purple-500 text-white'}
                                                 `}>
                                                     <User size={18}/>
                                                 </div>
                                                 <div className="flex-1">
-                                                    <div className="flex justify-between">
-                                                        <span className={`font-bold ${isOld ? 'text-slate-600' : 'text-slate-900'}`}>{guest.fullName}</span>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className={`font-bold ${isOld ? 'text-slate-600' : 'text-slate-900'}`}>{displayName}</span>
                                                         {isOld && <span className="text-[10px] bg-slate-200 px-1.5 rounded text-slate-500 font-bold">Архив</span>}
+                                                        {isBooking && <span className="text-[10px] bg-amber-100 px-1.5 rounded text-amber-700 font-bold">Бронь</span>}
                                                     </div>
                                                     <div className="text-xs text-slate-500 flex items-center gap-2">
-                                                        <span>{guest.passport}</span>
-                                                        <span>•</span>
-                                                        <span>Комната {guest.roomNumber}</span>
+                                                        {guest.passport && <span>{guest.passport}</span>}
+                                                        {guest.passport && <span>•</span>}
+                                                        <span>{isBooking ? `${guest.checkInDate ? new Date(guest.checkInDate).toLocaleDateString('ru',{day:'numeric',month:'short'}) : ''}` : `Комната ${guest.roomNumber}`}</span>
                                                     </div>
                                                 </div>
                                             </button>
