@@ -1130,12 +1130,14 @@ return (
                 )}
 
                 {activeTab === 'referrals' && (
-                    <ReferralView
-                        clients={clients}
-                        hostelId={selectedHostelFilter}
-                        showNotification={showNotification}
-                        currentUser={currentUser}
-                    />
+                    <div className="-m-3 md:-m-6 -mt-2 min-h-full">
+                        <ReferralView
+                            clients={clients}
+                            hostelId={selectedHostelFilter}
+                            showNotification={showNotification}
+                            currentUser={currentUser}
+                        />
+                    </div>
                 )}
             </div>
         </main>
