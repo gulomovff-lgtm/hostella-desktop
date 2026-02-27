@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useReferralSystem } from '../../hooks/useReferralSystem';
-import { Search } from 'lucide-react';
+import { useReferralSettings } from '../../hooks/useReferralSettings';
+import { Search, Settings, X, Plus, Trash2, ChevronUp, ChevronDown, Save, ToggleLeft, ToggleRight } from 'lucide-react';
 
 /* ─── palette by depth ───────────────────────────────────────────── */
 const LEVEL_COLORS = [
@@ -47,6 +48,202 @@ const ProgressBar = ({ value, max, lineColor }) => {
   );
 };
 
+/* ─── Settings Modal ────────────────────────────────────────────── */
+const SettingsModal = ({ settings, onClose, onSave, saving,
+  patchSettings, addTier, updateTier, removeTier, moveTier,
+  addRule, updateRule, removeRule }) => {
+  const [tab, setTab] = useState('general');
+
+  const TABS = [
+    { id: 'general', label: '⚙️ Основные' },
+    { id: 'tiers',   label: '🏆 Бонусные тиры' },
+    { id: 'rules',   label: '📋 Правила' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="relative w-full max-w-xl bg-slate-900 border border-white/10 rounded-3xl shadow-2xl flex flex-col"
+        style={{ maxHeight: '90vh' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/8 flex-shrink-0">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">⚙️ Настройки бонусной программы</h2>
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex px-6 pt-4 gap-1 flex-shrink-0">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+              style={{
+                background: tab === t.id ? 'rgba(139,92,246,0.25)' : 'transparent',
+                color: tab === t.id ? '#c4b5fd' : '#64748b',
+                border: tab === t.id ? '1px solid rgba(139,92,246,0.4)' : '1px solid transparent',
+              }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+
+          {/* ── General ── */}
+          {tab === 'general' && (
+            <div className="space-y-4">
+              <label className="flex items-center justify-between p-3 bg-slate-800/60 border border-white/8 rounded-2xl cursor-pointer hover:border-white/20 transition-colors">
+                <div>
+                  <p className="text-sm font-semibold text-white">Программа активна</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Если выключить — новые участники не добавляются</p>
+                </div>
+                <button type="button" onClick={() => patchSettings({ programActive: !settings.programActive })}
+                  className="transition-transform active:scale-95">
+                  {settings.programActive
+                    ? <ToggleRight size={32} className="text-violet-400" />
+                    : <ToggleLeft size={32} className="text-slate-500" />}
+                </button>
+              </label>
+
+              <div>
+                <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Название программы</label>
+                <input value={settings.programName}
+                  onChange={e => patchSettings({ programName: e.target.value })}
+                  className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Мин. дней для подтверждения</label>
+                  <input type="number" min={1} max={365} value={settings.minStayDays}
+                    onChange={e => patchSettings({ minStayDays: parseInt(e.target.value) || 10 })}
+                    className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Макс. бонусов на гостя (0=∞)</label>
+                  <input type="number" min={0} max={9999} value={settings.maxBonusDays}
+                    onChange={e => patchSettings({ maxBonusDays: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Срок действия бонусов (дней, 0=∞)</label>
+                  <input type="number" min={0} max={9999} value={settings.bonusExpiryDays}
+                    onChange={e => patchSettings({ bonusExpiryDays: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
+                </div>
+                <label className="flex items-center gap-2 p-3 bg-slate-800/60 border border-white/8 rounded-xl cursor-pointer hover:border-white/20 transition-colors">
+                  <input type="checkbox" checked={settings.resetAfterCycle}
+                    onChange={e => patchSettings({ resetAfterCycle: e.target.checked })}
+                    className="w-4 h-4 accent-violet-500" />
+                  <span className="text-xs text-slate-300 leading-tight">Сбрасывать счётчик после полного цикла тиров</span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tiers ── */}
+          {tab === 'tiers' && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Каждый тир соответствует порядковому рефералу в цикле. После прохождения последнего тира счётчик сбрасывается (если включено) и цикл повторяется.
+              </p>
+              {settings.tiers.map((tier, idx) => (
+                <div key={tier.id} className="flex items-center gap-2 bg-slate-800/60 border border-white/8 rounded-2xl p-3">
+                  <div className="flex flex-col gap-0.5">
+                    <button type="button" onClick={() => moveTier(tier.id, -1)} disabled={idx === 0}
+                      className="p-0.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-white disabled:opacity-20 transition-colors">
+                      <ChevronUp size={13} />
+                    </button>
+                    <button type="button" onClick={() => moveTier(tier.id, 1)} disabled={idx === settings.tiers.length - 1}
+                      className="p-0.5 hover:bg-white/10 rounded-lg text-slate-500 hover:text-white disabled:opacity-20 transition-colors">
+                      <ChevronDown size={13} />
+                    </button>
+                  </div>
+                  <div className="w-6 h-6 flex-shrink-0 rounded-full bg-violet-600/30 text-violet-400 text-[10px] font-bold flex items-center justify-center">{idx + 1}</div>
+                  <input value={tier.label} onChange={e => updateTier(tier.id, { label: e.target.value })}
+                    placeholder="Название тира"
+                    className="flex-1 bg-slate-700/60 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-violet-500/50 transition" />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">+дней:</span>
+                    <input type="number" min={1} max={365} value={tier.bonusDays}
+                      onChange={e => updateTier(tier.id, { bonusDays: parseInt(e.target.value) || 1 })}
+                      className="w-14 bg-slate-700/60 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-amber-300 font-bold text-center focus:outline-none focus:ring-1 focus:ring-amber-500/50 transition" />
+                  </div>
+                  <button type="button" onClick={() => removeTier(tier.id)} disabled={settings.tiers.length <= 1}
+                    className="p-1.5 rounded-xl hover:bg-red-500/20 text-red-400/60 hover:text-red-400 disabled:opacity-20 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={addTier}
+                className="w-full py-2 rounded-2xl border border-dashed border-white/20 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium flex items-center justify-center gap-2 transition-all">
+                <Plus size={13} /> Добавить тир
+              </button>
+              <div className="bg-slate-800/40 border border-amber-500/20 rounded-2xl p-3">
+                <p className="text-[10px] text-amber-400 font-semibold uppercase tracking-wide mb-1.5">Предпросмотр цикла</p>
+                <div className="flex flex-wrap gap-2">
+                  {settings.tiers.map((t, i) => (
+                    <div key={t.id} className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-xl px-2.5 py-1.5">
+                      <span className="text-[10px] text-amber-300 font-semibold">{i + 1}.</span>
+                      <span className="text-[10px] text-slate-300">{t.label}</span>
+                      <span className="text-[10px] text-amber-400 font-bold">+{t.bonusDays}д</span>
+                    </div>
+                  ))}
+                  {settings.resetAfterCycle && (
+                    <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5">
+                      <span className="text-[10px] text-slate-500">↺ сброс</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Rules ── */}
+          {tab === 'rules' && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-slate-400">Эти правила отображаются гостям и сотрудникам в боковой панели программы.</p>
+              {settings.customRules.map((rule, idx) => (
+                <div key={rule.id} className="flex gap-2 items-start">
+                  <span className="mt-2 text-[11px] font-bold text-violet-400 flex-shrink-0 w-5 text-center">{idx + 1}.</span>
+                  <textarea value={rule.text} rows={2}
+                    onChange={e => updateRule(rule.id, e.target.value)}
+                    placeholder="Текст правила…"
+                    className="flex-1 bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500/50 transition resize-none" />
+                  <button type="button" onClick={() => removeRule(rule.id)}
+                    className="mt-1.5 p-1.5 rounded-xl hover:bg-red-500/20 text-red-400/60 hover:text-red-400 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={addRule}
+                className="w-full py-2 rounded-2xl border border-dashed border-white/20 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium flex items-center justify-center gap-2 transition-all">
+                <Plus size={13} /> Добавить правило
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/8 flex-shrink-0">
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 text-sm transition-colors">
+            Отмена
+          </button>
+          <button onClick={() => onSave(settings)} disabled={saving}
+            className="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 active:scale-95 shadow-lg shadow-violet-900/40">
+            <Save size={14} />{saving ? 'Сохранение…' : 'Сохранить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ─── Redeem stepper ─────────────────────────────────────────────── */
 const RedeemRow = ({ node, onRedeem }) => {
   const [amount, setAmount] = useState(1);
@@ -68,12 +265,13 @@ const RedeemRow = ({ node, onRedeem }) => {
 };
 
 /* ─── Node card ──────────────────────────────────────────────────── */
-const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRemove }) => {
+const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings }) => {
   const isVirtual  = !!node.isVirtual;
   const isSelected = selectedId === node.id;
   const col        = lc(level);
   const hasBonus   = (node.bonusDays || 0) > 0;
   const displayName = getDisplayName(node);
+  const tiersCount  = settings?.tiers?.length || 2;
 
   return (
     <div
@@ -113,9 +311,9 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-slate-400">Рефералы до сброса</span>
-                <span className="text-[11px] font-semibold text-slate-200">{node.referralsMade || 0}/2</span>
+                <span className="text-[11px] font-semibold text-slate-200">{node.referralsMade || 0}/{tiersCount}</span>
               </div>
-              <ProgressBar value={node.referralsMade || 0} max={2} lineColor={col.line} />
+              <ProgressBar value={node.referralsMade || 0} max={tiersCount} lineColor={col.line} />
             </div>
           )}
           <div className="flex items-center justify-between text-[10px] text-slate-400">
@@ -134,7 +332,7 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
           {!isVirtual && !node.referralConfirmed && (
             <button type="button" onClick={() => onConfirm(node.id)}
               className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors">
-              ✓ Подтвердить 10 дней
+              ✓ Подтвердить {settings?.minStayDays || 10} дней
             </button>
           )}
           {!isVirtual && node.referralConfirmed && !hasBonus && (
@@ -158,7 +356,7 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
 };
 
 /* ─── Tree branch ────────────────────────────────────────────────── */
-const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem, onRemove }) => {
+const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings }) => {
   const hasChildren = (node.children?.length || 0) > 0;
   const col = lc(level);
   const childCol = lc(level + 1);
@@ -166,7 +364,7 @@ const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem
   return (
     <div className="flex flex-col items-center">
       <NodeCard node={node} level={level} selectedId={selectedId}
-        onSelect={onSelect} onConfirm={onConfirm} onRedeem={onRedeem} onRemove={onRemove} />
+        onSelect={onSelect} onConfirm={onConfirm} onRedeem={onRedeem} onRemove={onRemove} settings={settings} />
       {hasChildren && (
         <>
           <div className="w-0.5 h-6 flex-shrink-0"
@@ -180,7 +378,7 @@ const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem
               <div key={child.id} className="flex flex-col items-center">
                 <div className="w-0.5 h-6 flex-shrink-0" style={{ background: childCol.line, opacity: 0.5 }} />
                 <TreeBranch node={child} level={level + 1} selectedId={selectedId}
-                  onSelect={onSelect} onConfirm={onConfirm} onRedeem={onRedeem} onRemove={onRemove} />
+                  onSelect={onSelect} onConfirm={onConfirm} onRedeem={onRedeem} onRemove={onRemove} settings={settings} />
               </div>
             ))}
           </div>
@@ -312,28 +510,47 @@ const Legend = () => (
 );
 
 /* ─── Rules ──────────────────────────────────────────────────────── */
-const RulesCard = () => (
-  <div className="bg-slate-800/60 border border-white/8 rounded-2xl p-4 space-y-2">
-    <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Правила бонусов</p>
-    <div className="space-y-2 text-[11px] text-slate-300 leading-relaxed">
-      <p className="flex items-start gap-1.5">
-        <span className="text-amber-400 font-bold flex-shrink-0">1.</span>
-        Гость приглашает знакомого, тот живёт 10+ дней →
-        <span className="text-amber-300 font-semibold ml-1">+1 день</span>
+const RulesCard = ({ settings }) => {
+  const rules = settings?.customRules?.filter(r => r.text?.trim()) || [];
+  const tiers = settings?.tiers || [];
+  const minDays = settings?.minStayDays || 10;
+  return (
+    <div className="bg-slate-800/60 border border-white/8 rounded-2xl p-4 space-y-3">
+      <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+        {settings?.programName || 'Бонусная программа'} · Правила
       </p>
-      <p className="flex items-start gap-1.5">
-        <span className="text-amber-400 font-bold flex-shrink-0">2.</span>
-        Второй приглашённый живёт 10+ дней →
-        <span className="text-amber-300 font-semibold ml-1">+2 дня</span>
-        (итого 3), счётчик сбрасывается
-      </p>
-      <p className="flex items-start gap-1.5">
-        <span className="text-amber-400 font-bold flex-shrink-0">∞</span>
-        Приглашённые тоже могут звать других — бонусы начисляются им же
+      {/* Tiers preview */}
+      {tiers.length > 0 && (
+        <div className="space-y-1">
+          {tiers.map((t, i) => (
+            <div key={t.id} className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400">{i + 1}. {t.label}</span>
+              <span className="text-[10px] font-bold text-amber-400">+{t.bonusDays} д.</span>
+            </div>
+          ))}
+          {settings?.resetAfterCycle && (
+            <p className="text-[10px] text-slate-600">↺ цикл повторяется</p>
+          )}
+        </div>
+      )}
+      {/* Custom rules */}
+      {rules.length > 0 && (
+        <div className="pt-1 border-t border-white/5 space-y-1.5">
+          {rules.map((r, i) => (
+            <p key={r.id} className="flex items-start gap-1.5 text-[10px] text-slate-300 leading-relaxed">
+              <span className="text-amber-400 font-bold flex-shrink-0">{i + 1}.</span>{r.text}
+            </p>
+          ))}
+        </div>
+      )}
+      <p className="text-[10px] text-slate-500 border-t border-white/5 pt-2">
+        Мин. проживание для подтверждения: <span className="text-white font-semibold">{minDays} дн.</span>
+        {settings?.maxBonusDays > 0 && <> · Лимит: <span className="text-white font-semibold">{settings.maxBonusDays} д.</span></>}
+        {settings?.bonusExpiryDays > 0 && <> · Истекают через: <span className="text-white font-semibold">{settings.bonusExpiryDays} дн.</span></>}
       </p>
     </div>
-  </div>
-);
+  );
+};
 
 /* ─── Empty state ────────────────────────────────────────────────── */
 const EmptyState = () => (
@@ -345,6 +562,9 @@ const EmptyState = () => (
 
 /* ─── Main ───────────────────────────────────────────────────────── */
 const ReferralView = ({ clients = [], hostelId, showNotification, currentUser }) => {
+  const settingsMgr = useReferralSettings(showNotification);
+  const { settings, saving } = settingsMgr;
+
   const {
     nodes,
     addReferralClient,
@@ -355,9 +575,10 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
     getParticipantList,
     getNonParticipants,
     getStats,
-  } = useReferralSystem({ clients, hostelId, showNotification });
+  } = useReferralSystem({ clients, hostelId, showNotification, settings });
 
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId,    setSelectedId]    = useState(null);
+  const [showSettings,  setShowSettings]  = useState(false);
   const stats           = getStats();
   const participantList = getParticipantList();
   const nonParticipants = getNonParticipants();
@@ -382,7 +603,11 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-white flex items-center gap-2.5">
-              <span className="text-2xl">🎁</span> Бонусная программа
+              <span className="text-2xl">🎁</span>
+              {settings.programName}
+              {!settings.programActive && (
+                <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-normal">Выключена</span>
+              )}
             </h1>
             <p className="text-slate-400 text-xs mt-0.5">Реферральная иерархия · привязана к базе клиентов</p>
           </div>
@@ -393,6 +618,10 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
             <StatChip label="Бонусов" value={stats.totalBonusPending}
               sub={stats.totalBonusUsed > 0 ? `${stats.totalBonusUsed} исп.` : null} />
             <StatChip label="Заработано" value={stats.totalBonusEarned} />
+            <button onClick={() => setShowSettings(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-800/80 border border-white/10 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium transition-all self-center">
+              <Settings size={14} /> Настройки
+            </button>
           </div>
         </div>
       </div>
@@ -414,7 +643,7 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
             />
           </div>
           <Legend />
-          <RulesCard />
+          <RulesCard settings={settings} />
         </div>
 
         {/* Tree canvas */}
@@ -431,6 +660,7 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                   onConfirm={confirmTenDayStay}
                   onRedeem={redeemBonusDays}
                   onRemove={removeFromProgram}
+                  settings={settings}
                 />
               ))}
             </div>
@@ -443,6 +673,7 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                     onConfirm={confirmTenDayStay}
                     onRedeem={redeemBonusDays}
                     onRemove={removeFromProgram}
+                    settings={settings}
                   />
                 ))}
               </div>
@@ -451,6 +682,24 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
           )}
         </div>
       </div>
+
+      {/* Settings modal */}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          saving={saving}
+          onClose={() => setShowSettings(false)}
+          onSave={async (s) => { await settingsMgr.saveSettings(s); setShowSettings(false); }}
+          patchSettings={settingsMgr.patchSettings}
+          addTier={settingsMgr.addTier}
+          updateTier={settingsMgr.updateTier}
+          removeTier={settingsMgr.removeTier}
+          moveTier={settingsMgr.moveTier}
+          addRule={settingsMgr.addRule}
+          updateRule={settingsMgr.updateRule}
+          removeRule={settingsMgr.removeRule}
+        />
+      )}
     </div>
   );
 };

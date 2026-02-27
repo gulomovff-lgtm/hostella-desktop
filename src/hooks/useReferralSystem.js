@@ -16,6 +16,7 @@ import {
   collection, doc, addDoc, updateDoc,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
+import { DEFAULT_REFERRAL_SETTINGS } from './useReferralSettings';
 
 /* ── Строим дерево из плоского массива ─────────────────────────────────────── */
 export const buildReferralTree = (clients, hostelId) => {
@@ -72,7 +73,8 @@ export const getReferralParticipants = (clients) =>
   clients.filter(c => c.referredBy != null);
 
 /* ── Хук ───────────────────────────────────────────────────────────────────── */
-export const useReferralSystem = ({ clients = [], hostelId, showNotification }) => {
+export const useReferralSystem = ({ clients = [], hostelId, showNotification, settings }) => {
+  const cfg = { ...DEFAULT_REFERRAL_SETTINGS, ...(settings || {}) };
 
   const clientsRef = collection(db, ...PUBLIC_DATA_PATH, 'clients');
 
@@ -117,7 +119,7 @@ export const useReferralSystem = ({ clients = [], hostelId, showNotification }) 
     }
   }, [showNotification]);
 
-  /* Подтвердить 10-дневное пребывание → начислить бонус рефереру */
+  /* Подтвердить пребывание (мин. дней — из настроек) → начислить бонус рефереру */
   const confirmTenDayStay = useCallback(async (clientId) => {
     const guest = clients.find(c => c.id === clientId);
     if (!guest) return;
@@ -137,21 +139,31 @@ export const useReferralSystem = ({ clients = [], hostelId, showNotification }) 
       confirmedAt: new Date().toISOString(),
     });
 
-    // Начисляем бонус рефереру
+    // Начисляем бонус рефереру (динамические тиры из настроек)
     if (referrer) {
-      const cur = (referrer.referralsMade || 0) + 1;
-      const bonusToAdd = cur === 1 ? 1 : 2;
-      const reset = cur >= 2;
+      const tiers = cfg.tiers?.length ? cfg.tiers : DEFAULT_REFERRAL_SETTINGS.tiers;
+      const madeCount = referrer.referralsMade || 0;
+      const tierIdx = madeCount % tiers.length;
+      const tier = tiers[tierIdx];
+      const bonusToAdd = tier?.bonusDays ?? 1;
+      const newMade = madeCount + 1;
+      const reset = cfg.resetAfterCycle && newMade >= tiers.length;
+      const capBonus = cfg.maxBonusDays > 0
+        ? Math.min(bonusToAdd, cfg.maxBonusDays - (referrer.bonusDays || 0))
+        : bonusToAdd;
+      const actualBonus = Math.max(0, capBonus);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', referrer.id), {
-        referralsMade: reset ? 0 : cur,
-        bonusDays: (referrer.bonusDays || 0) + bonusToAdd,
-        totalBonusEarned: (referrer.totalBonusEarned || 0) + bonusToAdd,
+        referralsMade: reset ? 0 : newMade,
+        bonusDays: (referrer.bonusDays || 0) + actualBonus,
+        totalBonusEarned: (referrer.totalBonusEarned || 0) + actualBonus,
       });
-      showNotification?.(`+${bonusToAdd} бонусн. ${bonusToAdd === 1 ? 'день' : 'дня'} начислено "${referrer.fullName}"`, 'success');
+      const dayLabel = actualBonus === 1 ? 'день' : 'дня';
+      const cap = actualBonus < bonusToAdd ? ' (достигнут лимит)' : '';
+      showNotification?.(`+${actualBonus} бонусн. ${dayLabel} начислено «${referrer.fullName}»${cap}`, 'success');
     } else {
       showNotification?.('Подтверждено ✓', 'success');
     }
-  }, [clients, showNotification]);
+  }, [clients, showNotification, cfg]);
 
   /* Списать бонусные дни */
   const redeemBonusDays = useCallback(async (clientId, days) => {
