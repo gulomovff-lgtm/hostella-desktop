@@ -52,6 +52,7 @@ export const useRecurringExpenses = ({
             ? Object.keys(HOSTELS)
             : [tmpl.hostelId];
 
+        let fired = false;
         for (const hid of targetHostels) {
           try {
             await addDoc(expensesCol(), {
@@ -65,12 +66,20 @@ export const useRecurringExpenses = ({
             });
             const hostelLabel = HOSTELS[hid]?.name || hid;
             sendTelegramMessage(
-              `🔄 <b>Авторасход</b>\n🏨 ${hostelLabel}\n📂 ${tmpl.category}\n💰 ${Number(tmpl.amount).toLocaleString()} сум\n📅 ${tmpl.name}`,
+              `🔄 <b>Авторасход</b>\n🏨 ${hostelLabel}\n📂 ${tmpl.category}\n💰 ${Number(tmpl.amount).toLocaleString()} сум\n📝 ${tmpl.name}`,
               'expenseAdded'
             );
+            fired = true;
           } catch (e) {
             console.error('[recurring] fire error', e);
           }
+        }
+
+        if (fired) {
+          showNotification?.(
+            `🔄 Авторасход: ${tmpl.name} — ${Number(tmpl.amount).toLocaleString()} сум`,
+            'success'
+          );
         }
 
         // Отмечаем месяц как начисленный
