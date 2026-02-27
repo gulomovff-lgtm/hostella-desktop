@@ -145,6 +145,7 @@ import ShiftsView from './components/Views/ShiftsView';
 import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import PromoCodesView from './components/Views/PromoCodesView';
+import ReferralView from './components/Views/ReferralView';
 import { logAction } from './utils/auditLog';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { useClientActions }       from './hooks/useClientActions';
@@ -864,6 +865,7 @@ return (
             onOpenGroupCheckIn={() => setGroupCheckInModal(true)}
             onOpenRoomRental={() => setRoomRentalModal(true)}
             onOpenShiftClosing={() => setShiftModal(true)}
+            onOpenExpense={() => setExpenseModal(true)}
             anyModalOpen={
                 checkInModal.open || guestDetailsModal.open || moveGuestModal.open ||
                 expenseModal || shiftModal || addRoomModal || editRoomModal.open ||
@@ -1124,6 +1126,15 @@ return (
                         lang={lang}
                         notify={showNotification}
                         onOpenTemplateEditor={() => setTemplateEditorModal(true)}
+                    />
+                )}
+
+                {activeTab === 'referrals' && (
+                    <ReferralView
+                        clients={clients}
+                        hostelId={selectedHostelFilter}
+                        showNotification={showNotification}
+                        currentUser={currentUser}
                     />
                 )}
             </div>
