@@ -152,6 +152,7 @@ import { useClientActions }       from './hooks/useClientActions';
 import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
 import { useExpenseActions }      from './hooks/useExpenseActions';
+import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
 import CheckInModal from './components/Modals/CheckInModal';
 import ClientHistoryModal from './components/Modals/ClientHistoryModal';
 import GuestRegistrationModal from './components/Modals/GuestRegistrationModal';
@@ -252,6 +253,7 @@ function App() {
   const {
     rooms, guests, expenses, clients, payments,
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
+    recurringExpenses,
     isOnline, permissionError, isDataReady,
   } = useAppData(firebaseUser, currentUser);
 
@@ -527,6 +529,11 @@ function App() {
     expenses, usersList, lang,
     setExpenseModal, setUndoStack,
     showNotification,
+  });
+
+  const { addRecurring, updateRecurring, deleteRecurring, toggleActive: toggleRecurringActive, fireNow: fireRecurringNow } = useRecurringExpenses({
+    currentUser, selectedHostelFilter,
+    recurringExpenses, showNotification,
   });
 
   // ─── UI-only handlers (remain in App) ────────────────────────────────────
@@ -1088,6 +1095,13 @@ return (
                         onDownloadCSV={downloadExpensesCSV}
                         onAddExpense={() => setExpenseModal(true)}
                         onDeleteExpense={(id, rec) => handleDeletePayment(id, 'expense', rec)}
+                        recurringExpenses={recurringExpenses}
+                        currentUser={currentUser}
+                        onAddRecurring={addRecurring}
+                        onUpdateRecurring={updateRecurring}
+                        onDeleteRecurring={deleteRecurring}
+                        onToggleActive={toggleRecurringActive}
+                        onFireNow={fireRecurringNow}
                     />
                 )}
 

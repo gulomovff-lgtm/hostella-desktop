@@ -27,6 +27,7 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [auditLog,      setAuditLog     ] = useState([]);
   const [promos,        setPromos       ] = useState([]);
   const [registrations, setRegistrations] = useState([]);
+  const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
@@ -130,7 +131,15 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setRegistrations([])
     );
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); };
+    // Recurring expenses
+    const recurringCol = collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
+    const u12 = onSnapshot(
+      recurringCol,
+      (snap) => setRecurringExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => setRecurringExpenses([])
+    );
+
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -146,6 +155,7 @@ export const useAppData = (firebaseUser, currentUser) => {
     auditLog,
     promos,
     registrations,
+    recurringExpenses,
     isOnline,
     permissionError,
     isDataReady,
