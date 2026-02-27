@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Plus, Search, Trash2, ToggleLeft, ToggleRight, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { Download, Plus, Search, Trash2, ToggleLeft, ToggleRight, Play, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react';
 
 const CAT_META = [
     { key:'Аренда',              icon:'🏠', bg:'#ede9fe', text:'#6d28d9', bar:'#7c3aed' },
@@ -62,6 +62,8 @@ const ExpensesView = ({
     const [recurringOpen, setRecurringOpen] = useState(false);
     const [addForm, setAddForm] = useState(false);
     const [form, setForm] = useState({ name: '', category: 'Аренда', amount: '', comment: '', dayOfMonth: 1, hostelId: 'all' });
+    const [editId, setEditId] = useState(null);
+    const [editForm, setEditForm] = useState({});
 
     const CATS = ['Аренда','Коммунальные услуги','Зарплата','Продукты','Канцелярия','Ремонт','Интернет','Реклама','Другое'];
 
@@ -71,6 +73,20 @@ const ExpensesView = ({
         await onAddRecurring?.(form);
         setForm({ name: '', category: 'Аренда', amount: '', comment: '', dayOfMonth: 1, hostelId: 'all' });
         setAddForm(false);
+    };
+
+    const startEdit = (tmpl) => {
+        setEditId(tmpl.id);
+        setEditForm({ name: tmpl.name, category: tmpl.category || 'Аренда', amount: tmpl.amount, comment: tmpl.comment || '', dayOfMonth: tmpl.dayOfMonth || 1, hostelId: tmpl.hostelId || 'all' });
+        setAddForm(false);
+    };
+
+    const handleEditForm = async (e) => {
+        e.preventDefault();
+        if (!editForm.name || !editForm.amount) return;
+        await onUpdateRecurring?.(editId, { ...editForm, amount: Number(editForm.amount), dayOfMonth: Number(editForm.dayOfMonth) });
+        setEditId(null);
+        setEditForm({});
     };
 
     const today = now.getDate();
@@ -267,50 +283,115 @@ const ExpensesView = ({
                                 const m = getCat(tmpl.category);
                                 const curMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
                                 const firedThisMonth = tmpl.lastFiredMonth === curMonthKey;
+                                const isEditing = editId === tmpl.id;
                                 return (
-                                    <div key={tmpl.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
-                                        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: m.bg }}>
-                                            {m.icon}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="text-sm font-bold text-slate-700">{tmpl.name}</span>
-                                                <span className="text-xs font-semibold" style={{ color: m.text }}>{tmpl.category}</span>
-                                                {firedThisMonth && (
-                                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">✓ начислено</span>
-                                                )}
+                                    <div key={tmpl.id}>
+                                        <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                                            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: m.bg }}>
+                                                {m.icon}
                                             </div>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                <span className="text-xs text-slate-400">📅 {tmpl.dayOfMonth}-го числа</span>
-                                                {tmpl.hostelId !== 'all' && (
-                                                    <span className="text-xs text-slate-400">· {tmpl.hostelId === 'hostel1' ? 'Хостел №1' : tmpl.hostelId === 'hostel2' ? 'Хостел №2' : tmpl.hostelId}</span>
-                                                )}
-                                                {tmpl.comment && <span className="text-xs text-slate-400 truncate">· {tmpl.comment}</span>}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-sm font-bold text-slate-700">{tmpl.name}</span>
+                                                    <span className="text-xs font-semibold" style={{ color: m.text }}>{tmpl.category}</span>
+                                                    {firedThisMonth && (
+                                                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">✓ начислено</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-xs text-slate-400">📅 {tmpl.dayOfMonth}-го числа</span>
+                                                    {tmpl.hostelId !== 'all' && (
+                                                        <span className="text-xs text-slate-400">· {tmpl.hostelId === 'hostel1' ? 'Хостел №1' : tmpl.hostelId === 'hostel2' ? 'Хостел №2' : tmpl.hostelId}</span>
+                                                    )}
+                                                    {tmpl.comment && <span className="text-xs text-slate-400 truncate">· {tmpl.comment}</span>}
+                                                </div>
                                             </div>
+                                            <span className="text-sm font-black text-rose-600 shrink-0">{fmt(tmpl.amount)}</span>
+                                            <button
+                                                onClick={() => onToggleActive?.(tmpl.id, tmpl.active)}
+                                                title={tmpl.active ? 'Выключить' : 'Включить'}
+                                                className="shrink-0 transition-colors"
+                                            >
+                                                {tmpl.active
+                                                    ? <ToggleRight size={28} className="text-indigo-500" />
+                                                    : <ToggleLeft size={28} className="text-slate-300" />}
+                                            </button>
+                                            <button
+                                                onClick={() => isEditing ? setEditId(null) : startEdit(tmpl)}
+                                                title={isEditing ? 'Отмена' : 'Редактировать'}
+                                                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'text-indigo-500 bg-indigo-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                                            >
+                                                {isEditing ? <X size={14} /> : <Pencil size={14} />}
+                                            </button>
+                                            <button
+                                                onClick={() => onFireNow?.(tmpl)}
+                                                title="Внести сейчас"
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-emerald-500 hover:bg-emerald-50 transition-colors shrink-0"
+                                            >
+                                                <Play size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => onDeleteRecurring?.(tmpl.id)}
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
                                         </div>
-                                        <span className="text-sm font-black text-rose-600 shrink-0">{fmt(tmpl.amount)}</span>
-                                        <button
-                                            onClick={() => onToggleActive?.(tmpl.id, tmpl.active)}
-                                            title={tmpl.active ? 'Выключить' : 'Включить'}
-                                            className="shrink-0 transition-colors"
-                                        >
-                                            {tmpl.active
-                                                ? <ToggleRight size={28} className="text-indigo-500" />
-                                                : <ToggleLeft size={28} className="text-slate-300" />}
-                                        </button>
-                                        <button
-                                            onClick={() => onFireNow?.(tmpl)}
-                                            title="Внести сейчас"
-                                            className="w-7 h-7 flex items-center justify-center rounded-lg text-emerald-500 hover:bg-emerald-50 transition-colors shrink-0"
-                                        >
-                                            <Play size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => onDeleteRecurring?.(tmpl.id)}
-                                            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
+                                        {isEditing && (
+                                            <form onSubmit={handleEditForm} className="px-5 py-4 bg-indigo-50 border-t border-indigo-100 space-y-3">
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div className="col-span-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Название *</label>
+                                                        <input value={editForm.name} onChange={e => setEditForm(f=>({...f,name:e.target.value}))}
+                                                            required
+                                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Категория</label>
+                                                        <select value={editForm.category} onChange={e => setEditForm(f=>({...f,category:e.target.value}))}
+                                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                                                            {CATS.map(c => <option key={c}>{c}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Сумма *</label>
+                                                        <input type="number" min="1" value={editForm.amount} onChange={e => setEditForm(f=>({...f,amount:e.target.value}))}
+                                                            required
+                                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Число месяца (1-28)</label>
+                                                        <input type="number" min="1" max="28" value={editForm.dayOfMonth} onChange={e => setEditForm(f=>({...f,dayOfMonth:parseInt(e.target.value)||1}))}
+                                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Хостел</label>
+                                                        <select value={editForm.hostelId} onChange={e => setEditForm(f=>({...f,hostelId:e.target.value}))}
+                                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                                                            <option value="all">Все хостелы</option>
+                                                            <option value="hostel1">Хостел №1</option>
+                                                            <option value="hostel2">Хостел №2</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Комментарий</label>
+                                                        <input value={editForm.comment} onChange={e => setEditForm(f=>({...f,comment:e.target.value}))}
+                                                            placeholder="Необязательно…"
+                                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button type="submit"
+                                                        className="flex-1 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold transition-colors">
+                                                        Сохранить
+                                                    </button>
+                                                    <button type="button" onClick={() => setEditId(null)}
+                                                        className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-500 hover:bg-slate-100 transition-colors">
+                                                        Отмена
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        )}
                                     </div>
                                 );
                             })}
