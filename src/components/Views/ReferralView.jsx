@@ -579,6 +579,7 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
 
   const [selectedId,    setSelectedId]    = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
+  const [mobileTab,     setMobileTab]     = useState('tree'); // 'tree' | 'add'
   const stats           = getStats();
   const participantList = getParticipantList();
   const nonParticipants = getNonParticipants();
@@ -630,11 +631,27 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
         </div>
       </div>
 
+      {/* ── Mobile tab bar ── */}
+      <div className="flex md:hidden flex-shrink-0 border-b border-white/5 bg-slate-900/80">
+        <button
+          onClick={() => setMobileTab('tree')}
+          className="flex-1 py-3 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+          style={{ color: mobileTab === 'tree' ? '#c4b5fd' : '#475569', borderBottom: mobileTab === 'tree' ? '2px solid #8b5cf6' : '2px solid transparent' }}>
+          🌳 Дерево
+        </button>
+        <button
+          onClick={() => setMobileTab('add')}
+          className="flex-1 py-3 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+          style={{ color: mobileTab === 'add' ? '#c4b5fd' : '#475569', borderBottom: mobileTab === 'add' ? '2px solid #8b5cf6' : '2px solid transparent' }}>
+          👤 Участники
+        </button>
+      </div>
+
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Sidebar */}
-        <div className="w-72 flex-shrink-0 border-r border-white/5 p-4 flex flex-col gap-5 overflow-y-auto bg-slate-900/50">
+        <div className={`w-full md:w-72 flex-shrink-0 border-r border-white/5 p-4 flex-col gap-5 overflow-y-auto bg-slate-900/50 ${mobileTab === 'add' ? 'flex' : 'hidden md:flex'}`}>
           <div className="bg-slate-800/60 border border-white/8 rounded-2xl p-4">
             <p className="text-xs font-semibold text-slate-300 mb-3 flex items-center gap-1.5">
               <span>👤</span> Добавить участника
@@ -651,7 +668,7 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
         </div>
 
         {/* Tree canvas */}
-        <div className="flex-1 overflow-auto p-8 bg-[radial-gradient(ellipse_at_top_left,_rgba(109,40,217,0.08)_0%,_transparent_60%)]">
+        <div className={`flex-1 overflow-auto p-4 md:p-8 bg-[radial-gradient(ellipse_at_top_left,_rgba(109,40,217,0.08)_0%,_transparent_60%)] ${mobileTab === 'tree' ? 'block' : 'hidden md:block'}`}>
           <p className="text-[11px] text-slate-600 mb-6 flex items-center gap-1.5">
             <span>💡</span> Нажмите на карточку чтобы открыть действия
           </p>

@@ -73,10 +73,10 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4">
+            <div className="bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl border border-slate-200 w-full max-w-lg flex flex-col" style={{ maxHeight: '92dvh' }}>
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-rose-50">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-rose-50 sm:rounded-t-2xl rounded-t-2xl flex-shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-xl">💸</div>
                         <div>
@@ -89,7 +89,8 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-5">
+                <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+                <div className="p-6 space-y-5 overflow-y-auto flex-1">
                     {/* Category grid */}
                     <div>
                         <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-2">Категория *</label>
@@ -158,8 +159,9 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
                         )}
                     </div>
 
-                    {/* Buttons */}
-                    <div className="flex gap-3 pt-1">
+                </div>
+                    {/* Buttons — fixed at bottom */}
+                    <div className="flex gap-3 px-6 py-4 border-t border-slate-100 flex-shrink-0">
                         <button type="button" onClick={onClose}
                             className="flex-1 py-3 rounded-xl border-2 border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
                             style={{ outline: 'none' }}>

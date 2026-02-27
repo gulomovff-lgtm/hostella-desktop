@@ -273,36 +273,6 @@ const MobileNavigation = ({
                 </div>
             </div>
 
-            {/* ── Floating Expense FAB (admins + cashiers) ── */}
-            {canPerformActions && !anyModalOpen && (
-                <div
-                    className="fixed z-[90] md:hidden"
-                    style={{
-                        bottom: `calc(env(safe-area-inset-bottom, 0px) + ${showHostelBar ? 92 : 68}px)`,
-                        right: 16,
-                    }}
-                >
-                    <button
-                        onClick={() => onOpenExpense?.()}
-                        className="w-13 h-13 rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-all"
-                        style={{
-                            width: 52,
-                            height: 52,
-                            background: '#1a3c40',
-                            border: `2.5px solid ${ACTIVE_CLR}`,
-                            color: ACTIVE_CLR,
-                            boxShadow: '0 4px 20px rgba(232,140,64,0.4)',
-                        }}
-                    >
-                        <Wallet size={20} strokeWidth={2.5} />
-                    </button>
-                    <span
-                        className="absolute -top-1 left-1/2 -translate-x-1/2 text-[9px] font-black whitespace-nowrap px-1.5 py-0.5 rounded-full"
-                        style={{ background: ACTIVE_CLR, color: '#fff', letterSpacing: '0.03em' }}
-                    >Расход</span>
-                </div>
-            )}
-
             {/* ── Floating Checkin FAB (cashiers only) ── */}
             {canPerformActions && isCashier && !anyModalOpen && (
                 <div
