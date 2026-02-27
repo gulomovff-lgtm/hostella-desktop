@@ -320,12 +320,12 @@ const ExpensesView = ({
                                             >
                                                 {tmpl.active
                                                     ? <ToggleRight size={28} className="text-indigo-500" />
-                                                    : <ToggleLeft size={28} className="text-slate-300" />}
+                                                    : <ToggleLeft size={28} className="text-slate-400" />}
                                             </button>
                                             <button
                                                 onClick={() => isEditing ? setEditId(null) : startEdit(tmpl)}
                                                 title={isEditing ? 'Отмена' : 'Редактировать'}
-                                                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'text-indigo-500 bg-indigo-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                                                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'text-indigo-500 bg-indigo-50' : 'text-slate-500 hover:text-indigo-500 hover:bg-indigo-50'}`}
                                             >
                                                 {isEditing ? <X size={14} /> : <Pencil size={14} />}
                                             </button>
@@ -338,7 +338,7 @@ const ExpensesView = ({
                                             </button>
                                             <button
                                                 onClick={() => onDeleteRecurring?.(tmpl.id)}
-                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0"
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -534,7 +534,7 @@ const ExpensesView = ({
                                                         >💰</button>
                                                     )}
                                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                                        className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                                        className="sm:opacity-0 sm:group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
                                                         title="Удалить">
                                                         <Trash2 size={15}/>
                                                     </button>
@@ -605,7 +605,7 @@ const ExpensesView = ({
                                         ↩ {fmt(e.amount)}
                                     </span>
                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                        className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                        className="sm:opacity-0 sm:group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
                                         title="Удалить">
                                         <Trash2 size={15}/>
                                     </button>

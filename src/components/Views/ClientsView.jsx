@@ -243,7 +243,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                                     </div>
                                     <div className="text-xs text-slate-500 mt-0.5 truncate">{c.country || '—'}</div>
                                 </div>
-                                <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                     {isAdmin && <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => handleSelect(c.id)} onClick={e => e.stopPropagation()} className="rounded border-slate-300 text-indigo-600 mt-1"/>}
                                     <button onClick={() => onOpenClientHistory(c)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg"><History size={14}/></button>
                                     <button onClick={() => setEditingClient(c)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"><Edit size={14}/></button>
