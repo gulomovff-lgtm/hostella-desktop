@@ -393,7 +393,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 shrink-0"><X size={20}/></button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        <div className="flex-1 overflow-y-auto p-4 pb-8 space-y-3">
                             {!isBooking && (
                                 <div className={`rounded-xl p-3 border flex items-center justify-between bg-white ${debt > 0 ? 'border-rose-200' : 'border-emerald-200'}`}>
                                     <div>
@@ -767,7 +767,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
                             {/* Tab: manual */}
                             {replaceTab === 'new' && (
-                                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                <div className="flex-1 overflow-y-auto p-4 pb-8 space-y-3">
                                     <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-medium">
                                         Заменит ФИО, паспорт и личные данные гостя. Комната, даты и оплата останутся.
                                     </div>

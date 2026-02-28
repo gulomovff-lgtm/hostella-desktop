@@ -697,12 +697,51 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
   const [selectedId,    setSelectedId]    = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
   const [mobileTab,     setMobileTab]     = useState('tree'); // 'tree' | 'add'
+  const [treeScale,     setTreeScale]     = useState(1);
   const stats           = getStats();
   const participantList = getParticipantList();
   const nonParticipants = getNonParticipants();
   const wrapRef         = useRef(null);
+  const canvasRef       = useRef(null);
+  const lastPinchDist   = useRef(null);
 
   const hasParticipants = nodes[0]?.children?.length > 0;
+
+  const clampScale = (s) => Math.min(2.5, Math.max(0.3, s));
+
+  /* Ctrl+wheel zoom */
+  const handleCanvasWheel = useCallback((e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setTreeScale(s => clampScale(s - e.deltaY * 0.0012));
+    }
+  }, []);
+
+  /* Pinch-to-zoom */
+  const handleTouchMove = useCallback((e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY,
+      );
+      if (lastPinchDist.current !== null) {
+        const delta = d - lastPinchDist.current;
+        setTreeScale(s => clampScale(s + delta * 0.006));
+      }
+      lastPinchDist.current = d;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => { lastPinchDist.current = null; }, []);
+
+  /* Attach wheel listener with passive:false so we can preventDefault */
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleCanvasWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleCanvasWheel);
+  }, [handleCanvasWheel]);
 
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
@@ -791,30 +830,39 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
         </div>
 
         {/* Tree canvas */}
-        <div className={`flex-1 overflow-auto p-4 md:p-8 bg-[radial-gradient(ellipse_at_top_left,_rgba(109,40,217,0.08)_0%,_transparent_60%)] ${mobileTab === 'tree' ? 'block' : 'hidden md:block'}`}>
-          <p className="text-[11px] text-slate-600 mb-6 flex items-center gap-1.5">
-            <span>💡</span> Нажмите на карточку чтобы открыть действия
-          </p>
-
-          {hasParticipants ? (
-            <div className="flex items-start gap-10 flex-wrap pb-16">
-              {nodes.map(root => (
-                <TreeBranch key={root.id} node={root} level={0}
-                  selectedId={selectedId} onSelect={setSelectedId}
-                  onConfirm={confirmTenDayStay}
-                  onRedeem={redeemBonusDays}
-                  onRemove={removeFromProgram}
-                  onAddBonus={addBonusDays}
-                  onResetBonus={resetBonuses}
-                  onExtendStay={extendStayWithBonus}
-                  guests={guests}
-                  settings={settings}
-                />
-              ))}
+        <div
+          ref={canvasRef}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{ touchAction: 'pan-x pan-y' }}
+          className={`flex-1 overflow-auto p-4 md:p-8 bg-[radial-gradient(ellipse_at_top_left,_rgba(109,40,217,0.08)_0%,_transparent_60%)] ${mobileTab === 'tree' ? 'block' : 'hidden md:block'}`}
+        >
+          {/* Zoom controls */}
+          <div className="flex items-center gap-2 mb-4 sticky top-0 z-10">
+            <div className="flex items-center gap-1 bg-slate-800/90 border border-white/10 rounded-xl px-2 py-1 backdrop-blur-sm">
+              <button
+                onClick={() => setTreeScale(s => clampScale(s - 0.1))}
+                className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-300 text-sm font-bold transition-colors"
+              >−</button>
+              <span className="text-[11px] font-bold text-slate-400 w-10 text-center">{Math.round(treeScale * 100)}%</span>
+              <button
+                onClick={() => setTreeScale(s => clampScale(s + 0.1))}
+                className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-300 text-sm font-bold transition-colors"
+              >+</button>
+              {treeScale !== 1 && (
+                <button
+                  onClick={() => setTreeScale(1)}
+                  className="ml-1 px-2 h-6 flex items-center rounded-lg hover:bg-white/10 text-slate-500 hover:text-slate-300 text-[10px] transition-colors"
+                >Сброс</button>
+              )}
             </div>
-          ) : (
-            <>
-              <div className="flex items-start gap-10 flex-wrap pb-4">
+            <span className="text-[10px] text-slate-600 hidden md:block">Ctrl+колесо для зума</span>
+            <span className="text-[10px] text-slate-600 md:hidden">Щипок для зума</span>
+          </div>
+
+          <div style={{ transform: `scale(${treeScale})`, transformOrigin: 'top left', transition: 'transform 0.1s ease-out' }}>
+            {hasParticipants ? (
+              <div className="flex items-start gap-10 flex-wrap pb-16">
                 {nodes.map(root => (
                   <TreeBranch key={root.id} node={root} level={0}
                     selectedId={selectedId} onSelect={setSelectedId}
@@ -829,9 +877,27 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
                   />
                 ))}
               </div>
-              <EmptyState />
-            </>
-          )}
+            ) : (
+              <>
+                <div className="flex items-start gap-10 flex-wrap pb-4">
+                  {nodes.map(root => (
+                    <TreeBranch key={root.id} node={root} level={0}
+                      selectedId={selectedId} onSelect={setSelectedId}
+                      onConfirm={confirmTenDayStay}
+                      onRedeem={redeemBonusDays}
+                      onRemove={removeFromProgram}
+                      onAddBonus={addBonusDays}
+                      onResetBonus={resetBonuses}
+                      onExtendStay={extendStayWithBonus}
+                      guests={guests}
+                      settings={settings}
+                    />
+                  ))}
+                </div>
+                <EmptyState />
+              </>
+            )}
+          </div>
         </div>
       </div>
 

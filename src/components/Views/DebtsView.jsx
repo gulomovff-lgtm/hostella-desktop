@@ -179,7 +179,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             
             {/* HEADER & FILTERS */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col lg:flex-row gap-4 items-end">
-                <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex-1 w-full min-w-0 overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('staff')}</label>
                         <select className={inputClass} value={staffFilter} onChange={e => setStaffFilter(e.target.value)}>
@@ -312,7 +312,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             
             {isPayModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden">
+                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden max-h-[85vh] overflow-y-auto">
                         <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
                             <h3 className="font-bold text-lg text-slate-800">{t('payDebt')}</h3>
                             <p className="text-sm text-slate-500 font-medium">{selectedDebtor?.fullName}</p>

@@ -224,7 +224,7 @@ const MobileNavigation = ({
                             <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'rgba(158,205,208,0.5)' }}>
                                 {group.label}
                             </div>
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 {visibleItems.map(item => {
                                     const Icon = item.icon;
                                     const act  = activeTab === item.id;
