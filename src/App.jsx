@@ -253,7 +253,7 @@ function App() {
   const {
     rooms, guests, expenses, clients, payments,
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
-    recurringExpenses,
+    recurringExpenses, hostelConfig,
     isOnline, permissionError, isDataReady,
   } = useAppData(firebaseUser, currentUser);
 
@@ -276,62 +276,47 @@ function App() {
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
   useEffect(() => {
-    if (!guests.length || !rooms.length || !currentUser) return;
+    if (!guests.length || !currentUser) return;
 
     const runAutoCheckout = async () => {
         const now = new Date();
-
-        // Начало сегодняшнего дня (00:00:00)
-        const todayStart = new Date(now);
-        todayStart.setHours(0, 0, 0, 0);
-
-        // Безопасный порог: выселяем только если просрочка > 48 часов
-        // Защита от выселения "сегодняшних" гостей при любых часах
-        const safeThreshold = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+        // Порог: просрочка > 24 часов
+        const threshold24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
         const batch = writeBatch(db);
-        let updatesCount = 0;
+        let count = 0;
 
         guests.forEach(guest => {
-            // Только активных
             if (guest.status !== 'active') return;
-
-            // Нет даты — пропускаем
             if (!guest.checkOutDate) return;
 
             let checkOut = new Date(guest.checkOutDate);
             if (isNaN(checkOut.getTime())) return;
-
-            // Если дата без времени — считаем конец дня (23:59)
             if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
                 checkOut.setHours(23, 59, 59, 999);
             }
 
-            // ── ЗАЩИТА 1 ──────────────────────────────────────────────────────
-            // Дата выезда сегодня или в будущем — НЕ выселяем ни при каких условиях
-            if (checkOut >= todayStart) return;
+            // Правило 1: время вышло больше 24 часов назад
+            const expiredOver24h = checkOut < threshold24h;
 
-            // ── ЗАЩИТА 2 ──────────────────────────────────────────────────────
-            // Просрочка меньше 48 часов — даём буфер (сегодняшние + вчерашние)
-            if (checkOut >= safeThreshold) return;
+            // Правило 2: на том же месте появился другой активный гость (заново заселён, не продлён)
+            const hasNewerGuest = guests.some(g2 =>
+                g2.id !== guest.id &&
+                g2.status === 'active' &&
+                g2.roomId === guest.roomId &&
+                String(g2.bedId) === String(guest.bedId) &&
+                new Date(g2.checkInDate || g2.checkInDateTime || 0) > new Date(guest.checkInDate || guest.checkInDateTime || 0)
+            );
 
-            // ── ЗАЩИТА 3 ──────────────────────────────────────────────────────
-            // Есть долг (оплачено меньше чем должен) — менеджер должен закрыть вручную
-            const paid = getTotalPaid(guest);
-            const totalPrice = guest.totalPrice || 0;
-            if (paid < totalPrice) return;
+            if (!expiredOver24h && !hasNewerGuest) return;
 
-            // ── ЗАЩИТА 4 ──────────────────────────────────────────────────────
-            // Переплата >= цены за сутки — вероятно продлён, не трогаем
-            const balance = paid - totalPrice;
-            if (balance >= (Number(guest.pricePerNight) || 1)) return;
-
-            // ── Все проверки пройдены — выселяем ─────────────────────────────
             const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
             batch.update(guestRef, {
                 status: 'checked_out',
                 autoCheckedOut: true,
-                systemComment: 'Авто-выселение (просрочка > 48ч, долг 0)',
+                systemComment: hasNewerGuest
+                    ? 'Авто-выселение (новый гость заселён на место)'
+                    : 'Авто-выселение (просрочка > 24ч)',
             });
 
             const room = rooms.find(r => r.id === guest.roomId);
@@ -340,25 +325,25 @@ function App() {
                     occupied: increment(-1),
                 });
             }
-            updatesCount++;
+            count++;
         });
 
-        if (updatesCount > 0) {
+        if (count > 0) {
             try {
                 await batch.commit();
-                showNotification(`Авто-выселение: ${updatesCount} гостей (просрочка > 24ч)`, 'warning');
+                showNotification(`Авто-выселение: ${count} гостей`, 'warning');
             } catch (e) {
-                console.error("Auto-checkout error:", e);
+                console.error('Auto-checkout error:', e);
             }
         }
     };
 
-    // Запускаем проверку при загрузке и каждые 6 часов (4 раза в сутки)
+    // Проверка при загрузке и каждые 30 минут
     runAutoCheckout();
-    const interval = setInterval(runAutoCheckout, 6 * 60 * 60 * 1000); 
+    const interval = setInterval(runAutoCheckout, 30 * 60 * 1000);
 
     return () => clearInterval(interval);
-}, [guests, rooms, currentUser]); // Зависимости
+}, [guests, rooms, currentUser]);
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
@@ -827,7 +812,21 @@ const filterByHostel = (items) => {
   };
 
   const handleCompleteTask = async (id) => { 
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'tasks', id), { status: 'done' }); 
+    const task = tasks.find(t => t.id === id);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'tasks', id), { status: 'done' });
+    // Если задача повторяющаяся — автоматически создаём следующую
+    if (task && task.recurringType && task.recurringType !== 'none' && task.deadline) {
+      const nextDeadline = new Date(task.deadline);
+      if (task.recurringType === 'daily') nextDeadline.setDate(nextDeadline.getDate() + 1);
+      else if (task.recurringType === 'weekly') nextDeadline.setDate(nextDeadline.getDate() + 7);
+      const { id: _id, ...taskWithoutId } = task;
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), {
+        ...taskWithoutId,
+        status: 'pending',
+        deadline: nextDeadline.toISOString().split('T')[0],
+        createdAt: new Date().toISOString(),
+      });
+    }
   };
 
   const handleUpdateTask = async (id, updates) => { 
@@ -869,6 +868,9 @@ if (activeShiftInMyHostel) {
 
 const activeUserDoc = usersList.find(u => u.id === currentUser?.id) || currentUser;
 const currentHostelInfo = HOSTELS[currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId] || HOSTELS['hostel1'];
+const currentHostelKey = currentUser.role === 'admin' ? selectedHostelFilter : (currentUser.hostelId || 'hostel1');
+const currentCheckInHour = hostelConfig?.[currentHostelKey]?.checkInHour ?? 14;
+const currentCheckOutHour = hostelConfig?.[currentHostelKey]?.checkOutHour ?? 12;
 const t = (k) => TRANSLATIONS[lang][k];
 
 return (
@@ -1265,12 +1267,15 @@ return (
                 initialClient={checkInModal.client}
                 allRooms={filteredRooms}
                 guests={guests}
-                clients={guests} // (или usersList, как у вас названо)
+                clients={guests}
+                clientsDb={clients}
                 onClose={() => setCheckInModal({open: false, room: null, bedId: null, date: null, client: null})}
                 onSubmit={handleCheckInSubmit}
                 notify={showNotification}
                 lang={lang}
                 currentUser={currentUser}
+                checkInHour={currentCheckInHour}
+                checkOutHour={currentCheckOutHour}
             />
         )}
         

@@ -165,7 +165,7 @@ const SimpleSelect = ({ label, value, onChange, options }) => (
 );
 
 // --- Main Component ---
-const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], onClose, onSubmit, notify, lang, currentUser }) => {
+const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
     const t = (k) => TRANSLATIONS[lang][k];
 
     const safeInitialRoom = initialRoom || (allRooms.length > 0 ? allRooms[0] : null);
@@ -198,6 +198,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [errors, setErrors] = useState({});
+    const [blacklistWarning, setBlacklistWarning] = useState(null);
     const [currencyMode, setCurrencyMode] = useState('UZS'); // 'UZS' | 'USD'
 
     // --- Scan + Photo ---
@@ -347,6 +348,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             country: client.country || 'Узбекистан'
         }));
         setShowSuggestions(false);
+        // Check blacklist/warning in clients database
+        const dbClient = clientsDb.find(c => c.passport && c.passport === client.passport);
+        if (dbClient?.clientStatus === 'blacklist') {
+            setBlacklistWarning({ level: 'blacklist', name: dbClient.fullName });
+        } else if (dbClient?.clientStatus === 'warning') {
+            setBlacklistWarning({ level: 'warning', name: dbClient.fullName });
+        } else {
+            setBlacklistWarning(null);
+        }
     };
 
     const handleRoomSelect = (roomId) => {
@@ -359,11 +369,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     const handleSubmit = (status) => {
         if (!formData.fullName || !formData.roomId || !formData.bedId) return notify(t('fillAllFields'), 'error');
+        if (blacklistWarning?.level === 'blacklist') {
+            if (!window.confirm(`⚠️ Гость в чёрном списке. Заселить всё равно?`)) return;
+        }
         const checkIn = new Date(formData.checkInDate);
-        checkIn.setHours(14, 0, 0, 0);
+        checkIn.setHours(checkInHour, 0, 0, 0);
         const checkOut = new Date(checkIn);
         checkOut.setDate(checkOut.getDate() + (parseInt(formData.days) || 1));
-        checkOut.setHours(12, 0, 0, 0);
+        checkOut.setHours(checkOutHour, 0, 0, 0);
         onSubmit({
             ...formData,
             status,
@@ -487,6 +500,17 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     {/* Step 2: Guest data */}
                     {step === 2 && (
                         <div className="space-y-5 animate-in slide-in-from-right duration-200">
+                            {/* Blacklist / Warning banner */}
+                            {blacklistWarning && (
+                                <div className={`rounded-xl p-3 flex items-start gap-2 text-sm font-semibold ${blacklistWarning.level === 'blacklist' ? 'bg-rose-50 border border-rose-300 text-rose-700' : 'bg-amber-50 border border-amber-300 text-amber-700'}`}>
+                                    <span className="text-lg leading-none shrink-0">{blacklistWarning.level === 'blacklist' ? '🚫' : '⚠️'}</span>
+                                    <div>
+                                        <div className="font-black">{blacklistWarning.level === 'blacklist' ? 'ЧЁРНЫЙ СПИСОК' : 'ПРЕДУПРЕЖДЕНИЕ'}</div>
+                                        <div className="text-xs font-medium mt-0.5">{blacklistWarning.name} — {blacklistWarning.level === 'blacklist' ? 'заселение запрещено. Подтвердите вручную.' : 'будьте осторожны с этим гостем.'}</div>
+                                    </div>
+                                    <button onClick={() => setBlacklistWarning(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100"><X size={14}/></button>
+                                </div>
+                            )}
                             {/* Scan + Photo buttons */}
                             <div className="flex gap-2 flex-wrap">
                                 <button type="button"

@@ -72,6 +72,8 @@ const ExpensesView = ({
     const [advanceAmt, setAdvanceAmt] = useState('');
     const [recurringAdvanceTargetId, setRecurringAdvanceTargetId] = useState(null);
     const [recurringAdvanceAmt, setRecurringAdvanceAmt] = useState('');
+    const [expDateFrom, setExpDateFrom] = useState('');
+    const [expDateTo, setExpDateTo] = useState('');
 
     const CATS = ['Аренда','Коммунальные услуги','Зарплата','Продукты','Канцелярия','Ремонт','Интернет','Реклама','Другое'];
 
@@ -106,6 +108,14 @@ const ExpensesView = ({
         : filteredExpenses.filter(e => e.category === expenseCatFilter && e.category !== 'Возврат');
     const refunds = filteredExpenses.filter(e => e.category === 'Возврат');
     const sorted = [...displayed].sort((a,b) => new Date(b.date)-new Date(a.date));
+    const dateSorted = (expDateFrom || expDateTo)
+        ? sorted.filter(e => {
+            const d = new Date(e.date);
+            if (expDateFrom && d < new Date(expDateFrom)) return false;
+            if (expDateTo && d > new Date(expDateTo + 'T23:59:59')) return false;
+            return true;
+        })
+        : sorted;
     const sortedRefunds = [...refunds].sort((a,b) => new Date(b.date)-new Date(a.date));
 
     const totalAll = filteredExpenses.filter(e=>e.category!=='Возврат').reduce((s,e)=>s+amtFn(e),0);
@@ -127,7 +137,7 @@ const ExpensesView = ({
     })).sort((a,b)=>b.total-a.total);
 
     const byMonth = {};
-    sorted.forEach(e => {
+    dateSorted.forEach(e => {
         const d=new Date(e.date);
         const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
         if(!byMonth[key]) byMonth[key]={label:d.toLocaleDateString('ru',{month:'long',year:'numeric'}),items:[],total:0};
@@ -250,6 +260,17 @@ const ExpensesView = ({
                         placeholder="Поиск по категории или комментарию…"
                         className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-rose-200 transition-all"/>
                 </div>
+                <input type="date" value={expDateFrom} onChange={e => setExpDateFrom(e.target.value)}
+                    className="px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-rose-200 transition-all w-36"/>
+                <span className="text-xs text-slate-400 shrink-0">—</span>
+                <input type="date" value={expDateTo} onChange={e => setExpDateTo(e.target.value)}
+                    className="px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-rose-200 transition-all w-36"/>
+                {(expDateFrom || expDateTo) && (
+                    <button onClick={() => { setExpDateFrom(''); setExpDateTo(''); }}
+                        className="text-xs font-bold text-slate-400 hover:text-rose-500 transition-colors shrink-0 px-2 py-1 rounded-lg border border-slate-200 bg-white">
+                        × Сбросить
+                    </button>
+                )}
                 {expenseCatFilter !== 'Все' && (
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold shrink-0"
                          style={{background: getCat(expenseCatFilter).bg, color: getCat(expenseCatFilter).text}}>
@@ -257,7 +278,7 @@ const ExpensesView = ({
                         <button onClick={() => setExpenseCatFilter('Все')} className="ml-1 opacity-60 hover:opacity-100">✕</button>
                     </div>
                 )}
-                <span className="text-sm text-slate-400 shrink-0">{displayed.filter(matchFn).length} записей</span>
+                <span className="text-sm text-slate-400 shrink-0">{dateSorted.filter(matchFn).length} записей</span>
             </div>
 
             {/* Grouped list */}

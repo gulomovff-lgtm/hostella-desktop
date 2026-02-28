@@ -126,6 +126,7 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [tab, setTab] = useState('overview');
+    const [chartMode, setChartMode] = useState('income');
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [bulkDays, setBulkDays] = useState('1');
@@ -288,17 +289,25 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         );
     };
 
-    const BarChartMini = ({ data30, keyInc = 'inc', keyExp = 'exp' }) => {
-        const maxVal = Math.max(...data30.map(d => Math.max(d[keyInc] || 0, d[keyExp] || 0)), 1);
+    const BarChartMini = ({ data30, keyInc = 'inc', keyExp = 'exp', mode = 'income' }) => {
+        const maxVal = Math.max(...data30.map(d => {
+            const inc = mode === 'expense' ? 0 : (d[keyInc] || 0);
+            const exp = mode === 'income'  ? 0 : (d[keyExp] || 0);
+            return Math.max(inc, exp);
+        }), 1);
         return (
             <div className="flex items-end gap-px w-full" style={{ height: 80 }}>
                 {data30.map((d, i) => {
-                    const incH = ((d[keyInc] || 0) / maxVal) * 80;
-                    const expH = ((d[keyExp] || 0) / maxVal) * 80;
+                    const incH = mode !== 'expense' ? ((d[keyInc] || 0) / maxVal) * 80 : 0;
+                    const expH = mode !== 'income'  ? ((d[keyExp] || 0) / maxVal) * 80 : 0;
                     return (
                         <div key={i} className="flex-1 flex items-end gap-px">
-                            <div className="flex-1 bg-emerald-400 rounded-sm opacity-80 hover:opacity-100 transition-opacity" style={{ height: incH || 1 }} title={`Доход: ${d.inc?.toLocaleString()}`} />
-                            <div className="flex-1 bg-rose-400 rounded-sm opacity-70 hover:opacity-100 transition-opacity" style={{ height: expH || 1 }} title={`Расход: ${d.exp?.toLocaleString()}`} />
+                            {mode !== 'expense' && (
+                                <div className="flex-1 bg-emerald-400 rounded-sm opacity-80 hover:opacity-100 transition-opacity" style={{ height: incH || 1 }} title={`Доход: ${d.inc?.toLocaleString()}`} />
+                            )}
+                            {mode !== 'income' && (
+                                <div className="flex-1 bg-rose-400 rounded-sm opacity-70 hover:opacity-100 transition-opacity" style={{ height: expH || 1 }} title={`Расход: ${d.exp?.toLocaleString()}`} />
+                            )}
                         </div>
                     );
                 })}
@@ -358,12 +367,20 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                     <div className="font-bold text-slate-800">Доходы и расходы</div>
                                     <div className="text-xs text-slate-400">Последние 30 дней</div>
                                 </div>
-                                <div className="flex gap-4 text-xs font-bold">
-                                    <span className="flex items-center gap-1 text-emerald-600"><span className="w-2 h-2 bg-emerald-400 rounded-sm inline-block"/>Доход</span>
-                                    <span className="flex items-center gap-1 text-rose-600"><span className="w-2 h-2 bg-rose-400 rounded-sm inline-block"/>Расход</span>
+                                <div className="flex gap-1 text-xs font-bold">
+                                    {[{id:'income',label:'Доход',cls:'text-emerald-600 border-emerald-400 bg-emerald-50'},{id:'expense',label:'Расход',cls:'text-rose-600 border-rose-400 bg-rose-50'},{id:'both',label:'Оба',cls:'text-indigo-600 border-indigo-400 bg-indigo-50'}].map(opt => (
+                                        <button key={opt.id} onClick={() => setChartMode(opt.id)}
+                                            className={`px-2.5 py-1 rounded-lg border transition-all ${
+                                                chartMode === opt.id
+                                                    ? opt.cls + ' font-black'
+                                                    : 'text-slate-400 border-slate-200 bg-white hover:bg-slate-50'
+                                            }`}>
+                                            {opt.label}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                            <BarChartMini data30={data.pay30} />
+                            <BarChartMini data30={data.pay30} mode={chartMode} />
                             <div className="flex justify-between mt-3 text-xs text-slate-400 font-medium">
                                 <span>{data.pay30[0]?.day}</span>
                                 <span>{data.pay30[14]?.day}</span>

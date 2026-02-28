@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
     Settings, Upload, Save, RefreshCw, Download, Database, Image as ImageIcon,
-    Building2, Phone, MapPin, Globe, Shield, CheckCircle2, AlertTriangle, X, Info, FileText, Link
+    Building2, Phone, MapPin, Globe, Shield, CheckCircle2, AlertTriangle, X, Info, FileText, Link, Clock
 } from 'lucide-react';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -85,6 +85,37 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                             value={s.website || ''} onChange={e => onChange(hostelId, 'website', e.target.value)} placeholder="https://myhostel.uz"/>
                     </div>
                 </div>
+                {/* Время заезда / выезда */}
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                            <Clock size={12}/> Час заезда
+                        </label>
+                        <select
+                            className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700"
+                            value={s.checkInHour ?? 14}
+                            onChange={e => onChange(hostelId, 'checkInHour', parseInt(e.target.value))}
+                        >
+                            {Array.from({length: 24}, (_, i) => (
+                                <option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                            <Clock size={12}/> Час выезда
+                        </label>
+                        <select
+                            className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700"
+                            value={s.checkOutHour ?? 12}
+                            onChange={e => onChange(hostelId, 'checkOutHour', parseInt(e.target.value))}
+                        >
+                            {Array.from({length: 24}, (_, i) => (
+                                <option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
                 {/* Booking.com iCal */}
                 <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
@@ -128,8 +159,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
     const SETTINGS_DOC = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
 
     const [settings, setSettings] = useState({
-        hostel1: { name: 'Хостел №1', address: '', phone: '', logoUrl: '' },
-        hostel2: { name: 'Хостел №2', address: '', phone: '', logoUrl: '' },
+        hostel1: { name: 'Хостел №1', address: '', phone: '', logoUrl: '', checkInHour: 14, checkOutHour: 12 },
+        hostel2: { name: 'Хостел №2', address: '', phone: '', logoUrl: '', checkInHour: 14, checkOutHour: 12 },
     });
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -147,8 +178,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             if (snap.exists()) {
                 const data = snap.data();
                 setSettings(s => ({
-                    hostel1: { ...s.hostel1, ...(data.hostel1 || {}) },
-                    hostel2: { ...s.hostel2, ...(data.hostel2 || {}) },
+                    hostel1: { checkInHour: 14, checkOutHour: 12, ...s.hostel1, ...(data.hostel1 || {}) },
+                    hostel2: { checkInHour: 14, checkOutHour: 12, ...s.hostel2, ...(data.hostel2 || {}) },
                 }));
             }
         }).finally(() => setLoadingSettings(false));

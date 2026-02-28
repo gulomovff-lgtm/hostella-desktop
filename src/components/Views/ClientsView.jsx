@@ -240,6 +240,15 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                                                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"/>Живёт
                                             </span>
                                         )}
+                                        {c.clientStatus === 'vip' && (
+                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">⭐ VIP</span>
+                                        )}
+                                        {c.clientStatus === 'warning' && (
+                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-orange-100 text-orange-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">⚠️ Внимание</span>
+                                        )}
+                                        {c.clientStatus === 'blacklist' && (
+                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-rose-100 text-rose-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">🚫 ЧС</span>
+                                        )}
                                     </div>
                                     <div className="text-xs text-slate-500 mt-0.5 truncate">{c.country || '—'}</div>
                                 </div>

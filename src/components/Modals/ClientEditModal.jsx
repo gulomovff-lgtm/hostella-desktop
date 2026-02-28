@@ -32,6 +32,19 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                             {COUNTRIES.map(c => <option key={c}>{c}</option>)}
                         </select>
                     </div>
+                    <div>
+                        <label className={labelClass}>Статус клиента</label>
+                        <select
+                            className={inputClass}
+                            value={form.clientStatus || 'normal'}
+                            onChange={e => setForm({...form, clientStatus: e.target.value})}
+                        >
+                            <option value="normal">Обычный</option>
+                            <option value="vip">⭐ VIP</option>
+                            <option value="warning">⚠️ Предупреждение</option>
+                            <option value="blacklist">🚫 Чёрный список</option>
+                        </select>
+                    </div>
                     <Button onClick={() => onSave(form)}>{t('save')}</Button>
                     <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
                 </div>

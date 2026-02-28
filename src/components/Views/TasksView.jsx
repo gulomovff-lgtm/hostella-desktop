@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Check, Edit, Trash2 } from 'lucide-react';
+import { Plus, Check, Edit, Trash2, Clock, RefreshCw, AlertTriangle } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 
@@ -21,7 +21,9 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
         roomNumber: '', 
         priority: 'medium', 
         hostelId: currentUser.role === 'admin' || currentUser.role === 'super' ? 'hostel1' : currentUser.hostelId,
-        assignedTo: ''
+        assignedTo: '',
+        deadline: '',
+        recurringType: 'none'
     });
     const [editingTask, setEditingTask] = useState(null);
     const filteredTasks = tasks.sort((a,b) => b.createdAt.localeCompare(a.createdAt));
@@ -48,7 +50,9 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
             roomNumber: '', 
             priority: 'medium', 
             hostelId: isAdmin ? 'hostel1' : currentUser.hostelId,
-            assignedTo: ''
+            assignedTo: '',
+            deadline: '',
+            recurringType: 'none'
         });
     };
     
@@ -58,7 +62,9 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
             description: editingTask.description, 
             roomNumber: editingTask.roomNumber, 
             priority: editingTask.priority,
-            assignedTo: editingTask.assignedTo
+            assignedTo: editingTask.assignedTo,
+            deadline: editingTask.deadline || '',
+            recurringType: editingTask.recurringType || 'none'
         });
         setEditingTask(null);
     };
@@ -71,6 +77,18 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                     <div className="flex-1 w-full"><label className={labelClass}>{t('description')}</label><input className={inputClass} value={newTask.description} onChange={e => setNewTask({...newTask, description: e.target.value})} placeholder="..." /></div>
                     <div className="w-full md:w-32"><label className={labelClass}>{t('room')}</label><input className={inputClass} value={newTask.roomNumber} onChange={e => setNewTask({...newTask, roomNumber: e.target.value})} placeholder="№" /></div>
                     <div className="w-full md:w-40"><label className={labelClass}>{t('priority')}</label><select className={inputClass} value={newTask.priority} onChange={e => setNewTask({...newTask, priority: e.target.value})}><option value="low">{t('low')}</option><option value="medium">{t('medium')}</option><option value="high">{t('high')}</option></select></div>
+                    <div className="w-full md:w-40">
+                        <label className={labelClass}>Дедлайн</label>
+                        <input type="date" className={inputClass} value={newTask.deadline} onChange={e => setNewTask({...newTask, deadline: e.target.value})} />
+                    </div>
+                    <div className="w-full md:w-40">
+                        <label className={labelClass}>Повторение</label>
+                        <select className={inputClass} value={newTask.recurringType} onChange={e => setNewTask({...newTask, recurringType: e.target.value})}>
+                            <option value="none">Нет</option>
+                            <option value="daily">Ежедневно</option>
+                            <option value="weekly">Еженедельно</option>
+                        </select>
+                    </div>
                     {isAdmin && (
                         <div className="w-full md:w-48">
                             <label className={labelClass}>{t('assignTo')}</label>
@@ -98,6 +116,20 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                             <div className="flex gap-2">
                                 <input className={inputClass} value={editingTask.roomNumber} onChange={e => setEditingTask({...editingTask, roomNumber: e.target.value})} placeholder="Room" />
                                 <select className={inputClass} value={editingTask.priority} onChange={e => setEditingTask({...editingTask, priority: e.target.value})}><option value="low">{t('low')}</option><option value="medium">{t('medium')}</option><option value="high">{t('high')}</option></select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className={labelClass}>Дедлайн</label>
+                                    <input type="date" className={inputClass} value={editingTask.deadline || ''} onChange={e => setEditingTask({...editingTask, deadline: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className={labelClass}>Повторение</label>
+                                    <select className={inputClass} value={editingTask.recurringType || 'none'} onChange={e => setEditingTask({...editingTask, recurringType: e.target.value})}>
+                                        <option value="none">Нет</option>
+                                        <option value="daily">Ежедневно</option>
+                                        <option value="weekly">Еженедельно</option>
+                                    </select>
+                                </div>
                             </div>
                             {isAdmin && (
                                 <div>
@@ -131,6 +163,27 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                                     {task.roomNumber && <span className="text-xs font-bold text-slate-600">{t('room')} {task.roomNumber}</span>}
                                 </div>
                                 <p className={`font-medium ${task.status === 'done' ? 'line-through text-slate-400' : 'text-slate-800'}`}>{task.description}</p>
+                                {task.deadline && task.status !== 'done' && (() => {
+                                    const deadlineMs = new Date(task.deadline).setHours(23,59,59,999);
+                                    const nowMs = Date.now();
+                                    const isOverdue = deadlineMs < nowMs;
+                                    const diffDays = Math.ceil((deadlineMs - nowMs) / 86400000);
+                                    return (
+                                        <div className={`flex items-center gap-1 mt-1.5 text-[11px] font-bold ${ isOverdue ? 'text-rose-600' : diffDays <= 1 ? 'text-amber-600' : 'text-slate-500' }`}>
+                                            {isOverdue ? <AlertTriangle size={11}/> : <Clock size={11}/>}
+                                            { isOverdue
+                                                ? `Просрочено ${new Date(task.deadline).toLocaleDateString('ru')}`
+                                                : `До ${new Date(task.deadline).toLocaleDateString('ru')}`
+                                            }
+                                        </div>
+                                    );
+                                })()}
+                                {task.recurringType && task.recurringType !== 'none' && (
+                                    <div className="flex items-center gap-1 mt-1 text-[10px] text-indigo-500 font-semibold">
+                                        <RefreshCw size={10}/>
+                                        {task.recurringType === 'daily' ? 'Ежедневно' : 'Еженедельно'}
+                                    </div>
+                                )}
                                 <div className="text-[10px] text-slate-400 mt-2">
                                     {t('createdBy')}: {task.createdBy} • {new Date(task.createdAt).toLocaleDateString()}
                                     {assignedUser && <div className="mt-1 text-indigo-600">&gt; {assignedUser.name}</div>}

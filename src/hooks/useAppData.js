@@ -28,6 +28,7 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [promos,        setPromos       ] = useState([]);
   const [registrations, setRegistrations] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
+  const [hostelConfig,   setHostelConfig  ] = useState(null);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
@@ -139,7 +140,15 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setRecurringExpenses([])
     );
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); };
+    // Hostel config (checkInHour, etc.)
+    const hostelCfgDoc = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
+    const uCfg = onSnapshot(
+      hostelCfgDoc,
+      (snap) => setHostelConfig(snap.exists() ? snap.data() : {}),
+      () => setHostelConfig({})
+    );
+
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -156,6 +165,7 @@ export const useAppData = (firebaseUser, currentUser) => {
     promos,
     registrations,
     recurringExpenses,
+    hostelConfig,
     isOnline,
     permissionError,
     isDataReady,

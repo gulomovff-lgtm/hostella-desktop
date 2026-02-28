@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+п»їimport React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useReferralSystem } from '../../hooks/useReferralSystem';
 import { useReferralSettings } from '../../hooks/useReferralSettings';
 import { Search, Settings, X, Plus, Trash2, ChevronUp, ChevronDown, Save, ToggleLeft, ToggleRight, Gift, RotateCcw } from 'lucide-react';
 
-/* --- palette by depth --------------------------------------------- */
+/* в”Ђв”Ђв”Ђ palette by depth в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const LEVEL_COLORS = [
   { bg: 'from-violet-600 to-purple-600', ring: 'ring-violet-400/60', dot: 'bg-violet-400', line: '#a78bfa' },
   { bg: 'from-blue-500 to-cyan-500',     ring: 'ring-blue-400/60',   dot: 'bg-blue-400',   line: '#60a5fa' },
@@ -13,10 +13,10 @@ const LEVEL_COLORS = [
 ];
 const lc = (lvl) => LEVEL_COLORS[Math.min(lvl, LEVEL_COLORS.length - 1)];
 
-const getDisplayName = (node) => node.fullName || node.name || '—';
+const getDisplayName = (node) => node.fullName || node.name || 'вЂ”';
 
 const initials = (node) => {
-  if (node.isVirtual) return '??';
+  if (node.isVirtual) return 'рџЏ ';
   const name = getDisplayName(node);
   return name.trim().split(' ').slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('') || '?';
 };
@@ -26,7 +26,7 @@ const fmtDate = (iso) => {
   return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
 };
 
-/* --- Stat chip ---------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Stat chip в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const StatChip = ({ label, value, sub }) => (
   <div className="flex flex-col items-center justify-center bg-white/5 border border-white/10 rounded-2xl px-4 py-3 min-w-[80px]">
     <span className="text-xl font-bold text-white leading-none">{value}</span>
@@ -35,7 +35,7 @@ const StatChip = ({ label, value, sub }) => (
   </div>
 );
 
-/* --- Progress bar ------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Progress bar в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const ProgressBar = ({ value, max, lineColor }) => {
   const pct = max ? Math.min((value / max) * 100, 100) : 0;
   return (
@@ -48,16 +48,16 @@ const ProgressBar = ({ value, max, lineColor }) => {
   );
 };
 
-/* --- Settings Modal ---------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Settings Modal в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const SettingsModal = ({ settings, onClose, onSave, saving,
   patchSettings, addTier, updateTier, removeTier, moveTier,
   addRule, updateRule, removeRule }) => {
   const [tab, setTab] = useState('general');
 
   const TABS = [
-    { id: 'general', label: '?? Основные' },
-    { id: 'tiers',   label: '?? Бонусные тиры' },
-    { id: 'rules',   label: '?? Правила' },
+    { id: 'general', label: 'вљ™пёЏ РћСЃРЅРѕРІРЅС‹Рµ' },
+    { id: 'tiers',   label: 'рџЏ† Р‘РѕРЅСѓСЃРЅС‹Рµ С‚РёСЂС‹' },
+    { id: 'rules',   label: 'рџ“‹ РџСЂР°РІРёР»Р°' },
   ];
 
   return (
@@ -69,7 +69,7 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/8 flex-shrink-0">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">?? Настройки бонусной программы</h2>
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">вљ™пёЏ РќР°СЃС‚СЂРѕР№РєРё Р±РѕРЅСѓСЃРЅРѕР№ РїСЂРѕРіСЂР°РјРјС‹</h2>
           <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
             <X size={18} />
           </button>
@@ -93,13 +93,13 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
-          {/* -- General -- */}
+          {/* в”Ђв”Ђ General в”Ђв”Ђ */}
           {tab === 'general' && (
             <div className="space-y-4">
               <label className="flex items-center justify-between p-3 bg-slate-800/60 border border-white/8 rounded-2xl cursor-pointer hover:border-white/20 transition-colors">
                 <div>
-                  <p className="text-sm font-semibold text-white">Программа активна</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Если выключить — новые участники не добавляются</p>
+                  <p className="text-sm font-semibold text-white">РџСЂРѕРіСЂР°РјРјР° Р°РєС‚РёРІРЅР°</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Р•СЃР»Рё РІС‹РєР»СЋС‡РёС‚СЊ вЂ” РЅРѕРІС‹Рµ СѓС‡Р°СЃС‚РЅРёРєРё РЅРµ РґРѕР±Р°РІР»СЏСЋС‚СЃСЏ</p>
                 </div>
                 <button type="button" onClick={() => patchSettings({ programActive: !settings.programActive })}
                   className="transition-transform active:scale-95">
@@ -110,7 +110,7 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
               </label>
 
               <div>
-                <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Название программы</label>
+                <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">РќР°Р·РІР°РЅРёРµ РїСЂРѕРіСЂР°РјРјС‹</label>
                 <input value={settings.programName}
                   onChange={e => patchSettings({ programName: e.target.value })}
                   className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
@@ -118,19 +118,19 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Мин. дней для подтверждения</label>
+                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">РњРёРЅ. РґРЅРµР№ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ</label>
                   <input type="number" min={1} max={365} value={settings.minStayDays}
                     onChange={e => patchSettings({ minStayDays: parseInt(e.target.value) || 10 })}
                     className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Макс. бонусов на гостя (0=?)</label>
+                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">РњР°РєСЃ. Р±РѕРЅСѓСЃРѕРІ РЅР° РіРѕСЃС‚СЏ (0=в€ћ)</label>
                   <input type="number" min={0} max={9999} value={settings.maxBonusDays}
                     onChange={e => patchSettings({ maxBonusDays: parseInt(e.target.value) || 0 })}
                     className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">Срок действия бонусов (дней, 0=?)</label>
+                  <label className="block text-[11px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">РЎСЂРѕРє РґРµР№СЃС‚РІРёСЏ Р±РѕРЅСѓСЃРѕРІ (РґРЅРµР№, 0=в€ћ)</label>
                   <input type="number" min={0} max={9999} value={settings.bonusExpiryDays}
                     onChange={e => patchSettings({ bonusExpiryDays: parseInt(e.target.value) || 0 })}
                     className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
@@ -139,17 +139,17 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
                   <input type="checkbox" checked={settings.resetAfterCycle}
                     onChange={e => patchSettings({ resetAfterCycle: e.target.checked })}
                     className="w-4 h-4 accent-violet-500" />
-                  <span className="text-xs text-slate-300 leading-tight">Сбрасывать счётчик после полного цикла тиров</span>
+                  <span className="text-xs text-slate-300 leading-tight">РЎР±СЂР°СЃС‹РІР°С‚СЊ СЃС‡С‘С‚С‡РёРє РїРѕСЃР»Рµ РїРѕР»РЅРѕРіРѕ С†РёРєР»Р° С‚РёСЂРѕРІ</span>
                 </label>
               </div>
             </div>
           )}
 
-          {/* -- Tiers -- */}
+          {/* в”Ђв”Ђ Tiers в”Ђв”Ђ */}
           {tab === 'tiers' && (
             <div className="space-y-3">
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Каждый тир соответствует порядковому рефералу в цикле. После прохождения последнего тира счётчик сбрасывается (если включено) и цикл повторяется.
+                РљР°Р¶РґС‹Р№ С‚РёСЂ СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓРµС‚ РїРѕСЂСЏРґРєРѕРІРѕРјСѓ СЂРµС„РµСЂР°Р»Сѓ РІ С†РёРєР»Рµ. РџРѕСЃР»Рµ РїСЂРѕС…РѕР¶РґРµРЅРёСЏ РїРѕСЃР»РµРґРЅРµРіРѕ С‚РёСЂР° СЃС‡С‘С‚С‡РёРє СЃР±СЂР°СЃС‹РІР°РµС‚СЃСЏ (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ) Рё С†РёРєР» РїРѕРІС‚РѕСЂСЏРµС‚СЃСЏ.
               </p>
               {settings.tiers.map((tier, idx) => (
                 <div key={tier.id} className="flex items-center gap-2 bg-slate-800/60 border border-white/8 rounded-2xl p-3">
@@ -165,10 +165,10 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
                   </div>
                   <div className="w-6 h-6 flex-shrink-0 rounded-full bg-violet-600/30 text-violet-400 text-[10px] font-bold flex items-center justify-center">{idx + 1}</div>
                   <input value={tier.label} onChange={e => updateTier(tier.id, { label: e.target.value })}
-                    placeholder="Название тира"
+                    placeholder="РќР°Р·РІР°РЅРёРµ С‚РёСЂР°"
                     className="flex-1 bg-slate-700/60 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-violet-500/50 transition" />
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-400 whitespace-nowrap">+дней:</span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">+РґРЅРµР№:</span>
                     <input type="number" min={1} max={365} value={tier.bonusDays}
                       onChange={e => updateTier(tier.id, { bonusDays: parseInt(e.target.value) || 1 })}
                       className="w-14 bg-slate-700/60 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-amber-300 font-bold text-center focus:outline-none focus:ring-1 focus:ring-amber-500/50 transition" />
@@ -181,21 +181,21 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
               ))}
               <button type="button" onClick={addTier}
                 className="w-full py-2 rounded-2xl border border-dashed border-white/20 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium flex items-center justify-center gap-2 transition-all">
-                <Plus size={13} /> Добавить тир
+                <Plus size={13} /> Р”РѕР±Р°РІРёС‚СЊ С‚РёСЂ
               </button>
               <div className="bg-slate-800/40 border border-amber-500/20 rounded-2xl p-3">
-                <p className="text-[10px] text-amber-400 font-semibold uppercase tracking-wide mb-1.5">Предпросмотр цикла</p>
+                <p className="text-[10px] text-amber-400 font-semibold uppercase tracking-wide mb-1.5">РџСЂРµРґРїСЂРѕСЃРјРѕС‚СЂ С†РёРєР»Р°</p>
                 <div className="flex flex-wrap gap-2">
                   {settings.tiers.map((t, i) => (
                     <div key={t.id} className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-xl px-2.5 py-1.5">
                       <span className="text-[10px] text-amber-300 font-semibold">{i + 1}.</span>
                       <span className="text-[10px] text-slate-300">{t.label}</span>
-                      <span className="text-[10px] text-amber-400 font-bold">+{t.bonusDays}д</span>
+                      <span className="text-[10px] text-amber-400 font-bold">+{t.bonusDays}Рґ</span>
                     </div>
                   ))}
                   {settings.resetAfterCycle && (
                     <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5">
-                      <span className="text-[10px] text-slate-500">? сброс</span>
+                      <span className="text-[10px] text-slate-500">в†є СЃР±СЂРѕСЃ</span>
                     </div>
                   )}
                 </div>
@@ -203,16 +203,16 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
             </div>
           )}
 
-          {/* -- Rules -- */}
+          {/* в”Ђв”Ђ Rules в”Ђв”Ђ */}
           {tab === 'rules' && (
             <div className="space-y-3">
-              <p className="text-[11px] text-slate-400">Эти правила отображаются гостям и сотрудникам в боковой панели программы.</p>
+              <p className="text-[11px] text-slate-400">Р­С‚Рё РїСЂР°РІРёР»Р° РѕС‚РѕР±СЂР°Р¶Р°СЋС‚СЃСЏ РіРѕСЃС‚СЏРј Рё СЃРѕС‚СЂСѓРґРЅРёРєР°Рј РІ Р±РѕРєРѕРІРѕР№ РїР°РЅРµР»Рё РїСЂРѕРіСЂР°РјРјС‹.</p>
               {settings.customRules.map((rule, idx) => (
                 <div key={rule.id} className="flex gap-2 items-start">
                   <span className="mt-2 text-[11px] font-bold text-violet-400 flex-shrink-0 w-5 text-center">{idx + 1}.</span>
                   <textarea value={rule.text} rows={2}
                     onChange={e => updateRule(rule.id, e.target.value)}
-                    placeholder="Текст правила…"
+                    placeholder="РўРµРєСЃС‚ РїСЂР°РІРёР»Р°вЂ¦"
                     className="flex-1 bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500/50 transition resize-none" />
                   <button type="button" onClick={() => removeRule(rule.id)}
                     className="mt-1.5 p-1.5 rounded-xl hover:bg-red-500/20 text-red-400/60 hover:text-red-400 transition-colors">
@@ -222,7 +222,7 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
               ))}
               <button type="button" onClick={addRule}
                 className="w-full py-2 rounded-2xl border border-dashed border-white/20 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium flex items-center justify-center gap-2 transition-all">
-                <Plus size={13} /> Добавить правило
+                <Plus size={13} /> Р”РѕР±Р°РІРёС‚СЊ РїСЂР°РІРёР»Рѕ
               </button>
             </div>
           )}
@@ -232,11 +232,11 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/8 flex-shrink-0">
           <button onClick={onClose}
             className="px-4 py-2 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 text-sm transition-colors">
-            Отмена
+            РћС‚РјРµРЅР°
           </button>
           <button onClick={() => onSave(settings)} disabled={saving}
             className="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 active:scale-95 shadow-lg shadow-violet-900/40">
-            <Save size={14} />{saving ? 'Сохранение…' : 'Сохранить'}
+            <Save size={14} />{saving ? 'РЎРѕС…СЂР°РЅРµРЅРёРµвЂ¦' : 'РЎРѕС…СЂР°РЅРёС‚СЊ'}
           </button>
         </div>
       </div>
@@ -244,27 +244,27 @@ const SettingsModal = ({ settings, onClose, onSave, saving,
   );
 };
 
-/* --- Redeem stepper ----------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Redeem stepper в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const RedeemRow = ({ node, onRedeem }) => {
   const [amount, setAmount] = useState(1);
   return (
     <div className="flex items-center gap-2">
       <div className="flex items-center border border-white/10 rounded-xl overflow-hidden flex-1">
         <button type="button" onClick={() => setAmount(a => Math.max(1, a - 1))}
-          className="px-2.5 py-1.5 text-slate-300 hover:bg-white/10 text-xs font-bold transition-colors">–</button>
-        <span className="flex-1 text-center text-white text-xs font-semibold">{amount}д</span>
+          className="px-2.5 py-1.5 text-slate-300 hover:bg-white/10 text-xs font-bold transition-colors">вЂ“</button>
+        <span className="flex-1 text-center text-white text-xs font-semibold">{amount}Рґ</span>
         <button type="button" onClick={() => setAmount(a => Math.min(node.bonusDays, a + 1))}
           className="px-2.5 py-1.5 text-slate-300 hover:bg-white/10 text-xs font-bold transition-colors">+</button>
       </div>
       <button type="button" onClick={() => onRedeem(node.id, amount)}
         className="py-1.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors whitespace-nowrap">
-        Вычесть
+        Р’С‹С‡РµСЃС‚СЊ
       </button>
     </div>
   );
 };
 
-/* --- Node card -------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Node card в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings,
                     onAddBonus, onResetBonus, onExtendStay, guests = [] }) => {
   const isVirtual  = !!node.isVirtual;
@@ -315,15 +315,15 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             <div className="flex-1 min-w-0">
               <p className="text-white font-semibold text-sm leading-tight truncate">{displayName}</p>
               <p className="text-white/60 text-[10px] mt-0.5">
-                {isVirtual ? 'Корень системы'
-                  : node.referralConfirmed ? `? ${fmtDate(node.confirmedAt || node.createdAt)}`
-                  : '? Ожидает подтверждения'}
+                {isVirtual ? 'РљРѕСЂРµРЅСЊ СЃРёСЃС‚РµРјС‹'
+                  : node.referralConfirmed ? `вњ“ ${fmtDate(node.confirmedAt || node.createdAt)}`
+                  : 'вЏі РћР¶РёРґР°РµС‚ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ'}
               </p>
             </div>
           </div>
           {hasBonus && (
             <div className="absolute top-2 right-2 bg-amber-400 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow">
-              +{node.bonusDays}д
+              +{node.bonusDays}Рґ
             </div>
           )}
         </div>
@@ -331,16 +331,16 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
           {!isVirtual && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] text-slate-400">Рефералы до сброса</span>
+                <span className="text-[10px] text-slate-400">Р РµС„РµСЂР°Р»С‹ РґРѕ СЃР±СЂРѕСЃР°</span>
                 <span className="text-[11px] font-semibold text-slate-200">{node.referralsMade || 0}/{tiersCount}</span>
               </div>
               <ProgressBar value={node.referralsMade || 0} max={tiersCount} lineColor={col.line} />
             </div>
           )}
           <div className="flex items-center justify-between text-[10px] text-slate-400">
-            <span>?? {(node.children || []).length} приглашено</span>
+            <span>рџ‘Ґ {(node.children || []).length} РїСЂРёРіР»Р°С€РµРЅРѕ</span>
             {(node.totalBonusEarned || 0) > 0 && (
-              <span className="text-emerald-400 font-medium">? {node.totalBonusEarned} зараб.</span>
+              <span className="text-emerald-400 font-medium">в… {node.totalBonusEarned} Р·Р°СЂР°Р±.</span>
             )}
           </div>
         </div>
@@ -353,17 +353,17 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
           {!isVirtual && !node.referralConfirmed && (
             <button type="button" onClick={() => onConfirm(node.id)}
               className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors">
-              ? Подтвердить {settings?.minStayDays || 10} дней
+              вњ“ РџРѕРґС‚РІРµСЂРґРёС‚СЊ {settings?.minStayDays || 10} РґРЅРµР№
             </button>
           )}
           {!isVirtual && node.referralConfirmed && !hasBonus && (
-            <p className="text-center text-[10px] text-emerald-500 font-medium">? Уже подтверждён</p>
+            <p className="text-center text-[10px] text-emerald-500 font-medium">вњ“ РЈР¶Рµ РїРѕРґС‚РІРµСЂР¶РґС‘РЅ</p>
           )}
           {hasBonus && <RedeemRow node={node} onRedeem={onRedeem} />}
 
           {!isVirtual && (
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-400 mr-1">Дней:</span>
+              <span className="text-[10px] text-slate-400 mr-1">Р”РЅРµР№:</span>
               <button type="button" onClick={() => setAddAmt(a => Math.max(1, a-1))}
                 className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center">-</button>
               <span className="text-white text-xs font-bold w-6 text-center">{addAmt}</span>
@@ -371,10 +371,10 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
                 className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center">+</button>
               <button type="button" onClick={() => onAddBonus?.(node.id, addAmt)}
                 className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-amber-300 text-xs font-semibold transition-colors">
-                <Gift size={10} className="inline mr-1"/>Начислить
+                <Gift size={10} className="inline mr-1"/>РќР°С‡РёСЃР»РёС‚СЊ
               </button>
               <button type="button" onClick={() => onResetBonus?.(node.id)}
-                className="p-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 transition-colors" title="Обнулить бонусы">
+                className="p-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 transition-colors" title="РћР±РЅСѓР»РёС‚СЊ Р±РѕРЅСѓСЃС‹">
                 <RotateCcw size={11}/>
               </button>
             </div>
@@ -384,7 +384,7 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             <div>
               <button type="button" onClick={() => setShowExtend(v => !v)}
                 className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-orange-500/20 hover:bg-orange-500/35 text-orange-300 text-xs font-semibold transition-colors">
-                <Gift size={11}/>Бонус: {node.bonusDays}д — {showExtend ? 'Скрыть' : 'Продлить проживание'}
+                <Gift size={11}/>Р‘РѕРЅСѓСЃ: {node.bonusDays}Рґ вЂ” {showExtend ? 'РЎРєСЂС‹С‚СЊ' : 'РџСЂРѕРґР»РёС‚СЊ РїСЂРѕР¶РёРІР°РЅРёРµ'}
               </button>
               {showExtend && (
                 <form onSubmit={handleExtendSubmit} className="mt-2 space-y-2 bg-slate-800/60 rounded-xl p-2.5">
@@ -392,11 +392,11 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
                     <div className="space-y-1">
                       <input value={extSearch}
                         onChange={e => { setExtSearch(e.target.value); setExtGuestId(''); }}
-                        placeholder="Поиск гостя…"
+                        placeholder="РџРѕРёСЃРє РіРѕСЃС‚СЏвЂ¦"
                         className="w-full px-2.5 py-1.5 rounded-lg bg-slate-700 text-white text-[11px] placeholder-slate-400 border border-white/10 focus:outline-none focus:border-orange-400"
                       />
                       {searchGuests.length === 0 && (
-                        <p className="text-[10px] text-slate-500 text-center">Нет активных гостей</p>
+                        <p className="text-[10px] text-slate-500 text-center">РќРµС‚ Р°РєС‚РёРІРЅС‹С… РіРѕСЃС‚РµР№</p>
                       )}
                       <div className="space-y-0.5 max-h-24 overflow-y-auto">
                         {searchGuests.map(g => (
@@ -404,7 +404,7 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
                             onClick={() => { setExtGuestId(g.id); setExtSearch(g.fullName); }}
                             className="w-full text-left px-2 py-1 rounded-lg bg-white/5 hover:bg-orange-500/20 text-[11px] text-slate-200 transition-colors">
                             <span className="font-semibold">{g.fullName}</span>
-                            <span className="ml-1.5 text-slate-400">выезд: {fmtDate(g.bonusCheckOutDate || g.checkOutDate)}</span>
+                            <span className="ml-1.5 text-slate-400">РІС‹РµР·Рґ: {fmtDate(g.bonusCheckOutDate || g.checkOutDate)}</span>
                           </button>
                         ))}
                       </div>
@@ -412,22 +412,22 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] text-orange-300 font-semibold truncate flex-1">{selectedGuest.fullName}</span>
-                      <span className="text-[10px] text-slate-400">выезд: {fmtDate(selectedGuest.bonusCheckOutDate || selectedGuest.checkOutDate)}</span>
+                      <span className="text-[10px] text-slate-400">РІС‹РµР·Рґ: {fmtDate(selectedGuest.bonusCheckOutDate || selectedGuest.checkOutDate)}</span>
                       <button type="button" onClick={() => { setExtGuestId(''); setExtSearch(''); }}
                         className="text-slate-400 hover:text-white ml-1"><X size={11}/></button>
                     </div>
                   )}
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 shrink-0">Дней:</span>
+                    <span className="text-[10px] text-slate-400 shrink-0">Р”РЅРµР№:</span>
                     <input type="number" min={1} max={node.bonusDays} value={extDays}
                       onChange={e => setExtDays(Math.min(node.bonusDays, Math.max(1, parseInt(e.target.value)||1)))}
                       className="w-14 px-2 py-1 rounded-lg bg-slate-700 text-white text-[11px] text-center border border-white/10 focus:outline-none focus:border-orange-400"
                     />
-                    <span className="text-[10px] text-slate-500">макс {node.bonusDays}</span>
+                    <span className="text-[10px] text-slate-500">РјР°РєСЃ {node.bonusDays}</span>
                   </div>
                   <button type="submit" disabled={!extGuestId}
                     className="w-full py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors">
-                    Продлить проживание
+                    РџСЂРѕРґР»РёС‚СЊ РїСЂРѕР¶РёРІР°РЅРёРµ
                   </button>
                 </form>
               )}
@@ -438,30 +438,30 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             <button type="button"
               onClick={() => setConfirmRemove(true)}
               className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 text-xs font-medium transition-colors">
-              ? Убрать из программы
+              вњ• РЈР±СЂР°С‚СЊ РёР· РїСЂРѕРіСЂР°РјРјС‹
             </button>
           )}
           {!isVirtual && confirmRemove && (
             <div className="rounded-xl bg-red-900/40 border border-red-500/40 px-3 py-2.5 space-y-2">
               <p className="text-xs text-red-300 text-center font-semibold">
-                Убрать «{displayName}» из программы?
+                РЈР±СЂР°С‚СЊ В«{displayName}В» РёР· РїСЂРѕРіСЂР°РјРјС‹?
               </p>
               <div className="flex gap-2">
                 <button type="button"
                   onClick={() => { onRemove(node.id); setConfirmRemove(false); }}
                   className="flex-1 py-1.5 rounded-xl bg-red-500 hover:bg-red-400 text-white text-xs font-bold transition-colors">
-                  Да, убрать
+                  Р”Р°, СѓР±СЂР°С‚СЊ
                 </button>
                 <button type="button"
                   onClick={() => setConfirmRemove(false)}
                   className="flex-1 py-1.5 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-medium transition-colors">
-                  Отмена
+                  РћС‚РјРµРЅР°
                 </button>
               </div>
             </div>
           )}
           {isVirtual && (
-            <p className="text-center text-slate-500 text-[10px]">Корневой узел</p>
+            <p className="text-center text-slate-500 text-[10px]">РљРѕСЂРЅРµРІРѕР№ СѓР·РµР»</p>
           )}
         </div>
       )}
@@ -469,7 +469,7 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
   );
 };
 
-/* --- Tree branch -------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Tree branch в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings,
                       onAddBonus, onResetBonus, onExtendStay, guests }) => {
   const hasChildren = (node.children?.length || 0) > 0;
@@ -502,7 +502,7 @@ const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem
   );
 };
 
-/* --- Add panel (новый или существующий клиент) -------------------- */
+/* в”Ђв”Ђв”Ђ Add panel (РЅРѕРІС‹Р№ РёР»Рё СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ РєР»РёРµРЅС‚) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }) => {
   const [mode, setMode]         = useState('new'); // 'new' | 'existing'
   const [name, setName]         = useState('');
@@ -536,7 +536,7 @@ const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }
     <div className="space-y-3">
       {/* Mode toggle */}
       <div className="flex rounded-xl overflow-hidden border border-white/10">
-        {[['new', 'Новый гость'], ['existing', 'Из базы клиентов']].map(([m, label]) => (
+        {[['new', 'РќРѕРІС‹Р№ РіРѕСЃС‚СЊ'], ['existing', 'РР· Р±Р°Р·С‹ РєР»РёРµРЅС‚РѕРІ']].map(([m, label]) => (
           <button key={m} type="button" onClick={() => setMode(m)}
             className="flex-1 py-2 text-[11px] font-bold transition-colors"
             style={{
@@ -551,12 +551,12 @@ const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }
       {mode === 'new' ? (
         <form onSubmit={handleNew} className="space-y-3">
           <div>
-            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">Имя</label>
-            <input ref={inputRef} value={name} onChange={e => setName(e.target.value)} placeholder="Введите имя…" required
+            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">РРјСЏ</label>
+            <input ref={inputRef} value={name} onChange={e => setName(e.target.value)} placeholder="Р’РІРµРґРёС‚Рµ РёРјСЏвЂ¦" required
               className="w-full bg-slate-700/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
           </div>
           <div>
-            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">Кем приглашён</label>
+            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">РљРµРј РїСЂРёРіР»Р°С€С‘РЅ</label>
             <select value={referrerId} onChange={e => setRefId(e.target.value)}
               className="w-full bg-slate-700/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition">
               {participantList.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -564,17 +564,17 @@ const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }
           </div>
           <button type="submit"
             className="w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white text-sm font-semibold shadow-lg shadow-violet-900/30 transition-all active:scale-95">
-            + Добавить гостя
+            + Р”РѕР±Р°РІРёС‚СЊ РіРѕСЃС‚СЏ
           </button>
         </form>
       ) : (
         <form onSubmit={handleLink} className="space-y-3">
           <div>
-            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">Поиск клиента</label>
+            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">РџРѕРёСЃРє РєР»РёРµРЅС‚Р°</label>
             <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input value={search} onChange={e => { setSearch(e.target.value); setPickedId(''); }}
-                placeholder="ФИО…"
+                placeholder="Р¤РРћвЂ¦"
                 className="w-full pl-8 bg-slate-700/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition" />
             </div>
             {search && filteredNP.length > 0 && (
@@ -584,17 +584,17 @@ const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }
                     onClick={() => { setPickedId(c.id); setSearch(c.fullName || ''); }}
                     className={`w-full text-left px-3 py-2 text-xs hover:bg-white/10 transition-colors
                       ${pickedId === c.id ? 'bg-violet-600/30 text-violet-300' : 'text-slate-300'}`}>
-                    {c.fullName}{c.passport ? ` · ${c.passport}` : ''}
+                    {c.fullName}{c.passport ? ` В· ${c.passport}` : ''}
                   </button>
                 ))}
               </div>
             )}
             {search && filteredNP.length === 0 && (
-              <p className="text-[10px] text-slate-500 mt-1 px-1">Не найдено среди незарегистрированных</p>
+              <p className="text-[10px] text-slate-500 mt-1 px-1">РќРµ РЅР°Р№РґРµРЅРѕ СЃСЂРµРґРё РЅРµР·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅРЅС‹С…</p>
             )}
           </div>
           <div>
-            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">Кем приглашён</label>
+            <label className="text-[11px] text-slate-400 font-medium uppercase tracking-wide block mb-1">РљРµРј РїСЂРёРіР»Р°С€С‘РЅ</label>
             <select value={linkRef} onChange={e => setLinkRef(e.target.value)}
               className="w-full bg-slate-700/60 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition">
               {participantList.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -602,7 +602,7 @@ const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }
           </div>
           <button type="submit" disabled={!pickedId}
             className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-sm font-semibold shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
-            Добавить в программу
+            Р”РѕР±Р°РІРёС‚СЊ РІ РїСЂРѕРіСЂР°РјРјСѓ
           </button>
         </form>
       )}
@@ -610,20 +610,20 @@ const AddPanel = ({ participantList, nonParticipants, onAddNew, onLinkExisting }
   );
 };
 
-/* --- Legend ------------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Legend в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const Legend = () => (
   <div className="space-y-1.5">
-    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Уровни вложенности</p>
+    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">РЈСЂРѕРІРЅРё РІР»РѕР¶РµРЅРЅРѕСЃС‚Рё</p>
     {LEVEL_COLORS.map((c, i) => (
       <div key={i} className="flex items-center gap-2">
         <div className={`w-3 h-3 rounded-sm ${c.dot}`} />
-        <span className="text-[11px] text-slate-400">{i === 0 ? 'Корень (хостел)' : `Уровень ${i}`}</span>
+        <span className="text-[11px] text-slate-400">{i === 0 ? 'РљРѕСЂРµРЅСЊ (С…РѕСЃС‚РµР»)' : `РЈСЂРѕРІРµРЅСЊ ${i}`}</span>
       </div>
     ))}
   </div>
 );
 
-/* --- Rules -------------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Rules в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const RulesCard = ({ settings }) => {
   const rules = settings?.customRules?.filter(r => r.text?.trim()) || [];
   const tiers = settings?.tiers || [];
@@ -631,7 +631,7 @@ const RulesCard = ({ settings }) => {
   return (
     <div className="bg-slate-800/60 border border-white/8 rounded-2xl p-4 space-y-3">
       <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
-        {settings?.programName || 'Бонусная программа'} · Правила
+        {settings?.programName || 'Р‘РѕРЅСѓСЃРЅР°СЏ РїСЂРѕРіСЂР°РјРјР°'} В· РџСЂР°РІРёР»Р°
       </p>
       {/* Tiers preview */}
       {tiers.length > 0 && (
@@ -639,11 +639,11 @@ const RulesCard = ({ settings }) => {
           {tiers.map((t, i) => (
             <div key={t.id} className="flex items-center justify-between">
               <span className="text-[10px] text-slate-400">{i + 1}. {t.label}</span>
-              <span className="text-[10px] font-bold text-amber-400">+{t.bonusDays} д.</span>
+              <span className="text-[10px] font-bold text-amber-400">+{t.bonusDays} Рґ.</span>
             </div>
           ))}
           {settings?.resetAfterCycle && (
-            <p className="text-[10px] text-slate-600">? цикл повторяется</p>
+            <p className="text-[10px] text-slate-600">в†є С†РёРєР» РїРѕРІС‚РѕСЂСЏРµС‚СЃСЏ</p>
           )}
         </div>
       )}
@@ -658,23 +658,23 @@ const RulesCard = ({ settings }) => {
         </div>
       )}
       <p className="text-[10px] text-slate-500 border-t border-white/5 pt-2">
-        Мин. проживание для подтверждения: <span className="text-white font-semibold">{minDays} дн.</span>
-        {settings?.maxBonusDays > 0 && <> · Лимит: <span className="text-white font-semibold">{settings.maxBonusDays} д.</span></>}
-        {settings?.bonusExpiryDays > 0 && <> · Истекают через: <span className="text-white font-semibold">{settings.bonusExpiryDays} дн.</span></>}
+        РњРёРЅ. РїСЂРѕР¶РёРІР°РЅРёРµ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ: <span className="text-white font-semibold">{minDays} РґРЅ.</span>
+        {settings?.maxBonusDays > 0 && <> В· Р›РёРјРёС‚: <span className="text-white font-semibold">{settings.maxBonusDays} Рґ.</span></>}
+        {settings?.bonusExpiryDays > 0 && <> В· РСЃС‚РµРєР°СЋС‚ С‡РµСЂРµР·: <span className="text-white font-semibold">{settings.bonusExpiryDays} РґРЅ.</span></>}
       </p>
     </div>
   );
 };
 
-/* --- Empty state -------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Empty state в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const EmptyState = () => (
   <div className="flex flex-col items-center justify-center py-24 opacity-40">
-    <span className="text-5xl mb-3">??</span>
-    <p className="text-slate-400 text-sm">Добавьте первого участника через панель слева</p>
+    <span className="text-5xl mb-3">рџЊ±</span>
+    <p className="text-slate-400 text-sm">Р”РѕР±Р°РІСЊС‚Рµ РїРµСЂРІРѕРіРѕ СѓС‡Р°СЃС‚РЅРёРєР° С‡РµСЂРµР· РїР°РЅРµР»СЊ СЃР»РµРІР°</p>
   </div>
 );
 
-/* --- Main --------------------------------------------------------- */
+/* в”Ђв”Ђв”Ђ Main в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, currentUser }) => {
   const settingsMgr = useReferralSettings(showNotification, hostelId);
   const { settings, saving } = settingsMgr;
@@ -757,66 +757,66 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
   return (
     <div className="min-h-full bg-slate-900 text-white flex flex-col" ref={wrapRef}>
 
-      {/* -- Top bar -- */}
+      {/* в”Ђв”Ђ Top bar в”Ђв”Ђ */}
       <div className="flex-shrink-0 px-6 pt-5 pb-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-sm">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-white flex items-center gap-2.5">
-              <span className="text-2xl">??</span>
+              <span className="text-2xl">рџЋЃ</span>
               {settings.programName}
               {!settings.programActive && (
-                <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-normal">Выключена</span>
+                <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-normal">Р’С‹РєР»СЋС‡РµРЅР°</span>
               )}
             </h1>
-            <p className="text-slate-400 text-xs mt-0.5">Реферральная иерархия · привязана к базе клиентов
+            <p className="text-slate-400 text-xs mt-0.5">Р РµС„РµСЂСЂР°Р»СЊРЅР°СЏ РёРµСЂР°СЂС…РёСЏ В· РїСЂРёРІСЏР·Р°РЅР° Рє Р±Р°Р·Рµ РєР»РёРµРЅС‚РѕРІ
               {hostelId && hostelId !== 'all' && (
                 <span className="ml-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold text-[10px]">
-                  {hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId}
+                  {hostelId === 'hostel1' ? 'РҐРѕСЃС‚РµР» в„–1' : hostelId === 'hostel2' ? 'РҐРѕСЃС‚РµР» в„–2' : hostelId}
                 </span>
               )}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <StatChip label="Участников" value={stats.totalGuests} />
-            <StatChip label="Подтверждено" value={stats.confirmedGuests}
-              sub={stats.pendingGuests > 0 ? `${stats.pendingGuests} ожидает` : null} />
-            <StatChip label="Бонусов" value={stats.totalBonusPending}
-              sub={stats.totalBonusUsed > 0 ? `${stats.totalBonusUsed} исп.` : null} />
-            <StatChip label="Заработано" value={stats.totalBonusEarned} />
+            <StatChip label="РЈС‡Р°СЃС‚РЅРёРєРѕРІ" value={stats.totalGuests} />
+            <StatChip label="РџРѕРґС‚РІРµСЂР¶РґРµРЅРѕ" value={stats.confirmedGuests}
+              sub={stats.pendingGuests > 0 ? `${stats.pendingGuests} РѕР¶РёРґР°РµС‚` : null} />
+            <StatChip label="Р‘РѕРЅСѓСЃРѕРІ" value={stats.totalBonusPending}
+              sub={stats.totalBonusUsed > 0 ? `${stats.totalBonusUsed} РёСЃРї.` : null} />
+            <StatChip label="Р—Р°СЂР°Р±РѕС‚Р°РЅРѕ" value={stats.totalBonusEarned} />
             {isAdmin && (
               <button onClick={() => setShowSettings(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-800/80 border border-white/10 hover:border-violet-500/50 text-slate-400 hover:text-violet-400 text-xs font-medium transition-all self-center">
-                <Settings size={14} /> Настройки
+                <Settings size={14} /> РќР°СЃС‚СЂРѕР№РєРё
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* -- Mobile tab bar -- */}
+      {/* в”Ђв”Ђ Mobile tab bar в”Ђв”Ђ */}
       <div className="flex md:hidden flex-shrink-0 border-b border-white/5 bg-slate-900/80">
         <button
           onClick={() => setMobileTab('tree')}
           className="flex-1 py-3 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
           style={{ color: mobileTab === 'tree' ? '#c4b5fd' : '#475569', borderBottom: mobileTab === 'tree' ? '2px solid #8b5cf6' : '2px solid transparent' }}>
-          ?? Дерево
+          рџЊі Р”РµСЂРµРІРѕ
         </button>
         <button
           onClick={() => setMobileTab('add')}
           className="flex-1 py-3 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
           style={{ color: mobileTab === 'add' ? '#c4b5fd' : '#475569', borderBottom: mobileTab === 'add' ? '2px solid #8b5cf6' : '2px solid transparent' }}>
-          ?? Участники
+          рџ‘¤ РЈС‡Р°СЃС‚РЅРёРєРё
         </button>
       </div>
 
-      {/* -- Body -- */}
+      {/* в”Ђв”Ђ Body в”Ђв”Ђ */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Sidebar */}
         <div className={`w-full md:w-72 flex-shrink-0 border-r border-white/5 p-4 flex-col gap-5 overflow-y-auto bg-slate-900/50 ${mobileTab === 'add' ? 'flex' : 'hidden md:flex'}`}>
           <div className="bg-slate-800/60 border border-white/8 rounded-2xl p-4">
             <p className="text-xs font-semibold text-slate-300 mb-3 flex items-center gap-1.5">
-              <span>??</span> Добавить участника
+              <span>рџ‘¤</span> Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°
             </p>
             <AddPanel
               participantList={participantList}
@@ -843,7 +843,7 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
               <button
                 onClick={() => setTreeScale(s => clampScale(s - 0.1))}
                 className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-300 text-sm font-bold transition-colors"
-              >?</button>
+              >в€’</button>
               <span className="text-[11px] font-bold text-slate-400 w-10 text-center">{Math.round(treeScale * 100)}%</span>
               <button
                 onClick={() => setTreeScale(s => clampScale(s + 0.1))}
@@ -853,11 +853,11 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
                 <button
                   onClick={() => setTreeScale(1)}
                   className="ml-1 px-2 h-6 flex items-center rounded-lg hover:bg-white/10 text-slate-500 hover:text-slate-300 text-[10px] transition-colors"
-                >Сброс</button>
+                >РЎР±СЂРѕСЃ</button>
               )}
             </div>
-            <span className="text-[10px] text-slate-600 hidden md:block">Ctrl+колесо для зума</span>
-            <span className="text-[10px] text-slate-600 md:hidden">Щипок для зума</span>
+            <span className="text-[10px] text-slate-600 hidden md:block">Ctrl+РєРѕР»РµСЃРѕ РґР»СЏ Р·СѓРјР°</span>
+            <span className="text-[10px] text-slate-600 md:hidden">Р©РёРїРѕРє РґР»СЏ Р·СѓРјР°</span>
           </div>
 
           <div style={{ transform: `scale(${treeScale})`, transformOrigin: 'top left', transition: 'transform 0.1s ease-out' }}>
