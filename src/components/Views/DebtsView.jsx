@@ -312,7 +312,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             
             {isPayModalOpen && (
                 <div className="fixed inset-0 z-[200] flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 overflow-y-auto" style={{ maxHeight: '80vh', paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' }}>
+                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 overflow-y-auto" style={{ maxHeight: '80vh' }}>
                         {/* Handle */}
                         <div className="flex justify-center pt-3 pb-1">
                             <div className="w-10 h-1 rounded-full bg-slate-300" />
