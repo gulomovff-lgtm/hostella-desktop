@@ -118,13 +118,15 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
         totalBonusEarned: 0,
         totalBonusUsed: 0,
         referralConfirmed: false,
+        // Присваиваем хостел, чтобы клиент попал в нужную базу
+        ...(hostelId ? { hostelId } : {}),
       });
       showNotification?.('Гость добавлен в бонусную программу', 'success');
     } catch (e) {
       console.error(e);
       showNotification?.('Ошибка', 'error');
     }
-  }, [showNotification]);
+  }, [hostelId, showNotification]);
 
   /* Подтвердить пребывание (мин. дней — из настроек) → начислить бонус рефереру */
   const confirmTenDayStay = useCallback(async (clientId) => {
@@ -274,10 +276,12 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
     return list.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
   }, [clients, filterByHostel]);
 
-  /* Все клиенты для поиска (добавить существующего) */
+  /* Все клиенты для поиска «Из базы» — без фильтра хостела,
+     чтобы hostel1 тоже мог найти legacy-клиентов (hostelId: null).
+     При привязке клиент получит hostelId текущего хостела. */
   const getNonParticipants = useCallback(() =>
-    filterByHostel(clients).filter(c => c.referredBy == null),
-  [clients, filterByHostel]);
+    clients.filter(c => c.referredBy == null),
+  [clients]);
 
   /* Сводная статистика */
   const getStats = useCallback(() => {
