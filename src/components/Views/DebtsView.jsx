@@ -311,8 +311,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             {isCreateDebtModalOpen && <CreateDebtModal clients={clients} onClose={() => setIsCreateDebtModalOpen(false)} onCreate={onCreateDebt} lang={lang} />}
             
             {isPayModalOpen && (
-                <div className="fixed inset-0 z-50 flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 overflow-y-auto" style={{ maxHeight: '80vh' }}>
+                <div className="fixed inset-0 z-[200] flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 overflow-y-auto" style={{ maxHeight: '80vh', paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' }}>
                         {/* Handle */}
                         <div className="flex justify-center pt-3 pb-1">
                             <div className="w-10 h-1 rounded-full bg-slate-300" />
@@ -348,8 +348,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                 </div>
                             ))}
                         </div>
-                        {/* Sticky buttons — always at visible bottom */}
-                        <div className="flex gap-3 px-5 py-4 bg-white" style={{ position: 'sticky', bottom: 0 }}>
+                        {/* Buttons — sticky above bottom nav */}
+                        <div className="flex gap-3 px-5 py-4 bg-white border-t border-slate-100" style={{ position: 'sticky', bottom: 0 }}>
                             <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
                             <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
                         </div>
