@@ -318,15 +318,15 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                             <div className="w-10 h-1 rounded-full bg-slate-300" />
                         </div>
                         {/* Header */}
-                        <div className="px-6 py-3 border-b border-slate-200">
-                            <h3 className="font-bold text-lg text-slate-800">{t('payDebt')}</h3>
-                            <p className="text-sm text-slate-500 font-medium">{selectedDebtor?.fullName}</p>
+                        <div className="px-5 py-3 border-b border-slate-200">
+                            <h3 className="font-bold text-base text-slate-800">{t('payDebt')}</h3>
+                            <p className="text-xs text-slate-500">{selectedDebtor?.fullName}</p>
                         </div>
                         {/* Content */}
-                        <div className="p-6 space-y-4">
-                            <div className="bg-rose-50 border border-rose-100 p-3 rounded-lg text-center">
-                                <div className="text-xs font-bold text-rose-400 uppercase">Общий долг</div>
-                                <div className="text-2xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
+                        <div className="px-5 pt-4 pb-2 space-y-3">
+                            <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-lg text-center">
+                                <div className="text-[10px] font-bold text-rose-400 uppercase">Общий долг</div>
+                                <div className="text-xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
                             </div>
                             {['payCash', 'payCard', 'payQR'].map(field => (
                                 <div key={field} className="relative">
@@ -347,11 +347,11 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                     <button onClick={() => applyMagnet(field)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-emerald-600"><Magnet size={16}/></button>
                                 </div>
                             ))}
-                            {/* Buttons — always at bottom of scroll */}
-                            <div className="flex gap-3 pt-2 pb-2">
-                                <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
-                                <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
-                            </div>
+                        </div>
+                        {/* Sticky buttons — always at visible bottom */}
+                        <div className="flex gap-3 px-5 py-4 bg-white" style={{ position: 'sticky', bottom: 0 }}>
+                            <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
+                            <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
                         </div>
                     </div>
                 </div>
