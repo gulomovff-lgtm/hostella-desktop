@@ -531,9 +531,9 @@ function App() {
     showNotification,
   });
 
-  const { addRecurring, updateRecurring, deleteRecurring, toggleActive: toggleRecurringActive, fireNow: fireRecurringNow } = useRecurringExpenses({
+  const { addRecurring, updateRecurring, deleteRecurring, toggleActive: toggleRecurringActive, fireNow: fireRecurringNow, getRecurringAdvances } = useRecurringExpenses({
     currentUser, selectedHostelFilter,
-    recurringExpenses, showNotification,
+    recurringExpenses, expenses, showNotification,
   });
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
@@ -549,6 +549,30 @@ function App() {
         linkedSalaryId: staffExpense.id,
       });
       showNotification('Аванс зафиксирован', 'success');
+    } catch (err) {
+      console.error('Ошибка аванса:', err);
+      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+    }
+  };
+
+  const handleAddRecurringAdvance = async ({ template, amount }) => {
+    try {
+      const hostelId =
+        template.hostelId && template.hostelId !== 'all'
+          ? template.hostelId
+          : selectedHostelFilter && selectedHostelFilter !== 'all'
+            ? selectedHostelFilter
+            : currentUser.hostelId || 'hostel1';
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
+        category: 'Аванс',
+        amount: Number(amount),
+        comment: `Аванс: ${template.name}`,
+        hostelId,
+        staffId: currentUser.id || currentUser.login,
+        date: new Date().toISOString(),
+        recurringId: template.id,
+      });
+      showNotification(`Аванс выдан: ${Number(amount).toLocaleString()} сум`, 'success');
     } catch (err) {
       console.error('Ошибка аванса:', err);
       showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
@@ -1122,6 +1146,8 @@ return (
                         onToggleActive={toggleRecurringActive}
                         onFireNow={fireRecurringNow}
                         onAddAdvance={handleAddAdvance}
+                        onAddRecurringAdvance={handleAddRecurringAdvance}
+                        recurringAdvances={getRecurringAdvances()}
                     />
                 )}
 

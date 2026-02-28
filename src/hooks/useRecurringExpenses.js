@@ -29,8 +29,32 @@ export const useRecurringExpenses = ({
   currentUser,
   selectedHostelFilter,
   recurringExpenses = [],
+  expenses = [],
   showNotification,
 }) => {
+
+  /** Сумма уже выданных авансов по шаблону за конкретный месяц ('YYYY-MM') */
+  const getAdvancesSum = useCallback((tmplId, monthKey) => {
+    return expenses
+      .filter(e =>
+        e.recurringId === tmplId &&
+        e.category === 'Аванс' &&
+        e.date?.startsWith(monthKey)
+      )
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  }, [expenses]);
+
+  /** Карта { tmplId → sumAdvances } для текущего месяца — для UI */
+  const getRecurringAdvances = useCallback(() => {
+    const today = new Date();
+    const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const map = {};
+    for (const tmpl of recurringExpenses) {
+      const s = getAdvancesSum(tmpl.id, key);
+      if (s > 0) map[tmpl.id] = s;
+    }
+    return map;
+  }, [recurringExpenses, getAdvancesSum]);
 
   // Сессионный замок: предотвращает двойное начисление при нескольких срабатываниях useEffect
   const firedInSession = useRef(new Set());
@@ -59,13 +83,19 @@ export const useRecurringExpenses = ({
             ? Object.keys(HOSTELS)
             : [tmpl.hostelId];
 
+        // Вычитаем аванс (только для Зарплаты)
+        const advSum = tmpl.category === 'Зарплата'
+          ? getAdvancesSum(tmpl.id, curMonthKey)
+          : 0;
+        const netAmount = Math.max(0, Number(tmpl.amount) - advSum);
+
         let fired = false;
         for (const hid of targetHostels) {
           try {
             await addDoc(expensesCol(), {
               category:    tmpl.category,
-              amount:      Number(tmpl.amount),
-              comment:     `[Авто] ${tmpl.name}${tmpl.comment ? ' — ' + tmpl.comment : ''}`,
+              amount:      netAmount,
+              comment:     `[Авто] ${tmpl.name}${advSum > 0 ? ` (аванс −${advSum.toLocaleString()})` : ''}${tmpl.comment ? ' — ' + tmpl.comment : ''}`,
               date:        today.toISOString(),
               hostelId:    hid,
               staffId:     'auto',
@@ -144,21 +174,25 @@ export const useRecurringExpenses = ({
         ? tmpl.hostelId
         : Object.keys(HOSTELS)[0];
     try {
+      const today = new Date();
+      const curMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      const advSum = tmpl.category === 'Зарплата' ? getAdvancesSum(tmpl.id, curMonthKey) : 0;
+      const netAmount = Math.max(0, Number(tmpl.amount) - advSum);
       await addDoc(expensesCol(), {
         category:    tmpl.category,
-        amount:      Number(tmpl.amount),
-        comment:     `[Авто] ${tmpl.name}${tmpl.comment ? ' — ' + tmpl.comment : ''}`,
-        date:        new Date().toISOString(),
+        amount:      netAmount,
+        comment:     `[Авто] ${tmpl.name}${advSum > 0 ? ` (аванс −${advSum.toLocaleString()})` : ''}${tmpl.comment ? ' — ' + tmpl.comment : ''}`,
+        date:        today.toISOString(),
         hostelId,
         staffId:     currentUser?.id || currentUser?.login || 'manual',
         recurringId: tmpl.id,
       });
-      showNotification?.(`Расход "${tmpl.name}" внесён`, 'success');
+      showNotification?.(`Расход "${tmpl.name}" внесён${advSum > 0 ? ` (−${advSum.toLocaleString()} аванс)` : ''}`, 'success');
     } catch (e) {
       console.error(e);
       showNotification?.('Ошибка', 'error');
     }
-  }, [currentUser, selectedHostelFilter, showNotification]);
+  }, [currentUser, selectedHostelFilter, showNotification, getAdvancesSum]);
 
-  return { addRecurring, updateRecurring, deleteRecurring, toggleActive, fireNow };
+  return { addRecurring, updateRecurring, deleteRecurring, toggleActive, fireNow, getRecurringAdvances };
 };

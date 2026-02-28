@@ -57,6 +57,8 @@ const ExpensesView = ({
     onToggleActive,
     onFireNow,
     onAddAdvance,
+    onAddRecurringAdvance,
+    recurringAdvances = {},
     currentUser,
 }) => {
     const now = new Date();
@@ -68,6 +70,8 @@ const ExpensesView = ({
     const [editForm, setEditForm] = useState({});
     const [advanceTargetId, setAdvanceTargetId] = useState(null);
     const [advanceAmt, setAdvanceAmt] = useState('');
+    const [recurringAdvanceTargetId, setRecurringAdvanceTargetId] = useState(null);
+    const [recurringAdvanceAmt, setRecurringAdvanceAmt] = useState('');
 
     const CATS = ['Аренда','Коммунальные услуги','Зарплата','Продукты','Канцелярия','Ремонт','Интернет','Реклама','Другое'];
 
@@ -290,6 +294,9 @@ const ExpensesView = ({
                                 const curMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
                                 const firedThisMonth = tmpl.lastFiredMonth === curMonthKey;
                                 const isEditing = editId === tmpl.id;
+                                const isSalaryTemplate = tmpl.category === 'Зарплата';
+                                const advancedThisMonth = recurringAdvances[tmpl.id] || 0;
+                                const isAdvanceOpen = recurringAdvanceTargetId === tmpl.id;
                                 return (
                                     <div key={tmpl.id}>
                                         <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
@@ -303,6 +310,9 @@ const ExpensesView = ({
                                                     {firedThisMonth && (
                                                         <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">✓ начислено</span>
                                                     )}
+                                                    {advancedThisMonth > 0 && (
+                                                        <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">аванс {fmt(advancedThisMonth)}</span>
+                                                    )}
                                                 </div>
                                                 <div className="flex items-center gap-2 mt-0.5">
                                                     <span className="text-xs text-slate-400">📅 {tmpl.dayOfMonth}-го числа</span>
@@ -310,9 +320,27 @@ const ExpensesView = ({
                                                         <span className="text-xs text-slate-400">· {tmpl.hostelId === 'hostel1' ? 'Хостел №1' : tmpl.hostelId === 'hostel2' ? 'Хостел №2' : tmpl.hostelId}</span>
                                                     )}
                                                     {tmpl.comment && <span className="text-xs text-slate-400 truncate">· {tmpl.comment}</span>}
+                                                    {isSalaryTemplate && advancedThisMonth > 0 && (
+                                                        <span className="text-xs text-indigo-500">· к выплате: {fmt(Math.max(0, Number(tmpl.amount) - advancedThisMonth))}</span>
+                                                    )}
                                                 </div>
                                             </div>
                                             <span className="text-sm font-black text-rose-600 shrink-0">{fmt(tmpl.amount)}</span>
+                                            {isSalaryTemplate && (
+                                                <button
+                                                    onClick={() => {
+                                                        setRecurringAdvanceTargetId(isAdvanceOpen ? null : tmpl.id);
+                                                        setRecurringAdvanceAmt('');
+                                                    }}
+                                                    title="Выдать аванс"
+                                                    style={{ color: isAdvanceOpen ? '#a16207' : '#92400e' }}
+                                                    className={`p-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0 text-xs font-bold ${
+                                                        isAdvanceOpen ? 'bg-amber-300 text-amber-900' : 'bg-amber-100 hover:bg-amber-200'
+                                                    }`}
+                                                >
+                                                    💰
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => onToggleActive?.(tmpl.id, tmpl.active)}
                                                 title={tmpl.active ? 'Выключить' : 'Включить'}
@@ -347,6 +375,41 @@ const ExpensesView = ({
                                                 <Trash2 size={16} />
                                             </button>
                                         </div>
+                                        {/* Форма аванса для шаблона зарплаты */}
+                                        {isAdvanceOpen && (
+                                            <div className="px-5 py-3 bg-amber-50 border-t border-amber-100 flex items-center gap-3 flex-wrap">
+                                                <span className="text-xs font-bold text-amber-700 shrink-0">💰 Аванс ({tmpl.name}):</span>
+                                                {advancedThisMonth > 0 && (
+                                                    <span className="text-xs text-amber-600">уже выдано {fmt(advancedThisMonth)}</span>
+                                                )}
+                                                <input
+                                                    type="number" min="1" max={tmpl.amount}
+                                                    value={recurringAdvanceAmt}
+                                                    onChange={e => setRecurringAdvanceAmt(e.target.value)}
+                                                    placeholder="Сумма…"
+                                                    className="w-36 px-3 py-1.5 text-sm border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                                    autoFocus
+                                                />
+                                                <button
+                                                    disabled={!recurringAdvanceAmt}
+                                                    onClick={async () => {
+                                                        if (!recurringAdvanceAmt) return;
+                                                        await onAddRecurringAdvance?.({ template: tmpl, amount: Number(recurringAdvanceAmt) });
+                                                        setRecurringAdvanceTargetId(null);
+                                                        setRecurringAdvanceAmt('');
+                                                    }}
+                                                    className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white text-xs font-bold transition-colors"
+                                                >
+                                                    Выдать
+                                                </button>
+                                                <button
+                                                    onClick={() => setRecurringAdvanceTargetId(null)}
+                                                    className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-100 transition-colors"
+                                                >
+                                                    Отмена
+                                                </button>
+                                            </div>
+                                        )}
                                         {isEditing && (
                                             <form onSubmit={handleEditForm} className="px-5 py-4 bg-indigo-50 border-t border-indigo-100 space-y-3">
                                                 <div className="grid grid-cols-2 gap-3">
