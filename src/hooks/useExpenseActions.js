@@ -60,7 +60,6 @@ export function useExpenseActions({
   };
 
   const handleDeletePayment = async (id, type, record = {}) => {
-    if (!confirm('Удалить запись?')) return;
     await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
 
     if (type === 'income' && record.guestId && record.category !== 'registration') {

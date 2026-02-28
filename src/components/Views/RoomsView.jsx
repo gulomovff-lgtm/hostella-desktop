@@ -131,6 +131,8 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
     let cardBg, cardBorder, headerBg, nameCls;
     if (isTimeout) {
         cardBg = 'bg-purple-50'; cardBorder = 'border-purple-200'; headerBg = 'bg-purple-100'; nameCls = 'text-purple-900';
+    } else if (guest?.isBonusStay) {
+        cardBg = 'bg-orange-50'; cardBorder = 'border-orange-300'; headerBg = 'bg-orange-100'; nameCls = 'text-orange-900';
     } else if (status === 'free_limited') {
         cardBg = 'bg-sky-50'; cardBorder = 'border-sky-200'; headerBg = 'bg-sky-100'; nameCls = 'text-sky-800';
     } else if (status === 'booking') {
@@ -164,6 +166,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                         </div>
                     )}
                     {isTimeout && <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />}
+                    {guest?.isBonusStay && <span className="w-2 h-2 rounded-full bg-orange-400" />}
                     {status === 'booking' && <span className="w-2 h-2 rounded-full bg-amber-400" />}
                     {status === 'occupied' && debt > 0 && <span className="w-2 h-2 rounded-full bg-rose-400" />}
                     {status === 'occupied' && debt === 0 && <span className="w-2 h-2 rounded-full bg-teal-400" />}
@@ -195,6 +198,11 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                 {status === 'booking' && (
                     <span className="text-[10px] font-bold text-amber-700 mt-0.5 flex items-center gap-1">
                         <CalendarDays size={9} />Бронь / ожидает заезда
+                    </span>
+                )}
+                {guest?.isBonusStay && (
+                    <span className="text-[10px] font-bold text-orange-600 mt-0.5 flex items-center gap-1">
+                        🎁 Бонусные дни
                     </span>
                 )}
                 {isTimeout && <TimeoutBadge />}

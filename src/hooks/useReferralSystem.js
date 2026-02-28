@@ -13,7 +13,8 @@
  */
 import { useCallback } from 'react';
 import {
-  collection, doc, addDoc, updateDoc,
+  collection, doc, addDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_REFERRAL_SETTINGS } from './useReferralSettings';
@@ -178,6 +179,84 @@ export const useReferralSystem = ({ clients = [], hostelId, showNotification, se
     showNotification?.(`${toUse} бонусн. ${toUse === 1 ? 'день' : 'дня'} списано`, 'success');
   }, [clients, showNotification]);
 
+  /* Начислить бонусные дни вручную */
+  const addBonusDays = useCallback(async (clientId, days) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const toAdd = parseInt(days, 10) || 1;
+    if (toAdd <= 0) return;
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), {
+      bonusDays: (client.bonusDays || 0) + toAdd,
+      totalBonusEarned: (client.totalBonusEarned || 0) + toAdd,
+    });
+    showNotification?.(`+${toAdd} бонусн. ${toAdd === 1 ? 'день' : 'дней'} начислено`, 'success');
+  }, [clients, showNotification]);
+
+  /* Обнулить бонусы */
+  const resetBonuses = useCallback(async (clientId) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const used = (client.totalBonusUsed || 0) + (client.bonusDays || 0);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), {
+      bonusDays: 0,
+      totalBonusUsed: used,
+    });
+    showNotification?.('Бонусы обнулены', 'success');
+  }, [clients, showNotification]);
+
+  /* Бонусное заселение — создаёт запись гостя с isBonusStay=true, списывает бонусные дни */
+  const bookBonusStay = useCallback(async (clientId, { checkInDate, days, roomId, bedId, roomNumber, hostelId: stayHostelId }) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const daysNum = parseInt(days, 10) || 1;
+    const available = client.bonusDays || 0;
+    if (daysNum > available) {
+      showNotification?.(`Недостаточно бонусных дней (есть ${available})`, 'error');
+      return;
+    }
+    // вычисляем дату выезда
+    const ci = new Date(checkInDate);
+    const co = new Date(ci);
+    co.setDate(co.getDate() + daysNum);
+
+    const guestData = {
+      fullName:     client.fullName || client.name || 'Гость',
+      passport:     client.passport || '',
+      phone:        client.phone || '',
+      country:      client.country || '',
+      birthDate:    client.birthDate || '',
+      checkInDate:  ci.toISOString(),
+      checkOutDate: co.toISOString(),
+      days:         daysNum,
+      hostelId:     stayHostelId || hostelId || 'hostel1',
+      roomId:       roomId || null,
+      bedId:        bedId || null,
+      roomNumber:   roomNumber || null,
+      status:       'active',
+      isBonusStay:  true,
+      clientId:     clientId,
+      totalPrice:   0,
+      pricePerNight: 0,
+      amountPaid:   0,
+      paidCash:     0,
+      paidCard:     0,
+      paidQR:       0,
+      source:       'bonus',
+      createdAt:    new Date().toISOString(),
+    };
+    try {
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), guestData);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), {
+        bonusDays: available - daysNum,
+        totalBonusUsed: (client.totalBonusUsed || 0) + daysNum,
+      });
+      showNotification?.(`Бонусное проживание (${daysNum} дн.) записано`, 'success');
+    } catch (e) {
+      console.error(e);
+      showNotification?.('Ошибка записи', 'error');
+    }
+  }, [clients, hostelId, showNotification]);
+
   /* Убрать клиента из программы (очистить реферальные поля) */
   const removeFromProgram = useCallback(async (clientId) => {
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), {
@@ -228,6 +307,9 @@ export const useReferralSystem = ({ clients = [], hostelId, showNotification, se
     linkExistingClient,
     confirmTenDayStay,
     redeemBonusDays,
+    addBonusDays,
+    resetBonuses,
+    bookBonusStay,
     removeFromProgram,
     getParticipantList,
     getNonParticipants,

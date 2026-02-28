@@ -23,6 +23,7 @@ const BunkBed = ({ bedNumber, topGuest, bottomGuest, onBedClick, room }) => {
             isExpired,
             isBooking: guest.status === 'booking',
             bgClass: guest.status === 'booking' ? 'bg-amber-100 border-amber-300' :
+                    guest.isBonusStay ? 'bg-orange-100 border-orange-300' :
                     isCheckedOut ? 'bg-slate-200 border-slate-400' :
                     isExpired ? 'bg-slate-200 border-slate-400' :
                     debt > 0 ? 'bg-rose-100 border-rose-300' :
@@ -54,8 +55,7 @@ const BunkBed = ({ bedNumber, topGuest, bottomGuest, onBedClick, room }) => {
                     {status ? (
                         <div className="flex flex-col items-center gap-1 w-full">
                             <div className="flex items-center gap-1.5">
-                                {status.isBooking ? <AlertCircle size={12} className="text-amber-700"/> :
-                                 status.isExpired ? <AlertCircle size={12} className="text-slate-600"/> :
+                                {status.isBooking ? <AlertCircle size={12} className="text-amber-700"/> :                             guest?.isBonusStay ? <span className="text-orange-500 text-[10px]">🎁</span> :                                 status.isExpired ? <AlertCircle size={12} className="text-slate-600"/> :
                                  <User size={12} className={status.debt > 0 ? 'text-rose-700' : 'text-emerald-700'}/>}
                                 <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
                                     {guest.fullName}

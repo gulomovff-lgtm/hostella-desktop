@@ -39,29 +39,34 @@ export const DEFAULT_REFERRAL_SETTINGS = {
   ],
 };
 
-const SETTINGS_DOC = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'referralProgram');
+const SETTINGS_DOC = (hostelId) => {
+  const docId = hostelId && hostelId !== 'all' ? `referralProgram_${hostelId}` : 'referralProgram';
+  return doc(db, ...PUBLIC_DATA_PATH, 'settings', docId);
+};
 
 /* ── Генератор ID ────────────────────────────────────────────────────────── */
 const uid = () => `id_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 /* ── Хук ─────────────────────────────────────────────────────────────────── */
-export const useReferralSettings = (showNotification) => {
+export const useReferralSettings = (showNotification, hostelId) => {
   const [settings, setSettings] = useState(DEFAULT_REFERRAL_SETTINGS);
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
 
-  /* Загружаем из Firestore при монтировании */
+  /* Загружаем из Firestore при монтировании или смене хостела */
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     (async () => {
       try {
-        const snap = await getDoc(SETTINGS_DOC());
+        const snap = await getDoc(SETTINGS_DOC(hostelId));
         if (!cancelled) {
           if (snap.exists()) {
             setSettings({ ...DEFAULT_REFERRAL_SETTINGS, ...snap.data() });
           } else {
             // Первый запуск — записываем дефолты
-            await setDoc(SETTINGS_DOC(), DEFAULT_REFERRAL_SETTINGS);
+            await setDoc(SETTINGS_DOC(hostelId), DEFAULT_REFERRAL_SETTINGS);
+            setSettings(DEFAULT_REFERRAL_SETTINGS);
           }
         }
       } catch (e) {
@@ -71,13 +76,13 @@ export const useReferralSettings = (showNotification) => {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [hostelId]);
 
   /* Сохранить весь объект настроек */
   const saveSettings = useCallback(async (next) => {
     setSaving(true);
     try {
-      await setDoc(SETTINGS_DOC(), next);
+      await setDoc(SETTINGS_DOC(hostelId), next);
       setSettings(next);
       showNotification?.('Настройки сохранены', 'success');
     } catch (e) {
@@ -86,7 +91,7 @@ export const useReferralSettings = (showNotification) => {
     } finally {
       setSaving(false);
     }
-  }, [showNotification]);
+  }, [showNotification, hostelId]);
 
   /* ── Тиры ───────────────────────────────────────────────────────────────── */
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useReferralSystem } from '../../hooks/useReferralSystem';
 import { useReferralSettings } from '../../hooks/useReferralSettings';
-import { Search, Settings, X, Plus, Trash2, ChevronUp, ChevronDown, Save, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Search, Settings, X, Plus, Trash2, ChevronUp, ChevronDown, Save, ToggleLeft, ToggleRight, Gift, RotateCcw } from 'lucide-react';
 
 /* ─── palette by depth ───────────────────────────────────────────── */
 const LEVEL_COLORS = [
@@ -562,7 +562,7 @@ const EmptyState = () => (
 
 /* ─── Main ───────────────────────────────────────────────────────── */
 const ReferralView = ({ clients = [], hostelId, showNotification, currentUser }) => {
-  const settingsMgr = useReferralSettings(showNotification);
+  const settingsMgr = useReferralSettings(showNotification, hostelId);
   const { settings, saving } = settingsMgr;
 
   const {
@@ -571,6 +571,9 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
     linkExistingClient,
     confirmTenDayStay,
     redeemBonusDays,
+    addBonusDays,
+    resetBonuses,
+    bookBonusStay,
     removeFromProgram,
     getParticipantList,
     getNonParticipants,
@@ -612,7 +615,13 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                 <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-normal">Выключена</span>
               )}
             </h1>
-            <p className="text-slate-400 text-xs mt-0.5">Реферральная иерархия · привязана к базе клиентов</p>
+            <p className="text-slate-400 text-xs mt-0.5">Реферральная иерархия · привязана к базе клиентов
+              {hostelId && hostelId !== 'all' && (
+                <span className="ml-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold text-[10px]">
+                  {hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId}
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <StatChip label="Участников" value={stats.totalGuests} />
@@ -681,7 +690,11 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                   onConfirm={confirmTenDayStay}
                   onRedeem={redeemBonusDays}
                   onRemove={removeFromProgram}
+                  onAddBonus={addBonusDays}
+                  onResetBonus={resetBonuses}
+                  onBookBonusStay={bookBonusStay}
                   settings={settings}
+                  hostelId={hostelId}
                 />
               ))}
             </div>
@@ -694,7 +707,11 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                     onConfirm={confirmTenDayStay}
                     onRedeem={redeemBonusDays}
                     onRemove={removeFromProgram}
+                    onAddBonus={addBonusDays}
+                    onResetBonus={resetBonuses}
+                    onBookBonusStay={bookBonusStay}
                     settings={settings}
+                    hostelId={hostelId}
                   />
                 ))}
               </div>
