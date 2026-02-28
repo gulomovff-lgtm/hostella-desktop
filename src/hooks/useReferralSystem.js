@@ -22,11 +22,14 @@ import { DEFAULT_REFERRAL_SETTINGS } from './useReferralSettings';
 /* ── Строим дерево из плоского массива ─────────────────────────────────────── */
 export const buildReferralTree = (clients, hostelId) => {
   // Фильтруем по хостелу:
-  // - клиенты без hostelId (null/undefined) видны везде (обратная совместимость)
-  // - клиенты с hostelId показываются только в своём хостеле
+  // - клиенты без hostelId (null/undefined) считаются принадлежащими hostel2 (legacy)
+  // - hostel1 показывает только явно помеченных hostel1-клиентов
+  // - hostel2 показывает hostel2-клиентов + старых (null hostelId)
+  // - 'all' / без фильтра — всех
   const pool = clients.filter(c => {
     if (!hostelId || hostelId === 'all') return true;
-    return !c.hostelId || c.hostelId === hostelId;
+    if (hostelId === 'hostel2') return !c.hostelId || c.hostelId === 'hostel2';
+    return c.hostelId === hostelId;
   });
 
   // Виртуальный корень — «Хостел»
@@ -255,24 +258,30 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
     showNotification?.('Гость удалён из бонусной программы', 'success');
   }, [showNotification]);
 
+  /* Хелпер фильтрации по хостелу (hostel2 = старые legacy-клиенты) */
+  const filterByHostel = useCallback((list) => {
+    if (!hostelId || hostelId === 'all') return list;
+    if (hostelId === 'hostel2') return list.filter(c => !c.hostelId || c.hostelId === 'hostel2');
+    return list.filter(c => c.hostelId === hostelId);
+  }, [hostelId]);
+
   /* Список всех участников для select-списка */
   const getParticipantList = useCallback(() => {
-    const participants = clients.filter(c => c.referredBy != null || c.id === 'root');
+    const participants = filterByHostel(clients).filter(c => c.referredBy != null || c.id === 'root');
     const root = { id: 'root', name: 'Хостел' };
     const list = [root, ...participants.map(c => ({ id: c.id, name: c.fullName || c.name || c.id }))];
-    // Дедупликация
     const seen = new Set();
     return list.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-  }, [clients]);
+  }, [clients, filterByHostel]);
 
   /* Все клиенты для поиска (добавить существующего) */
   const getNonParticipants = useCallback(() =>
-    clients.filter(c => c.referredBy == null),
-  [clients]);
+    filterByHostel(clients).filter(c => c.referredBy == null),
+  [clients, filterByHostel]);
 
   /* Сводная статистика */
   const getStats = useCallback(() => {
-    const all = clients.filter(c => c.referredBy != null);
+    const all = filterByHostel(clients).filter(c => c.referredBy != null);
     return {
       totalGuests:      all.length,
       confirmedGuests:  all.filter(c => c.referralConfirmed).length,
@@ -281,7 +290,7 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
       totalBonusUsed:   all.reduce((s, c) => s + (c.totalBonusUsed || 0), 0),
       totalBonusPending:all.reduce((s, c) => s + (c.bonusDays || 0), 0),
     };
-  }, [clients]);
+  }, [clients, filterByHostel]);
 
   /* Само дерево */
   const nodes = buildReferralTree(clients, hostelId);
