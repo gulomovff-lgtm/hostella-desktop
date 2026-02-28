@@ -129,7 +129,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
     const lbl = "block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wide ml-0.5";
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3">
             <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col" style={{ maxHeight: '95vh' }}>
 
                 {/* ═══ Header ═══ */}

@@ -267,7 +267,7 @@ const TemplateEditorModal = ({ onClose, notify }) => {
     const preview = applyVars(template);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-stretch bg-slate-900/70 backdrop-blur-sm"
+        <div className="fixed inset-0 z-[200] flex items-stretch bg-slate-900/70 backdrop-blur-sm"
             style={{ WebkitAppRegion: 'no-drag' }}>
             <div className="bg-white w-full flex flex-col">
                 {/* Header */}

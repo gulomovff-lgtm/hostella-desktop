@@ -10,7 +10,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [form, setForm] = useState({ ...client });
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
                 <h3 className="font-bold text-lg mb-4">{t('edit')}</h3>
                 <div className="space-y-3">

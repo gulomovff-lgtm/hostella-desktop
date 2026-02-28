@@ -16,7 +16,7 @@ const RoomFormModal = ({ title, initialData = {}, onClose, onSubmit, lang }) => 
         bookingName: initialData.bookingName || '',
     });
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
                 <h3 className="font-bold text-lg mb-6">{title}</h3>
                 <div className="space-y-4">

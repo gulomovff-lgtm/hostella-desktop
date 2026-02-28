@@ -73,7 +73,7 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
             style={{ WebkitAppRegion: 'no-drag' }}
             onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
 

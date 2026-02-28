@@ -125,7 +125,7 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
         && !(guestHostelId === 'hostel2' && currentUser?.permissions?.canPayInHostel2 === false);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-teal-600 to-emerald-600 shrink-0">

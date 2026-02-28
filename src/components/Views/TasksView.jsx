@@ -90,7 +90,7 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                 </div>
             </div>
             {editingTask && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
                     <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-xl">
                         <h3 className="font-bold text-lg mb-4">{t('edit')}</h3>
                         <div className="space-y-3">

@@ -375,7 +375,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-800/50 backdrop-blur-none p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-800/50 backdrop-blur-none p-4 animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] relative">
 
                 <div className="px-6 py-4 bg-white border-b border-slate-200 flex justify-between items-center shrink-0">

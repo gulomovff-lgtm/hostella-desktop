@@ -83,7 +83,7 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
     const confirmImport = () => { onImport(fileData); onClose(); };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl flex flex-col max-h-[90vh]">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Upload size={20}/> {t('import')}</h3>
                 <div className="mb-4">
@@ -289,7 +289,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
             {isImportModalOpen && <ClientImportModal onClose={() => setIsImportModalOpen(false)} onImport={(data) => { onImportClients(data); setIsImportModalOpen(false); }} lang={lang}/>}
 
             {confirmBulkDeleteOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
                         <div className="text-center mb-5">
                             <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -307,7 +307,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
             )}
 
             {confirmNormalizeOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
                         <div className="text-center mb-5">
                             <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -325,7 +325,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
             )}
 
             {confirmSyncOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
                         <div className="text-center mb-5">
                             <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">

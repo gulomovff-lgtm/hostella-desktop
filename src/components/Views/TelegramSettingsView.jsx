@@ -168,7 +168,7 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
         setForm(f => ({ ...f, notifications: Object.fromEntries(Object.keys(NOTIFICATION_TYPES).map(k => [k, val])) }));
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
                 <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
                     <div className="font-black text-lg text-slate-800">
@@ -297,7 +297,7 @@ const TemplateEditor = ({ typeKey, template, onSave, onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
                 <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
                     <div>
@@ -395,7 +395,7 @@ const CustomTypeModal = ({ onSave, onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
                 <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                     <div className="font-black text-lg text-slate-800">✨ Новый тип уведомлений</div>

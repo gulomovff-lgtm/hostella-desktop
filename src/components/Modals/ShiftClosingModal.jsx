@@ -85,7 +85,7 @@ const ShiftClosingModal = ({ user, payments = [], expenses, onClose, onLogout, n
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
                 {/* ? Градиентный Header */}
                 <div className="p-6 border-b border-slate-200 bg-gradient-to-br from-slate-100 via-indigo-100/50 to-purple-100/50">

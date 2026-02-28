@@ -39,7 +39,7 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-lg flex items-center gap-2">
