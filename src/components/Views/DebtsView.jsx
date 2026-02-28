@@ -312,18 +312,18 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             
             {isPayModalOpen && (
                 <div className="fixed inset-0 z-50 flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 flex flex-col" style={{ maxHeight: '90dvh' }}>
+                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 overflow-y-auto" style={{ maxHeight: '80vh' }}>
                         {/* Handle */}
-                        <div className="flex justify-center pt-3 pb-1 shrink-0">
+                        <div className="flex justify-center pt-3 pb-1">
                             <div className="w-10 h-1 rounded-full bg-slate-300" />
                         </div>
                         {/* Header */}
-                        <div className="px-6 py-3 border-b border-slate-200 shrink-0">
+                        <div className="px-6 py-3 border-b border-slate-200">
                             <h3 className="font-bold text-lg text-slate-800">{t('payDebt')}</h3>
                             <p className="text-sm text-slate-500 font-medium">{selectedDebtor?.fullName}</p>
                         </div>
-                        {/* Scrollable content */}
-                        <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
+                        {/* Content */}
+                        <div className="p-6 space-y-4">
                             <div className="bg-rose-50 border border-rose-100 p-3 rounded-lg text-center">
                                 <div className="text-xs font-bold text-rose-400 uppercase">Общий долг</div>
                                 <div className="text-2xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
@@ -347,11 +347,11 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                     <button onClick={() => applyMagnet(field)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-emerald-600"><Magnet size={16}/></button>
                                 </div>
                             ))}
-                        </div>
-                        {/* Sticky footer buttons — always visible */}
-                        <div className="px-6 py-4 border-t border-slate-100 shrink-0 flex gap-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-                            <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
-                            <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
+                            {/* Buttons — always at bottom of scroll */}
+                            <div className="flex gap-3 pt-2 pb-2">
+                                <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
+                                <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
+                            </div>
                         </div>
                     </div>
                 </div>
