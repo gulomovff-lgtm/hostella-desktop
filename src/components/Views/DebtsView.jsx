@@ -311,13 +311,19 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             {isCreateDebtModalOpen && <CreateDebtModal clients={clients} onClose={() => setIsCreateDebtModalOpen(false)} onCreate={onCreateDebt} lang={lang} />}
             
             {isPayModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[88vh]">
-                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 shrink-0">
+                <div className="fixed inset-0 z-50 flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 flex flex-col" style={{ maxHeight: '90dvh' }}>
+                        {/* Handle */}
+                        <div className="flex justify-center pt-3 pb-1 shrink-0">
+                            <div className="w-10 h-1 rounded-full bg-slate-300" />
+                        </div>
+                        {/* Header */}
+                        <div className="px-6 py-3 border-b border-slate-200 shrink-0">
                             <h3 className="font-bold text-lg text-slate-800">{t('payDebt')}</h3>
                             <p className="text-sm text-slate-500 font-medium">{selectedDebtor?.fullName}</p>
                         </div>
-                        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+                        {/* Scrollable content */}
+                        <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
                             <div className="bg-rose-50 border border-rose-100 p-3 rounded-lg text-center">
                                 <div className="text-xs font-bold text-rose-400 uppercase">Общий долг</div>
                                 <div className="text-2xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
@@ -342,7 +348,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                 </div>
                             ))}
                         </div>
-                        <div className="px-6 pb-6 pt-3 border-t border-slate-100 shrink-0 flex gap-3">
+                        {/* Sticky footer buttons — always visible */}
+                        <div className="px-6 py-4 border-t border-slate-100 shrink-0 flex gap-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
                             <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
                             <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
                         </div>
