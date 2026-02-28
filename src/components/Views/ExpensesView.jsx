@@ -316,31 +316,35 @@ const ExpensesView = ({
                                             <button
                                                 onClick={() => onToggleActive?.(tmpl.id, tmpl.active)}
                                                 title={tmpl.active ? 'Выключить' : 'Включить'}
-                                                className="shrink-0 transition-colors"
+                                                style={{color: tmpl.active ? '#6366f1' : '#94a3b8'}}
+                                                className="p-0 shrink-0 transition-colors"
                                             >
                                                 {tmpl.active
-                                                    ? <ToggleRight size={28} className="text-indigo-500" />
-                                                    : <ToggleLeft size={28} className="text-slate-400" />}
+                                                    ? <ToggleRight size={28} />
+                                                    : <ToggleLeft size={28} />}
                                             </button>
                                             <button
                                                 onClick={() => isEditing ? setEditId(null) : startEdit(tmpl)}
                                                 title={isEditing ? 'Отмена' : 'Редактировать'}
-                                                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'bg-indigo-100' : 'bg-slate-100 hover:bg-indigo-100'}`}
+                                                style={{color: isEditing ? '#4f46e5' : '#334155'}}
+                                                className={`p-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'bg-indigo-100' : 'bg-slate-100 hover:bg-indigo-100'}`}
                                             >
-                                                {isEditing ? <X size={16} color="#4f46e5" /> : <Pencil size={16} color="#334155" />}
+                                                {isEditing ? <X size={16} /> : <Pencil size={16} />}
                                             </button>
                                             <button
                                                 onClick={() => onFireNow?.(tmpl)}
                                                 title="Внести сейчас"
-                                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors shrink-0"
+                                                style={{color: '#047857'}}
+                                                className="p-0 w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors shrink-0"
                                             >
-                                                <Play size={16} color="#047857" />
+                                                <Play size={16} />
                                             </button>
                                             <button
                                                 onClick={() => onDeleteRecurring?.(tmpl.id)}
-                                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-colors shrink-0"
+                                                style={{color: '#334155'}}
+                                                className="p-0 w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-colors shrink-0"
                                             >
-                                                <Trash2 size={16} color="#334155" />
+                                                <Trash2 size={16} />
                                             </button>
                                         </div>
                                         {isEditing && (
@@ -534,9 +538,10 @@ const ExpensesView = ({
                                                         >💰</button>
                                                     )}
                                                     <button onClick={() => onDeleteExpense(e.id, e)}
+                                                        style={{color: '#334155', padding: 0}}
                                                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-all shrink-0"
                                                         title="Удалить">
-                                                        <Trash2 size={16} color="#334155"/>
+                                                        <Trash2 size={16}/>
                                                     </button>
                                                 </div>
                                                 {isAdvanceOpen && (
@@ -605,9 +610,10 @@ const ExpensesView = ({
                                         ↩ {fmt(e.amount)}
                                     </span>
                                     <button onClick={() => onDeleteExpense(e.id, e)}
+                                        style={{color: '#334155', padding: 0}}
                                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-all shrink-0"
                                         title="Удалить">
-                                        <Trash2 size={16} color="#334155"/>
+                                        <Trash2 size={16}/>
                                     </button>
                                 </div>
                             );
