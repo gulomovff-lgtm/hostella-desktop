@@ -187,9 +187,9 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                             {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('date')}</label>
-                        <input type="date" className={inputClass} value={startDate} onChange={e => setStartDate(e.target.value)} />
+                        <input type="date" className={inputClass + " max-w-full"} value={startDate} onChange={e => setStartDate(e.target.value)} />
                     </div>
                 </div>
                 <div className="w-full lg:w-auto flex flex-col sm:flex-row gap-3 items-stretch">
@@ -312,12 +312,12 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             
             {isPayModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden max-h-[85vh] overflow-y-auto">
-                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                    <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[88vh]">
+                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 shrink-0">
                             <h3 className="font-bold text-lg text-slate-800">{t('payDebt')}</h3>
                             <p className="text-sm text-slate-500 font-medium">{selectedDebtor?.fullName}</p>
                         </div>
-                        <div className="p-6 space-y-4">
+                        <div className="p-6 space-y-4 overflow-y-auto flex-1">
                             <div className="bg-rose-50 border border-rose-100 p-3 rounded-lg text-center">
                                 <div className="text-xs font-bold text-rose-400 uppercase">Общий долг</div>
                                 <div className="text-2xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
@@ -341,10 +341,10 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                     <button onClick={() => applyMagnet(field)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-emerald-600"><Magnet size={16}/></button>
                                 </div>
                             ))}
-                            <div className="flex gap-3 mt-2">
-                                <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
-                                <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
-                            </div>
+                        </div>
+                        <div className="px-6 pb-6 pt-3 border-t border-slate-100 shrink-0 flex gap-3">
+                            <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
+                            <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
                         </div>
                     </div>
                 </div>

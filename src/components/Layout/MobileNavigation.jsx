@@ -355,50 +355,43 @@ const MobileNavigation = ({
 
                 {/* Tab row */}
                 <div className="flex items-stretch" style={{ height: 56 }}>
-                    {PRIMARY_TABS.map((tab, idx) => {
+                    {PRIMARY_TABS.map((tab) => {
                         const Icon    = tab.icon;
                         const badge   = tab.badgeKey ? badges[tab.badgeKey] : 0;
                         const isActive = activeTab === tab.id;
-                        // Insert center spacer for cashier FAB between calendar (idx=1) and bookings
-                        const insertSpacer = canPerformActions && isCashier && idx === 2;
                         return (
-                            <React.Fragment key={tab.id}>
-                                {insertSpacer && <div className="flex-1" />}
-                                <button
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className="flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-colors"
-                                    style={{ color: isActive ? ACTIVE_CLR : MUTED_CLR }}
-                                >
-                                    <div className="relative">
-                                        <Icon size={21} strokeWidth={isActive ? 2.5 : 2} />
-                                        {badge > 0 && (
-                                            <span
-                                                className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-0.5 rounded-full flex items-center justify-center text-white"
-                                                style={{
-                                                    background: ACTIVE_CLR,
-                                                    fontSize: 8,
-                                                    fontWeight: 900,
-                                                    animation: tab.glow ? 'mob-glow 1.5s ease-in-out infinite' : 'none',
-                                                }}
-                                            >
-                                                {badge > 9 ? '9+' : badge}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <span className="text-[9px] font-bold">{tab.label}</span>
-                                    {isActive && (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className="flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-colors"
+                                style={{ color: isActive ? ACTIVE_CLR : MUTED_CLR }}
+                            >
+                                <div className="relative">
+                                    <Icon size={21} strokeWidth={isActive ? 2.5 : 2} />
+                                    {badge > 0 && (
                                         <span
-                                            className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full"
-                                            style={{ background: ACTIVE_CLR }}
-                                        />
+                                            className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-0.5 rounded-full flex items-center justify-center text-white"
+                                            style={{
+                                                background: ACTIVE_CLR,
+                                                fontSize: 8,
+                                                fontWeight: 900,
+                                                animation: tab.glow ? 'mob-glow 1.5s ease-in-out infinite' : 'none',
+                                            }}
+                                        >
+                                            {badge > 9 ? '9+' : badge}
+                                        </span>
                                     )}
-                                </button>
-                            </React.Fragment>
+                                </div>
+                                <span className="text-[9px] font-bold">{tab.label}</span>
+                                {isActive && (
+                                    <span
+                                        className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full"
+                                        style={{ background: ACTIVE_CLR }}
+                                    />
+                                )}
+                            </button>
                         );
                     })}
-
-                    {/* Right spacer for FAB */}
-                    {canPerformActions && isCashier && <div className="flex-1" />}
 
                     {/* "Ещё" button */}
                     <button
