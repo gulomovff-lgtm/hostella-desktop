@@ -327,20 +327,20 @@ const ExpensesView = ({
                                                 title={isEditing ? 'Отмена' : 'Редактировать'}
                                                 className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'bg-indigo-100' : 'bg-slate-100 hover:bg-indigo-100'}`}
                                             >
-                                                {isEditing ? <X size={16} className="text-indigo-600" /> : <Pencil size={16} className="text-slate-700" />}
+                                                {isEditing ? <X size={16} color="#4f46e5" /> : <Pencil size={16} color="#334155" />}
                                             </button>
                                             <button
                                                 onClick={() => onFireNow?.(tmpl)}
                                                 title="Внести сейчас"
                                                 className="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors shrink-0"
                                             >
-                                                <Play size={16} className="text-emerald-700" />
+                                                <Play size={16} color="#047857" />
                                             </button>
                                             <button
                                                 onClick={() => onDeleteRecurring?.(tmpl.id)}
                                                 className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-colors shrink-0"
                                             >
-                                                <Trash2 size={16} className="text-slate-700 group-hover:text-rose-600" />
+                                                <Trash2 size={16} color="#334155" />
                                             </button>
                                         </div>
                                         {isEditing && (
@@ -536,7 +536,7 @@ const ExpensesView = ({
                                                     <button onClick={() => onDeleteExpense(e.id, e)}
                                                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-all shrink-0"
                                                         title="Удалить">
-                                                        <Trash2 size={16} className="text-slate-700"/>
+                                                        <Trash2 size={16} color="#334155"/>
                                                     </button>
                                                 </div>
                                                 {isAdvanceOpen && (
@@ -607,7 +607,7 @@ const ExpensesView = ({
                                     <button onClick={() => onDeleteExpense(e.id, e)}
                                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-all shrink-0"
                                         title="Удалить">
-                                        <Trash2 size={16} className="text-slate-700"/>
+                                        <Trash2 size={16} color="#334155"/>
                                     </button>
                                 </div>
                             );
