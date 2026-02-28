@@ -1,3 +1,6 @@
+// --- BUILD INFO ---
+export const BUILD_TS = '20260228-1030';
+
 // --- SALARY CONFIG ---
 export const DAILY_SALARY = 266666;
 
