@@ -21,10 +21,12 @@ import { DEFAULT_REFERRAL_SETTINGS } from './useReferralSettings';
 
 /* ── Строим дерево из плоского массива ─────────────────────────────────────── */
 export const buildReferralTree = (clients, hostelId) => {
-  // Фильтруем по хостелу строго (без null-клиентов в конкретном хостеле)
+  // Фильтруем по хостелу:
+  // - клиенты без hostelId (null/undefined) видны везде (обратная совместимость)
+  // - клиенты с hostelId показываются только в своём хостеле
   const pool = clients.filter(c => {
     if (!hostelId || hostelId === 'all') return true;
-    return c.hostelId === hostelId;
+    return !c.hostelId || c.hostelId === hostelId;
   });
 
   // Виртуальный корень — «Хостел»
