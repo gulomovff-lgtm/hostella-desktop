@@ -1167,6 +1167,7 @@ return (
                     <div className="-m-3 md:-m-6 -mt-2 min-h-full">
                         <ReferralView
                             clients={clients}
+                            guests={guests}
                             hostelId={selectedHostelFilter}
                             showNotification={showNotification}
                             currentUser={currentUser}

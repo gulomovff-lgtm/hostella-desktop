@@ -208,7 +208,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         return guests.filter(g => {
             if (seen.has(g.id)) return false; seen.add(g.id);
             const ci = parseDate(g.checkInDate || g.checkInDateTime);
-            const co = parseDate(g.checkOutDate);
+            const co = parseDate(g.bonusCheckOutDate || g.checkOutDate);
             if (!ci) return false;
             if (co && co < rangeStart) return false;
             if (ci > rangeEnd) return false;
@@ -227,7 +227,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         const result = {};
         filteredGuests.forEach(g => {
             let ci = parseDate(g.checkInDate || g.checkInDateTime);
-            let co = parseDate(g.checkOutDate);
+            let co = parseDate(g.bonusCheckOutDate || g.checkOutDate);
             if (!ci) return;
             if (!co) { co = new Date(ci); co.setDate(co.getDate() + parseInt(g.days || 1)); }
             ci = new Date(ci); ci.setHours(12,0,0,0);
@@ -247,7 +247,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const count = filteredGuests.filter(g => {
                 if (g.status === 'checked_out') return false;
                 const ci = parseDate(g.checkInDate || g.checkInDateTime);
-                const co = parseDate(g.checkOutDate);
+                const co = parseDate(g.bonusCheckOutDate || g.checkOutDate);
                 if (!ci) return false;
                 const ciStr = getLocalDateString(ci);
                 const coStr = co ? getLocalDateString(co) : null;
@@ -263,12 +263,22 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         const isOut = g.status === 'checked_out';
         const isBk  = g.status === 'booking';
         const co    = parseDate(g.checkOutDate);
-        const isExp = co && new Date() > co && !isOut;
+        const bonusCo = g.bonusCheckOutDate ? parseDate(g.bonusCheckOutDate) : null;
+        const effectiveCo = bonusCo || co;
+        const isExp = effectiveCo && new Date() > effectiveCo && !isOut;
         const pct   = g.totalPrice ? Math.min(100, Math.round((paid / g.totalPrice) * 100)) : 100;
         if (isBk)  return { cls: 'border-yellow-500 text-yellow-900', bg: '#fef08a' };
         if (isExp) return { cls: 'border-red-700 text-white', bg: '#dc2626' };
         if (isOut && debt > 0) return { cls: 'border-rose-300 text-rose-700', bg: '#fecdd3' };
         if (isOut) return { cls: 'border-slate-300 text-slate-500', bg: '#e2e8f0' };
+        // Бонусный участок — градиент зелёный → оранжевый
+        if (bonusCo && co && bonusCo > co) {
+            const ci = parseDate(g.checkInDate || g.checkInDateTime);
+            const totalMs = ci && bonusCo ? (bonusCo - ci) : 0;
+            const paidMs  = ci && co ? (co - ci) : 0;
+            const pp = totalMs > 0 ? Math.max(5, Math.min(95, Math.round((paidMs / totalMs) * 100))) : 70;
+            return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
+        }
         if (debt > 0 && paid > 0) return { cls: 'border-red-600 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pct}%,#ef4444 ${pct}%,#dc2626 100%)` };
         if (debt > 0) return { cls: 'border-red-600 text-white', bg: '#ef4444' };
         return { cls: 'border-green-700 text-white', bg: '#22c55e' };

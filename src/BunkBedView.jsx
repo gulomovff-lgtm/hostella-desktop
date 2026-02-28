@@ -14,15 +14,20 @@ const BunkBed = ({ bedNumber, topGuest, bottomGuest, onBedClick, room }) => {
         if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
             checkOut.setHours(12, 0, 0, 0);
         }
-        const isExpired = now >= checkOut && !isCheckedOut;
+        const bonusCheckOut = guest.bonusCheckOutDate ? new Date(guest.bonusCheckOutDate) : null;
+        const effectiveCheckOut = bonusCheckOut || checkOut;
+        const isExpired = now >= effectiveCheckOut && !isCheckedOut;
+        const isBonus   = !!(bonusCheckOut && now >= checkOut && now < bonusCheckOut && !isCheckedOut);
         
         return {
             guest,
             debt,
             isCheckedOut,
             isExpired,
+            isBonus,
             isBooking: guest.status === 'booking',
             bgClass: guest.status === 'booking' ? 'bg-amber-100 border-amber-300' :
+                    isBonus ? 'bg-orange-100 border-orange-300' :
                     guest.isBonusStay ? 'bg-orange-100 border-orange-300' :
                     isCheckedOut ? 'bg-slate-200 border-slate-400' :
                     isExpired ? 'bg-slate-200 border-slate-400' :
@@ -55,7 +60,9 @@ const BunkBed = ({ bedNumber, topGuest, bottomGuest, onBedClick, room }) => {
                     {status ? (
                         <div className="flex flex-col items-center gap-1 w-full">
                             <div className="flex items-center gap-1.5">
-                                {status.isBooking ? <AlertCircle size={12} className="text-amber-700"/> :                             guest?.isBonusStay ? <span className="text-orange-500 text-[10px]">🎁</span> :                                 status.isExpired ? <AlertCircle size={12} className="text-slate-600"/> :
+                            {status.isBooking ? <AlertCircle size={12} className="text-amber-700"/> :
+                             (status.isBonus || guest?.isBonusStay) ? <span className="text-orange-500 text-[10px]">🎁</span> :
+                             status.isExpired ? <AlertCircle size={12} className="text-slate-600"/> :
                                  <User size={12} className={status.debt > 0 ? 'text-rose-700' : 'text-emerald-700'}/>}
                                 <span className="text-xs font-semibold text-slate-800 truncate max-w-[120px]">
                                     {guest.fullName}

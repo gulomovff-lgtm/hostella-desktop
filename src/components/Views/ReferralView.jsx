@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+﻿import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useReferralSystem } from '../../hooks/useReferralSystem';
 import { useReferralSettings } from '../../hooks/useReferralSettings';
 import { Search, Settings, X, Plus, Trash2, ChevronUp, ChevronDown, Save, ToggleLeft, ToggleRight, Gift, RotateCcw } from 'lucide-react';
@@ -264,14 +264,39 @@ const RedeemRow = ({ node, onRedeem }) => {
   );
 };
 
-/* ─── Node card ──────────────────────────────────────────────────── */
-const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings }) => {
+/* ─── Node card ────────────────────────────────────────────────── */
+const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings,
+                    onAddBonus, onResetBonus, onExtendStay, guests = [] }) => {
   const isVirtual  = !!node.isVirtual;
   const isSelected = selectedId === node.id;
   const col        = lc(level);
   const hasBonus   = (node.bonusDays || 0) > 0;
   const displayName = getDisplayName(node);
   const tiersCount  = settings?.tiers?.length || 2;
+
+  const [addAmt, setAddAmt]         = useState(1);
+  const [showExtend, setShowExtend] = useState(false);
+  const [extSearch, setExtSearch]   = useState('');
+  const [extGuestId, setExtGuestId] = useState('');
+  const [extDays, setExtDays]       = useState(1);
+
+  const candidateGuests = guests.filter(g =>
+    g.status === 'active' &&
+    (g.clientId === node.id ||
+     (g.fullName || '').toUpperCase() === (node.fullName || node.name || '').toUpperCase())
+  );
+  const searchGuests = extSearch.trim()
+    ? guests.filter(g => g.status === 'active' &&
+        (g.fullName || '').toLowerCase().includes(extSearch.toLowerCase())).slice(0, 6)
+    : candidateGuests.slice(0, 6);
+  const selectedGuest = extGuestId ? guests.find(g => g.id === extGuestId) : null;
+
+  const handleExtendSubmit = (e) => {
+    e.preventDefault();
+    if (!extGuestId) return;
+    onExtendStay?.(node.id, extGuestId, extDays);
+    setShowExtend(false); setExtGuestId(''); setExtSearch(''); setExtDays(1);
+  };
 
   return (
     <div
@@ -281,7 +306,6 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
       onClick={() => onSelect(node.id === selectedId ? null : node.id)}
     >
       <div className="overflow-hidden rounded-2xl bg-slate-800/80 backdrop-blur-sm border border-white/8">
-        {/* Gradient header */}
         <div className={`px-4 pt-3 pb-4 bg-gradient-to-br ${col.bg} relative`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white font-bold text-sm shadow-inner flex-shrink-0">
@@ -290,11 +314,9 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             <div className="flex-1 min-w-0">
               <p className="text-white font-semibold text-sm leading-tight truncate">{displayName}</p>
               <p className="text-white/60 text-[10px] mt-0.5">
-                {isVirtual
-                  ? 'Корень системы'
-                  : node.referralConfirmed
-                    ? `✓ ${fmtDate(node.confirmedAt || node.createdAt)}`
-                    : '⏳ Ожидает подтверждения'}
+                {isVirtual ? 'Корень системы'
+                  : node.referralConfirmed ? `✓ ${fmtDate(node.confirmedAt || node.createdAt)}`
+                  : '⏳ Ожидает подтверждения'}
               </p>
             </div>
           </div>
@@ -304,8 +326,6 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             </div>
           )}
         </div>
-
-        {/* Stats body */}
         <div className="px-4 py-3 space-y-2.5">
           {!isVirtual && (
             <div>
@@ -325,10 +345,10 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
         </div>
       </div>
 
-      {/* Expanded action panel */}
       {isSelected && (
         <div className="mt-1.5 rounded-2xl bg-slate-900/95 border border-white/10 p-3 space-y-2 shadow-2xl"
           onClick={e => e.stopPropagation()}>
+
           {!isVirtual && !node.referralConfirmed && (
             <button type="button" onClick={() => onConfirm(node.id)}
               className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors">
@@ -339,9 +359,83 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             <p className="text-center text-[10px] text-emerald-500 font-medium">✓ Уже подтверждён</p>
           )}
           {hasBonus && <RedeemRow node={node} onRedeem={onRedeem} />}
+
+          {!isVirtual && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-400 mr-1">Дней:</span>
+              <button type="button" onClick={() => setAddAmt(a => Math.max(1, a-1))}
+                className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center">-</button>
+              <span className="text-white text-xs font-bold w-6 text-center">{addAmt}</span>
+              <button type="button" onClick={() => setAddAmt(a => a+1)}
+                className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center">+</button>
+              <button type="button" onClick={() => onAddBonus?.(node.id, addAmt)}
+                className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-amber-300 text-xs font-semibold transition-colors">
+                <Gift size={10} className="inline mr-1"/>Начислить
+              </button>
+              <button type="button" onClick={() => onResetBonus?.(node.id)}
+                className="p-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 transition-colors" title="Обнулить бонусы">
+                <RotateCcw size={11}/>
+              </button>
+            </div>
+          )}
+
+          {!isVirtual && hasBonus && (
+            <div>
+              <button type="button" onClick={() => setShowExtend(v => !v)}
+                className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-orange-500/20 hover:bg-orange-500/35 text-orange-300 text-xs font-semibold transition-colors">
+                <Gift size={11}/>Бонус: {node.bonusDays}д — {showExtend ? 'Скрыть' : 'Продлить проживание'}
+              </button>
+              {showExtend && (
+                <form onSubmit={handleExtendSubmit} className="mt-2 space-y-2 bg-slate-800/60 rounded-xl p-2.5">
+                  {!selectedGuest ? (
+                    <div className="space-y-1">
+                      <input value={extSearch}
+                        onChange={e => { setExtSearch(e.target.value); setExtGuestId(''); }}
+                        placeholder="Поиск гостя…"
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-700 text-white text-[11px] placeholder-slate-400 border border-white/10 focus:outline-none focus:border-orange-400"
+                      />
+                      {searchGuests.length === 0 && (
+                        <p className="text-[10px] text-slate-500 text-center">Нет активных гостей</p>
+                      )}
+                      <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                        {searchGuests.map(g => (
+                          <button key={g.id} type="button"
+                            onClick={() => { setExtGuestId(g.id); setExtSearch(g.fullName); }}
+                            className="w-full text-left px-2 py-1 rounded-lg bg-white/5 hover:bg-orange-500/20 text-[11px] text-slate-200 transition-colors">
+                            <span className="font-semibold">{g.fullName}</span>
+                            <span className="ml-1.5 text-slate-400">выезд: {fmtDate(g.bonusCheckOutDate || g.checkOutDate)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-orange-300 font-semibold truncate flex-1">{selectedGuest.fullName}</span>
+                      <span className="text-[10px] text-slate-400">выезд: {fmtDate(selectedGuest.bonusCheckOutDate || selectedGuest.checkOutDate)}</span>
+                      <button type="button" onClick={() => { setExtGuestId(''); setExtSearch(''); }}
+                        className="text-slate-400 hover:text-white ml-1"><X size={11}/></button>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 shrink-0">Дней:</span>
+                    <input type="number" min={1} max={node.bonusDays} value={extDays}
+                      onChange={e => setExtDays(Math.min(node.bonusDays, Math.max(1, parseInt(e.target.value)||1)))}
+                      className="w-14 px-2 py-1 rounded-lg bg-slate-700 text-white text-[11px] text-center border border-white/10 focus:outline-none focus:border-orange-400"
+                    />
+                    <span className="text-[10px] text-slate-500">макс {node.bonusDays}</span>
+                  </div>
+                  <button type="submit" disabled={!extGuestId}
+                    className="w-full py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors">
+                    Продлить проживание
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
           {!isVirtual && (
             <button type="button"
-              onClick={() => { if (window.confirm(`Убрать "${displayName}" из программы?`)) onRemove(node.id); }}
+              onClick={() => { if (window.confirm(`Убрать «${displayName}» из программы?`)) onRemove(node.id); }}
               className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 text-xs font-medium transition-colors">
               ✕ Убрать из программы
             </button>
@@ -356,15 +450,16 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
 };
 
 /* ─── Tree branch ────────────────────────────────────────────────── */
-const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings }) => {
+const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem, onRemove, settings,
+                      onAddBonus, onResetBonus, onExtendStay, guests }) => {
   const hasChildren = (node.children?.length || 0) > 0;
   const col = lc(level);
   const childCol = lc(level + 1);
+  const shared = { selectedId, onSelect, onConfirm, onRedeem, onRemove, settings, onAddBonus, onResetBonus, onExtendStay, guests };
 
   return (
     <div className="flex flex-col items-center">
-      <NodeCard node={node} level={level} selectedId={selectedId}
-        onSelect={onSelect} onConfirm={onConfirm} onRedeem={onRedeem} onRemove={onRemove} settings={settings} />
+      <NodeCard node={node} level={level} {...shared} />
       {hasChildren && (
         <>
           <div className="w-0.5 h-6 flex-shrink-0"
@@ -377,8 +472,7 @@ const TreeBranch = ({ node, level = 0, selectedId, onSelect, onConfirm, onRedeem
             {node.children.map(child => (
               <div key={child.id} className="flex flex-col items-center">
                 <div className="w-0.5 h-6 flex-shrink-0" style={{ background: childCol.line, opacity: 0.5 }} />
-                <TreeBranch node={child} level={level + 1} selectedId={selectedId}
-                  onSelect={onSelect} onConfirm={onConfirm} onRedeem={onRedeem} onRemove={onRemove} settings={settings} />
+                <TreeBranch node={child} level={level + 1} {...shared} />
               </div>
             ))}
           </div>
@@ -561,7 +655,7 @@ const EmptyState = () => (
 );
 
 /* ─── Main ───────────────────────────────────────────────────────── */
-const ReferralView = ({ clients = [], hostelId, showNotification, currentUser }) => {
+const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, currentUser }) => {
   const settingsMgr = useReferralSettings(showNotification, hostelId);
   const { settings, saving } = settingsMgr;
 
@@ -573,12 +667,12 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
     redeemBonusDays,
     addBonusDays,
     resetBonuses,
-    bookBonusStay,
+    extendStayWithBonus,
     removeFromProgram,
     getParticipantList,
     getNonParticipants,
     getStats,
-  } = useReferralSystem({ clients, hostelId, showNotification, settings });
+  } = useReferralSystem({ clients, guests, hostelId, showNotification, settings });
 
   const [selectedId,    setSelectedId]    = useState(null);
   const [showSettings,  setShowSettings]  = useState(false);
@@ -692,9 +786,9 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                   onRemove={removeFromProgram}
                   onAddBonus={addBonusDays}
                   onResetBonus={resetBonuses}
-                  onBookBonusStay={bookBonusStay}
+                  onExtendStay={extendStayWithBonus}
+                  guests={guests}
                   settings={settings}
-                  hostelId={hostelId}
                 />
               ))}
             </div>
@@ -709,9 +803,9 @@ const ReferralView = ({ clients = [], hostelId, showNotification, currentUser })
                     onRemove={removeFromProgram}
                     onAddBonus={addBonusDays}
                     onResetBonus={resetBonuses}
-                    onBookBonusStay={bookBonusStay}
+                    onExtendStay={extendStayWithBonus}
+                    guests={guests}
                     settings={settings}
-                    hostelId={hostelId}
                   />
                 ))}
               </div>

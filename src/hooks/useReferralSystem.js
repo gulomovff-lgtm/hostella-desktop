@@ -21,10 +21,11 @@ import { DEFAULT_REFERRAL_SETTINGS } from './useReferralSettings';
 
 /* ── Строим дерево из плоского массива ─────────────────────────────────────── */
 export const buildReferralTree = (clients, hostelId) => {
-  // Фильтруем по хостелу, берём только клиентов с реферальными данными
-  const pool = clients.filter(c =>
-    !hostelId || hostelId === 'all' || c.hostelId === hostelId || c.hostelId == null
-  );
+  // Фильтруем по хостелу строго (без null-клиентов в конкретном хостеле)
+  const pool = clients.filter(c => {
+    if (!hostelId || hostelId === 'all') return true;
+    return c.hostelId === hostelId;
+  });
 
   // Виртуальный корень — «Хостел»
   const root = {
@@ -74,7 +75,7 @@ export const getReferralParticipants = (clients) =>
   clients.filter(c => c.referredBy != null);
 
 /* ── Хук ───────────────────────────────────────────────────────────────────── */
-export const useReferralSystem = ({ clients = [], hostelId, showNotification, settings }) => {
+export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNotification, settings }) => {
   const cfg = { ...DEFAULT_REFERRAL_SETTINGS, ...(settings || {}) };
 
   const clientsRef = collection(db, ...PUBLIC_DATA_PATH, 'clients');
@@ -204,58 +205,40 @@ export const useReferralSystem = ({ clients = [], hostelId, showNotification, se
     showNotification?.('Бонусы обнулены', 'success');
   }, [clients, showNotification]);
 
-  /* Бонусное заселение — создаёт запись гостя с isBonusStay=true, списывает бонусные дни */
-  const bookBonusStay = useCallback(async (clientId, { checkInDate, days, roomId, bedId, roomNumber, hostelId: stayHostelId }) => {
+  /* Продление проживания на бонусные дни — добавляет bonusCheckOutDate к существующему гостю */
+  const extendStayWithBonus = useCallback(async (clientId, guestId, numDays) => {
     const client = clients.find(c => c.id === clientId);
-    if (!client) return;
-    const daysNum = parseInt(days, 10) || 1;
+    const guest  = guests.find(g => g.id === guestId);
+    if (!client || !guest) {
+      showNotification?.('Гость или клиент не найден', 'error');
+      return;
+    }
+    const daysNum   = parseInt(numDays, 10) || 1;
     const available = client.bonusDays || 0;
     if (daysNum > available) {
       showNotification?.(`Недостаточно бонусных дней (есть ${available})`, 'error');
       return;
     }
-    // вычисляем дату выезда
-    const ci = new Date(checkInDate);
-    const co = new Date(ci);
-    co.setDate(co.getDate() + daysNum);
-
-    const guestData = {
-      fullName:     client.fullName || client.name || 'Гость',
-      passport:     client.passport || '',
-      phone:        client.phone || '',
-      country:      client.country || '',
-      birthDate:    client.birthDate || '',
-      checkInDate:  ci.toISOString(),
-      checkOutDate: co.toISOString(),
-      days:         daysNum,
-      hostelId:     stayHostelId || hostelId || 'hostel1',
-      roomId:       roomId || null,
-      bedId:        bedId || null,
-      roomNumber:   roomNumber || null,
-      status:       'active',
-      isBonusStay:  true,
-      clientId:     clientId,
-      totalPrice:   0,
-      pricePerNight: 0,
-      amountPaid:   0,
-      paidCash:     0,
-      paidCard:     0,
-      paidQR:       0,
-      source:       'bonus',
-      createdAt:    new Date().toISOString(),
-    };
+    // Старт бонуса — от уже имеющегося bonusCheckOutDate или от checkOutDate
+    const baseDate   = new Date(guest.bonusCheckOutDate || guest.checkOutDate);
+    const newBonusCo = new Date(baseDate);
+    newBonusCo.setDate(newBonusCo.getDate() + daysNum);
     try {
-      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), guestData);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+        bonusCheckOutDate: newBonusCo.toISOString(),
+        bonusDaysAdded: (guest.bonusDaysAdded || 0) + daysNum,
+        clientId: clientId,
+      });
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), {
         bonusDays: available - daysNum,
         totalBonusUsed: (client.totalBonusUsed || 0) + daysNum,
       });
-      showNotification?.(`Бонусное проживание (${daysNum} дн.) записано`, 'success');
+      showNotification?.(`+${daysNum} бонусных дн. продлено гостю «${guest.fullName}»`, 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка записи', 'error');
+      showNotification?.('Ошибка продления', 'error');
     }
-  }, [clients, hostelId, showNotification]);
+  }, [clients, guests, showNotification]);
 
   /* Убрать клиента из программы (очистить реферальные поля) */
   const removeFromProgram = useCallback(async (clientId) => {
@@ -309,7 +292,7 @@ export const useReferralSystem = ({ clients = [], hostelId, showNotification, se
     redeemBonusDays,
     addBonusDays,
     resetBonuses,
-    bookBonusStay,
+    extendStayWithBonus,
     removeFromProgram,
     getParticipantList,
     getNonParticipants,

@@ -102,7 +102,7 @@ const KpiCard = ({ icon: Icon, label, value, sub, colorClass }) => (
 //  КАРТОЧКА КОЙКИ
 // ─────────────────────────────────────────────────────────────────────────────
 const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
-    const { id, status, guest, debt, freeForDays, isTimeout } = bed;
+    const { id, status, guest, debt, freeForDays, isTimeout, isBonus } = bed;
     const flagCode = guest?.country ? CF[guest.country] : null;
     const timeInfo = buildTimeInfo(guest, status, nowMs);
 
@@ -131,6 +131,8 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
     let cardBg, cardBorder, headerBg, nameCls;
     if (isTimeout) {
         cardBg = 'bg-purple-50'; cardBorder = 'border-purple-200'; headerBg = 'bg-purple-100'; nameCls = 'text-purple-900';
+    } else if (isBonus) {
+        cardBg = 'bg-orange-50'; cardBorder = 'border-orange-300'; headerBg = 'bg-orange-100'; nameCls = 'text-orange-900';
     } else if (guest?.isBonusStay) {
         cardBg = 'bg-orange-50'; cardBorder = 'border-orange-300'; headerBg = 'bg-orange-100'; nameCls = 'text-orange-900';
     } else if (status === 'free_limited') {
@@ -166,7 +168,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                         </div>
                     )}
                     {isTimeout && <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />}
-                    {guest?.isBonusStay && <span className="w-2 h-2 rounded-full bg-orange-400" />}
+                    {(isBonus || guest?.isBonusStay) && <span className="w-2 h-2 rounded-full bg-orange-400" />}
                     {status === 'booking' && <span className="w-2 h-2 rounded-full bg-amber-400" />}
                     {status === 'occupied' && debt > 0 && <span className="w-2 h-2 rounded-full bg-rose-400" />}
                     {status === 'occupied' && debt === 0 && <span className="w-2 h-2 rounded-full bg-teal-400" />}
@@ -200,7 +202,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                         <CalendarDays size={9} />Бронь / ожидает заезда
                     </span>
                 )}
-                {guest?.isBonusStay && (
+                {(isBonus || guest?.isBonusStay) && (
                     <span className="text-[10px] font-bold text-orange-600 mt-0.5 flex items-center gap-1">
                         🎁 Бонусные дни
                     </span>
@@ -269,11 +271,14 @@ const buildBedsData = (room, guests) => {
         const nextBooking = bg
             .filter(g => g.status === 'booking')
             .sort((a, b) => new Date(a.checkInDate) - new Date(b.checkInDate))[0];
-        let status = 'free', displayGuest = null, debt = 0, isTimeout = false, freeForDays = null;
+        let status = 'free', displayGuest = null, debt = 0, isTimeout = false, isBonus = false, freeForDays = null;
         if (activeGuest) {
-            const co = parseDate(activeGuest.checkOutDate);
-            const expired = co && now > co;
-            if (expired && (now - co) / 3_600_000 > 28) {
+            const co      = parseDate(activeGuest.checkOutDate);
+            const bonusCo = activeGuest.bonusCheckOutDate ? parseDate(activeGuest.bonusCheckOutDate) : null;
+            const effectiveCo = bonusCo || co;
+            const expired = effectiveCo && now > effectiveCo;
+            isBonus = !!(bonusCo && co && now > co && now <= bonusCo);
+            if (expired && (now - effectiveCo) / 3_600_000 > 28) {
                 status = 'free';
             } else {
                 displayGuest = activeGuest;
@@ -286,7 +291,7 @@ const buildBedsData = (room, guests) => {
             if (du <= 0) { status = 'booking'; displayGuest = nextBooking; }
             else { status = 'free_limited'; displayGuest = nextBooking; freeForDays = du; }
         }
-        beds.push({ id: i, status, guest: displayGuest, debt, isTimeout, freeForDays });
+        beds.push({ id: i, status, guest: displayGuest, debt, isTimeout, isBonus, freeForDays });
     }
     return beds;
 };
