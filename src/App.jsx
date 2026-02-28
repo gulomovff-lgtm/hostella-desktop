@@ -1138,7 +1138,10 @@ return (
                         onDownloadCSV={downloadExpensesCSV}
                         onAddExpense={() => setExpenseModal(true)}
                         onDeleteExpense={(id, rec) => handleDeletePayment(id, 'expense', rec)}
-                        recurringExpenses={recurringExpenses}
+                        recurringExpenses={recurringExpenses.filter(t =>
+                            !t.hostelId || t.hostelId === 'all' ||
+                            t.hostelId === selectedHostelFilter
+                        )}
                         currentUser={currentUser}
                         onAddRecurring={addRecurring}
                         onUpdateRecurring={updateRecurring}
