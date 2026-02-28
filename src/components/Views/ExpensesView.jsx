@@ -325,22 +325,22 @@ const ExpensesView = ({
                                             <button
                                                 onClick={() => isEditing ? setEditId(null) : startEdit(tmpl)}
                                                 title={isEditing ? 'Отмена' : 'Редактировать'}
-                                                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'text-indigo-500 bg-indigo-50' : 'text-slate-500 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                                                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0 ${isEditing ? 'bg-indigo-100' : 'bg-slate-100 hover:bg-indigo-100'}`}
                                             >
-                                                {isEditing ? <X size={14} /> : <Pencil size={14} />}
+                                                {isEditing ? <X size={16} className="text-indigo-600" /> : <Pencil size={16} className="text-slate-700" />}
                                             </button>
                                             <button
                                                 onClick={() => onFireNow?.(tmpl)}
                                                 title="Внести сейчас"
-                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-emerald-500 hover:bg-emerald-50 transition-colors shrink-0"
+                                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors shrink-0"
                                             >
-                                                <Play size={14} />
+                                                <Play size={16} className="text-emerald-700" />
                                             </button>
                                             <button
                                                 onClick={() => onDeleteRecurring?.(tmpl.id)}
-                                                className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-100 transition-colors shrink-0"
+                                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-colors shrink-0"
                                             >
-                                                <Trash2 size={14} />
+                                                <Trash2 size={16} className="text-slate-700 group-hover:text-rose-600" />
                                             </button>
                                         </div>
                                         {isEditing && (
@@ -534,9 +534,9 @@ const ExpensesView = ({
                                                         >💰</button>
                                                     )}
                                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-100 transition-all shrink-0"
+                                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-all shrink-0"
                                                         title="Удалить">
-                                                        <Trash2 size={15}/>
+                                                        <Trash2 size={16} className="text-slate-700"/>
                                                     </button>
                                                 </div>
                                                 {isAdvanceOpen && (
@@ -605,9 +605,9 @@ const ExpensesView = ({
                                         ↩ {fmt(e.amount)}
                                     </span>
                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-100 transition-all shrink-0"
+                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 transition-all shrink-0"
                                         title="Удалить">
-                                        <Trash2 size={15}/>
+                                        <Trash2 size={16} className="text-slate-700"/>
                                     </button>
                                 </div>
                             );
