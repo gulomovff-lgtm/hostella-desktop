@@ -17,7 +17,7 @@
  * если сегодняшнее число >= dayOfMonth И этот месяц ещё не отмечен
  * в lastFiredMonth → добавляем расход в коллекцию expenses.
  */
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { HOSTELS } from '../utils/helpers';
@@ -32,6 +32,9 @@ export const useRecurringExpenses = ({
   showNotification,
 }) => {
 
+  // Сессионный замок: предотвращает двойное начисление при нескольких срабатываниях useEffect
+  const firedInSession = useRef(new Set());
+
   /* ── Авто-начисление при старте ────────────────────────────────────── */
   useEffect(() => {
     if (!recurringExpenses.length || !currentUser) return;
@@ -44,6 +47,11 @@ export const useRecurringExpenses = ({
         if (!tmpl.active) continue;
         if (tmpl.lastFiredMonth === curMonthKey) continue;
         if (today.getDate() < (tmpl.dayOfMonth || 1)) continue;
+
+        // Проверяем сессионный замок СИНХРОННО до любого await
+        const sessionKey = `${tmpl.id}:${curMonthKey}`;
+        if (firedInSession.current.has(sessionKey)) continue;
+        firedInSession.current.add(sessionKey); // блокируем сразу
 
         // Определяем хостелы для начисления
         const targetHostels =
@@ -69,11 +77,10 @@ export const useRecurringExpenses = ({
           }
         }
 
-        if (fired) {
-          showNotification?.(
-            `🔄 Авторасход: ${tmpl.name} — ${Number(tmpl.amount).toLocaleString()} сум`,
-            'success'
-          );
+        // Если ни одного расхода не добавилось — снимаем замок для повтора
+        if (!fired) {
+          firedInSession.current.delete(sessionKey);
+          continue;
         }
 
         // Отмечаем месяц как начисленный

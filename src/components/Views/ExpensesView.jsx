@@ -534,7 +534,7 @@ const ExpensesView = ({
                                                         >💰</button>
                                                     )}
                                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                                        className="sm:opacity-0 sm:group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                                        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
                                                         title="Удалить">
                                                         <Trash2 size={15}/>
                                                     </button>
@@ -605,7 +605,7 @@ const ExpensesView = ({
                                         ↩ {fmt(e.amount)}
                                     </span>
                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                        className="sm:opacity-0 sm:group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
                                         title="Удалить">
                                         <Trash2 size={15}/>
                                     </button>
