@@ -338,7 +338,7 @@ const ExpensesView = ({
                                             </button>
                                             <button
                                                 onClick={() => onDeleteRecurring?.(tmpl.id)}
-                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0"
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-100 transition-colors shrink-0"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -534,7 +534,7 @@ const ExpensesView = ({
                                                         >💰</button>
                                                     )}
                                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                                        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-100 transition-all shrink-0"
                                                         title="Удалить">
                                                         <Trash2 size={15}/>
                                                     </button>
@@ -605,7 +605,7 @@ const ExpensesView = ({
                                         ↩ {fmt(e.amount)}
                                     </span>
                                     <button onClick={() => onDeleteExpense(e.id, e)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-100 transition-all shrink-0"
                                         title="Удалить">
                                         <Trash2 size={15}/>
                                     </button>
