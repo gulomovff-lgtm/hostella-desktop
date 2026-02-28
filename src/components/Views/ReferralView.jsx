@@ -274,11 +274,12 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
   const displayName = getDisplayName(node);
   const tiersCount  = settings?.tiers?.length || 2;
 
-  const [addAmt, setAddAmt]         = useState(1);
-  const [showExtend, setShowExtend] = useState(false);
-  const [extSearch, setExtSearch]   = useState('');
-  const [extGuestId, setExtGuestId] = useState('');
-  const [extDays, setExtDays]       = useState(1);
+  const [addAmt, setAddAmt]             = useState(1);
+  const [showExtend, setShowExtend]     = useState(false);
+  const [extSearch, setExtSearch]       = useState('');
+  const [extGuestId, setExtGuestId]     = useState('');
+  const [extDays, setExtDays]           = useState(1);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const candidateGuests = guests.filter(g =>
     g.status === 'active' &&
@@ -433,12 +434,31 @@ const NodeCard = ({ node, level, selectedId, onSelect, onConfirm, onRedeem, onRe
             </div>
           )}
 
-          {!isVirtual && (
+          {!isVirtual && !confirmRemove && (
             <button type="button"
-              onClick={() => { if (window.confirm(`Убрать «${displayName}» из программы?`)) onRemove(node.id); }}
+              onClick={() => setConfirmRemove(true)}
               className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-red-500/20 hover:bg-red-500/40 text-red-400 text-xs font-medium transition-colors">
               ✕ Убрать из программы
             </button>
+          )}
+          {!isVirtual && confirmRemove && (
+            <div className="rounded-xl bg-red-900/40 border border-red-500/40 px-3 py-2.5 space-y-2">
+              <p className="text-xs text-red-300 text-center font-semibold">
+                Убрать «{displayName}» из программы?
+              </p>
+              <div className="flex gap-2">
+                <button type="button"
+                  onClick={() => { onRemove(node.id); setConfirmRemove(false); }}
+                  className="flex-1 py-1.5 rounded-xl bg-red-500 hover:bg-red-400 text-white text-xs font-bold transition-colors">
+                  Да, убрать
+                </button>
+                <button type="button"
+                  onClick={() => setConfirmRemove(false)}
+                  className="flex-1 py-1.5 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-medium transition-colors">
+                  Отмена
+                </button>
+              </div>
+            </div>
           )}
           {isVirtual && (
             <p className="text-center text-slate-500 text-[10px]">Корневой узел</p>
