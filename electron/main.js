@@ -49,7 +49,7 @@ function createWindow() {
 
   // Проверяем обновления через 3 секунды после запуска (только в production)
   if (!isDev) {
-    setTimeout(() => autoUpdater.checkForUpdates(), 3000);
+    setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
     // Повторно каждые 2 часа (только если не идёт скачивание)
     setInterval(() => {
       if (!isDownloading) autoUpdater.checkForUpdates();
@@ -138,7 +138,9 @@ autoUpdater.on('error', (err) => {
 
 // IPC: renderer просит установить обновление
 ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall();
+  // isSilent=true - без окна NSIS "Далее/Далее/Установить"
+  // isForceRunAfter=true - автоматически перезапустить приложение после установки
+  autoUpdater.quitAndInstall(true, true);
 });
 
 app.on('ready', createWindow);
