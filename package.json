@@ -1,7 +1,7 @@
 {
   "name": "hostella-desktop",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Hostella Management System",
   "author": "Fazliddin Gulomov",
   "main": "electron/main.js",
@@ -40,15 +40,12 @@
       "icon": "public/ic.ico"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Hostella",
-      "runAfterFinish": true,
-      "installerSidebar": "assets/installerSidebar.bmp",
-      "installerHeader": "assets/installerHeader.bmp",
-      "uninstallerSidebar": "assets/installerSidebar.bmp"
+      "runAfterFinish": true
     }
   },
   "dependencies": {
