@@ -49,7 +49,7 @@ function createWindow() {
 
   // Проверяем обновления через 3 секунды после запуска (только в production)
   if (!isDev) {
-    setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
+    setTimeout(() => autoUpdater.checkForUpdates(), 3000);
     // Повторно каждые 2 часа (только если не идёт скачивание)
     setInterval(() => {
       if (!isDownloading) autoUpdater.checkForUpdates();

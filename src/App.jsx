@@ -883,12 +883,7 @@ return (
             <button onClick={() => window.electronAPI?.installUpdate()} className="ml-4 px-3 py-1 bg-white text-green-700 rounded font-semibold text-xs hover:bg-green-50">Перезапустить</button>
           </div>
         )}
-        {hasUpdate && !updateDownloaded && updateProgress !== null && (
-          <div className="px-4 py-1.5 bg-blue-600 text-white text-xs z-50">
-            ⏬ Загрузка обновления... {updateProgress}%
-            <div className="mt-0.5 h-1 bg-blue-400 rounded overflow-hidden"><div className="h-full bg-white transition-all" style={{width: `${updateProgress}%`}} /></div>
-          </div>
-        )}
+
 
         <TopBar
             isOnline={isOnline}
