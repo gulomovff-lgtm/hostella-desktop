@@ -8,15 +8,21 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Primary tabs always shown in the bottom bar ─────────────────────────────
-const PRIMARY_TABS = [
+const PRIMARY_TABS_ADMIN = [
     { id: 'rooms',    icon: BedDouble,   label: 'Комнаты' },
     { id: 'calendar', icon: Calendar,    label: 'Календарь' },
-    { id: 'bookings', icon: Globe,       label: 'Брони',  badgeKey: 'bookings', glow: true },
-    { id: 'tasks',    icon: CheckSquare, label: 'Задачи', badgeKey: 'tasks' },
+    { id: 'bookings', icon: Globe,       label: 'Брони',   badgeKey: 'bookings', glow: true },
+    { id: 'tasks',    icon: CheckSquare, label: 'Задачи',  badgeKey: 'tasks' },
+];
+
+const PRIMARY_TABS_CASHIER = [
+    { id: 'rooms',    icon: BedDouble,   label: 'Комнаты' },
+    { id: 'calendar', icon: Calendar,    label: 'Календарь' },
+    { id: 'debts',    icon: AlertCircle, label: 'Долги' },
 ];
 
 // ─── Groups for the "Ещё" drawer ─────────────────────────────────────────────
-const MORE_GROUPS = (t) => [
+const MORE_GROUPS_ADMIN = (t) => [
     {
         label: 'Главное',
         items: [
@@ -45,10 +51,28 @@ const MORE_GROUPS = (t) => [
         label: 'Прочее',
         items: [
             { id: 'referrals',    icon: Users2,        label: 'Бонусы' },
-            { id: 'telegram',     icon: BellRing,     label: 'Telegram',  adminOnly: true },
-            { id: 'promos',       icon: Tag,           label: 'Промокоды', adminOnly: true },
-            { id: 'hostelconfig', icon: Settings,      label: 'Настройки', adminOnly: true },
-            { id: 'auditlog',     icon: ClipboardList, label: 'История',   superOnly: true },
+            { id: 'telegram',     icon: BellRing,      label: 'Telegram',  adminOnly: true },
+            { id: 'promos',       icon: Tag,            label: 'Промокоды', adminOnly: true },
+            { id: 'hostelconfig', icon: Settings,       label: 'Настройки', adminOnly: true },
+            { id: 'auditlog',     icon: ClipboardList,  label: 'История',   superOnly: true },
+        ],
+    },
+];
+
+const MORE_GROUPS_CASHIER = (t) => [
+    {
+        label: 'Главное',
+        items: [
+            { id: 'referrals', icon: Users2, label: 'Бонусы' },
+        ],
+    },
+    {
+        label: 'Прочее',
+        items: [
+            { id: 'bookings',      icon: Globe,          label: 'Брони',    badgeKey: 'bookings', glow: true },
+            { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon', badgeKey: 'registrations' },
+            { id: 'tasks',         icon: CheckSquare,    label: 'Задачи',   badgeKey: 'tasks' },
+            { id: 'clients',       icon: Users,          label: 'Клиенты' },
         ],
     },
 ];
@@ -99,7 +123,10 @@ const MobileNavigation = ({
         return true;
     };
 
-    const moreGroups   = MORE_GROUPS(t);
+    const moreGroups   = isAdmin
+        ? MORE_GROUPS_ADMIN(t)
+        : MORE_GROUPS_CASHIER(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount);
+    const PRIMARY_TABS  = isAdmin ? PRIMARY_TABS_ADMIN : PRIMARY_TABS_CASHIER;
     const allMoreIds   = moreGroups.flatMap(g => g.items.map(i => i.id));
     const activeInMore = allMoreIds.includes(activeTab);
     const showHostelBar = availableHostels?.length > 1;

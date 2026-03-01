@@ -9,51 +9,81 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Menu groups definition ───────────────────────────────────────────────────
-const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount) => [
-    {
-        id: 'main', label: null,
-        items: [
-            { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
-            { id: 'rooms',     icon: BedDouble,        label: t('rooms') },
-            { id: 'calendar',  icon: Calendar,          label: t('calendar') },
-        ],
-    },
-    {
-        id: 'ops', label: 'ОПЕРАЦИИ',
-        items: [
-            { id: 'bookings',      icon: Globe,          label: 'Брони',         badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-            { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon',      badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-            { id: 'debts',         icon: AlertCircle,    label: t('debts'),      permKey: 'viewDebts' },
-            { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),      badge: pendingTasksCount },
-            { id: 'clients',       icon: Users,          label: t('clients'),    permKey: 'viewClients' },
-        ],
-    },
-    {
-        id: 'finance', label: 'ФИНАНСЫ',
-        items: [
-            { id: 'reports',   icon: FileText,  label: t('reports'),   adminOnly: true, permKey: 'viewReports'  },
-            { id: 'expenses',  icon: Wallet,    label: t('expenses'),  adminOnly: true, permKey: 'viewExpenses' },
-            { id: 'analytics', icon: BarChart3, label: 'Аналитика',  adminOnly: true },
-        ],
-    },
-    {
-        id: 'staff', label: 'ПЕРСОНАЛ',
-        items: [
-            { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
-            { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
-        ],
-    },
-    {
-        id: 'settings', label: 'ПРОЧЕЕ',
-        items: [
-            { id: 'telegram',    icon: BellRing,     label: 'Telegram',   adminOnly: true },
-            { id: 'promos',      icon: Tag,           label: 'Промокоды', adminOnly: true },
-            { id: 'referrals',   icon: Users2,        label: 'Бонусы' },
-            { id: 'hostelconfig',icon: Settings,      label: 'Настройки', adminOnly: true },
-            { id: 'auditlog',    icon: ClipboardList, label: 'История',   superOnly: true },
-        ],
-    },
-];
+const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount, isAdmin) => {
+    if (isAdmin) {
+        return [
+            {
+                id: 'main', label: null,
+                items: [
+                    { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
+                    { id: 'rooms',     icon: BedDouble,        label: t('rooms') },
+                    { id: 'calendar',  icon: Calendar,          label: t('calendar') },
+                ],
+            },
+            {
+                id: 'ops', label: 'ОПЕРАЦИИ',
+                items: [
+                    { id: 'bookings',      icon: Globe,          label: 'Брони',     badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+                    { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon',  badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+                    { id: 'debts',         icon: AlertCircle,    label: t('debts'),  permKey: 'viewDebts' },
+                    { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),  badge: pendingTasksCount },
+                    { id: 'clients',       icon: Users,          label: t('clients'), permKey: 'viewClients' },
+                ],
+            },
+            {
+                id: 'finance', label: 'ФИНАНСЫ',
+                items: [
+                    { id: 'reports',   icon: FileText,  label: t('reports'),  adminOnly: true, permKey: 'viewReports'  },
+                    { id: 'expenses',  icon: Wallet,    label: t('expenses'), adminOnly: true, permKey: 'viewExpenses' },
+                    { id: 'analytics', icon: BarChart3, label: 'Аналитика',   adminOnly: true },
+                ],
+            },
+            {
+                id: 'staff', label: 'ПЕРСОНАЛ',
+                items: [
+                    { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
+                    { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
+                ],
+            },
+            {
+                id: 'settings', label: 'ПРОЧЕЕ',
+                items: [
+                    { id: 'telegram',    icon: BellRing,     label: 'Telegram',   adminOnly: true },
+                    { id: 'promos',      icon: Tag,           label: 'Промокоды', adminOnly: true },
+                    { id: 'referrals',   icon: Users2,        label: 'Бонусы' },
+                    { id: 'hostelconfig',icon: Settings,      label: 'Настройки', adminOnly: true },
+                    { id: 'auditlog',    icon: ClipboardList, label: 'История',   superOnly: true },
+                ],
+            },
+        ];
+    }
+    // ─── Кассир: брони/e-mehmon/задачи/клиенты → в «Прочее», бонусы → после долгов ───
+    return [
+        {
+            id: 'main', label: null,
+            items: [
+                { id: 'rooms',    icon: BedDouble, label: t('rooms') },
+                { id: 'calendar', icon: Calendar,  label: t('calendar') },
+            ],
+        },
+        {
+            id: 'ops', label: 'ОПЕРАЦИИ',
+            items: [
+                { id: 'debts',     icon: AlertCircle, label: t('debts'),   permKey: 'viewDebts' },
+                { id: 'referrals', icon: Users2,      label: 'Бонусы' },
+            ],
+        },
+        {
+            id: 'settings', label: 'ПРОЧЕЕ',
+            items: [
+                { id: 'bookings',      icon: Globe,          label: 'Брони',    badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+                { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon', badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+                { id: 'tasks',         icon: CheckSquare,    label: t('tasks'), badge: pendingTasksCount },
+                { id: 'clients',       icon: Users,          label: t('clients'), permKey: 'viewClients' },
+            ],
+        },
+    ];
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const Navigation = ({
@@ -120,11 +150,14 @@ const Navigation = ({
 
     const handleSettingsToggle = () => {
         if (!settingsOpen && settingsBtnRef.current) {
-            const rect = settingsBtnRef.current.getBoundingClientRect();
-            const menuH = 280;
-            const below = window.innerHeight - rect.bottom;
-            const top   = below < menuH ? rect.top - menuH + rect.height : rect.top;
-            setSettingsPos({ top: Math.max(8, top), left: rect.right + 8 });
+            const rect   = settingsBtnRef.current.getBoundingClientRect();
+            const menuH  = 300;
+            // Если от верха кнопки до низа экрана хватает — открываем вниз от кнопки,
+            // иначе прибиваем меню к нижнему краю экрана
+            const top = (window.innerHeight - rect.top >= menuH)
+                ? rect.top
+                : Math.max(8, window.innerHeight - menuH - 8);
+            setSettingsPos({ top, left: rect.right + 8 });
         }
         setSettingsOpen(o => !o);
     };
@@ -147,7 +180,7 @@ const Navigation = ({
         if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
         return true;
     };
-    const visibleGroups = NAV_GROUPS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount)
+    const visibleGroups = NAV_GROUPS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount, isAdmin)
         .map(g => ({ ...g, items: g.items.filter(filterItem) }))
         .filter(g => g.items.length > 0);
 
@@ -255,6 +288,8 @@ const Navigation = ({
                     border: '1px solid rgba(255,255,255,0.12)',
                     borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
                     zIndex: 99999, overflow: 'hidden',
+                    maxHeight: `calc(100vh - ${settingsPos.top}px - 8px)`,
+                    overflowY: 'auto',
                 }}>
                     {visibleGroups.find(g => g.id === 'settings')?.items.map(item => {
                         const Icon = item.icon;

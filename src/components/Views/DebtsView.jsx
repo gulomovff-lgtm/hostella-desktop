@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Printer, ChevronDown, Users, CheckCircle2, Edit, Wallet, Magnet, Plus } from 'lucide-react';
+import { Printer, ChevronDown, Users, CheckCircle2, Edit, Wallet, Magnet, Plus, X } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import CreateDebtModal from '../Modals/CreateDebtModal';
@@ -311,16 +311,15 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             {isCreateDebtModalOpen && <CreateDebtModal clients={clients} onClose={() => setIsCreateDebtModalOpen(false)} onCreate={onCreateDebt} lang={lang} />}
             
             {isPayModalOpen && (
-                <div className="fixed inset-0 z-[200] flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-t-2xl w-full shadow-2xl border-t border-slate-200 overflow-y-auto" style={{ maxHeight: '80vh' }}>
-                        {/* Handle */}
-                        <div className="flex justify-center pt-3 pb-1">
-                            <div className="w-10 h-1 rounded-full bg-slate-300" />
-                        </div>
+                <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
                         {/* Header */}
-                        <div className="px-5 py-3 border-b border-slate-200">
-                            <h3 className="font-bold text-base text-slate-800">{t('payDebt')}</h3>
-                            <p className="text-xs text-slate-500">{selectedDebtor?.fullName}</p>
+                        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="font-bold text-base text-slate-800">{t('payDebt')}</h3>
+                                <p className="text-xs text-slate-500">{selectedDebtor?.fullName}</p>
+                            </div>
+                            <button onClick={() => setIsPayModalOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full"><X size={18}/></button>
                         </div>
                         {/* Content */}
                         <div className="px-5 pt-4 pb-2 space-y-3">
@@ -348,8 +347,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                 </div>
                             ))}
                         </div>
-                        {/* Buttons — sticky above bottom nav */}
-                        <div className="flex gap-3 px-5 py-4 bg-white border-t border-slate-100" style={{ position: 'sticky', bottom: 0 }}>
+                        {/* Buttons */}
+                        <div className="flex gap-3 px-5 py-4 border-t border-slate-100">
                             <Button onClick={() => setIsPayModalOpen(false)} variant="secondary" className="flex-1">{t('cancel')}</Button>
                             <Button onClick={submitPayment} variant="success" className="flex-1">{t('save')}</Button>
                         </div>

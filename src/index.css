@@ -154,16 +154,16 @@ input[type="number"]::-webkit-inner-spin-button {
 
 /* ── Mobile: modal overlays become bottom sheets ── */
 @media (max-width: 640px) {
-  /* All modal overlays: remove padding, align bottom */
-  .fixed.inset-0.backdrop-blur-sm,
-  .fixed.inset-0.backdrop-blur-none {
+  /* All modal overlays: remove padding, align bottom (except centered modals) */
+  .fixed.inset-0.backdrop-blur-sm:not(.modal-centered),
+  .fixed.inset-0.backdrop-blur-none:not(.modal-centered) {
     padding: 0 !important;
     align-items: flex-end !important;
   }
 
   /* All modal panels: round top only, full-width, max height */
-  .fixed.inset-0.backdrop-blur-sm > div,
-  .fixed.inset-0.backdrop-blur-none > div {
+  .fixed.inset-0.backdrop-blur-sm:not(.modal-centered) > div,
+  .fixed.inset-0.backdrop-blur-none:not(.modal-centered) > div {
     max-width: 100vw !important;
     width: 100vw !important;
     border-radius: 20px 20px 0 0 !important;
