@@ -71,10 +71,14 @@ const Navigation = ({
     const [profilePos,    setProfilePos]    = React.useState({ top: 0 });
     const [checkinOpen,   setCheckinOpen]   = React.useState(false);
     const [checkinPos,    setCheckinPos]    = React.useState({ top: 0 });
+    const [settingsOpen,  setSettingsOpen]  = React.useState(false);
+    const [settingsPos,   setSettingsPos]   = React.useState({ top: 0 });
     const profileBtnRef  = React.useRef(null);
     const profileRef     = React.useRef(null);
     const checkinBtnRef  = React.useRef(null);
     const checkinMenuRef = React.useRef(null);
+    const settingsBtnRef = React.useRef(null);
+    const settingsMenuRef = React.useRef(null);
 
     React.useEffect(() => {
         const handler = (e) => {
@@ -86,6 +90,10 @@ const Navigation = ({
                 checkinMenuRef.current && !checkinMenuRef.current.contains(e.target) &&
                 checkinBtnRef.current  && !checkinBtnRef.current.contains(e.target)
             ) setCheckinOpen(false);
+            if (
+                settingsMenuRef.current && !settingsMenuRef.current.contains(e.target) &&
+                settingsBtnRef.current  && !settingsBtnRef.current.contains(e.target)
+            ) setSettingsOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -108,6 +116,17 @@ const Navigation = ({
             setProfilePos({ top: Math.max(8, top) });
         }
         setProfileOpen(o => !o);
+    };
+
+    const handleSettingsToggle = () => {
+        if (!settingsOpen && settingsBtnRef.current) {
+            const rect = settingsBtnRef.current.getBoundingClientRect();
+            const menuH = 280;
+            const below = window.innerHeight - rect.bottom;
+            const top   = below < menuH ? rect.top - menuH + rect.height : rect.top;
+            setSettingsPos({ top: Math.max(8, top), left: rect.right + 8 });
+        }
+        setSettingsOpen(o => !o);
     };
 
     const roleLabel   = isSuper ? t('superAdmin') : isAdmin ? t('admin') : t('cashier');
@@ -163,45 +182,103 @@ const Navigation = ({
                     <div key={group.id}>
                         {gi > 0 && (
                             <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
-                                {group.label && <div className="nav-gl">{group.label}</div>}
+                                {group.label && group.id !== 'settings' && <div className="nav-gl">{group.label}</div>}
                             </div>
                         )}
-                        {group.items.map(item => {
-                            const Icon = item.icon;
-                            const act  = activeTab === item.id;
-                            return (
+                        {group.id === 'settings' ? (
+                            /* ── Settings group → dropdown trigger ── */
+                            <>
+                                <div style={{ borderTop: gi > 0 ? undefined : '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
+                                    <div className="nav-gl">ПРОЧЕЕ</div>
+                                </div>
                                 <button
-                                    key={item.id}
-                                    onClick={() => setActiveTab(item.id)}
+                                    ref={settingsBtnRef}
+                                    onClick={handleSettingsToggle}
                                     className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
                                     style={{
-                                        background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                        color:      act ? '#e88c40' : '#9ecdd0',
-                                        borderLeft: act ? '3px solid #e88c40' : '3px solid transparent',
+                                        background: settingsOpen ? 'rgba(232,140,64,0.18)' : group.items.some(i => i.id === activeTab) ? 'rgba(232,140,64,0.12)' : 'transparent',
+                                        color:      settingsOpen || group.items.some(i => i.id === activeTab) ? '#e88c40' : '#9ecdd0',
+                                        borderLeft: group.items.some(i => i.id === activeTab) ? '3px solid #e88c40' : '3px solid transparent',
                                         outline: 'none',
                                     }}
-                                    onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
-                                    onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
+                                    onMouseOver={e => { if (!settingsOpen) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
+                                    onMouseOut={e  => { if (!settingsOpen) { e.currentTarget.style.background = group.items.some(i => i.id === activeTab) ? 'rgba(232,140,64,0.12)' : 'transparent'; e.currentTarget.style.color = group.items.some(i => i.id === activeTab) ? '#e88c40' : '#9ecdd0'; } }}
                                 >
-                                    <Icon size={20} strokeWidth={act ? 2.5 : 2} />
-                                    <span className="nav-lbl">{item.label}</span>
-                                    {(item.badge ?? 0) > 0 && (
-                                        <span
-                                            className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
-                                            style={{
-                                                background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
-                                                animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none',
-                                            }}
-                                        >
-                                            {item.badge}
-                                        </span>
-                                    )}
+                                    <Settings size={20} strokeWidth={settingsOpen ? 2.5 : 2} />
+                                    <span className="nav-lbl">Прочее</span>
                                 </button>
-                            );
-                        })}
+                            </>
+                        ) : (
+                            group.items.map(item => {
+                                const Icon = item.icon;
+                                const act  = activeTab === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => setActiveTab(item.id)}
+                                        className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
+                                        style={{
+                                            background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
+                                            color:      act ? '#e88c40' : '#9ecdd0',
+                                            borderLeft: act ? '3px solid #e88c40' : '3px solid transparent',
+                                            outline: 'none',
+                                        }}
+                                        onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
+                                        onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
+                                    >
+                                        <Icon size={20} strokeWidth={act ? 2.5 : 2} />
+                                        <span className="nav-lbl">{item.label}</span>
+                                        {(item.badge ?? 0) > 0 && (
+                                            <span
+                                                className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                                style={{
+                                                    background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
+                                                    animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none',
+                                                }}
+                                            >
+                                                {item.badge}
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })
+                        )}
                     </div>
                 ))}
             </div>
+
+            {/* ── Settings dropdown portal ── */}
+            {settingsOpen && ReactDOM.createPortal(
+                <div ref={settingsMenuRef} style={{
+                    position: 'fixed', left: settingsPos.left, top: settingsPos.top,
+                    width: 190, background: '#1e4a4f',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+                    zIndex: 99999, overflow: 'hidden',
+                }}>
+                    {visibleGroups.find(g => g.id === 'settings')?.items.map(item => {
+                        const Icon = item.icon;
+                        const act  = activeTab === item.id;
+                        return (
+                            <button key={item.id}
+                                onClick={() => { setSettingsOpen(false); setActiveTab(item.id); }}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
+                                style={{
+                                    color: act ? '#e88c40' : '#9ecdd0',
+                                    background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
+                                    border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s',
+                                }}
+                                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; } }}
+                                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
+                            >
+                                <Icon size={15} strokeWidth={act ? 2.5 : 2} />
+                                <span style={{ fontWeight: act ? 700 : 600 }}>{item.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>,
+                document.body,
+            )}
 
             {/* ── Action buttons ── */}
             {canPerformActions && (

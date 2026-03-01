@@ -515,7 +515,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                 )}
 
                 {currentView === 'pay' && (
-                    <div className="flex flex-col overflow-hidden h-full">
+                    <div className="flex flex-col overflow-hidden">
                         {hdr('Оплата', true)}
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
                             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">

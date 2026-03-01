@@ -113,7 +113,6 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
     // ─── Фильтры ─────────────────────────────────────────────────────────────
     const [period, setPeriod] = useState('30');
-    const [hostelFilter, setHostelFilter] = useState('all');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
 
@@ -143,33 +142,21 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         return payments.filter(p => {
             const t = new Date(p.date);
             if (t < startDate || t > endDate) return false;
-            if (hostelFilter !== 'all') {
-                const staff = users.find(u => u.id === p.staffId || u.login === p.staffId);
-                const h = p.hostelId || staff?.hostelId;
-                if (h && h !== hostelFilter) return false;
-            }
             return true;
         });
-    }, [payments, users, startDate, endDate, hostelFilter]);
+    }, [payments, startDate, endDate]);
 
     const filteredExpenses = useMemo(() => {
         return expenses.filter(e => {
             const t = new Date(e.date);
             if (t < startDate || t > endDate) return false;
-            if (hostelFilter !== 'all' && e.hostelId && e.hostelId !== hostelFilter) return false;
             return true;
         });
-    }, [expenses, startDate, endDate, hostelFilter]);
+    }, [expenses, startDate, endDate]);
 
-    const filteredGuests = useMemo(() => {
-        if (hostelFilter === 'all') return guests;
-        return guests.filter(g => g.hostelId === hostelFilter);
-    }, [guests, hostelFilter]);
+    const filteredGuests = useMemo(() => guests, [guests]);
 
-    const filteredRooms = useMemo(() => {
-        if (hostelFilter === 'all') return rooms;
-        return rooms.filter(r => r.hostelId === hostelFilter);
-    }, [rooms, hostelFilter]);
+    const filteredRooms = useMemo(() => rooms, [rooms]);
 
     // ─── KPI ──────────────────────────────────────────────────────────────────
     const totalIncome  = useMemo(() => filteredPayments.reduce((s, p) => s + (parseInt(p.amount) || 0), 0), [filteredPayments]);
@@ -273,7 +260,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         filteredPayments.forEach(p => {
             const g = guests.find(x => x.id === p.guestId);
             if (!g) return;
-            const key = g.roomNumber || g.roomId || '—';
+            const key = g.roomNumber || g.roomId || '';
+            if (!key || key === '—') return;
             map[key] = (map[key] || 0) + (parseInt(p.amount) || 0);
         });
         const sorted = Object.entries(map)
@@ -366,20 +354,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         </div>
                     )}
 
-                    {/* Хостел (только для admin/super) */}
-                    {isAdmin && (
-                        <div className="flex gap-1 ml-auto">
-                            {[['all','Все'],['hostel1','Хостел №1'],['hostel2','Хостел №2']].map(([id, label]) => (
-                                <button key={id} onClick={() => setHostelFilter(id)}
-                                    className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
-                                    style={hostelFilter === id
-                                        ? { background: '#e88c40', color: '#fff' }
-                                        : { background: '#f1f5f9', color: '#64748b' }}>
-                                    {label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+
                 </div>
 
                 {/* ── KPI-карточки ── */}

@@ -101,6 +101,18 @@ input[type="number"]::-webkit-inner-spin-button {
   :root { font-size: 14px; }
 }
 
+/* ── Small laptop screens: height-based scaling ── */
+@media (max-height: 800px) and (min-width: 769px) {
+  :root { font-size: 13.5px; }
+}
+
+@media (max-height: 700px) and (min-width: 769px) {
+  :root { font-size: 12.5px; }
+  /* Reduce modal max height so they don't overflow */
+  .max-h-\[92vh\] { max-height: 96dvh !important; }
+  .max-h-\[90vh\] { max-height: 94dvh !important; }
+}
+
 /* Desktop app: keep minimum window size */
 @media (min-width: 769px) {
   .app-root { min-width: 640px; min-height: 400px; }
