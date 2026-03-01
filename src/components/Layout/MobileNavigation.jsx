@@ -3,7 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck,
+    ClipboardCheck, BarChart3,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -29,8 +29,9 @@ const MORE_GROUPS = (t) => [
     {
         label: 'Финансы',
         items: [
-            { id: 'reports',  icon: FileText, label: t('reports'),  adminOnly: true },
-            { id: 'expenses', icon: Wallet,   label: t('expenses'), adminOnly: true },
+            { id: 'reports',   icon: FileText,  label: t('reports'),  adminOnly: true },
+            { id: 'expenses',  icon: Wallet,    label: t('expenses'), adminOnly: true },
+            { id: 'analytics', icon: BarChart3, label: 'Аналитика',  adminOnly: true },
         ],
     },
     {

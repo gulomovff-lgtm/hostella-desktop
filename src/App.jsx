@@ -146,6 +146,7 @@ import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
+import AnalyticsView from './components/Views/AnalyticsView';
 import { logAction } from './utils/auditLog';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { useClientActions }       from './hooks/useClientActions';
@@ -1183,6 +1184,18 @@ return (
 
                 {activeTab === 'auditlog' && currentUser.role === 'super' && (
                     <AuditLogView auditLog={auditLog} />
+                )}
+
+                {activeTab === 'analytics' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <AnalyticsView
+                        payments={filteredPayments}
+                        expenses={filteredExpenses}
+                        guests={filteredGuests}
+                        rooms={filteredRooms}
+                        users={usersList}
+                        currentUser={currentUser}
+                        lang={lang}
+                    />
                 )}
 
                 {activeTab === 'hostelconfig' && (currentUser.role === 'admin' || currentUser.role === 'super') && (

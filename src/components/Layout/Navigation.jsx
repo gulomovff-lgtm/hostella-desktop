@@ -4,7 +4,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, FileText, AlertCircle,
     CheckSquare, Wallet, Users, UserCog, Clock, Lock, LogOut,
     UserPlus, Power, Globe, BellRing, Tag, ClipboardList,
-    Settings, Users2, Building2, ClipboardCheck,
+    Settings, Users2, Building2, ClipboardCheck, BarChart3,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -31,8 +31,9 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
     {
         id: 'finance', label: 'ФИНАНСЫ',
         items: [
-            { id: 'reports',  icon: FileText, label: t('reports'),  adminOnly: true, permKey: 'viewReports'  },
-            { id: 'expenses', icon: Wallet,   label: t('expenses'), adminOnly: true, permKey: 'viewExpenses' },
+            { id: 'reports',   icon: FileText,  label: t('reports'),   adminOnly: true, permKey: 'viewReports'  },
+            { id: 'expenses',  icon: Wallet,    label: t('expenses'),  adminOnly: true, permKey: 'viewExpenses' },
+            { id: 'analytics', icon: BarChart3, label: 'Аналитика',  adminOnly: true },
         ],
     },
     {

@@ -199,6 +199,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [errors, setErrors] = useState({});
     const [blacklistWarning, setBlacklistWarning] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [currencyMode, setCurrencyMode] = useState('UZS'); // 'UZS' | 'USD'
 
     // --- Scan + Photo ---
@@ -367,24 +368,30 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         }
     };
 
-    const handleSubmit = (status) => {
+    const handleSubmit = async (status) => {
+        if (isSubmitting) return;
         if (!formData.fullName || !formData.roomId || !formData.bedId) return notify(t('fillAllFields'), 'error');
         if (blacklistWarning?.level === 'blacklist') {
             if (!window.confirm(`⚠️ Гость в чёрном списке. Заселить всё равно?`)) return;
         }
-        const checkIn = new Date(formData.checkInDate);
-        checkIn.setHours(checkInHour, 0, 0, 0);
-        const checkOut = new Date(checkIn);
-        checkOut.setDate(checkOut.getDate() + (parseInt(formData.days) || 1));
-        checkOut.setHours(checkOutHour, 0, 0, 0);
-        onSubmit({
-            ...formData,
-            status,
-            checkInDate: checkIn.toISOString(),
-            checkOutDate: checkOut.toISOString(),
-            totalPrice,
-            amountPaid: totalPaid
-        });
+        setIsSubmitting(true);
+        try {
+            const checkIn = new Date(formData.checkInDate);
+            checkIn.setHours(checkInHour, 0, 0, 0);
+            const checkOut = new Date(checkIn);
+            checkOut.setDate(checkOut.getDate() + (parseInt(formData.days) || 1));
+            checkOut.setHours(checkOutHour, 0, 0, 0);
+            await onSubmit({
+                ...formData,
+                status,
+                checkInDate: checkIn.toISOString(),
+                checkOutDate: checkOut.toISOString(),
+                totalPrice,
+                amountPaid: totalPaid
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -672,7 +679,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 <div className="px-6 py-4 border-t border-slate-200 bg-white shrink-0 flex items-center gap-3">
                     {step === 2 && (
                         <button onClick={() => handleSubmit('booking')}
-                            className="mr-auto px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-white font-bold transition-colors flex items-center gap-2 shadow-sm">
+                            disabled={isSubmitting}
+                            className="mr-auto px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors flex items-center gap-2 shadow-sm">
                             Бронь
                         </button>
                     )}
@@ -702,12 +710,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     ) : (
                         <>
                             <button onClick={() => handleSubmit('active')}
-                                className="px-10 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-sm transition-colors flex items-center gap-2">
-                                <CheckCircle2 size={20}/> ЗАСЕЛИТЬ
+                                disabled={isSubmitting}
+                                className="px-10 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors flex items-center gap-2">
+                                {isSubmitting ? <span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full inline-block"/> : <CheckCircle2 size={20}/>} ЗАСЕЛИТЬ
                             </button>
                             {totalPaid === 0 && totalPrice > 0 && (
                                 <button onClick={() => handleSubmit('active')}
-                                    className="ml-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
+                                    disabled={isSubmitting}
+                                    className="ml-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
                                     <Wallet size={14}/> В долг
                                 </button>
                             )}
