@@ -876,6 +876,13 @@ const t = (k) => TRANSLATIONS[lang][k];
 return (
     <div className="app-root w-full font-sans flex flex-col overflow-hidden text-slate-800 bg-[#f0f2f5]" style={{height:'100dvh', paddingTop:'env(safe-area-inset-top, 0px)' }}>
 
+        {/* Баннер офлайн */}
+        {!isOnline && (
+          <div className="flex items-center justify-between px-4 py-2 bg-red-600 text-white text-sm z-50">
+            <span>⚠️ <strong>Нет подключения к интернету.</strong> Оплаты не будут сохранены — не проводите платежи до восстановления связи!</span>
+          </div>
+        )}
+
         {/* Баннер обновления */}
         {updateDownloaded && (
           <div className="flex items-center justify-between px-4 py-2 bg-green-600 text-white text-sm z-50">
@@ -883,7 +890,12 @@ return (
             <button onClick={() => window.electronAPI?.installUpdate()} className="ml-4 px-3 py-1 bg-white text-green-700 rounded font-semibold text-xs hover:bg-green-50">Перезапустить</button>
           </div>
         )}
-
+        {hasUpdate && !updateDownloaded && updateProgress !== null && (
+          <div className="px-4 py-1.5 bg-blue-600 text-white text-xs z-50">
+            ⏬ Загрузка обновления... {updateProgress}%
+            <div className="mt-0.5 h-1 bg-blue-400 rounded overflow-hidden"><div className="h-full bg-white transition-all" style={{width: `${updateProgress}%`}} /></div>
+          </div>
+        )}
 
         <TopBar
             isOnline={isOnline}
@@ -1296,6 +1308,7 @@ return (
                 hostelInfo={currentHostelInfo} 
                 lang={lang}
                 onExtend={handleExtendGuest}
+                isOnline={isOnline}
             />
         )}
         

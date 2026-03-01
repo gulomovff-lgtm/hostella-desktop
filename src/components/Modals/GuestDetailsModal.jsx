@@ -159,7 +159,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, isOnline = true }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -241,20 +241,33 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         if (field === 'payQR')   setPayQR(String(rem));
     };
 
-    const handlePayDebt = () => {
+    const handlePayDebt = async () => {
         if (isPaymentSubmitting) return;
         const c=parseInt(payCash)||0, cd=parseInt(payCard)||0, q=parseInt(payQR)||0;
-        if (c+cd+q<=0) return notify('Введите сумму','error');
+        if (c+cd+q<=0) return notify('Введите сумму','еррор');
         setIsPaymentSubmitting(true);
-        onPayment(guest.id, {cash:c,card:cd,qr:q});
-        setTimeout(()=>{ setIsPaymentSubmitting(false); goBack(); }, 500);
+        try {
+            await onPayment(guest.id, {cash:c, card:cd, qr:q});
+        } catch(e) {
+            notify(e.message || 'Ошибка оплаты', 'error');
+        } finally {
+            setIsPaymentSubmitting(false);
+        }
     };
 
-    const handleSuperPaymentLocal = () => {
+    const handleSuperPaymentLocal = async () => {
         const amount = parseInt(superPayAmount) || 0;
         if (amount <= 0) return notify('Введите сумму', 'error');
-        if (onSuperPayment) onSuperPayment(guest.id, amount);
-        setSuperPayAmount('');
+        if (isPaymentSubmitting) return;
+        setIsPaymentSubmitting(true);
+        try {
+            if (onSuperPayment) await onSuperPayment(guest.id, amount);
+            setSuperPayAmount('');
+        } catch(e) {
+            notify(e.message || 'Ошибка', 'error');
+        } finally {
+            setIsPaymentSubmitting(false);
+        }
     };
 
     const handleExtend = () => {
@@ -264,7 +277,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         const newDays     = parseInt(guest.days) + days;
         const stay        = getStayDetails(guest.checkInDate, newDays);
         const newCheckOut = stay.end.toISOString();
-        const c=parseInt(payCash)||0, cd=parseInt(payCard)||0, q=parseInt(payQR)||0;
+        // Если нет интернета — игнорируем оплату, иначе данные не сохранятся
+        const c=isOnline?(parseInt(payCash)||0):0, cd=isOnline?(parseInt(payCard)||0):0, q=isOnline?(parseInt(payQR)||0):0;
 
         if (onExtend) {
             // Апп-уровень: с поддержкой undo
@@ -510,7 +524,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <div className="flex justify-between pt-2 border-t border-dashed border-slate-200"><span className="text-xs text-slate-400 uppercase font-bold">Останется</span><span className="font-bold text-slate-500">{Math.max(0,debt-((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))).toLocaleString()}</span></div>
                             </div>
                             {payFields}
-                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting} className="w-full py-3.5 bg-emerald-600 text-white rounded-xl font-bold shadow-lg hover:bg-emerald-700">ПОДТВЕРДИТЬ ОПЛАТУ</button>
+                            {!isOnline && (
+                                <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-semibold">
+                                    ⚠️ Нет интернета — оплата не сохранится. Дождитесь подключения.
+                                </div>
+                            )}
+                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting || !isOnline} className={`w-full py-3.5 text-white rounded-xl font-bold shadow-lg ${isOnline ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-300 cursor-not-allowed'}`}>ПОДТВЕРДИТЬ ОПЛАТУ</button>
                         </div>
                     </div>
                 )}
@@ -538,8 +557,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <span className="text-slate-500 font-bold">Стоимость:</span>
                                 <span className="text-2xl font-black text-indigo-600">+{(extendDays*parseInt(guest.pricePerNight)).toLocaleString()}</span>
                             </div>
-                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                {(!isAdmin && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
+                            {!isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)) > 0 && (
+                                <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-semibold">
+                                    ⚠️ Нет интернета — оплата не сохранится. Продление без оплаты.
+                                </div>
+                            )}
+                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${(!isAdmin && isOnline && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                {(!isAdmin && isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
                             </button>
                         </div>
                     </div>
