@@ -451,9 +451,12 @@ export function useGuestActions(ctx) {
     }
     if (guestData) {
       const hostelLabel = guestData.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
+      const notifType = guestData.status === 'booking' ? 'deleteBooking' : 'deleteGuest';
+      const notifIcon = guestData.status === 'booking' ? '🗑️' : '🚫';
+      const notifLabel = guestData.status === 'booking' ? 'Удалено бронирование' : 'Удалена запись гостя';
       sendTelegramMessage(
-        `🚫 <b>Удалена запись гостя</b>\n👤 ${guestData.fullName || '—'}\n🛏 ${hostelLabel} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`,
-        'deleteGuest'
+        `${notifIcon} <b>${notifLabel}</b>\n👤 ${guestData.fullName || '—'}\n🛏 ${hostelLabel} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`,
+        notifType
       );
     }
     setGuestDetailsModal({ open: false, guest: null });

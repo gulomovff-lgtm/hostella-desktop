@@ -1000,6 +1000,7 @@ return (
                         <CalendarView 
                             rooms={filteredRooms} 
                             guests={filteredGuests} 
+                            clients={clients}
                             onSlotClick={(room, bedId, guest, dateISO) => { 
                                 if (guest) setGuestDetailsModal({ open: true, guest }); 
                                 else { 

@@ -301,6 +301,66 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
     const CAT_COLORS = ['#ef4444','#f97316','#eab308','#06b6d4','#8b5cf6','#ec4899','#14b8a6','#64748b'];
 
+    // ─── 8. Новые заселения по дням ───────────────────────────────────────────
+    const newGuestsData = useMemo(() => {
+        const byDay = {};
+        filteredGuests.forEach(g => {
+            if (!g.checkInDate) return;
+            const ci = new Date(g.checkInDate);
+            if (ci < startDate || ci > endDate) return;
+            const k = isoDate(ci);
+            if (!byDay[k]) byDay[k] = { label: toDateStr(ci), count: 0 };
+            byDay[k].count += 1;
+        });
+        return Object.entries(byDay)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([, v]) => v);
+    }, [filteredGuests, startDate, endDate]);
+
+    // ─── 9. Распределение длительности проживания ────────────────────────────
+    const stayLengthData = useMemo(() => {
+        const buckets = { '1 д.': 0, '2 д.': 0, '3-5 д.': 0, '6-14 д.': 0, '15-30 д.': 0, '30+ д.': 0 };
+        filteredGuests.forEach(g => {
+            const d = parseInt(g.days) || 1;
+            if (d === 1)       buckets['1 д.'] += 1;
+            else if (d === 2)  buckets['2 д.'] += 1;
+            else if (d <= 5)   buckets['3-5 д.'] += 1;
+            else if (d <= 14)  buckets['6-14 д.'] += 1;
+            else if (d <= 30)  buckets['15-30 д.'] += 1;
+            else               buckets['30+ д.'] += 1;
+        });
+        return Object.entries(buckets)
+            .filter(([, v]) => v > 0)
+            .map(([label, count]) => ({ label, count }));
+    }, [filteredGuests]);
+
+    // ─── 10. Заезды по дням недели ───────────────────────────────────────────
+    const weekdayData = useMemo(() => {
+        const WDAYS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+        const map = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+        filteredGuests.forEach(g => {
+            if (!g.checkInDate) return;
+            const ci = new Date(g.checkInDate);
+            if (ci < startDate || ci > endDate) return;
+            map[ci.getDay()] = (map[ci.getDay()] || 0) + 1;
+        });
+        return [1, 2, 3, 4, 5, 6, 0].map(wd => ({ day: WDAYS[wd], count: map[wd] || 0 }));
+    }, [filteredGuests, startDate, endDate]);
+
+    // ─── 11. Задолженности гостей ─────────────────────────────────────────────
+    const debtGuestsData = useMemo(() => {
+        return filteredGuests
+            .filter(g => g.status === 'active' || g.status === 'checked_out')
+            .map(g => {
+                const paid = (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash||0) + (g.paidCard||0) + (g.paidQR||0)));
+                const debt = (g.totalPrice || 0) - paid;
+                return { name: (g.fullName?.split(' ')[0] || '—') + (g.roomNumber ? ` к.${g.roomNumber}` : ''), debt };
+            })
+            .filter(x => x.debt > 0)
+            .sort((a, b) => b.debt - a.debt)
+            .slice(0, 12);
+    }, [filteredGuests]);
+
     // ─── Средний чек ─────────────────────────────────────────────────────────
     const avgCheck = useMemo(() => {
         const checkedOutInPeriod = filteredGuests.filter(g => {
@@ -575,6 +635,91 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                             </div>
                         )}
                     </ChartCard>
+
+                    {/* 8. Новые заселения */}
+                    <ChartCard title="Новые заселения по дням" icon={Users}>
+                        {newGuestsData.length === 0 ? <Empty /> : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <AreaChart data={newGuestsData} margin={{ left: 10, right: 10, top: 5 }}>
+                                    <defs>
+                                        <linearGradient id="newGuestsGrad" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.35}/>
+                                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                        interval={Math.max(0, Math.floor(newGuestsData.length / 10) - 1)} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={30} />
+                                    <Tooltip formatter={(v) => [v + ' чел.', 'Заселений']} />
+                                    <Area type="monotone" dataKey="count" name="Заселений"
+                                        stroke="#8b5cf6" strokeWidth={2.5}
+                                        fill="url(#newGuestsGrad)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        )}
+                    </ChartCard>
+
+                    {/* 9. Длительность проживания */}
+                    <ChartCard title="Длительность проживания" icon={Calendar}>
+                        {stayLengthData.length === 0 ? <Empty /> : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <BarChart data={stayLengthData} margin={{ left: 10, right: 10, top: 20 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={35} />
+                                    <Tooltip formatter={(v) => [v + ' гостей']} />
+                                    <Bar dataKey="count" name="Гостей" radius={[6, 6, 0, 0]}>
+                                        {stayLengthData.map((_, i) => (
+                                            <Cell key={i} fill={['#06b6d4','#3b82f6','#8b5cf6','#ec4899','#f97316','#ef4444'][i % 6]} />
+                                        ))}
+                                        <LabelList dataKey="count" position="top"
+                                            style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
+                    </ChartCard>
+
+                    {/* 10. Заезды по дням недели */}
+                    <ChartCard title="Заезды по дням недели" icon={Calendar}>
+                        {weekdayData.every(d => d.count === 0) ? <Empty /> : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <BarChart data={weekdayData} margin={{ left: 10, right: 10, top: 20 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 700 }} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={30} />
+                                    <Tooltip formatter={(v) => [v + ' заездов']} />
+                                    <Bar dataKey="count" name="Заездов" radius={[6, 6, 0, 0]}>
+                                        {weekdayData.map((item, i) => (
+                                            <Cell key={i} fill={item.day === 'Сб' || item.day === 'Вс' ? '#f59e0b' : '#10b981'} />
+                                        ))}
+                                        <LabelList dataKey="count" position="top"
+                                            style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
+                    </ChartCard>
+
+                    {/* 11. Текущие задолженности */}
+                    {debtGuestsData.length > 0 && (
+                        <ChartCard title="Задолженности гостей" icon={TrendingDown}>
+                            <ResponsiveContainer width="100%" height={Math.max(220, debtGuestsData.length * 28)}>
+                                <BarChart data={debtGuestsData} layout="vertical" margin={{ left: 10, right: 60, top: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                                    <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                    <YAxis type="category" dataKey="name" width={110}
+                                        tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} />
+                                    <Tooltip formatter={(v) => [fmt(v), 'Долг']} />
+                                    <Bar dataKey="debt" name="Долг" fill="#ef4444" radius={[0, 6, 6, 0]}>
+                                        <LabelList dataKey="debt" position="right" formatter={fmtShort}
+                                            style={{ fontSize: 9, fill: '#ef4444', fontWeight: 700 }} />
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </ChartCard>
+                    )}
 
                 </div>
             </div>

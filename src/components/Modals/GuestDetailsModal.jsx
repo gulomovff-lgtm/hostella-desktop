@@ -226,6 +226,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const actualCost = daysStayed * parseInt(guest.pricePerNight);
     const balance    = totalPaid - actualCost;
 
+    // Bonus days from clients collection
+    const clientRecord = clients.find(c => c.passport && guest.passport &&
+        c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
+    const bonusDays = clientRecord?.bonusDays || 0;
+
     const disableWheel = e => e.target.blur();
     const goBack = () => { setCurrentView('dashboard'); setPayCash(''); setPayCard(''); setPayQR(''); };
 
@@ -420,6 +425,19 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                         <div>Итого: <span className="font-bold text-slate-600">{(guest.totalPrice||0).toLocaleString()}</span></div>
                                         <div>Оплачено: <span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
                                     </div>
+                                </div>
+                            )}
+
+                            {bonusDays > 0 && (
+                                <div className="rounded-xl p-3 border border-orange-200 bg-orange-50 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-2xl">🎁</span>
+                                        <div>
+                                            <div className="text-[10px] font-bold text-orange-500 uppercase">Бонусные дни</div>
+                                            <div className="text-xs text-orange-700">Доступно по реферальной программе</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-3xl font-black text-orange-500">{bonusDays}</div>
                                 </div>
                             )}
 

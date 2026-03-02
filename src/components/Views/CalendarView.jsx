@@ -48,7 +48,7 @@ const Flag = ({ code, size = 20 }) => {
 };
 
 // --- GuestTooltip ---
-const GuestTooltip = ({ guest, room, mousePos, lang }) => {
+const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const totalPaid = getTotalPaid(guest);
     const debt = (guest.totalPrice || 0) - totalPaid;
@@ -64,7 +64,10 @@ const GuestTooltip = ({ guest, room, mousePos, lang }) => {
     const daysTotal = parseInt(guest.days);
     const daysStayed = Math.min(daysTotal, Math.max(0, Math.ceil((now - checkIn) / (1000 * 60 * 60 * 24))));
     const daysLeft = Math.max(0, daysTotal - daysStayed);
-    const tooltipWidth = 320, tooltipHeight = 400, offset = 15;
+    // Bonus days from clients
+    const clientRecord = clients.find(c => c.passport && guest.passport && c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
+    const bonusDays = clientRecord?.bonusDays || 0;
+    const tooltipWidth = 320, tooltipHeight = 420, offset = 15;
     let x = mousePos.x + offset, y = mousePos.y + offset;
     if (x + tooltipWidth > window.innerWidth) x = mousePos.x - tooltipWidth - offset;
     if (y + tooltipHeight > window.innerHeight) y = mousePos.y - tooltipHeight - offset;
@@ -123,12 +126,21 @@ const GuestTooltip = ({ guest, room, mousePos, lang }) => {
                     </div>
                 </div>
             )}
+            {bonusDays > 0 && (
+                <div className="mt-3 bg-orange-500/20 rounded-xl p-3 border border-orange-400/30 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-lg">🎁</span>
+                        <span className="text-xs font-bold text-orange-300 uppercase">Бонусных дней</span>
+                    </div>
+                    <span className="text-xl font-black text-orange-400">{bonusDays}</span>
+                </div>
+            )}
         </div>
     );
 };
 
 // --- CalendarView ---
-const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest }) => {
+const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
@@ -422,7 +434,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                         return (
                             <div key={room.id} className="border-b-2 border-slate-300">
                                 <div className="flex items-center border-b border-slate-200 bg-slate-100" style={{ height: 28 }}>
-                                    <div className="shrink-0 flex items-center justify-between px-3 border-r-2 border-slate-300 sticky left-0 z-20 bg-slate-100" style={{ width: LABEL_W }}>
+                                    <div className="shrink-0 flex items-center justify-between px-3 border-r-2 border-slate-300 sticky left-0 z-[35] bg-slate-100" style={{ width: LABEL_W }}>
                                         <span className="flex items-center gap-1.5 font-black text-xs text-slate-700 whitespace-nowrap"><Building2 size={11} className="text-slate-500"/>№{room.number}</span>
                                         <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${occColor}`}>{occupied}/{capNum}</span>
                                     </div>
@@ -436,13 +448,13 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                     const hasCurrent = bedGuests.some(g => g.status === 'active');
                                     return (
                                         <div key={bedId} className={`flex relative border-b border-slate-100 group/row ${hasCurrent ? '' : 'bg-white'}`} style={{ height: ROW_H }}>
-                                            <div className={`shrink-0 flex items-center border-r-2 border-slate-200 sticky left-0 z-20 text-xs font-bold text-slate-500 ${hasCurrent ? 'bg-emerald-50' : 'bg-white'} ${isMobile ? 'gap-1 px-2' : 'gap-2 px-3'}`} style={{ width: LABEL_W }}>
+                                            <div className={`shrink-0 flex items-center border-r-2 border-slate-200 sticky left-0 z-[35] text-xs font-bold text-slate-500 ${hasCurrent ? 'bg-emerald-50' : 'bg-white'} ${isMobile ? 'gap-1 px-2' : 'gap-2 px-3'}`} style={{ width: LABEL_W }}>
                                                 <BedDouble size={isMobile ? 11 : 13} className={hasCurrent ? 'text-emerald-500' : 'text-slate-300'}/>
                                                 <span className="truncate">{isMobile ? `М.${bedId}` : `Место ${bedId}`}</span>
                                                 {!hasCurrent && !isMobile && <span className="ml-auto text-[9px] text-emerald-500 font-black">свободно</span>}
                                                 {!hasCurrent && isMobile && <span className="ml-auto text-[8px] text-emerald-500 font-black">✓</span>}
                                             </div>
-                                            <div className="relative flex-1" style={{ width: zoom * DAY_W }}>
+                                            <div className="relative flex-1 overflow-hidden" style={{ width: zoom * DAY_W }}>
                                                 <div className="absolute inset-0 flex pointer-events-none">
                                                     {days.map((d, i) => {
                                                         const isToday = d.str === todayStr;
@@ -523,7 +535,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     })}
                 </div>
             </div>
-            {hoveredGuest && <GuestTooltip guest={hoveredGuest} room={hoveredGuest.room} mousePos={mousePos} lang={lang}/>}
+            {hoveredGuest && <GuestTooltip guest={hoveredGuest} room={hoveredGuest.room} mousePos={mousePos} lang={lang} clients={clients}/>}
         </div>
     );
 };

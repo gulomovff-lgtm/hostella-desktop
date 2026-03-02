@@ -15,6 +15,7 @@ export const NOTIFICATION_TYPES = {
     autoCheckout:    { label: 'Авто-выселение',              icon: '⏰', category: 'guests',  color: '#f59e0b' },
     guestExtended:   { label: 'Продление проживания',        icon: '📅', category: 'guests',  color: '#3b82f6' },
     deleteGuest:     { label: 'Удаление записи гостя',       icon: '🚫', category: 'guests',  color: '#ef4444' },
+    deleteBooking:   { label: 'Удаление бронирования',         icon: '🗑️', category: 'guests',  color: '#f97316' },
     // ── Бронирование ───────────────────────────────────────────────────────
     newBooking:      { label: 'Онлайн-бронь (новая)',        icon: '📋', category: 'booking', color: '#8b5cf6' },
     bookingAccepted: { label: 'Бронь принята',               icon: '✅', category: 'booking', color: '#10b981' },
@@ -48,6 +49,7 @@ export const DEFAULT_TEMPLATES = {
     autoCheckout:    '⏰ <b>Авто-выселение</b>\n👤 {{guestName}} — просрочка > 24ч\n🛏 {{hostel}} · Комната {{room}}\n📅 Должен был выехать: {{checkOut}}',
     guestExtended:   '📅 <b>Продление проживания</b>\n👤 {{guestName}}\n➕ +{{extendDays}} дн. → {{checkOut}}\n💵 Доплачено: {{amount}} сум\n👷 Кассир: {{staffName}}',
     deleteGuest:     '🚫 <b>Удалена запись гостя</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Ком. {{room}}\n📅 {{checkIn}} → {{checkOut}}\n👤 Удалил: {{staffName}}',
+    deleteBooking:   '🗑️ <b>Удалено бронирование</b>\n👤 {{guestName}}\n🛏 {{hostel}} · Ком. {{room}}\n📅 {{checkIn}} → {{checkOut}}\n👤 Удалил: {{staffName}}',
     newBooking:      '📋 <b>Новая онлайн-бронь</b>\n👤 {{guestName}}\n📅 {{checkIn}} → {{checkOut}}\n🏨 {{hostel}}\n📞 {{phone}}',
     bookingAccepted: '✅ <b>Бронь принята</b>\n👤 {{guestName}}\n📅 {{checkIn}}\n🏨 {{hostel}}',
     bookingRejected: '❌ <b>Бронь отклонена</b>\n👤 {{guestName}}\n📅 {{checkIn}}\n🏨 {{hostel}}',
@@ -69,6 +71,7 @@ const TEMPLATE_VARS = {
     autoCheckout:    ['guestName','hostel','room','checkOut'],
     guestExtended:   ['guestName','extendDays','checkOut','amount','staffName'],
     deleteGuest:     ['guestName','hostel','room','checkIn','checkOut','staffName'],
+    deleteBooking:   ['guestName','hostel','room','checkIn','checkOut','staffName'],
     newBooking:      ['guestName','hostel','checkIn','checkOut','phone'],
     bookingAccepted: ['guestName','hostel','checkIn'],
     bookingRejected: ['guestName','hostel','checkIn'],
