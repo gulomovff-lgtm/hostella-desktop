@@ -171,8 +171,8 @@ const RecipientModal = ({ recipient, onSave, onClose }) => {
         setForm(f => ({ ...f, notifications: Object.fromEntries(Object.keys(NOTIFICATION_TYPES).map(k => [k, val])) }));
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-4 pt-4 pb-20 md:pb-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(90vh-4rem)] md:max-h-[90vh] flex flex-col overflow-hidden">
                 <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
                     <div className="font-black text-lg text-slate-800">
                         {recipient ? 'Редактировать получателя' : '+ Новый получатель'}
