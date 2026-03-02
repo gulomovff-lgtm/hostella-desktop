@@ -226,10 +226,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const actualCost = daysStayed * parseInt(guest.pricePerNight);
     const balance    = totalPaid - actualCost;
 
-    // Bonus days from clients collection
+    // Bonus days: first check guest.bonusDaysAdded (already applied), then client remaining balance
     const clientRecord = clients.find(c => c.passport && guest.passport &&
         c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
-    const bonusDays = clientRecord?.bonusDays || 0;
+    const bonusDays = (guest.bonusDaysAdded || 0) > 0
+        ? (guest.bonusDaysAdded || 0)
+        : (clientRecord?.bonusDays || 0);
 
     const disableWheel = e => e.target.blur();
     const goBack = () => { setCurrentView('dashboard'); setPayCash(''); setPayCard(''); setPayQR(''); };
@@ -434,7 +436,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                         <span className="text-2xl">🎁</span>
                                         <div>
                                             <div className="text-[10px] font-bold text-orange-500 uppercase">Бонусные дни</div>
-                                            <div className="text-xs text-orange-700">Доступно по реферальной программе</div>
+                                            <div className="text-xs text-orange-700">
+                                                {(guest.bonusDaysAdded || 0) > 0
+                                                    ? 'Начислено гостю по реферальной'
+                                                    : 'Доступно к использованию'}
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="text-3xl font-black text-orange-500">{bonusDays}</div>

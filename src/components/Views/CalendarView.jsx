@@ -64,9 +64,12 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
     const daysTotal = parseInt(guest.days);
     const daysStayed = Math.min(daysTotal, Math.max(0, Math.ceil((now - checkIn) / (1000 * 60 * 60 * 24))));
     const daysLeft = Math.max(0, daysTotal - daysStayed);
-    // Bonus days from clients
-    const clientRecord = clients.find(c => c.passport && guest.passport && c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
-    const bonusDays = clientRecord?.bonusDays || 0;
+    // Bonus days: first check guest.bonusDaysAdded (already applied), then client remaining balance
+    const clientRecord = clients.find(c => c.passport && guest.passport &&
+        c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
+    const bonusDays = (guest.bonusDaysAdded || 0) > 0
+        ? (guest.bonusDaysAdded || 0)
+        : (clientRecord?.bonusDays || 0);
     const tooltipWidth = 320, tooltipHeight = 420, offset = 15;
     let x = mousePos.x + offset, y = mousePos.y + offset;
     if (x + tooltipWidth > window.innerWidth) x = mousePos.x - tooltipWidth - offset;
@@ -130,7 +133,12 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
                 <div className="mt-3 bg-orange-500/20 rounded-xl p-3 border border-orange-400/30 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <span className="text-lg">🎁</span>
-                        <span className="text-xs font-bold text-orange-300 uppercase">Бонусных дней</span>
+                        <div>
+                            <span className="text-xs font-bold text-orange-300 uppercase">Бонусных дней</span>
+                            <div className="text-[10px] text-orange-400/80">
+                                {(guest.bonusDaysAdded || 0) > 0 ? 'начислено' : 'доступно'}
+                            </div>
+                        </div>
                     </div>
                     <span className="text-xl font-black text-orange-400">{bonusDays}</span>
                 </div>
