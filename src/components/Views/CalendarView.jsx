@@ -60,7 +60,9 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
         checkOut.setDate(checkOut.getDate() + parseInt(guest.days));
     }
     checkOut.setHours(12, 0, 0, 0);
-    const isExpired = now >= checkOut;
+    const bonusCheckOut = guest.bonusCheckOutDate ? new Date(guest.bonusCheckOutDate) : null;
+    const isBonus = !!(bonusCheckOut && now >= checkOut && now <= bonusCheckOut && guest.status !== 'checked_out');
+    const isExpired = now >= checkOut && !isBonus;
     const daysTotal = parseInt(guest.days);
     const daysStayed = Math.min(daysTotal, Math.max(0, Math.ceil((now - checkIn) / (1000 * 60 * 60 * 24))));
     const daysLeft = Math.max(0, daysTotal - daysStayed);
@@ -91,9 +93,10 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
                     <div className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${
                         guest.status==='booking'?'bg-amber-500 text-white':
                         guest.status==='checked_out'?'bg-slate-600 text-slate-200':
+                        isBonus?'bg-orange-400 text-white':
                         isExpired?'bg-rose-500 text-white':
                         debt>0?'bg-orange-500 text-white':'bg-emerald-500 text-white'}`}>
-                        {guest.status==='booking'?'Бронь':guest.status==='checked_out'?'Выселен':isExpired?'Просрочен':debt>0?'Долг':'Оплачено'}
+                        {guest.status==='booking'?'Бронь':guest.status==='checked_out'?'Выселен':isBonus?'🎁 Бонус':isExpired?'Просрочен':debt>0?'Долг':'Оплачено'}
                     </div>
                 </div>
             </div>

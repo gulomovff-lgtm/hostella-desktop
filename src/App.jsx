@@ -149,6 +149,7 @@ import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
 import { logAction } from './utils/auditLog';
 import { useGuestActions }        from './hooks/useGuestActions';
+import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
 import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
@@ -297,8 +298,17 @@ function App() {
                 checkOut.setHours(23, 59, 59, 999);
             }
 
-            // Правило 1: время вышло больше 24 часов назад
-            const expiredOver24h = checkOut < threshold24h;
+            // Пропустить гостя если бонусный день ещё активен
+            if (guest.bonusCheckOutDate) {
+                const bonusCo = new Date(guest.bonusCheckOutDate);
+                if (!isNaN(bonusCo.getTime()) && bonusCo > now) return;
+            }
+
+            // Правило 1: время вышло больше 24 часов назад (учитываем bonusCheckOutDate)
+            const effectiveCo = (guest.bonusCheckOutDate && !isNaN(new Date(guest.bonusCheckOutDate).getTime()))
+                ? new Date(guest.bonusCheckOutDate)
+                : checkOut;
+            const expiredOver24h = effectiveCo < threshold24h;
 
             // Правило 2: на том же месте появился другой активный гость (заново заселён, не продлён)
             const hasNewerGuest = guests.some(g2 =>
@@ -345,6 +355,30 @@ function App() {
 
     return () => clearInterval(interval);
 }, [guests, rooms, currentUser]);
+
+  // ─── Оффлайн очередь: загрузка файла Electron при старте, сохранение при закрытии ───
+  useEffect(() => {
+    loadFromElectron();
+    const handleBeforeUnload = () => {
+      const q = getQueue();
+      if (q.length > 0 && window.electronAPI?.savePendingPayments) {
+        window.electronAPI.savePendingPayments(q);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // ─── Очередь: флаш при восстановлении сети ───
+  useEffect(() => {
+    if (!isOnline) return;
+    const q = getQueue();
+    if (!q.length) return;
+    // Firestore (persistentLocalCache) уже синхронизовал записи автоматически.
+    // Очищаем ярлык и удаляем Electron-файл.
+    showNotification(`📶 Синхронизировано оффлайн-оплат (${q.length} записей)`, 'success');
+    clearQueue();
+  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
@@ -482,7 +516,7 @@ function App() {
     checkInModal, setCheckInModal,
     setGuestDetailsModal, setMoveGuestModal,
     setUndoStack, setUndoHistoryOpen,
-    showNotification,
+    showNotification, isOnline,
   });
 
   const {

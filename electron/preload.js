@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isMaximized:  () => ipcRenderer.invoke('window-isMaximized'),
   fetchIcal:    (url) => ipcRenderer.invoke('fetch-ical', url),
 
+  // Pending payments (offline safety net)
+  savePendingPayments: (data) => ipcRenderer.invoke('save-pending-payments', data),
+  loadPendingPayments: ()     => ipcRenderer.invoke('load-pending-payments'),
+
   // Auto-updater
   onUpdateAvailable:  (cb) => ipcRenderer.on('update-available',  (_e, info) => cb(info)),
   onUpdateProgress:   (cb) => ipcRenderer.on('update-progress',   (_e, p)    => cb(p)),

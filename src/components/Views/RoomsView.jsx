@@ -63,6 +63,13 @@ const buildTimeInfo = (guest, status, nowMs) => {
     if (!guest?.checkOutDate || status === 'free' || status === 'booking' || status === 'free_limited') return null;
     const co = parseDate(guest.checkOutDate);
     if (!co) return null;
+    // Bonus day: show bonus indicator instead of overdue
+    const bonusCo = guest.bonusCheckOutDate ? parseDate(guest.bonusCheckOutDate) : null;
+    if (bonusCo && nowMs >= co.getTime() && nowMs < bonusCo.getTime()) {
+        const msBonus = bonusCo.getTime() - nowMs;
+        const hBonus = Math.max(0, Math.floor(msBonus / 3_600_000));
+        return { label: hBonus > 0 ? `🎁 Бонус, ещё ${hBonus}ч.` : '🎁 Бонус', hot: false, isBonus: true };
+    }
     const ms = co.getTime() - nowMs;
     if (ms <= 0) return { label: 'Выезд просрочен', hot: true };
     const d = Math.floor(ms / 864e5);
@@ -76,10 +83,12 @@ const buildTimeInfo = (guest, status, nowMs) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Badge «Просрочено»
 // ─────────────────────────────────────────────────────────────────────────────
-const TimeoutBadge = () => (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-purple-100 text-purple-700 border border-purple-200">
-        <Clock size={8} strokeWidth={3} /> Просрочено
-    </span>
+const TimeoutBadge = ({ isBonus = false }) => (
+    isBonus
+        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-orange-100 text-orange-600 border border-orange-200">🎁 Бонус</span>
+        : <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-purple-100 text-purple-700 border border-purple-200">
+            <Clock size={8} strokeWidth={3} /> Просрочено
+          </span>
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,7 +216,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                         🎁 Бонусные дни
                     </span>
                 )}
-                {isTimeout && <TimeoutBadge />}
+                {(isTimeout || (bed?.isBonus)) && <TimeoutBadge isBonus={bed?.isBonus} />}
                 {debt > 0 ? (
                     <div className="flex items-center gap-1.5 mt-auto bg-rose-100/80 border border-rose-200 rounded-lg px-2 py-1">
                         <Wallet size={11} className="text-rose-500 shrink-0" />

@@ -1,16 +1,26 @@
 const electron = require('electron');
 const { app, BrowserWindow, ipcMain } = electron;
 const path = require('path');
+const fs = require('fs');
 const https = require('https');
 const http  = require('http');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
+
+// ─── Одиночный экземпляр ─────────────────────────────────────────────────────
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
 
 // Направляем логи обновлятора в файл
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 // Не устанавливаем автоматически — спрашиваем пользователя
 autoUpdater.autoInstallOnAppQuit = true;
+
+const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.json');
 
 let mainWindow;
 let isDownloading = false;
@@ -61,6 +71,35 @@ function createWindow() {
 ipcMain.handle('window-minimize', () => {
   mainWindow.minimize();
 });
+
+// ─── Pending payments file (offline safety net) ───────────────────────────────
+ipcMain.handle('save-pending-payments', (_event, data) => {
+  try {
+    const file = PENDING_FILE();
+    if (!data || !data.length) {
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+    } else {
+      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+    }
+    return true;
+  } catch (e) {
+    log.error('save-pending-payments error:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('load-pending-payments', () => {
+  try {
+    const file = PENDING_FILE();
+    if (!fs.existsSync(file)) return [];
+    const raw = fs.readFileSync(file, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    log.error('load-pending-payments error:', e.message);
+    return [];
+  }
+});
+
 
 ipcMain.handle('window-maximize', () => {
   if (mainWindow.isMaximized()) {
@@ -141,6 +180,13 @@ ipcMain.handle('install-update', () => {
   // isSilent=true - без окна NSIS "Далее/Далее/Установить"
   // isForceRunAfter=true - автоматически перезапустить приложение после установки
   autoUpdater.quitAndInstall(true, true);
+});
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
 });
 
 app.on('ready', createWindow);

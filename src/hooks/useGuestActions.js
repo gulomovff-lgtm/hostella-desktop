@@ -23,6 +23,7 @@ import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { getStayDetails, getTotalPaid } from '../utils/helpers';
+import { enqueuePayment } from '../utils/offlineQueue';
 
 export function useGuestActions(ctx) {
   const {
@@ -31,7 +32,7 @@ export function useGuestActions(ctx) {
     checkInModal, setCheckInModal,
     setGuestDetailsModal, setMoveGuestModal,
     setUndoStack, setUndoHistoryOpen,
-    showNotification,
+    showNotification, isOnline = true,
   } = ctx;
 
   // ─── Internal helpers ────────────────────────────────────────────────────
@@ -271,6 +272,12 @@ export function useGuestActions(ctx) {
       const safeStaffId = currentUser.id || currentUser.login;
       const { cash = 0, card = 0, qr = 0 } = amounts;
       const total = cash + card + qr;
+      // Firestore offline persistence (persistentLocalCache) handles queuing automatically.
+      // We also track in offlineQueue for Electron temp-file safety and UI badge.
+      if (!isOnline) {
+        enqueuePayment({ guestId, amounts: { cash, card, qr }, staffId: safeStaffId,
+          hostelId: currentUser.hostelId, guestName: guests.find(x=>x.id===guestId)?.fullName || '' });
+      }
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         paidCash: increment(cash), paidCard: increment(card), paidQR: increment(qr),
         amountPaid: increment(total),
@@ -288,7 +295,7 @@ export function useGuestActions(ctx) {
         }
       }
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification('Оплата принята', 'success');
+      showNotification(isOnline ? 'Оплата принята' : '📵 Оплата сохранена — синхронизируется при подключении', isOnline ? 'success' : 'warning');
     } catch (e) {
       showNotification(e.message, 'error');
     }

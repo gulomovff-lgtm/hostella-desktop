@@ -549,11 +549,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             </div>
                             {payFields}
                             {!isOnline && (
-                                <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-semibold">
-                                    ⚠️ Нет интернета — оплата не сохранится. Дождитесь подключения.
+                                <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-xs font-semibold">
+                                    📶 Оффлайн — оплата сохранится и синхронизируется при подключении
                                 </div>
                             )}
-                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting || !isOnline} className={`w-full py-3.5 text-white rounded-xl font-bold shadow-lg ${isOnline ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-300 cursor-not-allowed'}`}>ПОДТВЕРДИТЬ ОПЛАТУ</button>
+                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting} className="w-full py-3.5 text-white rounded-xl font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700">ПОДТВЕРДИТЬ ОПЛАТУ</button>
                         </div>
                     </div>
                 )}
@@ -582,12 +582,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <span className="text-2xl font-black text-indigo-600">+{(extendDays*parseInt(guest.pricePerNight)).toLocaleString()}</span>
                             </div>
                             {!isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)) > 0 && (
-                                <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-semibold">
-                                    ⚠️ Нет интернета — оплата не сохранится. Продление без оплаты.
+                                <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-xs font-semibold">
+                                    📶 Оффлайн — оплата сохранится и синхронизируется при подключении
                                 </div>
                             )}
-                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${(!isAdmin && isOnline && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                {(!isAdmin && isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
+                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                {(!isAdmin && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
                             </button>
                         </div>
                     </div>
