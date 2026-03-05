@@ -587,13 +587,20 @@ function refreshBadges(){
     const badge=document.getElementById('avail-'+bt+'-badge');
     if(!badge) continue;
     if(!S.heatmapsLoaded[bt]){badge.textContent='…';continue;}
-    if(!S.checkin||!S.checkout){
-      badge.textContent=CAPACITY[S.hostel][bt]+' мест';
-      badge.closest('.choice-btn')?.classList.remove('no-avail');
-    } else {
+    if(S.checkin&&S.checkout){
+      // Full range selected — show min availability over the range
       const av=minAvailInRange(S.checkin,S.checkout,bt);
       badge.textContent=av>0?av+' св.':'0';
       badge.closest('.choice-btn')?.classList.toggle('no-avail',av===0);
+    } else if(S.checkin){
+      // Only checkin selected — show availability on that day
+      const av=(S.heatmaps[bt]||{})[S.checkin]??CAPACITY[S.hostel][bt];
+      badge.textContent=av>0?av+' св.':'0';
+      badge.closest('.choice-btn')?.classList.toggle('no-avail',av===0);
+    } else {
+      // No dates — show total capacity
+      badge.textContent=CAPACITY[S.hostel][bt]+' мест';
+      badge.closest('.choice-btn')?.classList.remove('no-avail');
     }
   }
 }
@@ -704,7 +711,7 @@ function buildCal(year,month){
 function pickDay(iso){
   if(calPick==='checkin'||(S.checkin&&iso<=S.checkin)){
     S.checkin=iso; S.checkout=null; calPick='checkout';
-    updateDateDisplay(); renderCalendars(); checkStep1(); return;
+    updateDateDisplay(); renderCalendars(); refreshBadges(); checkStep1(); return;
   }
   if(iso>S.checkin){
     const d0=new Date(S.checkin+'T00:00:00'), d1=new Date(iso+'T00:00:00');
@@ -713,9 +720,9 @@ function pickDay(iso){
       const dt=new Date(d+'T00:00:00');
       if(dt>d0&&dt<d1&&av===0){block=true;break;}
     }
-    if(block){S.checkin=iso;S.checkout=null;calPick='checkout';}
+    if(block){S.checkin=iso;S.checkout=null;calPick='checkout';refreshBadges();}
     else{S.checkout=iso;calPick='checkin';updateAvailForRange(S.checkin,S.checkout);}
-  } else {S.checkin=iso;S.checkout=null;calPick='checkout';}
+  } else {S.checkin=iso;S.checkout=null;calPick='checkout';refreshBadges();}
   updateDateDisplay(); renderCalendars(); checkStep1();
 }
 function calNav(dir){calOffset=Math.max(0,calOffset+dir);renderCalendars();}

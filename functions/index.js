@@ -321,6 +321,17 @@ exports.getAvailability = functions.https.onRequest(async (req, res) => {
         const hostellaDb = getFirestore('hostella');
         const APP_ID = 'hostella-multi-v4';
 
+        // Fetch rooms to know capacity (needed to classify numeric bedIds as upper/lower)
+        const roomsSnap = await hostellaDb
+            .collection(`artifacts/${APP_ID}/public/data/rooms`)
+            .where('hostelId', '==', hostelId)
+            .get();
+
+        const roomCapMap = {}; // roomId -> capacity
+        roomsSnap.forEach(docSnap => {
+            roomCapMap[docSnap.id] = parseInt(docSnap.data().capacity) || 0;
+        });
+
         const snapshot = await hostellaDb
             .collection(`artifacts/${APP_ID}/public/data/guests`)
             .where('hostelId', '==', hostelId)
@@ -332,13 +343,26 @@ exports.getAvailability = functions.https.onRequest(async (req, res) => {
             const g = docSnap.data();
             if (!g.checkInDate || !g.checkOutDate) return;
 
-            // Determine bed type: explicit field or infer from bedId prefix
-            const gBedType = g.bedType ||
-                (g.bedId
-                    ? (g.bedId.toLowerCase().startsWith('upper') ? 'upper'
-                      : g.bedId.toLowerCase().startsWith('lower') ? 'lower'
-                      : null)
-                    : null);
+            // Step 1: explicit bedType field
+            let gBedType = g.bedType || null;
+
+            // Step 2: infer from string bedId prefix (e.g. "upper-3")
+            if (!gBedType && g.bedId && typeof g.bedId === 'string' && isNaN(g.bedId)) {
+                const bl = g.bedId.toLowerCase();
+                if (bl.startsWith('upper')) gBedType = 'upper';
+                else if (bl.startsWith('lower')) gBedType = 'lower';
+            }
+
+            // Step 3: infer from numeric bedId + room capacity
+            // App logic: bedNum <= ceil(cap/2) → lower, bedNum > ceil(cap/2) → upper
+            if (!gBedType && g.bedId && g.roomId) {
+                const cap    = roomCapMap[g.roomId] || 0;
+                const bedNum = parseInt(g.bedId);
+                if (cap > 0 && bedNum > 0) {
+                    const mid = Math.ceil(cap / 2);
+                    gBedType  = bedNum > mid ? 'upper' : 'lower';
+                }
+            }
 
             if (gBedType !== bedType) return;
 
