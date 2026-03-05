@@ -299,6 +299,166 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
     return { success: successful > 0, sent: successful, total: targetChatIds.length, failed, errors };
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getAvailability — public HTTP endpoint for the booking widget
+// Returns booked date ranges from Firestore for a given hostel + bed type.
+// Query params: hostelId, bedType, months (default=3)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getAvailability = functions.https.onRequest(async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+
+    const { hostelId, bedType } = req.query;
+    if (!hostelId || !bedType) {
+        res.status(400).json({ ok: false, error: 'hostelId and bedType required' });
+        return;
+    }
+
+    try {
+        const { getFirestore } = require('firebase-admin/firestore');
+        const hostellaDb = getFirestore('hostella');
+        const APP_ID = 'hostella-multi-v4';
+
+        const snapshot = await hostellaDb
+            .collection(`artifacts/${APP_ID}/public/data/guests`)
+            .where('hostelId', '==', hostelId)
+            .where('status', 'in', ['active', 'booking'])
+            .get();
+
+        const ranges = [];
+        snapshot.forEach(docSnap => {
+            const g = docSnap.data();
+            if (!g.checkInDate || !g.checkOutDate) return;
+
+            // Determine bed type: explicit field or infer from bedId prefix
+            const gBedType = g.bedType ||
+                (g.bedId
+                    ? (g.bedId.toLowerCase().startsWith('upper') ? 'upper'
+                      : g.bedId.toLowerCase().startsWith('lower') ? 'lower'
+                      : null)
+                    : null);
+
+            if (gBedType !== bedType) return;
+
+            ranges.push({
+                checkIn:   g.checkInDate,
+                checkOut:  g.checkOutDate,
+                bedsCount: g.bedsCount || 1,
+            });
+        });
+
+        res.json({ ok: true, hostelId, bedType, count: ranges.length, ranges });
+    } catch (e) {
+        console.error('getAvailability error:', e);
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// createWebBooking — creates a guest/booking document in Firestore
+// from the booking website so it appears instantly in the Hostella app.
+// POST body (JSON): { fullName, phone, hostelId, bedType, bedsCount, checkIn,
+//                    checkOut, nights, amount, pricePerDay, paymentMethod,
+//                    paymentStatus, mysqlBookingId, comment }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.createWebBooking = functions.https.onRequest(async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
+
+    try {
+        const d = req.body || {};
+
+        if (!d.fullName || !d.checkIn || !d.checkOut || !d.hostelId) {
+            res.status(400).json({ ok: false, error: 'fullName, checkIn, checkOut, hostelId are required' });
+            return;
+        }
+
+        const { getFirestore } = require('firebase-admin/firestore');
+        const hostellaDb = getFirestore('hostella');
+        const APP_ID = 'hostella-multi-v4';
+
+        const hostelLabel = d.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
+        const bedLabel    = d.bedType  === 'lower'   ? 'Нижнее место' : 'Верхнее место';
+
+        const guestDoc = {
+            fullName:       d.fullName || '',
+            phone:          d.phone || '',
+            status:         'booking',
+            hostelId:       d.hostelId || 'hostel1',
+            bedType:        d.bedType  || 'upper',
+            bedsCount:      Number(d.bedsCount) || 1,
+            checkInDate:    new Date(d.checkIn).toISOString(),
+            checkOutDate:   new Date(d.checkOut).toISOString(),
+            days:           Number(d.nights) || 1,
+            totalPrice:     Number(d.amount) || 0,
+            pricePerDay:    Number(d.pricePerDay) || 0,
+            paidCash:       0,
+            paidCard:       0,
+            paidQR:         0,
+            amountPaid:     0,
+            comment:        d.comment || '',
+            paymentMethod:  d.paymentMethod || 'cash',
+            paymentStatus:  d.paymentStatus || 'pending',
+            mysqlBookingId: Number(d.mysqlBookingId) || 0,
+            source:         'web',
+            createdAt:      new Date().toISOString(),
+            createdBy:      'web',
+        };
+
+        const ref = await hostellaDb
+            .collection(`artifacts/${APP_ID}/public/data/guests`)
+            .add(guestDoc);
+
+        // Telegram notification via existing sendTelegram function internals
+        try {
+            const botToken = process.env.TELEGRAM_BOT_TOKEN;
+            if (botToken) {
+                const settingsRef = hostellaDb.doc(`artifacts/${APP_ID}/public/data/settings/telegram`);
+                const settingsSnap = await settingsRef.get();
+                const settings     = settingsSnap.exists ? settingsSnap.data() : null;
+                const recipients   = (settings?.recipients || []).filter(r =>
+                    r.active && r.telegramId && r.notifications?.checkin !== false
+                );
+
+                if (recipients.length > 0) {
+                    const ci = new Date(d.checkIn).toLocaleDateString('ru');
+                    const co = new Date(d.checkOut).toLocaleDateString('ru');
+                    const text = `🌐 <b>Онлайн-бронирование</b>\n`
+                        + `👤 ${guestDoc.fullName}\n`
+                        + `📞 ${guestDoc.phone}\n`
+                        + `🏨 ${hostelLabel} · ${bedLabel} × ${guestDoc.bedsCount}\n`
+                        + `📅 ${ci} → ${co} (${guestDoc.days} дн.)\n`
+                        + `💰 ${Number(d.amount).toLocaleString('ru')} сум · ${d.paymentMethod === 'cash' ? 'Наличные' : d.paymentMethod === 'payme' ? 'Payme' : 'Click'}\n`
+                        + `💬 ${guestDoc.comment || '—'}\n`
+                        + `🔖 MySQL #${d.mysqlBookingId || '—'}`;
+
+                    await Promise.allSettled(recipients.map(r => {
+                        const payload = { chat_id: r.telegramId, text, parse_mode: 'HTML' };
+                        if (r.threadId) payload.message_thread_id = parseInt(r.threadId, 10);
+                        return fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload),
+                        });
+                    }));
+                }
+            }
+        } catch (tgErr) {
+            console.warn('Telegram notification failed (non-fatal):', tgErr.message);
+        }
+
+        res.json({ ok: true, firestoreId: ref.id });
+    } catch (e) {
+        console.error('createWebBooking error:', e);
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // Admin Stats Password Verification
 // Secure password check for admin-stats.html
 exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
