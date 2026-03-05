@@ -231,7 +231,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         return guests.filter(g => {
             if (seen.has(g.id)) return false; seen.add(g.id);
             const ci = parseDate(g.checkInDate || g.checkInDateTime);
-            const co = parseDate(g.bonusCheckOutDate || g.checkOutDate);
+            const isOut = g.status === 'checked_out';
+            const co = parseDate((!isOut && g.bonusCheckOutDate) ? g.bonusCheckOutDate : g.checkOutDate);
             if (!ci) return false;
             if (co && co < rangeStart) return false;
             if (ci > rangeEnd) return false;
@@ -250,7 +251,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         const result = {};
         filteredGuests.forEach(g => {
             let ci = parseDate(g.checkInDate || g.checkInDateTime);
-            let co = parseDate(g.bonusCheckOutDate || g.checkOutDate);
+            const isOut = g.status === 'checked_out';
+            let co = parseDate((!isOut && g.bonusCheckOutDate) ? g.bonusCheckOutDate : g.checkOutDate);
             if (!ci) return;
             if (!co) { co = new Date(ci); co.setDate(co.getDate() + parseInt(g.days || 1)); }
             ci = new Date(ci); ci.setHours(12,0,0,0);
@@ -270,7 +272,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const count = filteredGuests.filter(g => {
                 if (g.status === 'checked_out') return false;
                 const ci = parseDate(g.checkInDate || g.checkInDateTime);
-                const co = parseDate(g.bonusCheckOutDate || g.checkOutDate);
+                const co = parseDate(g.bonusCheckOutDate ? g.bonusCheckOutDate : g.checkOutDate);
                 if (!ci) return false;
                 const ciStr = getLocalDateString(ci);
                 const coStr = co ? getLocalDateString(co) : null;

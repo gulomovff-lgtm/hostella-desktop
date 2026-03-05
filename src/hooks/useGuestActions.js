@@ -242,6 +242,7 @@ export function useGuestActions(ctx) {
 
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
       totalPrice: final.totalPrice, status: 'checked_out', checkOutDate: finalCheckOutDate,
+      bonusCheckOutDate: deleteField(),
     });
 
     // Sync to clients collection on checkout (don't increment visits — already counted on check-in)
