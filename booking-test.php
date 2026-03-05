@@ -66,8 +66,8 @@ function callCF(string $path, string $method = 'GET', array $payload = []): arra
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 15,
-            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT        => 7,
+            CURLOPT_CONNECTTIMEOUT => 4,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_FOLLOWLOCATION => true,
@@ -88,8 +88,8 @@ function callCF(string $path, string $method = 'GET', array $payload = []): arra
                 $ch2 = curl_init($url);
                 curl_setopt_array($ch2, [
                     CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT        => 15,
-                    CURLOPT_CONNECTTIMEOUT => 8,
+                    CURLOPT_TIMEOUT        => 7,
+                    CURLOPT_CONNECTTIMEOUT => 4,
                     CURLOPT_SSL_VERIFYPEER => false,
                     CURLOPT_FOLLOWLOCATION => true,
                     CURLOPT_HTTPHEADER     => ['Content-Type: application/json','Accept: application/json'],
@@ -120,7 +120,7 @@ function callCF(string $path, string $method = 'GET', array $payload = []): arra
         return $result;
     }
     // fallback: file_get_contents
-    $opts = ['http' => ['method' => $method, 'timeout' => 10, 'ignore_errors' => true,
+    $opts = ['http' => ['method' => $method, 'timeout' => 7, 'ignore_errors' => true,
                         'header' => "Content-Type: application/json\r\nAccept: application/json\r\n"]];
     if ($method === 'POST' && !empty($payload)) $opts['http']['content'] = json_encode($payload);
     $resp = @file_get_contents($url, false, stream_context_create($opts));
@@ -148,6 +148,7 @@ function paymeUrl(int $id, int $amt, string $phone): string {
 
 header('Vary: Accept');
 if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+    @ini_set('max_execution_time', 60);
     header('Content-Type: application/json; charset=utf-8');
     $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
