@@ -197,8 +197,8 @@ body{font-family:'Montserrat',sans-serif;background:#f4f6fb;color:var(--text);mi
 .hdr-logo img{height:36px}
 .hdr-back{color:rgba(255,255,255,.6);font-size:.82rem;text-decoration:none;display:flex;align-items:center;gap:6px;transition:color .2s}
 .hdr-back:hover{color:#fff}
-.wrap{max-width:980px;margin:0 auto;padding:28px 16px 60px}
-.stepper{display:flex;align-items:center;gap:0;margin-bottom:32px}
+.wrap{max-width:660px;margin:0 auto;padding:18px 14px 48px}
+.stepper{display:flex;align-items:center;gap:0;margin-bottom:20px}
 .step{display:flex;align-items:center;gap:8px;flex:1}
 .step-num{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:900;flex-shrink:0;transition:all .3s}
 .step-num.done{background:var(--green);color:#fff}
@@ -209,11 +209,11 @@ body{font-family:'Montserrat',sans-serif;background:#f4f6fb;color:var(--text);mi
 .step-label.done{color:var(--green)}
 .step-line{flex:1;height:2px;background:var(--border);margin:0 6px;border-radius:2px;min-width:18px;transition:background .4s}
 .step-line.done{background:var(--green)}
-.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:16px}
-.card-title{font-size:1rem;font-weight:900;margin-bottom:18px;display:flex;align-items:center;gap:10px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px;margin-bottom:10px}
+.card-title{font-size:.9rem;font-weight:900;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .card-title i{color:var(--accent);width:18px;text-align:center}
-.choices{display:flex;gap:12px;flex-wrap:wrap}
-.choice-btn{padding:12px 18px;border-radius:12px;border:2px solid var(--border);background:#fff;cursor:pointer;font-family:'Montserrat',sans-serif;font-size:.84rem;font-weight:700;display:flex;align-items:center;gap:10px;transition:all .2s;color:var(--text);text-align:left}
+.choices{display:flex;gap:8px;flex-wrap:wrap}
+.choice-btn{padding:9px 13px;border-radius:10px;border:2px solid var(--border);background:#fff;cursor:pointer;font-family:'Montserrat',sans-serif;font-size:.82rem;font-weight:700;display:flex;align-items:center;gap:8px;transition:all .2s;color:var(--text);text-align:left}
 .choice-btn:hover{border-color:var(--accent);color:var(--accent)}
 .choice-btn.selected{border-color:var(--accent);background:rgba(232,140,64,.07);color:var(--accent)}
 .choice-btn .cb-badge{background:var(--border);color:var(--muted);font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:20px;transition:all .2s;white-space:nowrap}
@@ -355,9 +355,7 @@ body{font-family:'Montserrat',sans-serif;background:#f4f6fb;color:var(--text);mi
           <div><div>Хостел №2</div><div style="font-size:.69rem;font-weight:500;color:inherit;margin-top:1px">6-й пр. Ниёзбек Йули, 39</div></div>
         </button>
       </div>
-    </div>
-
-    <div class="card">
+      <div style="border-top:1px solid var(--border);margin:12px -18px;"></div>
       <div class="card-title"><i class="fas fa-bed"></i> Тип места</div>
       <div class="choices">
         <button class="choice-btn selected" data-bed="upper" onclick="selectBed('upper',this)">
@@ -517,14 +515,13 @@ const DAYS      = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 
 const S = {
   hostel:'hostel1', bedType:'upper', checkin:null, checkout:null, beds:1, payMethod:'payme',
-  maxAvail:{upper:0,lower:0}, heatmap:{}, heatmapLoaded:false,
+  maxAvail:{upper:0,lower:0}, heatmaps:{upper:{},lower:{}}, heatmapsLoaded:{upper:false,lower:false},
 };
 let calOffset = 0, calPick = 'checkin';
 
 /* ── ТЕПЛОВАЯ КАРТА ── */
-async function loadHeatmap(hostel, bedType) {
-  S.heatmapLoaded = false; S.heatmap = {};
-  document.getElementById('avail-loading').style.display = 'flex';
+async function loadHeatmapForType(hostel, bedType) {
+  S.heatmapsLoaded[bedType] = false; S.heatmaps[bedType] = {};
   const today = new Date(); today.setHours(0,0,0,0);
 
   const [fbRanges, mysqlRanges] = await Promise.allSettled([
@@ -554,19 +551,24 @@ async function loadHeatmap(hostel, bedType) {
     }
   }
   for(const iso of Object.keys(hm)) hm[iso]=Math.max(0,cap-hm[iso]);
+  S.heatmaps[bedType]=hm; S.heatmapsLoaded[bedType]=true;
+}
 
-  S.heatmap=hm; S.heatmapLoaded=true;
+async function loadAllHeatmaps(hostel) {
+  document.getElementById('avail-loading').style.display = 'flex';
+  await Promise.all(['upper','lower'].map(bt => loadHeatmapForType(hostel, bt)));
   document.getElementById('avail-loading').style.display='none';
   if(S.checkin&&S.checkout) updateAvailForRange(S.checkin,S.checkout);
   renderCalendars();
   refreshBadges();
 }
 
-function minAvailInRange(ci,co){
-  if(!ci||!co) return CAPACITY[S.hostel][S.bedType];
+function minAvailInRange(ci,co,bedType){
+  const bt=bedType||S.bedType;
+  if(!ci||!co) return CAPACITY[S.hostel][bt];
   const d0=new Date(ci+'T00:00:00'),d1=new Date(co+'T00:00:00');
-  let min=CAPACITY[S.hostel][S.bedType];
-  for(const[iso,av] of Object.entries(S.heatmap)){
+  let min=CAPACITY[S.hostel][bt];
+  for(const[iso,av] of Object.entries(S.heatmaps[bt]||{})){
     const d=new Date(iso+'T00:00:00');
     if(d>=d0&&d<d1) min=Math.min(min,av);
   }
@@ -584,11 +586,12 @@ function refreshBadges(){
   for(const bt of['upper','lower']){
     const badge=document.getElementById('avail-'+bt+'-badge');
     if(!badge) continue;
+    if(!S.heatmapsLoaded[bt]){badge.textContent='…';continue;}
     if(!S.checkin||!S.checkout){
       badge.textContent=CAPACITY[S.hostel][bt]+' мест';
       badge.closest('.choice-btn')?.classList.remove('no-avail');
     } else {
-      const av=minAvailInRange(S.checkin,S.checkout);
+      const av=minAvailInRange(S.checkin,S.checkout,bt);
       badge.textContent=av>0?av+' св.':'0';
       badge.closest('.choice-btn')?.classList.toggle('no-avail',av===0);
     }
@@ -599,12 +602,13 @@ function refreshBadges(){
 function selectHostel(h){
   S.hostel=h; S.checkin=S.checkout=null; calPick='checkin';
   document.querySelectorAll('[data-hostel]').forEach(b=>b.classList.toggle('selected',b.dataset.hostel===h));
-  updatePriceLabels(); resetDateDisplay(); loadHeatmap(h,S.bedType);
+  updatePriceLabels(); resetDateDisplay(); loadAllHeatmaps(h);
 }
 function selectBed(b){
   S.bedType=b;
   document.querySelectorAll('[data-bed]').forEach(el=>el.classList.toggle('selected',el.dataset.bed===b));
-  loadHeatmap(S.hostel,b); checkStep1();
+  if(S.checkin&&S.checkout) updateAvailForRange(S.checkin,S.checkout);
+  renderCalendars(); checkStep1();
 }
 function updatePriceLabels(){
   const p=PRICES[S.hostel];
@@ -668,8 +672,9 @@ function buildCal(year,month){
     } else {
       if(date.getTime()===today.getTime()) el.classList.add('today');
 
-      if(S.heatmapLoaded&&iso in S.heatmap){
-        const av=S.heatmap[iso];
+      const hm=S.heatmaps[S.bedType]||{}, loaded=S.heatmapsLoaded[S.bedType];
+      if(loaded&&iso in hm){
+        const av=hm[iso];
         if(av===0){
           el.classList.add('fully-booked'); dot.className='avail-dot red';
           el.title='Мест нет';
@@ -678,7 +683,7 @@ function buildCal(year,month){
         } else {
           dot.className='avail-dot green'; el.title='Доступно '+av+' мест';
         }
-      } else if(S.heatmapLoaded){
+      } else if(loaded){
         dot.className='avail-dot green';
       }
 
@@ -704,7 +709,7 @@ function pickDay(iso){
   if(iso>S.checkin){
     const d0=new Date(S.checkin+'T00:00:00'), d1=new Date(iso+'T00:00:00');
     let block=false;
-    for(const[d,av] of Object.entries(S.heatmap)){
+    for(const[d,av] of Object.entries(S.heatmaps[S.bedType]||{})){
       const dt=new Date(d+'T00:00:00');
       if(dt>d0&&dt<d1&&av===0){block=true;break;}
     }
@@ -850,9 +855,10 @@ async function submitBooking(){
     }
     // Оптимистичное обновление карты
     const d0=new Date(S.checkin+'T00:00:00'),d1=new Date(S.checkout+'T00:00:00');
-    for(const iso of Object.keys(S.heatmap)){
+    const hm=S.heatmaps[S.bedType]||{};
+    for(const iso of Object.keys(hm)){
       const d=new Date(iso+'T00:00:00');
-      if(d>=d0&&d<d1) S.heatmap[iso]=Math.max(0,S.heatmap[iso]-S.beds);
+      if(d>=d0&&d<d1) hm[iso]=Math.max(0,hm[iso]-S.beds);
     }
     showSuccess(j.booking_id,S.payMethod==='cash');
   }catch(e){
@@ -893,7 +899,7 @@ function showSuccess(bid,isCash){
 /* ── ИНИЦИАЛИЗАЦИЯ ── */
 updatePriceLabels();
 renderCalendars();
-loadHeatmap(S.hostel, S.bedType);
+loadAllHeatmaps(S.hostel);
 </script>
 </body>
 </html>
