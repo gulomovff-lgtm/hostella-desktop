@@ -60,13 +60,39 @@ function encryptPayload(array $data): string {
 }
 
 function callCF(string $path, string $method = 'GET', array $payload = []): ?array {
-    $url  = CF_BASE . $path;
-    $opts = ['http' => ['method' => $method, 'timeout' => 8, 'ignore_errors' => true,
+    $url = CF_BASE . $path;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        ]);
+        if ($method === 'POST') {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        }
+        $resp = curl_exec($ch);
+        curl_close($ch);
+        return $resp ? json_decode($resp, true) : null;
+    }
+    // fallback: file_get_contents
+    $opts = ['http' => ['method' => $method, 'timeout' => 10, 'ignore_errors' => true,
                         'header' => "Content-Type: application/json\r\n"]];
     if ($method === 'POST' && !empty($payload)) $opts['http']['content'] = json_encode($payload);
-    $ctx  = stream_context_create($opts);
-    $resp = @file_get_contents($url, false, $ctx);
+    $resp = @file_get_contents($url, false, stream_context_create($opts));
     return $resp ? json_decode($resp, true) : null;
+}
+
+// Generate time-based CSRF nonce (valid 30 min)
+function genNonce(): string {
+    return hash_hmac('sha256', 'bk_'.floor(time()/1800), PAYMENT_SECRET);
+}
+function checkNonce(string $n): bool {
+    return hash_equals(genNonce(), $n)
+        || hash_equals(hash_hmac('sha256', 'bk_'.(floor(time()/1800)-1), PAYMENT_SECRET), $n);
 }
 
 function paymeUrl(int $id, int $amt, string $phone): string {
@@ -113,6 +139,11 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
     }
 
     if ($action === 'create_booking' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        // CSRF nonce check
+        if (!checkNonce($_POST['_nonce'] ?? '')) {
+            echo json_encode(['ok'=>false,'errors'=>['Сессия истекла. Обновите страницу.']]);
+            exit;
+        }
         global $db, $PRICES, $CAPACITY;
         $hostel    = in_array($_POST['hostel']   ?? '', ['hostel1','hostel2']) ? $_POST['hostel']   : null;
         $bedType   = in_array($_POST['bed_type'] ?? '', ['upper','lower'])     ? $_POST['bed_type'] : null;
@@ -144,25 +175,38 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
         $bookingId = (int)$db->lastInsertId();
         $token = encryptPayload(['booking_id'=>$bookingId,'amount'=>$amount,'phone'=>$phone,'method'=>$payMethod,'ts'=>time()]);
         $db->prepare("UPDATE bookings SET pay_token=? WHERE id=?")->execute([$token,$bookingId]);
-        $firestoreId = '';
-        $cfResp = callCF('/createWebBooking', 'POST', [
-            'fullName'=>$name,'phone'=>$phone,'hostelId'=>$hostel,'bedType'=>$bedType,
-            'bedsCount'=>$beds,'checkIn'=>$checkin.'T00:00:00.000Z','checkOut'=>$checkout.'T00:00:00.000Z',
-            'nights'=>$nights,'amount'=>$amount,'pricePerDay'=>$pricePerBed*$beds,
-            'paymentMethod'=>$payMethod,'paymentStatus'=>$payMethod==='cash'?'pending':'awaiting',
-            'mysqlBookingId'=>$bookingId,'comment'=>$comment,
-        ]);
-        if (!empty($cfResp['firestoreId'])) {
-            $firestoreId = $cfResp['firestoreId'];
-            $db->prepare("UPDATE bookings SET firestore_id=? WHERE id=?")->execute([$firestoreId,$bookingId]);
-        }
         $payUrl=''; $clickP=[];
         if ($payMethod==='payme') { $payUrl = paymeUrl($bookingId, $amount, $phone); }
         elseif ($payMethod==='click') {
             $clickP=['service_id'=>CLICK_SERVICE_ID,'merchant_id'=>CLICK_MERCHANT_ID,'amount'=>$amount,
                      'transaction_param'=>$bookingId,'return_url'=>(isset($_SERVER['HTTPS'])?'https://':'http://').$_SERVER['HTTP_HOST'].'/booking-test.php?paid='.$bookingId];
         }
-        echo json_encode(['ok'=>true,'booking_id'=>$bookingId,'amount'=>$amount,'nights'=>$nights,'firestore'=>$firestoreId,'pay_url'=>$payUrl,'click_params'=>$clickP]);
+
+        // Send response to browser immediately, then call CF in background
+        $cfPayload = [
+            'fullName'=>$name,'phone'=>$phone,'hostelId'=>$hostel,'bedType'=>$bedType,
+            'bedsCount'=>$beds,'checkIn'=>$checkin.'T00:00:00.000Z','checkOut'=>$checkout.'T00:00:00.000Z',
+            'nights'=>$nights,'amount'=>$amount,'pricePerDay'=>$pricePerBed*$beds,
+            'paymentMethod'=>$payMethod,'paymentStatus'=>$payMethod==='cash'?'pending':'awaiting',
+            'mysqlBookingId'=>$bookingId,'comment'=>$comment,
+        ];
+        $responseJson = json_encode(['ok'=>true,'booking_id'=>$bookingId,'amount'=>$amount,
+            'nights'=>$nights,'pay_url'=>$payUrl,'click_params'=>$clickP]);
+
+        // Flush response to client, then sync to Firestore
+        ignore_user_abort(true);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Length: '.strlen($responseJson));
+        header('Connection: close');
+        echo $responseJson;
+        if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
+        else { ob_end_flush(); flush(); }
+
+        // Background: sync to Firestore (browser already got response)
+        $cfResp = callCF('/createWebBooking', 'POST', $cfPayload);
+        if (!empty($cfResp['firestoreId'])) {
+            $db->prepare("UPDATE bookings SET firestore_id=? WHERE id=?")->execute([$cfResp['firestoreId'],$bookingId]);
+        }
         exit;
     }
     echo json_encode(['ok'=>false,'error'=>'Unknown action']); exit;
@@ -174,11 +218,13 @@ if (isset($_GET['paid']) && $db) {
     $row = $db->query("SELECT * FROM bookings WHERE id=$bid")->fetch(PDO::FETCH_ASSOC);
     if ($row) $paidMsg = $row['guest_name'];
 }
+$bookingNonce = genNonce();
 ?><!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="booking-nonce" content="<?= $bookingNonce ?>">
 <title>Онлайн-бронирование — Hostella Ташкент</title>
 <link rel="icon" href="/logo.png">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;900&display=swap" rel="stylesheet">
@@ -302,14 +348,34 @@ body{font-family:'Montserrat',sans-serif;background:#f4f6fb;color:var(--text);mi
 .booking-id-badge{display:inline-block;background:var(--accent);color:#fff;font-size:.85rem;font-weight:900;padding:6px 18px;border-radius:20px;letter-spacing:.06em;margin-bottom:6px}
 .spinner-sm{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
-.modal-overlay.open{display:flex}
-.modal-box{background:#fff;border-radius:18px;padding:24px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.22);animation:pop .22s ease}
-@keyframes pop{from{transform:scale(.93);opacity:0}to{transform:scale(1);opacity:1}}
-.modal-box h3{font-size:1rem;font-weight:900;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-.modal-box .sum-row{font-size:.83rem}
-.modal-actions{display:flex;gap:10px;margin-top:18px}
-.modal-actions .btn-primary{flex:1;justify-content:center}
+.modal-overlay{position:fixed;inset:0;background:rgba(10,15,30,.6);z-index:200;display:none;align-items:flex-end;justify-content:center;padding:0}
+.modal-overlay.open{display:flex;animation:fadeOverlay .2s ease}
+@keyframes fadeOverlay{from{opacity:0}to{opacity:1}}
+.modal-box{background:#fff;border-radius:22px 22px 0 0;padding:0;max-width:520px;width:100%;box-shadow:0 -8px 40px rgba(0,0,0,.18);animation:slideUp .28s cubic-bezier(.22,.68,0,1.2)}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-handle{width:36px;height:4px;background:#e5e7eb;border-radius:2px;margin:12px auto 0}
+.modal-header{padding:18px 22px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.modal-header-icon{width:40px;height:40px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.1rem;flex-shrink:0}
+.modal-title{font-size:.97rem;font-weight:900;color:var(--dark)}
+.modal-subtitle{font-size:.72rem;color:var(--muted);margin-top:1px}
+.modal-body{padding:16px 22px}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.modal-field{background:#f8f9fc;border-radius:10px;padding:9px 12px}
+.modal-field.wide{grid-column:span 2}
+.modal-field .mf-label{font-size:.62rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.modal-field .mf-val{font-size:.84rem;font-weight:700;color:var(--dark)}
+.modal-total-row{background:linear-gradient(135deg,#1e2740,#2a3555);border-radius:12px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.modal-total-row .mt-label{color:rgba(255,255,255,.7);font-size:.75rem;font-weight:600}
+.modal-total-row .mt-amount{color:#fff;font-size:1.15rem;font-weight:900}
+.modal-pay-row{display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:9px 13px;font-size:.77rem;font-weight:700;color:#15803d;margin-bottom:6px}
+.modal-pay-row.cash{background:#fffbeb;border-color:#fde68a;color:#92400e}
+.modal-security{display:flex;align-items:center;gap:6px;font-size:.68rem;color:var(--muted);margin-bottom:14px;padding:0 2px}
+.modal-actions{display:flex;gap:10px;padding:0 22px 20px}
+.modal-actions .btn-cancel{flex-shrink:0;background:#f3f4f6;color:var(--muted);border:none;padding:12px 18px;border-radius:12px;font-family:'Montserrat',sans-serif;font-size:.87rem;font-weight:700;cursor:pointer;transition:all .2s}
+.modal-actions .btn-cancel:hover{background:#e5e7eb;color:var(--dark)}
+.modal-actions .btn-confirm{flex:1;justify-content:center}
+@media(min-width:521px){.modal-overlay{align-items:center;padding:20px}.modal-box{border-radius:22px}}
+@media(max-width:640px){.modal-grid{grid-template-columns:1fr}.modal-field.wide{grid-column:span 1}}
 @media(max-width:640px){.form-row{grid-template-columns:1fr}.cal-wrap{flex-direction:column}.choices{flex-direction:column}.card{padding:16px}.cal{max-width:100%}}
 #click-form{display:none}
 </style>
@@ -480,11 +546,20 @@ body{font-family:'Montserrat',sans-serif;background:#f4f6fb;color:var(--text);mi
 
 <div class="modal-overlay" id="confirm-modal">
   <div class="modal-box">
-    <h3><i class="fas fa-clipboard-check" style="color:var(--accent)"></i>Подтвердите бронирование</h3>
-    <div id="modal-summary"></div>
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-header-icon"><i class="fas fa-clipboard-check"></i></div>
+      <div><div class="modal-title">Подтвердите бронь</div><div class="modal-subtitle">Проверьте данные перед отправкой</div></div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-grid" id="modal-grid"></div>
+      <div class="modal-total-row" id="modal-total"></div>
+      <div class="modal-pay-row" id="modal-pay-row"></div>
+      <div class="modal-security"><i class="fas fa-shield-halved" style="color:var(--green)"></i><span>Уникальный защищённый токен для этого запроса. Повторная отправка невозможна.</span></div>
+    </div>
     <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeConfirmModal()"><i class="fas fa-xmark"></i></button>
-      <button class="btn-primary" id="btn-confirm" onclick="submitBooking()">
+      <button class="btn-cancel" onclick="closeConfirmModal()"><i class="fas fa-xmark"></i> Отмена</button>
+      <button class="btn-primary btn-confirm" id="btn-confirm" onclick="submitBooking()">
         <i class="fas fa-lock"></i> <span id="btn-confirm-label">Оплатить</span>
       </button>
     </div>
@@ -583,24 +658,28 @@ function updateAvailForRange(ci,co){
 }
 
 function refreshBadges(){
+  const today=fmtISO(new Date());
   for(const bt of['upper','lower']){
     const badge=document.getElementById('avail-'+bt+'-badge');
     if(!badge) continue;
     if(!S.heatmapsLoaded[bt]){badge.textContent='…';continue;}
+    const btn=badge.closest('.choice-btn');
     if(S.checkin&&S.checkout){
-      // Full range selected — show min availability over the range
+      // Диапазон выбран — мин доступность за период
       const av=minAvailInRange(S.checkin,S.checkout,bt);
-      badge.textContent=av>0?av+' св.':'0';
-      badge.closest('.choice-btn')?.classList.toggle('no-avail',av===0);
+      S.maxAvail[bt]=av;
+      badge.textContent=av>0?av+' св.':'0 — занято';
+      btn?.classList.toggle('no-avail',av===0);
     } else if(S.checkin){
-      // Only checkin selected — show availability on that day
+      // Только заезд — доступность на день заезда
       const av=(S.heatmaps[bt]||{})[S.checkin]??CAPACITY[S.hostel][bt];
-      badge.textContent=av>0?av+' св.':'0';
-      badge.closest('.choice-btn')?.classList.toggle('no-avail',av===0);
+      badge.textContent=av>0?av+' св.':'0 — занято';
+      btn?.classList.toggle('no-avail',av===0);
     } else {
-      // No dates — show total capacity
-      badge.textContent=CAPACITY[S.hostel][bt]+' мест';
-      badge.closest('.choice-btn')?.classList.remove('no-avail');
+      // Даты не выбраны — сегодняшняя доступность
+      const av=(S.heatmaps[bt]||{})[today]??CAPACITY[S.hostel][bt];
+      badge.textContent=av>0?av+' св.':'0 — занято';
+      btn?.classList.toggle('no-avail',av===0);
     }
   }
 }
@@ -614,8 +693,12 @@ function selectHostel(h){
 function selectBed(b){
   S.bedType=b;
   document.querySelectorAll('[data-bed]').forEach(el=>el.classList.toggle('selected',el.dataset.bed===b));
-  if(S.checkin&&S.checkout) updateAvailForRange(S.checkin,S.checkout);
-  renderCalendars(); checkStep1();
+  if(S.checkin&&S.checkout){
+    // Recalculate maxAvail for the newly selected bed type
+    S.maxAvail[b]=minAvailInRange(S.checkin,S.checkout,b);
+    updateAvailBar(S.maxAvail[b]);
+  }
+  renderCalendars(); refreshBadges(); checkStep1();
 }
 function updatePriceLabels(){
   const p=PRICES[S.hostel];
@@ -822,18 +905,54 @@ function selectPay(m,lbl){
 function updatePayBtn(){
   const map={payme:'Оплатить через Payme',click:'Оплатить через Click',cash:'Подтвердить бронь'};
   document.getElementById('btn-pay-label').textContent=map[S.payMethod];
-  document.getElementById('btn-confirm-label').textContent=map[S.payMethod];
 }
 
 /* ── МОДАЛКА ── */
 function openConfirmModal(){
-  const pl={payme:'Payme',click:'Click',cash:'Наличные при заезде'};
-  document.getElementById('modal-summary').innerHTML=summaryHTML()+
-    `<div class="sum-row"><span class="lbl">Оплата</span><span class="val">${pl[S.payMethod]}</span></div>`;
+  const n=countNights(), p=PRICES[S.hostel][S.bedType], total=p*S.beds*n;
+  const payLabels={payme:'Payme — Humo / Uzcard / Visa',click:'Click — Humo / Uzcard',cash:'Наличные при заселении'};
+  const payIcons={payme:'fa-credit-card',click:'fa-credit-card',cash:'fa-money-bill-wave'};
+  const isCash=S.payMethod==='cash';
+
+  document.getElementById('modal-grid').innerHTML=`
+    <div class="modal-field wide">
+      <div class="mf-label">Филиал</div>
+      <div class="mf-val">${HOSTEL_NAMES[S.hostel]}</div>
+    </div>
+    <div class="modal-field">
+      <div class="mf-label">Тип места</div>
+      <div class="mf-val">${BED_NAMES[S.bedType]}</div>
+    </div>
+    <div class="modal-field">
+      <div class="mf-label">Мест &times; ночей</div>
+      <div class="mf-val">${S.beds} &times; ${n}</div>
+    </div>
+    <div class="modal-field">
+      <div class="mf-label">Заезд</div>
+      <div class="mf-val">${dispDate(S.checkin)}</div>
+    </div>
+    <div class="modal-field">
+      <div class="mf-label">Выезд</div>
+      <div class="mf-val">${dispDate(S.checkout)}</div>
+    </div>`;
+
+  document.getElementById('modal-total').innerHTML=`
+    <div><div class="mt-label">Итого к оплате</div><div class="mt-amount">${fmt(total)} сум</div></div>
+    <div style="background:rgba(255,255,255,.12);border-radius:8px;padding:4px 10px;font-size:.72rem;font-weight:700;color:#fff">${fmt(p)} &times; ${S.beds} &times; ${n}</div>`;
+
+  document.getElementById('modal-pay-row').className='modal-pay-row'+(isCash?' cash':'');
+  document.getElementById('modal-pay-row').innerHTML=`<i class="fas ${payIcons[S.payMethod]}"></i> ${payLabels[S.payMethod]}`;
+
+  document.getElementById('btn-confirm-label').textContent=isCash?'Подтвердить бронь':'Оплатить '+fmt(total)+' сум';
   document.getElementById('confirm-modal').classList.add('open');
+  document.body.style.overflow='hidden';
 }
-function closeConfirmModal(){document.getElementById('confirm-modal').classList.remove('open');}
+function closeConfirmModal(){
+  document.getElementById('confirm-modal').classList.remove('open');
+  document.body.style.overflow='';
+}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeConfirmModal();});
+document.getElementById('confirm-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeConfirmModal();});
 
 /* ── ОТПРАВКА ── */
 async function submitBooking(){
@@ -841,6 +960,7 @@ async function submitBooking(){
   errBox.classList.remove('show'); closeConfirmModal();
   const btnPay=document.getElementById('btn-pay');
   btnPay.disabled=true; btnPay.innerHTML='<span class="spinner-sm"></span> Обработка…';
+  const nonce=document.querySelector('meta[name="booking-nonce"]').content;
   const fd=new FormData();
   fd.append('action','create_booking');fd.append('hostel',S.hostel);fd.append('bed_type',S.bedType);
   fd.append('beds_count',S.beds);fd.append('checkin',S.checkin);fd.append('checkout',S.checkout);
@@ -848,8 +968,10 @@ async function submitBooking(){
   fd.append('guest_phone',document.getElementById('guest-phone').value.trim());
   fd.append('guest_comment',document.getElementById('guest-comment').value.trim());
   fd.append('payment_method',S.payMethod);
+  fd.append('_nonce',nonce);
   try{
     const r=await fetch(location.pathname,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:fd});
+    if(!r.ok) throw new Error('HTTP '+r.status);
     const j=await r.json();
     if(!j.ok){errTxt.textContent=(j.errors||['Ошибка']).join(' • ');errBox.classList.add('show');btnPay.disabled=false;updatePayBtn();return;}
     if(S.payMethod==='payme'&&j.pay_url){window.location.href=j.pay_url;return;}
@@ -869,7 +991,8 @@ async function submitBooking(){
     }
     showSuccess(j.booking_id,S.payMethod==='cash');
   }catch(e){
-    errTxt.textContent='Ошибка соединения. Попробуйте ещё раз.';
+    const msg=e.message&&e.message.startsWith('HTTP')?'Сервер недоступен. Попробуйте ещё раз.':'Ошибка сети. Проверьте интернет-соединение.';
+    errTxt.textContent=msg;
     errBox.classList.add('show');btnPay.disabled=false;updatePayBtn();
   }
 }
