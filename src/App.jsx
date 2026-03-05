@@ -290,6 +290,8 @@ function App() {
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
   useEffect(() => {
+    // AUTO-CHECKOUT DISABLED
+    return;
     if (!guests.length || !currentUser) return;
 
     const runAutoCheckout = async () => {
