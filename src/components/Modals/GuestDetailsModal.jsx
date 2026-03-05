@@ -159,7 +159,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, isOnline = true }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -198,6 +198,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().split('T')[0];
     });
     const [reduceDaysNoRefund, setReduceDaysNoRefund] = useState(1);
+    const [trimDays, setTrimDays] = useState(1);
     const [superPayAmount, setSuperPayAmount] = useState('');
     const [newStartDate, setNewStartDate] = useState(() => {
         try { return guest.checkInDate ? new Date(guest.checkInDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]; }
@@ -523,6 +524,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 </>
                             )}
                             {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('moveDate')} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Перенос дат"><CalendarDays size={17}/></button>}
+                            {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('trimDays')} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Срезать дни"><Scissors size={17}/></button>}
                             {!isCheckedOut && <button onClick={onOpenMove} className="ml-auto text-slate-500 hover:text-slate-800 font-bold text-xs flex items-center gap-1 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg"><ArrowLeftRight size={13}/> Переместить</button>}
                             {!isCheckedOut && (
                                 <button onClick={() => { setReplaceTab('db'); setReplaceSearch(''); setSelectedClient(null); setCurrentView('replaceGuest'); }}
@@ -703,6 +705,51 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <ShieldCheck size={16}/> ЗАЧЕСТЬ СУММУ
                             </button>
                             <p className="text-xs text-slate-400 text-center">Операция не отображается в финансовых отчётах</p>
+                        </div>
+                    </div>
+                )}
+
+                {currentView === 'trimDays' && (
+                    <div className="flex flex-col overflow-hidden h-full">
+                        {hdr('✂️ Срезать дни', true)}
+                        <div className="p-5 flex-1 overflow-y-auto space-y-4">
+                            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                                <div className="text-xs font-bold text-amber-700 uppercase mb-1">Текущий срок</div>
+                                <div className="text-2xl font-black text-amber-800">{guest.days} дн. &rarr; {new Date(guest.checkOutDate).toLocaleDateString('ru')}</div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Срезать дней</label>
+                                <div className="flex items-center gap-3">
+                                    <button onClick={()=>setTrimDays(d=>Math.max(1,d-1))} className="w-12 h-12 rounded-xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200 text-2xl font-bold">−</button>
+                                    <input type="number" min="1" max={Math.max(1, parseInt(guest.days||1)-1)}
+                                        className="flex-1 p-3 border-2 border-slate-200 rounded-xl font-black text-3xl text-center focus:border-amber-400 outline-none"
+                                        value={trimDays}
+                                        onChange={e=>setTrimDays(Math.max(1, Math.min(parseInt(guest.days||1)-1, parseInt(e.target.value)||1)))}
+                                        onWheel={disableWheel}/>
+                                    <button onClick={()=>setTrimDays(d=>Math.min(parseInt(guest.days||1)-1,d+1))} className="w-12 h-12 rounded-xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200 text-2xl font-bold">+</button>
+                                </div>
+                            </div>
+                            {trimDays >= 1 && (
+                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 flex justify-between">
+                                    <span>Новый выезд:</span>
+                                    <span className="font-black text-amber-700">
+                                        {(()=>{ const d=new Date(guest.checkOutDate); d.setDate(d.getDate()-trimDays); return d.toLocaleDateString('ru'); })()} &middot; {Math.max(1,parseInt(guest.days||1)-trimDays)} дн.
+                                    </span>
+                                </div>
+                            )}
+                            {trimDays > 0 && parseInt(guest.pricePerNight) > 0 && (
+                                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-700 flex justify-between">
+                                    <span>Изменение цены:</span>
+                                    <span className="font-black">−{(trimDays*parseInt(guest.pricePerNight)).toLocaleString()} сум</span>
+                                </div>
+                            )}
+                            <button
+                                onClick={()=>{ if(onTrimDays) onTrimDays(guest.id, trimDays); }}
+                                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-black shadow-lg"
+                            >
+                                СРЕЗАТЬ {trimDays} {trimDays===1?'ДЕНЬ':trimDays<5?'ДНЯ':'ДНЕЙ'}
+                            </button>
+                            <p className="text-xs text-slate-400 text-center">Отменить можно через кнопку «Отмена действий» в течение 30 мин.</p>
                         </div>
                     </div>
                 )}

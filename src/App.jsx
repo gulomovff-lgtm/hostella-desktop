@@ -265,8 +265,20 @@ function App() {
   const [templateEditorModal, setTemplateEditorModal] = useState(false);
   const [registrationModal,  setRegistrationModal ] = useState(false);
   const [showOnboarding,     setShowOnboarding    ] = useState(() => localStorage.getItem(ONBOARDING_KEY) !== 'done');
-  const [undoStack,         setUndoStack         ] = useState([]);
+  const [undoStack,         setUndoStack         ] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hostella_undo_v1');
+      if (!saved) return [];
+      const now = Date.now();
+      return JSON.parse(saved).filter(i => (now - new Date(i.timestamp).getTime()) < 30 * 60 * 1000);
+    } catch { return []; }
+  });
   const [undoHistoryOpen,   setUndoHistoryOpen   ] = useState(false);
+
+  // Persist undo stack across logouts/refreshes (30 min window)
+  useEffect(() => {
+    try { localStorage.setItem('hostella_undo_v1', JSON.stringify(undoStack)); } catch {}
+  }, [undoStack]);
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
@@ -509,7 +521,7 @@ function App() {
     handleRescheduleGuest, handleGuestUpdate,
     handleAdminReduceDays, handleAdminReduceDaysNoRefund,
     handlePayDebt, handleAdminAdjustDebt,
-    handleRejectBooking,
+    handleRejectBooking, handleTrimDays,
   } = useGuestActions({
     currentUser, rooms, guests, clients,
     selectedHostelFilter, lang,
@@ -1356,6 +1368,7 @@ return (
                 hostelInfo={currentHostelInfo} 
                 lang={lang}
                 onExtend={handleExtendGuest}
+                onTrimDays={handleTrimDays}
                 isOnline={isOnline}
             />
         )}
@@ -1457,7 +1470,7 @@ return (
             />
 
             {/* Floating undo button — visible to cashiers with pending undo items */}
-            {currentUser?.role === 'cashier' && undoStack.length > 0 && (
+            {undoStack.length > 0 && (
                 <button
                     onClick={() => setUndoHistoryOpen(true)}
                     className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg font-black text-sm transition-all"

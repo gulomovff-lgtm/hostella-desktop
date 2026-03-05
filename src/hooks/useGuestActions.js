@@ -17,7 +17,7 @@
  * @param {function} ctx.showNotification
  */
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch,
+  collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
@@ -122,6 +122,10 @@ export function useGuestActions(ctx) {
             amountPaid: increment(-rev),
           });
         }
+      } else if (item.type === 'trim') {
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
+          days: item.prevDays, totalPrice: item.prevTotalPrice, checkOutDate: item.prevCheckOut,
+        });
       } else if (item.type === 'expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
       }
@@ -309,6 +313,7 @@ export function useGuestActions(ctx) {
               newDays, newTotalPrice, newCheckOut } = extData;
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, status: 'active',
+        bonusCheckOutDate: deleteField(), // clear bonus date — real extension supersedes it
       });
       let paymentIds = [];
       const payTotal = payCash + payCard + payQR;
@@ -540,6 +545,34 @@ export function useGuestActions(ctx) {
     }
   };
 
+  const handleTrimDays = async (guestId, daysToRemove) => {
+    try {
+      const guest = guests.find(g => g.id === guestId);
+      if (!guest || daysToRemove <= 0) return;
+      const prevDays       = parseInt(guest.days || 1);
+      const prevTotalPrice = guest.totalPrice || 0;
+      const prevCheckOut   = guest.checkOutDate;
+      const pricePerNight  = parseInt(guest.pricePerNight) || (prevDays > 0 ? Math.round(prevTotalPrice / prevDays) : 0);
+      const newDays        = Math.max(1, prevDays - daysToRemove);
+      const newTotalPrice  = pricePerNight * newDays;
+      const newCheckOut    = new Date(guest.checkOutDate);
+      newCheckOut.setDate(newCheckOut.getDate() - daysToRemove);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+        days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut.toISOString(),
+      });
+      pushUndo({
+        type: 'trim',
+        label: `-${daysToRemove} дн. — ${guest.fullName}`,
+        guestId, prevDays, prevTotalPrice, prevCheckOut,
+      });
+      setGuestDetailsModal({ open: false, guest: null });
+      showNotification(`Срезано ${daysToRemove} дн. Выезд: ${newCheckOut.toLocaleDateString('ru')}`, 'success');
+      logAction(currentUser, 'trim_days', { guestName: guest.fullName, daysToRemove, newDays });
+    } catch (e) {
+      showNotification('Ошибка: ' + e.message, 'error');
+    }
+  };
+
   const handleRejectBooking = async (booking) => {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', booking.id));
@@ -559,6 +592,6 @@ export function useGuestActions(ctx) {
     handleRescheduleGuest, handleGuestUpdate,
     handleAdminReduceDays, handleAdminReduceDaysNoRefund,
     handlePayDebt, handleAdminAdjustDebt,
-    handleRejectBooking,
+    handleRejectBooking, handleTrimDays,
   };
 }

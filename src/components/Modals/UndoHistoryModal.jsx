@@ -7,6 +7,7 @@ const ACTION_META = {
     payment:    { icon: '💵', label: 'Оплата',       color: 'bg-blue-50 border-blue-200 text-blue-800'         },
     extend:     { icon: '📅', label: 'Продление',    color: 'bg-violet-50 border-violet-200 text-violet-800'   },
     expense:    { icon: '💳', label: 'Расход',       color: 'bg-amber-50 border-amber-200 text-amber-800'      },
+    trim:       { icon: '✂️', label: 'Срез дней',     color: 'bg-orange-50 border-orange-200 text-orange-800'   },
 };
 
 const UNDO_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
