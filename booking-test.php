@@ -182,7 +182,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
                      'transaction_param'=>$bookingId,'return_url'=>(isset($_SERVER['HTTPS'])?'https://':'http://').$_SERVER['HTTP_HOST'].'/booking-test.php?paid='.$bookingId];
         }
 
-        // Send response to browser immediately, then call CF in background
+        // Schedule CF sync AFTER response is sent (register_shutdown_function runs post-output)
         $cfPayload = [
             'fullName'=>$name,'phone'=>$phone,'hostelId'=>$hostel,'bedType'=>$bedType,
             'bedsCount'=>$beds,'checkIn'=>$checkin.'T00:00:00.000Z','checkOut'=>$checkout.'T00:00:00.000Z',
@@ -190,23 +190,19 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
             'paymentMethod'=>$payMethod,'paymentStatus'=>$payMethod==='cash'?'pending':'awaiting',
             'mysqlBookingId'=>$bookingId,'comment'=>$comment,
         ];
-        $responseJson = json_encode(['ok'=>true,'booking_id'=>$bookingId,'amount'=>$amount,
+        $dbRef = $db;
+        $bidRef = $bookingId;
+        register_shutdown_function(function() use ($cfPayload, $dbRef, $bidRef) {
+            $cfResp = callCF('/createWebBooking', 'POST', $cfPayload);
+            if (!empty($cfResp['firestoreId'])) {
+                try {
+                    $dbRef->prepare("UPDATE bookings SET firestore_id=? WHERE id=?")->execute([$cfResp['firestoreId'], $bidRef]);
+                } catch (\Throwable $_) {}
+            }
+        });
+
+        echo json_encode(['ok'=>true,'booking_id'=>$bookingId,'amount'=>$amount,
             'nights'=>$nights,'pay_url'=>$payUrl,'click_params'=>$clickP]);
-
-        // Flush response to client, then sync to Firestore
-        ignore_user_abort(true);
-        header('Content-Type: application/json; charset=utf-8');
-        header('Content-Length: '.strlen($responseJson));
-        header('Connection: close');
-        echo $responseJson;
-        if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
-        else { ob_end_flush(); flush(); }
-
-        // Background: sync to Firestore (browser already got response)
-        $cfResp = callCF('/createWebBooking', 'POST', $cfPayload);
-        if (!empty($cfResp['firestoreId'])) {
-            $db->prepare("UPDATE bookings SET firestore_id=? WHERE id=?")->execute([$cfResp['firestoreId'],$bookingId]);
-        }
         exit;
     }
     echo json_encode(['ok'=>false,'error'=>'Unknown action']); exit;
