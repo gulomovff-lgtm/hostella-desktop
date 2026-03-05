@@ -429,9 +429,9 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
             paymentMethod:  d.paymentMethod || 'cash',
             paymentStatus:  d.paymentStatus || 'pending',
             mysqlBookingId: Number(d.mysqlBookingId) || 0,
-            source:         'web',
+            source:         'website',
             createdAt:      new Date().toISOString(),
-            createdBy:      'web',
+            createdBy:      'website',
         };
 
         const ref = await hostellaDb
