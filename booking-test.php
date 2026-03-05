@@ -59,8 +59,9 @@ function encryptPayload(array $data): string {
     return base64_encode($iv . $tag . $ct);
 }
 
-function callCF(string $path, string $method = 'GET', array $payload = []): ?array {
+function callCF(string $path, string $method = 'GET', array $payload = []): array {
     $url = CF_BASE . $path;
+    $result = ['data' => null, 'error' => null, 'http_code' => 0];
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -68,22 +69,67 @@ function callCF(string $path, string $method = 'GET', array $payload = []): ?arr
             CURLOPT_TIMEOUT        => 15,
             CURLOPT_CONNECTTIMEOUT => 8,
             CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json','Accept: application/json'],
         ]);
         if ($method === 'POST') {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
         }
         $resp = curl_exec($ch);
-        curl_close($ch);
-        return $resp ? json_decode($resp, true) : null;
+        $result['http_code'] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if ($resp === false) {
+            $errno = curl_errno($ch);
+            $errmsg = curl_error($ch);
+            curl_close($ch);
+            // Retry without SSL verify (some shared hosts have outdated CA bundle)
+            if ($errno === CURLE_SSL_CACERT || $errno === CURLE_SSL_CONNECT_ERROR || $errno === CURLE_PEER_FAILED_VERIFICATION) {
+                $ch2 = curl_init($url);
+                curl_setopt_array($ch2, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT        => 15,
+                    CURLOPT_CONNECTTIMEOUT => 8,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_HTTPHEADER     => ['Content-Type: application/json','Accept: application/json'],
+                ]);
+                if ($method === 'POST') {
+                    curl_setopt($ch2, CURLOPT_POST, true);
+                    curl_setopt($ch2, CURLOPT_POSTFIELDS, json_encode($payload));
+                }
+                $resp = curl_exec($ch2);
+                $result['http_code'] = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+                if ($resp === false) {
+                    $result['error'] = 'curl_nossl:'.curl_errno($ch2).':'.curl_error($ch2);
+                    curl_close($ch2);
+                    return $result;
+                }
+                curl_close($ch2);
+            } else {
+                $result['error'] = 'curl:'.$errno.':'.$errmsg;
+                return $result;
+            }
+        } else {
+            curl_close($ch);
+        }
+        if ($result['http_code'] >= 400) {
+            $result['error'] = 'http:'.$result['http_code'].':'.substr($resp,0,200);
+        }
+        $result['data'] = json_decode($resp, true);
+        return $result;
     }
     // fallback: file_get_contents
     $opts = ['http' => ['method' => $method, 'timeout' => 10, 'ignore_errors' => true,
-                        'header' => "Content-Type: application/json\r\n"]];
+                        'header' => "Content-Type: application/json\r\nAccept: application/json\r\n"]];
     if ($method === 'POST' && !empty($payload)) $opts['http']['content'] = json_encode($payload);
     $resp = @file_get_contents($url, false, stream_context_create($opts));
-    return $resp ? json_decode($resp, true) : null;
+    if ($resp === false) {
+        $result['error'] = 'file_get_contents failed';
+        return $result;
+    }
+    $result['data'] = json_decode($resp, true);
+    return $result;
 }
 
 // Generate time-based CSRF nonce (valid 30 min)
@@ -182,7 +228,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
                      'transaction_param'=>$bookingId,'return_url'=>(isset($_SERVER['HTTPS'])?'https://':'http://').$_SERVER['HTTP_HOST'].'/booking-test.php?paid='.$bookingId];
         }
 
-        // Sync to Firestore synchronously (short timeout so it doesn't block too long)
+        // Sync to Firestore synchronously
         $cfPayload = [
             'fullName'=>$name,'phone'=>$phone,'hostelId'=>$hostel,'bedType'=>$bedType,
             'bedsCount'=>$beds,'checkIn'=>$checkin.'T00:00:00.000Z','checkOut'=>$checkout.'T00:00:00.000Z',
@@ -190,14 +236,23 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
             'paymentMethod'=>$payMethod,'paymentStatus'=>$payMethod==='cash'?'pending':'awaiting',
             'mysqlBookingId'=>$bookingId,'comment'=>$comment,
         ];
-        $cfResp = callCF('/createWebBooking', 'POST', $cfPayload);
-        if (!empty($cfResp['firestoreId'])) {
-            try { $db->prepare("UPDATE bookings SET firestore_id=? WHERE id=?")->execute([$cfResp['firestoreId'],$bookingId]); } catch (\Throwable $_) {}
+        $cfResult = callCF('/createWebBooking', 'POST', $cfPayload);
+        $cfData   = $cfResult['data'] ?? null;
+        $cfSynced = !empty($cfData['firestoreId']);
+        if ($cfSynced) {
+            try { $db->prepare("UPDATE bookings SET firestore_id=? WHERE id=?")->execute([$cfData['firestoreId'],$bookingId]); } catch (\Throwable $_) {}
         }
 
-        echo json_encode(['ok'=>true,'booking_id'=>$bookingId,'amount'=>$amount,
-            'nights'=>$nights,'pay_url'=>$payUrl,'click_params'=>$clickP,
-            'cf_synced'=>!empty($cfResp['firestoreId'])]);
+        echo json_encode([
+            'ok'         => true,
+            'booking_id' => $bookingId,
+            'amount'     => $amount,
+            'nights'     => $nights,
+            'pay_url'    => $payUrl,
+            'click_params' => $clickP,
+            'cf_synced'  => $cfSynced,
+            'cf_debug'   => ['http_code'=>$cfResult['http_code'],'error'=>$cfResult['error'],'resp'=>$cfData],
+        ]);
         exit;
     }
     echo json_encode(['ok'=>false,'error'=>'Unknown action']); exit;
@@ -980,6 +1035,28 @@ async function submitBooking(){
       const d=new Date(iso+'T00:00:00');
       if(d>=d0&&d<d1) hm[iso]=Math.max(0,hm[iso]-S.beds);
     }
+
+    // If PHP couldn't reach Firebase (hosting firewall), browser calls CF directly
+    if(!j.cf_synced){
+      const guestName=document.getElementById('guest-name').value.trim();
+      const guestPhone=document.getElementById('guest-phone').value.trim();
+      const guestComment=document.getElementById('guest-comment').value.trim();
+      const nights=countNights();
+      const pricePerDay=PRICES[S.hostel][S.bedType]*S.beds;
+      fetch(CF_BASE+'/createWebBooking',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          fullName:guestName, phone:guestPhone,
+          hostelId:S.hostel, bedType:S.bedType, bedsCount:S.beds,
+          checkIn:S.checkin+'T00:00:00.000Z', checkOut:S.checkout+'T00:00:00.000Z',
+          nights:nights, amount:j.amount, pricePerDay:pricePerDay,
+          paymentMethod:S.payMethod, paymentStatus:'pending',
+          mysqlBookingId:j.booking_id, comment:guestComment,
+        })
+      }).catch(()=>{});
+    }
+
     showSuccess(j.booking_id,S.payMethod==='cash');
   }catch(e){
     const msg=e.message&&e.message.startsWith('HTTP')?'Сервер недоступен. Попробуйте ещё раз.':'Ошибка сети. Проверьте интернет-соединение.';
