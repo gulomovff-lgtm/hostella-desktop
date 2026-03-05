@@ -281,10 +281,20 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const handleExtend = () => {
         const days = parseInt(extendDays); if (!days) return;
         setIsPaymentSubmitting(true);
-        const newTotal    = (guest.totalPrice||0) + days*parseInt(guest.pricePerNight);
-        const newDays     = parseInt(guest.days) + days;
-        const stay        = getStayDetails(guest.checkInDate, newDays);
-        const newCheckOut = stay.end.toISOString();
+        const newTotal = (guest.totalPrice||0) + days*parseInt(guest.pricePerNight);
+        const newDays  = parseInt(guest.days) + days;
+
+        // Считаем новый выезд от фактического конца срока (bonusCheckOut или checkOut),
+        // но не раньше сегодняшнего дня — чтобы не уйти снова в прошлое
+        const coMs    = new Date(guest.checkOutDate).getTime();
+        const bonusMs = guest.bonusCheckOutDate ? new Date(guest.bonusCheckOutDate).getTime() : 0;
+        const baseMs  = Math.max(coMs, bonusMs, Date.now());
+        const baseDate = new Date(baseMs);
+        baseDate.setHours(12, 0, 0, 0);
+        const newCoDate = new Date(baseDate);
+        newCoDate.setDate(newCoDate.getDate() + days);
+        const newCheckOut = newCoDate.toISOString();
+
         // Если нет интернета — игнорируем оплату, иначе данные не сохранятся
         const c=isOnline?(parseInt(payCash)||0):0, cd=isOnline?(parseInt(payCard)||0):0, q=isOnline?(parseInt(payQR)||0):0;
 
