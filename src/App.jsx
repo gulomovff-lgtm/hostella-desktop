@@ -1027,6 +1027,7 @@ return (
                         onBulkExtend={handleBulkExtend}
                         clients={clients}
                         onGuestClick={(client) => handleOpenClientHistory(client)}
+                        registrations={filteredRegistrations}
                     />
                 )}
 

@@ -123,7 +123,7 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 
 // ---------------------------------------------------------------------------
 
-const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick }) => {
+const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [tab, setTab] = useState('overview');
     const [chartMode, setChartMode] = useState('income');
@@ -255,6 +255,21 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             avgStay, staffTodayList, roomIncome, maxRoomIncome,
         };
     }, [rooms, guests, payments, expenses, currentHostelId, nowMs]);
+
+    const emehmonStats = useMemo(() => {
+        const now = Date.now();
+        const active = registrations.filter(r => r.status !== 'removed');
+        const expired = active.filter(r => {
+            const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
+            return end < now;
+        });
+        const expiring = active.filter(r => {
+            const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
+            const daysLeft = Math.ceil((end - now) / 86400000);
+            return daysLeft >= 0 && daysLeft <= 3;
+        });
+        return { total: active.length, expired, expiring };
+    }, [registrations]);
 
     const MiniBar = ({ value, max, color = 'indigo' }) => {
         const pct = max ? Math.round((value / max) * 100) : 0;
@@ -487,6 +502,48 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 {data.expired.slice(0, 5).map(g => (
                                     <div key={g.id} className="text-xs text-amber-700 font-semibold py-0.5 truncate">• {g.fullName} — К.{g.roomNumber}</div>
                                 ))}
+                            </div>
+                        )}
+
+                        {(emehmonStats.expired.length > 0 || emehmonStats.expiring.length > 0) && (
+                            <div className={`rounded-2xl shadow-sm p-4 border ${
+                                emehmonStats.expired.length > 0
+                                    ? 'bg-rose-50 border-rose-200'
+                                    : 'bg-amber-50 border-amber-200'
+                            }`}>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-base">🪪</span>
+                                    <span className={`font-bold text-sm ${
+                                        emehmonStats.expired.length > 0 ? 'text-rose-800' : 'text-amber-800'
+                                    }`}>E-mehmon</span>
+                                    <span className={`ml-auto text-xs font-black px-2 py-0.5 rounded-full ${
+                                        emehmonStats.expired.length > 0
+                                            ? 'bg-rose-200 text-rose-700'
+                                            : 'bg-amber-200 text-amber-700'
+                                    }`}>{emehmonStats.total} акт.</span>
+                                </div>
+                                {emehmonStats.expired.length > 0 && (
+                                    <div className="mb-2">
+                                        <p className="text-[10px] font-black text-rose-600 uppercase tracking-wide mb-1">⚠ Истекли — вывести!</p>
+                                        {emehmonStats.expired.slice(0, 3).map(r => (
+                                            <div key={r.id} className="text-xs text-rose-700 font-semibold py-0.5 truncate">• {r.fullName}</div>
+                                        ))}
+                                        {emehmonStats.expired.length > 3 && (
+                                            <div className="text-xs text-rose-500 font-bold">+{emehmonStats.expired.length - 3} ещё</div>
+                                        )}
+                                    </div>
+                                )}
+                                {emehmonStats.expiring.length > 0 && (
+                                    <div>
+                                        <p className="text-[10px] font-black text-amber-600 uppercase tracking-wide mb-1">⏰ Истекают (≤3 дн.)</p>
+                                        {emehmonStats.expiring.slice(0, 2).map(r => (
+                                            <div key={r.id} className="text-xs text-amber-700 font-semibold py-0.5 truncate">• {r.fullName}</div>
+                                        ))}
+                                        {emehmonStats.expiring.length > 2 && (
+                                            <div className="text-xs text-amber-500 font-bold">+{emehmonStats.expiring.length - 2} ещё</div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         )}
 
