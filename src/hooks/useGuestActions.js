@@ -123,9 +123,11 @@ export function useGuestActions(ctx) {
           });
         }
       } else if (item.type === 'trim') {
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
+        const trimRestore = {
           days: item.prevDays, totalPrice: item.prevTotalPrice, checkOutDate: item.prevCheckOut,
-        });
+          bonusCheckOutDate: item.prevBonusCheckOut ? item.prevBonusCheckOut : deleteField(),
+        };
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), trimRestore);
       } else if (item.type === 'expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
       }
@@ -550,25 +552,53 @@ export function useGuestActions(ctx) {
     try {
       const guest = guests.find(g => g.id === guestId);
       if (!guest || daysToRemove <= 0) return;
-      const prevDays       = parseInt(guest.days || 1);
-      const prevTotalPrice = guest.totalPrice || 0;
-      const prevCheckOut   = guest.checkOutDate;
-      const pricePerNight  = parseInt(guest.pricePerNight) || (prevDays > 0 ? Math.round(prevTotalPrice / prevDays) : 0);
-      const newDays        = Math.max(1, prevDays - daysToRemove);
-      const newTotalPrice  = pricePerNight * newDays;
-      const newCheckOut    = new Date(guest.checkOutDate);
-      newCheckOut.setDate(newCheckOut.getDate() - daysToRemove);
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-        days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut.toISOString(),
-      });
+      const prevDays          = parseInt(guest.days || 1);
+      const prevTotalPrice    = guest.totalPrice || 0;
+      const prevCheckOut      = guest.checkOutDate;
+      const prevBonusCheckOut = guest.bonusCheckOutDate || null;
+      const pricePerNight     = parseInt(guest.pricePerNight) || (prevDays > 0 ? Math.round(prevTotalPrice / prevDays) : 0);
+
+      const regularCo      = new Date(guest.checkOutDate);
+      const bonusCo        = guest.bonusCheckOutDate ? new Date(guest.bonusCheckOutDate) : null;
+      const bonusDaysAvail = bonusCo ? Math.max(0, Math.round((bonusCo.getTime() - regularCo.getTime()) / 86400000)) : 0;
+
+      const updateData = {};
+      let regularToTrim = 0;
+
+      if (bonusDaysAvail > 0 && daysToRemove <= bonusDaysAvail) {
+        // Only trim from bonus — days / totalPrice / checkOutDate stay unchanged
+        const newBonusCo = new Date(bonusCo);
+        newBonusCo.setDate(newBonusCo.getDate() - daysToRemove);
+        updateData.bonusCheckOutDate = newBonusCo.getTime() <= regularCo.getTime()
+          ? deleteField()
+          : newBonusCo.toISOString();
+      } else {
+        // Remove all bonus (if any) then trim regular days
+        if (bonusDaysAvail > 0) updateData.bonusCheckOutDate = deleteField();
+        regularToTrim = daysToRemove - bonusDaysAvail;
+        const newDays       = Math.max(1, prevDays - regularToTrim);
+        const newTotalPrice = pricePerNight * newDays;
+        const newCheckOut   = new Date(guest.checkOutDate);
+        newCheckOut.setDate(newCheckOut.getDate() - regularToTrim);
+        updateData.days = newDays;
+        updateData.totalPrice = newTotalPrice;
+        updateData.checkOutDate = newCheckOut.toISOString();
+      }
+
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updateData);
       pushUndo({
         type: 'trim',
         label: `-${daysToRemove} дн. — ${guest.fullName}`,
-        guestId, prevDays, prevTotalPrice, prevCheckOut,
+        guestId, prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut,
       });
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification(`Срезано ${daysToRemove} дн. Выезд: ${newCheckOut.toLocaleDateString('ru')}`, 'success');
-      logAction(currentUser, 'trim_days', { guestName: guest.fullName, daysToRemove, newDays });
+      const finalDateStr = updateData.checkOutDate
+        ? new Date(updateData.checkOutDate).toLocaleDateString('ru')
+        : (typeof updateData.bonusCheckOutDate === 'string'
+            ? new Date(updateData.bonusCheckOutDate).toLocaleDateString('ru')
+            : new Date(guest.checkOutDate).toLocaleDateString('ru'));
+      showNotification(`Срезано ${daysToRemove} дн. Выезд: ${finalDateStr}`, 'success');
+      logAction(currentUser, 'trim_days', { guestName: guest.fullName, daysToRemove, newDays: updateData.days || prevDays });
     } catch (e) {
       showNotification('Ошибка: ' + e.message, 'error');
     }

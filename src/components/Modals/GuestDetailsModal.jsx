@@ -234,6 +234,14 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         ? (guest.bonusDaysAdded || 0)
         : (clientRecord?.bonusDays || 0);
 
+    // For trimDays view — effective end date includes bonus
+    const bonusDaysAvailForTrim = guest.bonusCheckOutDate
+        ? Math.max(0, Math.round((new Date(guest.bonusCheckOutDate).getTime() - new Date(guest.checkOutDate).getTime()) / 86400000))
+        : 0;
+    const effectiveEndDateForTrim = guest.bonusCheckOutDate ? new Date(guest.bonusCheckOutDate) : new Date(guest.checkOutDate);
+    const maxTrimDays = Math.max(1, parseInt(guest.days||1) - 1 + bonusDaysAvailForTrim);
+    const regularDaysToTrimPreview = Math.max(0, trimDays - bonusDaysAvailForTrim);
+
     const disableWheel = e => e.target.blur();
     const goBack = () => { setCurrentView('dashboard'); setPayCash(''); setPayCard(''); setPayQR(''); };
 
@@ -356,7 +364,14 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const handleMoveBooking = () => {
         const s = new Date(newStartDate); s.setHours(12,0,0,0);
         const stay = getStayDetails(s.toISOString(), guest.days);
-        onUpdate(guest.id, {checkInDate: s.toISOString(), checkOutDate: stay.end.toISOString()});
+        const moveData = { checkInDate: s.toISOString(), checkOutDate: stay.end.toISOString() };
+        // Shift bonusCheckOutDate by the same delta if it exists
+        if (guest.bonusCheckOutDate) {
+            const oldIn = new Date(guest.checkInDate); oldIn.setHours(12,0,0,0);
+            const deltaMs = s.getTime() - oldIn.getTime();
+            moveData.bonusCheckOutDate = new Date(new Date(guest.bonusCheckOutDate).getTime() + deltaMs).toISOString();
+        }
+        onUpdate(guest.id, moveData);
         notify('Дата изменена!'); goBack();
     };
     const handlePrint = type => printDocument(type, guest, hostelInfo);
@@ -725,32 +740,51 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                         <div className="p-5 flex-1 overflow-y-auto space-y-4">
                             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
                                 <div className="text-xs font-bold text-amber-700 uppercase mb-1">Текущий срок</div>
-                                <div className="text-2xl font-black text-amber-800">{guest.days} дн. &rarr; {new Date(guest.checkOutDate).toLocaleDateString('ru')}</div>
+                                <div className="text-2xl font-black text-amber-800">
+                                    {guest.bonusCheckOutDate
+                                        ? `${guest.days} дн. + ${bonusDaysAvailForTrim}б → ${effectiveEndDateForTrim.toLocaleDateString('ru')}`
+                                        : `${guest.days} дн. → ${new Date(guest.checkOutDate).toLocaleDateString('ru')}`
+                                    }
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Срезать дней</label>
                                 <div className="flex items-center gap-3">
                                     <button onClick={()=>setTrimDays(d=>Math.max(1,d-1))} className="w-12 h-12 rounded-xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200 text-2xl font-bold">−</button>
-                                    <input type="number" min="1" max={Math.max(1, parseInt(guest.days||1)-1)}
+                                    <input type="number" min="1" max={maxTrimDays}
                                         className="flex-1 p-3 border-2 border-slate-200 rounded-xl font-black text-3xl text-center focus:border-amber-400 outline-none"
                                         value={trimDays}
-                                        onChange={e=>setTrimDays(Math.max(1, Math.min(parseInt(guest.days||1)-1, parseInt(e.target.value)||1)))}
+                                        onChange={e=>setTrimDays(Math.max(1, Math.min(maxTrimDays, parseInt(e.target.value)||1)))}
                                         onWheel={disableWheel}/>
-                                    <button onClick={()=>setTrimDays(d=>Math.min(parseInt(guest.days||1)-1,d+1))} className="w-12 h-12 rounded-xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200 text-2xl font-bold">+</button>
+                                    <button onClick={()=>setTrimDays(d=>Math.min(maxTrimDays,d+1))} className="w-12 h-12 rounded-xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200 text-2xl font-bold">+</button>
                                 </div>
                             </div>
                             {trimDays >= 1 && (
                                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 flex justify-between">
                                     <span>Новый выезд:</span>
                                     <span className="font-black text-amber-700">
-                                        {(()=>{ const d=new Date(guest.checkOutDate); d.setDate(d.getDate()-trimDays); return d.toLocaleDateString('ru'); })()} &middot; {Math.max(1,parseInt(guest.days||1)-trimDays)} дн.
+                                        {(()=>{
+                                            if (trimDays <= bonusDaysAvailForTrim) {
+                                                const d = new Date(guest.bonusCheckOutDate);
+                                                d.setDate(d.getDate() - trimDays);
+                                                return `${d.toLocaleDateString('ru')} · ${guest.days} дн. (бонус -${trimDays}д)`;
+                                            }
+                                            const d = new Date(guest.checkOutDate);
+                                            d.setDate(d.getDate() - regularDaysToTrimPreview);
+                                            return `${d.toLocaleDateString('ru')} · ${Math.max(1, parseInt(guest.days||1) - regularDaysToTrimPreview)} дн.`;
+                                        })()}
                                     </span>
                                 </div>
                             )}
-                            {trimDays > 0 && parseInt(guest.pricePerNight) > 0 && (
+                            {trimDays > 0 && regularDaysToTrimPreview > 0 && parseInt(guest.pricePerNight) > 0 && (
                                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-700 flex justify-between">
                                     <span>Изменение цены:</span>
-                                    <span className="font-black">−{(trimDays*parseInt(guest.pricePerNight)).toLocaleString()} сум</span>
+                                    <span className="font-black">−{(regularDaysToTrimPreview*parseInt(guest.pricePerNight)).toLocaleString()} сум</span>
+                                </div>
+                            )}
+                            {trimDays > 0 && trimDays <= bonusDaysAvailForTrim && (
+                                <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm font-semibold text-orange-700">
+                                    Срезаются только бонусные дни — цена не изменится
                                 </div>
                             )}
                             <button

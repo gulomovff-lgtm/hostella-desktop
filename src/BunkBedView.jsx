@@ -25,6 +25,7 @@ const BunkBed = ({ bedNumber, topGuest, bottomGuest, onBedClick, room }) => {
             isCheckedOut,
             isExpired,
             isBonus,
+            bonusCheckOut,
             isBooking: guest.status === 'booking',
             bgClass: guest.status === 'booking' ? 'bg-amber-100 border-amber-300' :
                     isBonus ? 'bg-orange-100 border-orange-300' :
@@ -69,7 +70,13 @@ const BunkBed = ({ bedNumber, topGuest, bottomGuest, onBedClick, room }) => {
                                 </span>
                             </div>
                             <div className="text-[10px] text-slate-600">
-                                {guest.days}д
+                                {(()=>{
+                                    if (status.bonusCheckOut) {
+                                        const extra = Math.round((status.bonusCheckOut.getTime() - new Date(guest.checkOutDate).getTime()) / 86400000);
+                                        return extra > 0 ? `${guest.days}+${extra}б д` : `${guest.days}д`;
+                                    }
+                                    return `${guest.days}д`;
+                                })()}
                                 {status.debt > 0 && !status.isCheckedOut && !status.isExpired && (
                                     <span className="ml-1 font-semibold text-rose-700">
                                         -{status.debt.toLocaleString()}
