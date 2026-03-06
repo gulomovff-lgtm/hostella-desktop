@@ -151,12 +151,13 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
 };
 
 // --- CalendarView ---
-const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, onResizeBar, clients = [] }) => {
+const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
     const [zoom, setZoom]             = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768) ? 7 : 21);
     const [colScale, setColScale]     = useState(1.0);
+    const [winW, setWinW]             = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200);
     const [search, setSearch]         = useState('');
     const [hoveredGuest, setHoveredGuest] = useState(null);
     const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
@@ -166,10 +167,18 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const rafRef = useRef(null);
     const calRef = useRef(null);
     const swipeTouchRef = useRef(null);
-    const BASE_DAY_W = zoom <= 7 ? 46 : zoom <= 14 ? 52 : zoom <= 21 ? 46 : 38;
-    const DAY_W = Math.round(BASE_DAY_W * colScale);
-    const ROW_H = isMobile ? 36 : 40;
+    // Auto-fit: fill available width; LABEL_W + zoom * DAY_W = winW
     const LABEL_W = isMobile ? 90 : 148;
+    const AUTO_DAY_W = Math.max(28, Math.floor((winW - LABEL_W) / zoom));
+    const DAY_W = Math.round(AUTO_DAY_W * colScale);
+    const ROW_H = isMobile ? 36 : 40;
+
+    // Track window resize
+    useEffect(() => {
+        const onResize = () => setWinW(window.innerWidth);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
 
     useEffect(() => {
         const el = calRef.current;
@@ -228,12 +237,12 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const newDays   = Math.max(1, resizeData.origDays + deltaDays);
             const newCi     = new Date(resizeData.origCheckInISO); newCi.setHours(12,0,0,0);
             const newCo     = new Date(newCi); newCo.setDate(newCo.getDate() + newDays);
-            if (onResizeBar) onResizeBar(resizeData.guestId, { checkOutDate: newCo.toISOString(), days: newDays });
+            if (onRescheduleGuest) onRescheduleGuest(resizeData.guestId, getLocalDateString(newCi), getLocalDateString(newCo));
             setResizeData(null);
         };
         window.addEventListener('mouseup', onUp);
         return () => window.removeEventListener('mouseup', onUp);
-    }, [resizeData, DAY_W, onResizeBar]);
+    }, [resizeData, DAY_W, onRescheduleGuest]);
 
     const days = useMemo(() => Array.from({ length: zoom }, (_, i) => {
         const d = new Date(startDate); d.setDate(d.getDate() + i);
@@ -553,7 +562,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                     <span className={`shrink-0 text-[9px] font-black px-1 rounded ${isOut?'text-rose-700 bg-white/60':'bg-black/20'}`}>-{Math.round(debt/1000)}к</span>
                                                                 )}
                                                             </div>
-                                                            {canEditBars && !isOut && onResizeBar && (
+                                                            {canEditBars && isOut && onRescheduleGuest && (
                                                                 <div
                                                                     className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/40 rounded-r-md z-20 flex items-center justify-center"
                                                                     title="Изменить длину"

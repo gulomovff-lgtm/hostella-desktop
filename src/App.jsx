@@ -1065,7 +1065,6 @@ return (
                             currentUser={currentUser} 
                             onDeleteGuest={handleDeleteGuest}
                             onRescheduleGuest={handleRescheduleGuest}
-                            onResizeBar={handleGuestUpdate}
                         />
                     </div>
                 )}
