@@ -708,6 +708,7 @@ const filterByHostel = (items) => {
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
   const filteredExpenses = useMemo(() => filterByHostel(expenses), [expenses, currentUser, selectedHostelFilter]);
   const filteredTasks = useMemo(() => filterByHostel(tasks), [tasks, currentUser, selectedHostelFilter]);
+  const filteredRegistrations = useMemo(() => filterByHostel(registrations || []), [registrations, currentUser, selectedHostelFilter]);
 
   const pendingTasksCount = useMemo(() => {
     return filteredTasks.filter(t => t.status !== 'done').length;
@@ -716,12 +717,12 @@ const filterByHostel = (items) => {
   // Регистрации E-mehmon с истёкшим сроком
   const registrationsAlertCount = useMemo(() => {
     const now = Date.now();
-    return (registrations || []).filter(r => {
+    return filteredRegistrations.filter(r => {
       if (r.status === 'removed') return false;
       const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
       return end <= now;
     }).length;
-  }, [registrations]);
+  }, [filteredRegistrations]);
 
   // Бронирования с сайта (все гости, не фильтруем по хостелу — админ видит все)
   const websiteBookings = useMemo(() => {
@@ -1161,7 +1162,7 @@ return (
 
                 {activeTab === 'registrations' && (
                     <RegistrationsView
-                        registrations={registrations}
+                        registrations={filteredRegistrations}
                         currentUser={currentUser}
                         lang={lang}
                         users={usersList}
