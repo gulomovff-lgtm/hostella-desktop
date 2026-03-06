@@ -461,7 +461,6 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                     <div className="flex items-center gap-2">
                                         <span className="text-2xl">🎁</span>
                                         <div>
-                                            <div className="text-[10px] font-bold text-orange-500 uppercase">Бонусные дни</div>
                                             <div className="text-xs text-orange-700">
                                                 {(guest.bonusDaysAdded || 0) > 0
                                                     ? 'Начислено гостю по реферальной'
