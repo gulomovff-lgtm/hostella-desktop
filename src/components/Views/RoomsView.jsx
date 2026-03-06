@@ -212,9 +212,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                     </span>
                 )}
                 {(isBonus || guest?.isBonusStay) && (
-                    <span className="text-[10px] font-bold text-orange-600 mt-0.5 flex items-center gap-1">
-                        🎁 Бонусные дни
-                    </span>
+                    <span className="text-[10px] font-bold text-orange-600 mt-0.5">🎁</span>
                 )}
                 {(isTimeout || (bed?.isBonus)) && <TimeoutBadge isBonus={bed?.isBonus} />}
                 {debt > 0 ? (
