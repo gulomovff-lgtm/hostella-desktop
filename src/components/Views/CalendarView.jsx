@@ -151,7 +151,7 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
 };
 
 // --- CalendarView ---
-const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [] }) => {
+const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, onResizeBar, clients = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
@@ -161,6 +161,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const [hoveredGuest, setHoveredGuest] = useState(null);
     const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
     const [dragData, setDragData]     = useState(null);
+    const [resizeData, setResizeData]  = useState(null); // { guestId, origCheckInISO, origDays, startX }
     const ttRef = useRef(null);
     const rafRef = useRef(null);
     const calRef = useRef(null);
@@ -216,6 +217,23 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             el.removeEventListener('touchend',   onTouchEnd);
         };
     }, [isMobile, shift, zoom]);
+
+    const canEditBars = currentUser && (currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.login === 'fazliddin');
+
+    // Resize bar handle: mouseup anywhere ends resize
+    useEffect(() => {
+        if (!resizeData) return;
+        const onUp = (e) => {
+            const deltaDays = Math.round((e.clientX - resizeData.startX) / DAY_W);
+            const newDays   = Math.max(1, resizeData.origDays + deltaDays);
+            const newCi     = new Date(resizeData.origCheckInISO); newCi.setHours(12,0,0,0);
+            const newCo     = new Date(newCi); newCo.setDate(newCo.getDate() + newDays);
+            if (onResizeBar) onResizeBar(resizeData.guestId, { checkOutDate: newCo.toISOString(), days: newDays });
+            setResizeData(null);
+        };
+        window.addEventListener('mouseup', onUp);
+        return () => window.removeEventListener('mouseup', onUp);
+    }, [resizeData, DAY_W, onResizeBar]);
 
     const days = useMemo(() => Array.from({ length: zoom }, (_, i) => {
         const d = new Date(startDate); d.setDate(d.getDate() + i);
@@ -503,21 +521,25 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                     const isBk  = g.status === 'booking';
                                                     const co    = parseDate(g.checkOutDate);
                                                     const isExp = co && new Date() > co && !isOut;
-                                                    const days_count = g.days || Math.round((co?.getTime() - parseDate(g.checkInDate||g.checkInDateTime)?.getTime()) / 86400000) || 1;
+                                                    // Use actual checkIn→checkOut diff as bar duration (not g.days which may be stale after early checkout)
+                                                    const actualCi = parseDate(g.checkInDate || g.checkInDateTime);
+                                                    const barDuration = (actualCi && co) ? Math.max(1, Math.round((co.getTime() - actualCi.getTime()) / 86400000)) : (g.days || 1);
+                                                    const days_count = barDuration;
+                                                    const isResizing = resizeData?.guestId === g.id;
                                                     return (
                                                         <div key={g.id}
-                                                            className={`absolute top-1.5 bottom-1.5 rounded-md border cursor-pointer flex items-center overflow-hidden hover:brightness-105 z-10 ${style.cls} ${isOut&&onRescheduleGuest?'cursor-grab active:cursor-grabbing':''}`}
+                                                            className={`absolute top-1.5 bottom-1.5 rounded-md border cursor-pointer flex items-center overflow-hidden hover:brightness-105 z-10 ${style.cls} ${isOut&&onRescheduleGuest?'cursor-grab active:cursor-grabbing':''} ${isResizing?'brightness-110':''}`}
                                                             style={{ left:bar.left, width:bar.width, background:style.bg, zIndex:isOut?5:isExp?30:20 }}
-                                                            draggable={!!(isOut&&onRescheduleGuest)}
+                                                            draggable={!!(isOut&&onRescheduleGuest&&!resizeData)}
                                                             onDragStart={isOut&&onRescheduleGuest?(e)=>{
                                                                 const rect=e.currentTarget.getBoundingClientRect();
                                                                 const offsetDays=Math.max(0,Math.round((e.clientX-rect.left)/DAY_W));
-                                                                e.dataTransfer.setData('text/plain',JSON.stringify({guestId:g.id,offsetDays,duration:days_count}));
+                                                                e.dataTransfer.setData('text/plain',JSON.stringify({guestId:g.id,offsetDays,duration:barDuration}));
                                                                 e.dataTransfer.effectAllowed='move';
                                                                 setDragData({guestId:g.id});
                                                             }:undefined}
                                                             onDragEnd={()=>setDragData(null)}
-                                                            onClick={e=>{e.stopPropagation();onSlotClick(room,bedId,g,null);}}
+                                                            onClick={e=>{if(resizeData)return;e.stopPropagation();onSlotClick(room,bedId,g,null);}}
                                                             onMouseEnter={e=>onEnter(e,{...g,room})}
                                                             onMouseLeave={onLeave}>
                                                             <div className="px-2 flex items-center gap-1.5 min-w-0 w-full">
@@ -531,6 +553,18 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                     <span className={`shrink-0 text-[9px] font-black px-1 rounded ${isOut?'text-rose-700 bg-white/60':'bg-black/20'}`}>-{Math.round(debt/1000)}к</span>
                                                                 )}
                                                             </div>
+                                                            {canEditBars && !isOut && onResizeBar && (
+                                                                <div
+                                                                    className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/40 rounded-r-md z-20 flex items-center justify-center"
+                                                                    title="Изменить длину"
+                                                                    onMouseDown={e=>{
+                                                                        e.stopPropagation();
+                                                                        e.preventDefault();
+                                                                        setResizeData({ guestId: g.id, origCheckInISO: g.checkInDate||g.checkInDateTime, origDays: barDuration, startX: e.clientX });
+                                                                    }}>
+                                                                    <div className="w-0.5 h-4 bg-white/60 rounded-full"/>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
