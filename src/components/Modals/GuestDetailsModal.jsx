@@ -516,6 +516,22 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                         </div>
                                     ))}
                                 </div>
+                                {(() => {
+                                    const digits = (guest.phone || '').replace(/\D/g, '');
+                                    if (digits.length < 7) return null;
+                                    return (
+                                        <div className="flex gap-2 mt-2">
+                                            <a href={`https://wa.me/${digits}`} target="_blank" rel="noopener noreferrer"
+                                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
+                                                <span>💬</span> WhatsApp
+                                            </a>
+                                            <a href={`https://t.me/+${digits}`} target="_blank" rel="noopener noreferrer"
+                                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-100 transition-colors">
+                                                <span>✈️</span> Telegram
+                                            </a>
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             {isBooking ? (

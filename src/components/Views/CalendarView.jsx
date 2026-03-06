@@ -155,7 +155,12 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
-    const [zoom, setZoom]             = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768) ? 7 : 21);
+    const [zoom, setZoom]             = useState(() => {
+        if (typeof window === 'undefined') return 21;
+        const saved = parseInt(localStorage.getItem('hostella_cal_zoom'));
+        if (saved && [7, 14, 21, 30].includes(saved)) return saved;
+        return window.innerWidth < 768 ? 7 : 21;
+    });
     const [colScale, setColScale]     = useState(1.0);
     const [winW, setWinW]             = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200);
     const [search, setSearch]         = useState('');
@@ -172,6 +177,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const AUTO_DAY_W = Math.max(28, Math.floor((winW - LABEL_W) / zoom));
     const DAY_W = Math.round(AUTO_DAY_W * colScale);
     const ROW_H = isMobile ? 36 : 40;
+
+    // Persist zoom
+    useEffect(() => { localStorage.setItem('hostella_cal_zoom', String(zoom)); }, [zoom]);
 
     // Track window resize
     useEffect(() => {

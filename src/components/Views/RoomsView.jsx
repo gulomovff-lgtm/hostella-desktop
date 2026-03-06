@@ -258,6 +258,47 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
 BedCell.displayName = 'BedCell';
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  СПАРКЛАЙН — 14 дней загрузки комнаты
+// ─────────────────────────────────────────────────────────────────────────────
+const Sparkline = ({ guests, capacity }) => {
+    const DAYS = 14;
+    const cap = parseInt(capacity) || 1;
+    const today = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
+    const bars = useMemo(() => {
+        return Array.from({ length: DAYS }, (_, i) => {
+            const d = new Date(today);
+            d.setDate(d.getDate() - (DAYS - 1 - i));
+            const ds = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+            const occ = guests.filter(g => {
+                if (!['active', 'checked_out'].includes(g.status)) return false;
+                if (!g.checkInDate || !g.checkOutDate) return false;
+                return g.checkInDate <= ds && g.checkOutDate > ds;
+            }).length;
+            return Math.min(100, Math.round((occ / cap) * 100));
+        });
+    }, [guests, cap, today]);
+    const BAR_H = 18;
+    return (
+        <div title={`Загрузка последние ${DAYS} дней`}>
+            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">{DAYS} дней</div>
+            <div className="flex items-end gap-px w-full" style={{ height: BAR_H }}>
+                {bars.map((pct, i) => (
+                    <div key={i}
+                        className={`flex-1 rounded-sm ${
+                            i === DAYS - 1 ? 'opacity-50' :
+                            pct >= 80 ? 'bg-indigo-500' :
+                            pct >= 40 ? 'bg-teal-400' :
+                            pct > 0   ? 'bg-slate-300' : 'bg-slate-100'
+                        }`}
+                        style={{ height: Math.max(2, Math.round((pct / 100) * BAR_H)) }}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  ВЫЧИСЛЕНИЕ ДАННЫХ КОЕК
 // ─────────────────────────────────────────────────────────────────────────────
 const buildBedsData = (room, guests) => {
@@ -410,6 +451,9 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             }`} style={{ width: `${occPct}%` }} />
                         </div>
                         <div className="text-[10px] font-semibold text-slate-400 mt-1">{occPct}% занято</div>
+                        <div className="mt-3">
+                            <Sparkline guests={guests} capacity={room.capacity} />
+                        </div>
                         <div className="flex flex-wrap gap-1.5 mt-3">
                             {stats.free > 0 && <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold">{stats.free} св.</span>}
                             {stats.debtSum > 0 && <span className="px-2 py-1 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-[10px] font-bold flex items-center gap-1"><Wallet size={9}/>{fmt(stats.debtSum)}</span>}

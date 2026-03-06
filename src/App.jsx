@@ -1234,7 +1234,7 @@ return (
                 )}
 
                 {activeTab === 'auditlog' && currentUser.role === 'super' && (
-                    <AuditLogView auditLog={auditLog} />
+                    <AuditLogView auditLog={auditLog} currentUser={currentUser} />
                 )}
 
                 {activeTab === 'analytics' && (currentUser.role === 'admin' || currentUser.role === 'super') && (

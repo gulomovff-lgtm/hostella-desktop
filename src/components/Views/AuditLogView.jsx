@@ -20,8 +20,11 @@ const ACTION_META = {
     promo_create:    { icon: '🏷️', label: 'Промокод создан',   color: 'orange'  },
     promo_delete:    { icon: '🗑️', label: 'Промокод удалён',   color: 'rose'    },
     promo_used:      { icon: '✂️', label: 'Промокод применён', color: 'purple'  },
-    login:           { icon: '🔑', label: 'Вход в систему',    color: 'blue'    },
-    logout:          { icon: '👋', label: 'Выход из системы',  color: 'slate'   },
+    login:               { icon: '🔑', label: 'Вход в систему',       color: 'blue'    },
+    logout:              { icon: '👋', label: 'Выход из системы',     color: 'slate'   },
+    registration_add:    { icon: '🪪', label: 'Регистрация E-mehmon', color: 'purple'  },
+    registration_extend: { icon: '🔄', label: 'Продление E-mehmon',   color: 'indigo'  },
+    registration_remove: { icon: '🔴', label: 'Вывод из E-mehmon',    color: 'slate'   },
 };
 
 const HOSTELS = { hostel1: 'Хостел №1', hostel2: 'Хостел №2', all: 'Оба' };
@@ -38,12 +41,13 @@ const COLOR_MAP = {
 };
 
 // ── Component ────────────────────────────────────────────────────────────────
-const AuditLogView = ({ auditLog = [] }) => {
-    const [search,       setSearch      ] = useState('');
-    const [filterAction, setFilterAction] = useState('');
-    const [filterUser,   setFilterUser  ] = useState('');
-    const [filterDate,   setFilterDate  ] = useState('');
-    const [pageSize,     setPageSize    ] = useState(100);
+const AuditLogView = ({ auditLog = [], currentUser }) => {
+    const [search,        setSearch       ] = useState('');
+    const [filterAction,  setFilterAction ] = useState('');
+    const [filterUser,    setFilterUser   ] = useState('');
+    const [filterDate,    setFilterDate   ] = useState('');
+    const [filterHostel,  setFilterHostel ] = useState('');
+    const [pageSize,      setPageSize     ] = useState(100);
 
     // Unique users from log
     const uniqueUsers = useMemo(() => {
@@ -57,6 +61,7 @@ const AuditLogView = ({ auditLog = [] }) => {
         return auditLog.filter(e => {
             if (filterAction && e.action !== filterAction) return false;
             if (filterUser  && e.userId !== filterUser)   return false;
+            if (filterHostel && e.hostelId !== filterHostel) return false;
             if (filterDate) {
                 const d = e.timestamp ? e.timestamp.slice(0, 10) : '';
                 if (d !== filterDate) return false;
@@ -71,7 +76,7 @@ const AuditLogView = ({ auditLog = [] }) => {
             }
             return true;
         });
-    }, [auditLog, filterAction, filterUser, filterDate, search]);
+    }, [auditLog, filterAction, filterUser, filterDate, filterHostel, search]);
 
     const handleExport = () => {
         const rows = [['Дата/Время', 'Пользователь', 'Роль', 'Хостел', 'Действие', 'Гость/Детали', 'Сумма']];
@@ -114,12 +119,18 @@ const AuditLogView = ({ auditLog = [] }) => {
 
             {/* Filters */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <div className="relative col-span-2 md:col-span-1">
                         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск..."
                             className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"/>
                     </div>
+                    <select value={filterHostel} onChange={e => setFilterHostel(e.target.value)}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white text-slate-700">
+                        <option value="">Все хостелы</option>
+                        <option value="hostel1">Хостел №1</option>
+                        <option value="hostel2">Хостел №2</option>
+                    </select>
                     <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
                         className="px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white text-slate-700">
                         <option value="">Все действия</option>
@@ -137,8 +148,8 @@ const AuditLogView = ({ auditLog = [] }) => {
                     <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
                         className="px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"/>
                 </div>
-                {(search || filterAction || filterUser || filterDate) && (
-                    <button onClick={() => { setSearch(''); setFilterAction(''); setFilterUser(''); setFilterDate(''); }}
+                {(search || filterAction || filterUser || filterDate || filterHostel) && (
+                    <button onClick={() => { setSearch(''); setFilterAction(''); setFilterUser(''); setFilterDate(''); setFilterHostel(''); }}
                         className="mt-2 text-xs text-indigo-600 hover:text-indigo-700 font-bold">
                         × Сбросить фильтры
                     </button>

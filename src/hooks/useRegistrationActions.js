@@ -84,7 +84,7 @@ export function useRegistrationActions({
       logAction(currentUser, 'registration_extend', { id: reg.id, fullName: reg.fullName, newEndDate: extData.newEndDate });
       sendTelegramMessage(
         `🔄 <b>Продление регистрации (E-mehmon)</b>\n👤 ${reg.fullName}\n🪪 ${reg.passport || '—'}\n📅 +${extData.days} дн. → ${extData.newEndDate}\n💰 ${extData.amount.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
-        'registration'
+        'registrationExtend'
       );
     } catch (e) {
       showNotification('Ошибка продления: ' + e.message, 'error');
@@ -107,6 +107,10 @@ export function useRegistrationActions({
         'success'
       );
       logAction(currentUser, 'registration_remove', { id: reg.id, fullName: reg.fullName });
+      sendTelegramMessage(
+        `🔴 <b>Вывод из E-mehmon</b>\n👤 ${reg.fullName}\n🪪 ${reg.passport || '—'}\n👷 ${currentUser.name || currentUser.login}`,
+        'registrationRemove'
+      );
     } catch (e) {
       showNotification('Ошибка: ' + e.message, 'error');
     }
