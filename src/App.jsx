@@ -148,7 +148,7 @@ import SessionsView from './components/Views/SessionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
-import { logAction } from './utils/auditLog';
+import { logAction, logSystemError } from './utils/auditLog';
 import { createSession, closeSession, heartbeatSession, getLoginAt } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
@@ -176,7 +176,7 @@ import OnboardingTour, { LS_KEY as ONBOARDING_KEY } from './components/UI/Onboar
 import UndoHistoryModal from './components/Modals/UndoHistoryModal';
 import TRANSLATIONS from './constants/translations';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_FLAGS } from './constants/countries';
-import { DAILY_SALARY, DEFAULT_USERS } from './constants/config';
+import { DAILY_SALARY, DEFAULT_USERS, APP_VERSION, MIN_REQUIRED_VERSION } from './constants/config';
 
 // --- STYLES ---
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
@@ -208,6 +208,59 @@ const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracki
 
 
 // --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ (Вставить перед const App) ---
+
+// ─── Утилиты версий ────────────────────────────────────────────────────────
+const parseVer = (v = '') => v.replace(/[^\d.]/g, '').split('.').map(n => parseInt(n) || 0);
+const versionLt = (a, b) => {
+  const [a0, a1, a2] = parseVer(a);
+  const [b0, b1, b2] = parseVer(b);
+  if (a0 !== b0) return a0 < b0;
+  if (a1 !== b1) return a1 < b1;
+  return a2 < b2;
+};
+
+// ─── Экран устаревшей версии ──────────────────────────────────────────────
+function OutdatedVersionScreen({ currentVersion, minVersion, latestVersion, downloadUrl }) {
+  const C = { primary: '#1a3c40', accent: '#e88c40' };
+  const url = downloadUrl || 'https://github.com/gulomovff-lgtm/hostella-desktop/releases';
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-[200]"
+         style={{ background: 'linear-gradient(135deg, #1a3c40 0%, #2a5c60 100%)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full text-center mx-4">
+        <div className="text-6xl mb-4">⚠️</div>
+        <h1 className="text-2xl font-black mb-2" style={{ color: C.primary }}>
+          Версия устарела
+        </h1>
+        <p className="text-slate-500 mb-1 text-sm">
+          Ваша версия&nbsp;
+          <span className="font-bold text-rose-500">v{currentVersion}</span>
+          &nbsp;больше не поддерживается.
+        </p>
+        <p className="text-slate-500 mb-4 text-sm">
+          Минимально требуемая:&nbsp;
+          <span className="font-bold" style={{ color: C.primary }}>v{minVersion}</span>
+        </p>
+        {latestVersion && (
+          <p className="text-slate-400 text-xs mb-6">
+            Доступна актуальная версия:&nbsp;<strong>v{latestVersion}</strong>
+          </p>
+        )}
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block px-8 py-3.5 rounded-xl font-bold text-white text-base transition-all hover:opacity-90 active:scale-95"
+          style={{ background: C.accent, boxShadow: `0 6px 20px ${C.accent}55` }}
+        >
+          ⬇️ Скачать актуальную версию
+        </a>
+        <p className="mt-4 text-xs text-slate-400">
+          После установки перезапустите приложение
+        </p>
+      </div>
+    </div>
+  );
+}
 
 
 
@@ -247,12 +300,59 @@ function App() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(null); // 0-100
+  const [versionBlocked, setVersionBlocked]       = useState(false);
+  const [remoteVersionInfo, setRemoteVersionInfo] = useState(null);
 
   const showNotification = (message, type = 'success') => {
     const id = Date.now() + Math.random();
     setNotifications(prev => [...prev.slice(-2), { id, message, type }]);
   };
-  
+
+  // ─── Проверка минимальной версии при старте ───────────────────────────────
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res  = await fetch(`/version.json?_t=${Date.now()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setRemoteVersionInfo(data);
+        const minVer = data.minVersion || MIN_REQUIRED_VERSION;
+        if (versionLt(APP_VERSION, minVer)) {
+          setVersionBlocked(true);
+          logSystemError('version_check', `App ${APP_VERSION} < required ${minVer}`, {
+            appVersion: APP_VERSION, minVersion: minVer,
+          });
+        }
+      } catch (e) {
+        // Сетевая ошибка — не блокируем приложение, просто предупреждаем
+        console.warn('[version] check failed:', e.message);
+      }
+    };
+    check();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Глобальное логирование системных ошибок JS ───────────────────────────
+  useEffect(() => {
+    const onError = (e) => {
+      // Игнорируем ошибки сторонних скриптов (cross-origin)
+      if (!e.filename || e.message === 'Script error.') return;
+      logSystemError('window.onerror', e.error || new Error(e.message), {
+        filename: e.filename, lineno: e.lineno, colno: e.colno,
+      });
+    };
+    const onUnhandled = (e) => {
+      const reason = e.reason;
+      if (!reason) return;
+      logSystemError('unhandledrejection', reason, {});
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onUnhandled);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandled);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Data from Firebase (via custom hook) ---
   const {
     rooms, guests, expenses, clients, payments,
@@ -507,17 +607,71 @@ function App() {
     return () => clearInterval(timer);
   }, [currentUser]);
 
-  // Force‑logout: при изменении forceLogoutAfter на user‑doc — автовыход
+  // Ref-флаг: предотвращает повторный тригер force-logout при множественных
+  // обновлениях usersList (Firestore может прислать несколько патчей подряд)
+  const forceLogoutTriggeredRef = useRef(false);
+
+  // ─── Force-logout: умный автовыход ───────────────────────────────────────
+  // Алгоритм:
+  //   1. Игнорируем, если уже сработал (один раз за сессию, по ref)
+  //   2. Ищем forceLogoutAfter в собственном user-doc текущего пользователя
+  //   3. forceLogoutAfter должен быть СТРОГО ПОЗЖЕ момента нашего логина
+  //   4. Буфер 5 с: если флаг выставлен почти одновременно с логином —
+  //      вероятна гонка (новый кассир вошёл пока закрывалась старая смена)
+  //   5. Флаги старше 8 часов считаются устаревшими и игнорируются
+  //   6. Admins и super-admin никогда не выселяются этим механизмом,
+  //      даже если в их документе появился forceLogoutAfter
+  //      (исключение: явный «выгнать» от super-admin через SessionsView)
   useEffect(() => {
     if (!currentUser?.id) return;
+    // Admins/super работают без смен — force-logout для них не применяется
+    // (SessionsView всё равно может выгнать через прямое обращение к этому эффекту,
+    //  но только если явно задан forceLogoutAfter)
+    if (currentUser.role === 'super') return; // super нельзя выгнать вообще
+
+    if (forceLogoutTriggeredRef.current) return; // уже обработали
+
     const loginAt = getLoginAt();
     if (!loginAt) return;
+
     const myDoc = usersList.find(u => u.id === currentUser.id);
-    if (myDoc?.forceLogoutAfter && myDoc.forceLogoutAfter > loginAt) {
-      showNotification('Смена закрыта. Выполняется автоматический выход...', 'info');
-      logAction(currentUser, 'force_logout', { reason: 'shift_closed' });
-      setTimeout(() => handleLogout(), 1500);
-    }
+    if (!myDoc?.forceLogoutAfter) return;
+
+    const forceAtMs = new Date(myDoc.forceLogoutAfter).getTime();
+    const loginAtMs = new Date(loginAt).getTime();
+    const nowMs     = Date.now();
+
+    // Условие 1: флаг должен быть выставлен ПОСЛЕ начала нашей сессии
+    if (forceAtMs <= loginAtMs) return;
+
+    // Условие 2: минимальный буфер 5 с между логином и флагом
+    // (защита от гонки: закрытие смены и новый логин почти одновременно)
+    if (forceAtMs - loginAtMs < 5_000) return;
+
+    // Условие 3: флаг не устарел — не старше 8 часов
+    if (nowMs - forceAtMs > 8 * 60 * 60 * 1_000) return;
+
+    // ✅ Все условия выполнены — инициируем выход
+    forceLogoutTriggeredRef.current = true;
+
+    const reason = (myDoc.lastShiftEnd && myDoc.lastShiftEnd === myDoc.forceLogoutAfter)
+      ? 'shift_closed'
+      : 'admin_revoke';
+
+    showNotification(
+      reason === 'shift_closed'
+        ? 'Смена закрыта. Выполняется автоматический выход...'
+        : 'Сессия завершена администратором. Выполняется выход...',
+      'warning',
+    );
+    logAction(currentUser, 'force_logout', {
+      reason,
+      forceAt: myDoc.forceLogoutAfter,
+      loginAt,
+    });
+
+    const tid = setTimeout(() => handleLogout(), 2_000);
+    return () => clearTimeout(tid);
   }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = (user) => { 
@@ -923,6 +1077,15 @@ if (isLoadingAuth) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <Loader2 className="animate-spin text-indigo-600" size={40}/>
     </div>
+);
+
+if (versionBlocked) return (
+    <OutdatedVersionScreen
+        currentVersion={APP_VERSION}
+        minVersion={remoteVersionInfo?.minVersion || MIN_REQUIRED_VERSION}
+        latestVersion={remoteVersionInfo?.version}
+        downloadUrl={remoteVersionInfo?.downloadUrl}
+    />
 );
 
 if (!currentUser) return (

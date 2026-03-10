@@ -25,6 +25,8 @@ const ACTION_META = {
     force_logout:        { icon: '🔒', label: 'Принудительный выход',    color: 'rose'    },
     session_revoked:     { icon: '🚫', label: 'Сессия завершена (адм.)', color: 'orange'  },
     error:               { icon: '⚠️', label: 'Ошибка системы',          color: 'rose'    },
+    system_error:        { icon: '🚨', label: 'Системная ошибка JS',     color: 'rose'    },
+    version_check:       { icon: '🔄', label: 'Проверка версии',         color: 'blue'    },
     registration_add:    { icon: '🪪', label: 'Регистрация E-mehmon',    color: 'purple'  },
     registration_extend: { icon: '🔄', label: 'Продление E-mehmon',   color: 'indigo'  },
     registration_remove: { icon: '🔴', label: 'Вывод из E-mehmon',    color: 'slate'   },
