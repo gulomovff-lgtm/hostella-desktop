@@ -751,16 +751,21 @@ function App() {
     return () => clearTimeout(tid);
   }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleLogin = (user) => { 
-    setCurrentUser(user); 
-    const { pass: _p, ...sessionUser } = user;
+  const handleLogin = (user) => {
+    // Дополняем флагами из конфига DEFAULT_USERS, если в Firestore-документе их нет
+    const defEntry = DEFAULT_USERS.find(d => d.login === user.login);
+    const enrichedUser = (defEntry?.canViewHostel1 && !user.canViewHostel1)
+      ? { ...user, canViewHostel1: true }
+      : user;
+    setCurrentUser(enrichedUser); 
+    const { pass: _p, ...sessionUser } = enrichedUser;
     sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser)); 
-    if (user.hostelId && user.hostelId !== 'all') setSelectedHostelFilter(user.hostelId);
-    if (user.role === 'cashier') setActiveTab('rooms'); 
+    if (enrichedUser.hostelId && enrichedUser.hostelId !== 'all') setSelectedHostelFilter(enrichedUser.hostelId);
+    if (enrichedUser.role === 'cashier') setActiveTab('rooms'); 
     else setActiveTab('dashboard'); 
     // Создаем запись сессии и логируем вход
-    createSession(user);
-    logAction(user, 'login', { device: navigator.platform, role: user.role });
+    createSession(enrichedUser);
+    logAction(enrichedUser, 'login', { device: navigator.platform, role: enrichedUser.role });
   };
   
   const handleLogout = () => {

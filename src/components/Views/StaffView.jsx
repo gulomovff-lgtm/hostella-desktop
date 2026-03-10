@@ -94,7 +94,7 @@ const PermissionsPanel = ({ role, perms, onChange }) => {
     );
 };
 
-const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1', permissions: defaultPerms('cashier') };
+const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1', canViewHostel1: false, permissions: defaultPerms('cashier') };
 
 // ─── Component ──────────────────────────────────────────────────────────────
 const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
@@ -117,6 +117,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
         setEditForm({
             name: u.name, login: u.login, pass: u.pass || '',
             role: u.role, hostelId: u.hostelId || 'hostel1',
+            canViewHostel1: u.canViewHostel1 || false,
             permissions: { ...defaultPerms(u.role), ...(u.permissions || {}) },
         });
         setShowEditPwd(false);
@@ -266,6 +267,20 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                                     <option value="all">Все</option>
                                                 </select>
                                             </div>
+                                            <div className="col-span-2">
+                                                <label className="flex items-center gap-2.5 cursor-pointer group py-1">
+                                                    <div
+                                                        onClick={() => setEditForm(f => ({ ...f, canViewHostel1: !f.canViewHostel1 }))}
+                                                        className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                                            editForm.canViewHostel1
+                                                                ? 'bg-indigo-600 border-indigo-600'
+                                                                : 'bg-white border-slate-300 group-hover:border-indigo-400'
+                                                        }`}>
+                                                        {editForm.canViewHostel1 && <Check size={10} className="text-white" strokeWidth={3}/>}
+                                                    </div>
+                                                    <span className="text-xs text-slate-600 select-none">Просмотр обоих хостелов (только читать)</span>
+                                                </label>
+                                            </div>
                                         </div>
                                         <PermissionsPanel
                                             role={editForm.role}
@@ -339,6 +354,20 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                 <option value="hostel2">Хостел №2</option>
                                 <option value="all">Все</option>
                             </select>
+                        </div>
+                        <div>
+                            <label className="flex items-center gap-2.5 cursor-pointer group py-1">
+                                <div
+                                    onClick={() => setAddForm(f => ({ ...f, canViewHostel1: !f.canViewHostel1 }))}
+                                    className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                        addForm.canViewHostel1
+                                            ? 'bg-indigo-600 border-indigo-600'
+                                            : 'bg-white border-slate-300 group-hover:border-indigo-400'
+                                    }`}>
+                                    {addForm.canViewHostel1 && <Check size={10} className="text-white" strokeWidth={3}/>}
+                                </div>
+                                <span className="text-xs text-slate-600 select-none">Просмотр обоих хостелов (только читать)</span>
+                            </label>
                         </div>
                         <PermissionsPanel
                             role={addForm.role}
