@@ -33,15 +33,18 @@ export function useShiftActions({
   };
 
   const handleEndShift = async () => {
+    const now = new Date().toISOString();
     if (currentUser?.id) {
+      // forceLogoutAfter вызывает авто-логаут на ВСЕХ вкладках/устройствах этого кассира
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', currentUser.id), {
-        lastShiftEnd: new Date().toISOString(),
+        lastShiftEnd:     now,
+        forceLogoutAfter: now,
       });
     }
     const myOpenShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
     if (myOpenShift) {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', myOpenShift.id), {
-        endTime: new Date().toISOString(),
+        endTime: now,
       });
     }
     onLogout();

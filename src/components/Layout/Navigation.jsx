@@ -4,7 +4,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, FileText, AlertCircle,
     CheckSquare, Wallet, Users, UserCog, Clock, Lock, LogOut,
     UserPlus, Power, Globe, BellRing, Tag, ClipboardList,
-    Settings, Users2, Building2, ClipboardCheck, BarChart3,
+    Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -52,7 +52,8 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
                     { id: 'promos',      icon: Tag,           label: 'Промокоды', adminOnly: true },
                     { id: 'referrals',   icon: Users2,        label: 'Бонусы' },
                     { id: 'hostelconfig',icon: Settings,      label: 'Настройки', adminOnly: true },
-                    { id: 'auditlog',    icon: ClipboardList, label: 'История',   superOnly: true },
+                    { id: 'auditlog',  icon: ClipboardList, label: 'История',  superOnly: true },
+                    { id: 'sessions',  icon: Monitor,       label: 'Сессии',   superOnly: true },
                 ],
             },
         ];

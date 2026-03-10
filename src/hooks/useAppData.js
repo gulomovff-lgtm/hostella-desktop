@@ -29,6 +29,7 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [registrations, setRegistrations] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [hostelConfig,   setHostelConfig  ] = useState(null);
+  const [sessions,       setSessions      ] = useState([]);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
@@ -106,6 +107,20 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setPromos([])
     );
 
+    // Sessions (admin + super) — latest 300 records
+    let uSess = () => {};
+    if (currentUser.role === 'admin' || currentUser.role === 'super') {
+      const sessionsCol = query(
+        collection(db, ...PUBLIC_DATA_PATH, 'sessions'),
+        orderBy('loginAt', 'desc'),
+        limit(300)
+      );
+      uSess = onSnapshot(sessionsCol,
+        (snap) => setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+        () => setSessions([])
+      );
+    }
+
     // Audit log — latest 500 entries (super only)
     let u10 = () => {};
     if (currentUser.role === 'super') {
@@ -148,7 +163,7 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setHostelConfig({})
     );
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); };
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -166,6 +181,7 @@ export const useAppData = (firebaseUser, currentUser) => {
     registrations,
     recurringExpenses,
     hostelConfig,
+    sessions,
     isOnline,
     permissionError,
     isDataReady,

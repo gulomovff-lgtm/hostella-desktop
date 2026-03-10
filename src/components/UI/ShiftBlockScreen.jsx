@@ -1,8 +1,14 @@
 import React from 'react';
 import Button from './Button';
-import { Lock, ArrowLeftRight, LogOut } from 'lucide-react';
+import { Lock, LogOut } from 'lucide-react';
 
-const ShiftBlockScreen = ({ activeShift, activeUser, currentUser, onLogout, onTransferToMe }) => {
+/**
+ * ShiftBlockScreen — показывается кассиру, который пытается войти,
+ * когда другой кассир уже ведёт активную смену.
+ * Передача смены намеренно убрана: второй кассир не может "забрать" смену.
+ * Единственный выход — нажать «Выйти» и дождаться закрытия смены первым кассиром.
+ */
+const ShiftBlockScreen = ({ activeShift, activeUser, currentUser, onLogout }) => {
     return (
         <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-md w-full p-8 text-center shadow-2xl relative overflow-hidden">
@@ -14,24 +20,28 @@ const ShiftBlockScreen = ({ activeShift, activeUser, currentUser, onLogout, onTr
                 </div>
                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Смена занята</h2>
                 <p className="text-slate-500 mb-6">
-                    В данный момент в этом хостеле работает <b>{activeUser?.name || 'Другой кассир'}</b>.<br/>
-                    Вы не можете войти, пока смена не будет закрыта или передана.
+                    Сейчас в этом хостеле работает <b>{activeUser?.name || 'Другой кассир'}</b>.<br/>
+                    Вход невозможен, пока активная смена не будет закрыта.
                 </p>
-                
+
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-left">
-                    <div className="text-xs text-slate-400 uppercase font-bold mb-1">Детали смены:</div>
-                    <div className="font-bold text-slate-700">Начало: {new Date(activeShift.startTime).toLocaleString()}</div>
-                    <div className="text-sm text-emerald-600 font-bold mt-1">Активна сейчас</div>
+                    <div className="text-xs text-slate-400 uppercase font-bold mb-1">Детали смены</div>
+                    <div className="font-bold text-slate-700">
+                        Кассир: {activeUser?.name || '—'}
+                    </div>
+                    <div className="text-sm text-slate-500 mt-0.5">
+                        Начало: {new Date(activeShift.startTime).toLocaleString('ru-RU')}
+                    </div>
+                    <div className="text-sm text-emerald-600 font-bold mt-1">🟢 Смена активна сейчас</div>
                 </div>
 
-                <div className="space-y-3">
-                    <Button onClick={() => onTransferToMe(activeShift.id, currentUser.id)} className="w-full py-3" variant="primary" icon={ArrowLeftRight}>
-                        Принять смену (Передача мне)
-                    </Button>
-                    <Button onClick={onLogout} className="w-full py-3" variant="secondary" icon={LogOut}>
-                        Выйти
-                    </Button>
-                </div>
+                <Button onClick={onLogout} className="w-full py-3" variant="secondary" icon={LogOut}>
+                    Выйти из системы
+                </Button>
+
+                <p className="text-xs text-slate-400 mt-4">
+                    Обратитесь к администратору для закрытия смены
+                </p>
             </div>
         </div>
     );

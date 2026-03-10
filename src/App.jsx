@@ -144,10 +144,12 @@ import ClientsView from './components/Views/ClientsView';
 import ShiftsView from './components/Views/ShiftsView';
 import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
+import SessionsView from './components/Views/SessionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
 import { logAction } from './utils/auditLog';
+import { createSession, closeSession, heartbeatSession, getLoginAt } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
@@ -255,7 +257,7 @@ function App() {
   const {
     rooms, guests, expenses, clients, payments,
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
-    recurringExpenses, hostelConfig,
+    recurringExpenses, hostelConfig, sessions,
     isOnline, permissionError, isDataReady,
   } = useAppData(firebaseUser, currentUser);
 
@@ -378,6 +380,8 @@ function App() {
       if (q.length > 0 && window.electronAPI?.savePendingPayments) {
         window.electronAPI.savePendingPayments(q);
       }
+      // Закрываем сессию при закрытии вкладки/приложения
+      closeSession();
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -496,6 +500,26 @@ function App() {
     }
   }, [currentUser, shifts]);
 
+  // Хартбит: обновляем lastSeen каждые 30с, чтобы сжигать сессию как активную
+  useEffect(() => {
+    if (!currentUser) return;
+    const timer = setInterval(() => heartbeatSession(), 30_000);
+    return () => clearInterval(timer);
+  }, [currentUser]);
+
+  // Force‑logout: при изменении forceLogoutAfter на user‑doc — автовыход
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const loginAt = getLoginAt();
+    if (!loginAt) return;
+    const myDoc = usersList.find(u => u.id === currentUser.id);
+    if (myDoc?.forceLogoutAfter && myDoc.forceLogoutAfter > loginAt) {
+      showNotification('Смена закрыта. Выполняется автоматический выход...', 'info');
+      logAction(currentUser, 'force_logout', { reason: 'shift_closed' });
+      setTimeout(() => handleLogout(), 1500);
+    }
+  }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleLogin = (user) => { 
     setCurrentUser(user); 
     const { pass: _p, ...sessionUser } = user;
@@ -503,9 +527,16 @@ function App() {
     if (user.hostelId && user.hostelId !== 'all') setSelectedHostelFilter(user.hostelId);
     if (user.role === 'cashier') setActiveTab('rooms'); 
     else setActiveTab('dashboard'); 
+    // Создаем запись сессии и логируем вход
+    createSession(user);
+    logAction(user, 'login', { device: navigator.platform, role: user.role });
   };
   
-  const handleLogout = () => { 
+  const handleLogout = () => {
+    if (currentUser) {
+      logAction(currentUser, 'logout', {});
+      closeSession(); // async, не блокируем UX
+    }
     setCurrentUser(null); 
     sessionStorage.removeItem('hostella_user_v4'); 
   };
@@ -910,8 +941,7 @@ if (activeShiftInMyHostel) {
             activeShift={activeShiftInMyHostel} 
             activeUser={activeUserForBlock} 
             currentUser={currentUser} 
-            onLogout={handleLogout} 
-            onTransferToMe={handleTransferToMe} 
+            onLogout={handleLogout}
         />
     );
 }
@@ -1235,6 +1265,10 @@ return (
 
                 {activeTab === 'auditlog' && currentUser.role === 'super' && (
                     <AuditLogView auditLog={auditLog} currentUser={currentUser} />
+                )}
+
+                {activeTab === 'sessions' && currentUser.role === 'super' && (
+                    <SessionsView sessions={sessions} users={usersList} />
                 )}
 
                 {activeTab === 'analytics' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
