@@ -289,8 +289,15 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const handleExtend = () => {
         const days = parseInt(extendDays); if (!days) return;
         setIsPaymentSubmitting(true);
-        const newTotal = (guest.totalPrice||0) + days*parseInt(guest.pricePerNight);
-        const newDays  = parseInt(guest.days) + days;
+        // Берём фактический диапазон CI→CO (не устаревшее guest.days);
+        // если checkOut > checkIn, используем реальное кол-во дней
+        const ciMs  = guest.checkInDate ? new Date(guest.checkInDate).getTime() : 0;
+        const coFld = new Date(guest.checkOutDate).getTime();
+        const actualDays = ciMs && coFld > ciMs
+            ? Math.max(parseInt(guest.days) || 0, Math.round((coFld - ciMs) / 86400000))
+            : parseInt(guest.days) || 0;
+        const newTotal = (guest.pricePerNight || 0) * (actualDays + days);
+        const newDays  = actualDays + days;
 
         // Считаем новый выезд от фактического конца срока (bonusCheckOut или checkOut),
         // но не раньше сегодняшнего дня — чтобы не уйти снова в прошлое
@@ -363,7 +370,14 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const handleReduceNR    = () => { onReduceDaysNoRefund(guest, parseInt(reduceDaysNoRefund)); onClose(); };
     const handleMoveBooking = () => {
         const s = new Date(newStartDate); s.setHours(12,0,0,0);
-        const stay = getStayDetails(s.toISOString(), guest.days);
+        // Вычисляем фактическую продолжительность из хранимых дат (не из guest.days,
+        // который мог устареть после drag/resize в календаре)
+        const ciMs  = guest.checkInDate ? new Date(guest.checkInDate).getTime() : 0;
+        const coFld = guest.checkOutDate ? new Date(guest.checkOutDate).getTime() : 0;
+        const actualDays = (ciMs && coFld > ciMs)
+            ? Math.max(parseInt(guest.days) || 1, Math.round((coFld - ciMs) / 86400000))
+            : parseInt(guest.days) || 1;
+        const stay = getStayDetails(s.toISOString(), actualDays);
         const moveData = { checkInDate: s.toISOString(), checkOutDate: stay.end.toISOString() };
         // Shift bonusCheckOutDate by the same delta if it exists
         if (guest.bonusCheckOutDate) {

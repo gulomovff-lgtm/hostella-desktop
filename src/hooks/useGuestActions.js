@@ -359,7 +359,11 @@ export function useGuestActions(ctx) {
     for (const guestId of guestIds) {
       const guest = guests.find(g => g.id === guestId);
       if (!guest || guest.status !== 'active') continue;
-      const newDays  = parseInt(guest.days || 1) + days;
+      // Берём фактический диапазон (CI→CO), чтобы не опираться на устаревшее поле days
+      const ciMs = new Date(guest.checkInDate  || guest.checkInDateTime || 0).getTime();
+      const coMs = new Date(guest.checkOutDate || 0).getTime();
+      const actualDays = (ciMs && coMs) ? Math.max(parseInt(guest.days || 1), Math.round((coMs - ciMs) / 86400000)) : parseInt(guest.days || 1);
+      const newDays  = actualDays + days;
       const newTotal = parseInt(guest.pricePerNight || 0) * newDays;
       const co = new Date(guest.checkOutDate || Date.now()); co.setDate(co.getDate() + days);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
@@ -480,7 +484,15 @@ export function useGuestActions(ctx) {
 
   const handleRescheduleGuest = async (guestId, newCheckIn, newCheckOut) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { checkInDate: newCheckIn, checkOutDate: newCheckOut });
+      // Пересчитываем days из реального диапазона дат, чтобы поле не устаревало
+      const ci = new Date(newCheckIn); ci.setHours(12, 0, 0, 0);
+      const co = new Date(newCheckOut); co.setHours(12, 0, 0, 0);
+      const newDays = Math.max(1, Math.round((co - ci) / 86400000));
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+        checkInDate: newCheckIn,
+        checkOutDate: newCheckOut,
+        days: newDays,
+      });
       showNotification('Даты обновлены');
     } catch (e) {
       showNotification('Ошибка: ' + e.message, 'error');
