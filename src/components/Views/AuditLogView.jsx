@@ -5,7 +5,7 @@ import { ClipboardList, Search, Download, ChevronDown } from 'lucide-react';
 const ACTION_META = {
     checkin:         { icon: '🏨', label: 'Заселение',         color: 'emerald' },
     checkout:        { icon: '🚪', label: 'Выселение',          color: 'blue'    },
-    auto_checkout:   { icon: '⏰', label: 'Авто-выселение',    color: 'amber'   },
+    auto_checkout:   { icon: '🏁', label: 'Авто-выселение',    color: 'amber'   },
     booking_add:     { icon: '📋', label: 'Бронь добавлена',   color: 'purple'  },
     booking_accept:  { icon: '✅', label: 'Бронь принята',      color: 'emerald' },
     booking_reject:  { icon: '❌', label: 'Бронь отклонена',   color: 'rose'    },

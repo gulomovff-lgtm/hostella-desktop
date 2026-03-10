@@ -391,86 +391,154 @@ function App() {
   const [editRoomModal, setEditRoomModal] = useState({ open: false, room: null });
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
+
+  // ─── Авто-выселение просроченных гостей ──────────────────────────────────
+  //
+  // Алгоритм безопасного авто-выселения:
+  //
+  //  GATE 1 — только active-гости с валидным checkOutDate
+  //  GATE 2 — вычисляем «эффективную дату выезда»:
+  //             • если checkOutDate содержит 'T' — берём время как есть
+  //             • иначе это dateonly (YYYY-MM-DD) — добавляем 12:00 (noon checkout)
+  //             • если есть bonusCheckOutDate и он позже — используем его
+  //  GATE 3 — эффективный выезд должен быть МИНИМУМ 4 ч назад (льготный период)
+  //            Это защищает гостей, которые только что заехали или уже продлились
+  //  GATE 4 — гость не имеет последнего платежа за последние 12 ч
+  //            (защита: оплата = продление, должны были уже сдвинуть checkOutDate)
+  //  GATE 5 — не существует другой активный гость на ТОМ ЖЕ месте с более
+  //            ранним заездом, чем evictee (т.е. мы не выселяем «старшего» гостя)
+  //  DECREMENT — счётчик occupied уменьшается ТОЛЬКО если на кровати нет
+  //              другого активного гостя (не задваиваем -1)
+  //  LOGGING — каждое авто-выселение пишется в auditLog
+  //
   useEffect(() => {
-    // AUTO-CHECKOUT DISABLED
-    return;
-    if (!guests.length || !currentUser) return;
+    if (!currentUser) return;
+    if (!isDataReady) return; // ждём, пока все данные загружены
 
-    const runAutoCheckout = async () => {
-        const now = new Date();
-        // Порог: просрочка > 24 часов
-        const threshold24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    // Эффективная дата выезда с учётом бонусного дня
+    const getEffectiveCo = (guest) => {
+      let base;
+      if (typeof guest.checkOutDate === 'string' && guest.checkOutDate.includes('T')) {
+        base = new Date(guest.checkOutDate);
+      } else {
+        // dateonly → noon
+        base = new Date(guest.checkOutDate + 'T12:00:00');
+      }
+      if (isNaN(base.getTime())) return null;
 
-        const batch = writeBatch(db);
-        let count = 0;
-
-        guests.forEach(guest => {
-            if (guest.status !== 'active') return;
-            if (!guest.checkOutDate) return;
-
-            let checkOut = new Date(guest.checkOutDate);
-            if (isNaN(checkOut.getTime())) return;
-            if (typeof guest.checkOutDate === 'string' && !guest.checkOutDate.includes('T')) {
-                checkOut.setHours(23, 59, 59, 999);
-            }
-
-            // Пропустить гостя если бонусный день ещё активен
-            if (guest.bonusCheckOutDate) {
-                const bonusCo = new Date(guest.bonusCheckOutDate);
-                if (!isNaN(bonusCo.getTime()) && bonusCo > now) return;
-            }
-
-            // Правило 1: время вышло больше 24 часов назад (учитываем bonusCheckOutDate)
-            const effectiveCo = (guest.bonusCheckOutDate && !isNaN(new Date(guest.bonusCheckOutDate).getTime()))
-                ? new Date(guest.bonusCheckOutDate)
-                : checkOut;
-            const expiredOver24h = effectiveCo < threshold24h;
-
-            // Правило 2: на том же месте появился другой активный гость (заново заселён, не продлён)
-            const hasNewerGuest = guests.some(g2 =>
-                g2.id !== guest.id &&
-                g2.status === 'active' &&
-                g2.roomId === guest.roomId &&
-                String(g2.bedId) === String(guest.bedId) &&
-                new Date(g2.checkInDate || g2.checkInDateTime || 0) > new Date(guest.checkInDate || guest.checkInDateTime || 0)
-            );
-
-            if (!expiredOver24h && !hasNewerGuest) return;
-
-            const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
-            batch.update(guestRef, {
-                status: 'checked_out',
-                autoCheckedOut: true,
-                systemComment: hasNewerGuest
-                    ? 'Авто-выселение (новый гость заселён на место)'
-                    : 'Авто-выселение (просрочка > 24ч)',
-            });
-
-            const room = rooms.find(r => r.id === guest.roomId);
-            if (room) {
-                batch.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), {
-                    occupied: increment(-1),
-                });
-            }
-            count++;
-        });
-
-        if (count > 0) {
-            try {
-                await batch.commit();
-                showNotification(`Авто-выселение: ${count} гостей`, 'warning');
-            } catch (e) {
-                console.error('Auto-checkout error:', e);
-            }
-        }
+      if (guest.bonusCheckOutDate) {
+        const bonus = new Date(guest.bonusCheckOutDate);
+        if (!isNaN(bonus.getTime()) && bonus > base) return bonus;
+      }
+      return base;
     };
 
-    // Проверка при загрузке и каждые 30 минут
-    runAutoCheckout();
+    const runAutoCheckout = async () => {
+      if (!guests.length || !rooms.length) return;
+      const now = new Date();
+      // 4-часовой льготный буфер: не трогаем гостей, у которых выезд < 4ч назад
+      const graceMs   = 4 * 60 * 60 * 1000;
+      // Защита от «недавней оплаты» — 12 часов
+      const payGuardMs = 12 * 60 * 60 * 1000;
+
+      const batch = writeBatch(db);
+      let count = 0;
+      const evicted = [];
+
+      for (const guest of guests) {
+        // GATE 1
+        if (guest.status !== 'active') continue;
+        if (!guest.checkOutDate) continue;
+
+        // GATE 2 — effective checkout time
+        const effectiveCo = getEffectiveCo(guest);
+        if (!effectiveCo) continue;
+
+        // GATE 3 — льготный период 4 ч
+        const msOverdue = now.getTime() - effectiveCo.getTime();
+        if (msOverdue < graceMs) continue;
+
+        // GATE 4 — недавняя оплата (по payments или по lastPaymentAt на госте)
+        const lastPay = guest.lastPaymentAt
+          ? new Date(guest.lastPaymentAt).getTime()
+          : 0;
+        if (now.getTime() - lastPay < payGuardMs) continue;
+        // Дополнительная проверка по массиву payments (если есть guestId)
+        const recentPaid = payments.some(p => {
+          if ((p.guestId || p.bookingId) !== guest.id) return false;
+          const pts = new Date(p.date || p.timestamp || 0).getTime();
+          return now.getTime() - pts < payGuardMs;
+        });
+        if (recentPaid) continue;
+
+        // GATE 5 — на той же кровати нет «более старшего» активного гостя
+        // (исключаем ложные срабатывания при гонке двух записей)
+        const isJuniorOnBed = guests.some(g2 =>
+          g2.id !== guest.id &&
+          g2.status === 'active' &&
+          g2.roomId === guest.roomId &&
+          String(g2.bedId) === String(guest.bedId) &&
+          new Date(g2.checkInDate || g2.checkInDateTime || 0) <
+            new Date(guest.checkInDate || guest.checkInDateTime || 0)
+        );
+        if (isJuniorOnBed) continue; // есть более ранний активный гость — не трогаем
+
+        // ✅ Все гейты пройдены → выселяем
+        const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
+        batch.update(guestRef, {
+          status:        'checked_out',
+          autoCheckedOut: true,
+          autoCheckedOutAt: now.toISOString(),
+          systemComment: `Авто-выселение: просрочка ${Math.round(msOverdue / 3600000)}ч`,
+        });
+
+        // Уменьшаем occupied только если на кровати нет другого активного гостя
+        const anotherActive = guests.some(g2 =>
+          g2.id !== guest.id &&
+          g2.status === 'active' &&
+          g2.roomId === guest.roomId &&
+          String(g2.bedId) === String(guest.bedId)
+        );
+        if (!anotherActive) {
+          const room = rooms.find(r => r.id === guest.roomId);
+          if (room) {
+            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), {
+              occupied: increment(-1),
+            });
+          }
+        }
+
+        evicted.push({ id: guest.id, name: guest.fullName || guest.name || guest.id });
+        count++;
+      }
+
+      if (count > 0) {
+        try {
+          await batch.commit();
+          showNotification(`🏁 Авто-выселение: ${count} гост${count === 1 ? 'ь' : 'ей'}`, 'warning');
+          // Логируем в auditLog одной записью
+          logAction(
+            { id: 'system', name: 'System', role: 'system', hostelId: null },
+            'auto_checkout',
+            { count, guests: evicted.map(e => e.name) },
+          );
+        } catch (e) {
+          console.error('[auto-checkout] batch error:', e);
+          logSystemError('auto_checkout', e, { count });
+        }
+      }
+    };
+
+    // ⏱ Первая проверка через 2 мин после загрузки — данные успевают устояться
+    const initial = setTimeout(runAutoCheckout, 2 * 60 * 1000);
+    // Повторная проверка каждые 30 минут
     const interval = setInterval(runAutoCheckout, 30 * 60 * 1000);
 
-    return () => clearInterval(interval);
-}, [guests, rooms, currentUser]);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+  }, [guests, rooms, payments, currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Оффлайн очередь: загрузка файла Electron при старте, сохранение при закрытии ───
   useEffect(() => {
