@@ -2,7 +2,7 @@
 export const BUILD_TS = '20260228-1115';
 
 // --- VERSION ---
-export const APP_VERSION = '0.3.12';
+export const APP_VERSION = '0.3.13';
 export const MIN_REQUIRED_VERSION = '0.3.0';
 
 // --- SALARY CONFIG ---

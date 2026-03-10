@@ -401,8 +401,9 @@ function App() {
   //             • если checkOutDate содержит 'T' — берём время как есть
   //             • иначе это dateonly (YYYY-MM-DD) — добавляем 12:00 (noon checkout)
   //             • если есть bonusCheckOutDate и он позже — используем его
-  //  GATE 3 — эффективный выезд должен быть МИНИМУМ 4 ч назад (льготный период)
-  //            Это защищает гостей, которые только что заехали или уже продлились
+  //  GATE 3 — льготный период зависит от состояния кровати:
+  //             • 24 ч — если кровать свободна (никто новый не заехал)
+  //             • 4 ч  — если тот же bed уже занят другим активным гостем
   //  GATE 4 — гость не имеет последнего платежа за последние 12 ч
   //            (защита: оплата = продление, должны были уже сдвинуть checkOutDate)
   //  GATE 5 — не существует другой активный гость на ТОМ ЖЕ месте с более
@@ -436,8 +437,9 @@ function App() {
     const runAutoCheckout = async () => {
       if (!guests.length || !rooms.length) return;
       const now = new Date();
-      // 4-часовой льготный буфер: не трогаем гостей, у которых выезд < 4ч назад
-      const graceMs   = 4 * 60 * 60 * 1000;
+      // Льготные периоды:
+      const shortGraceMs = 4  * 60 * 60 * 1000; // 4ч  — кровать занята новым гостем
+      const longGraceMs  = 24 * 60 * 60 * 1000; // 24ч — кровать свободна
       // Защита от «недавней оплаты» — 12 часов
       const payGuardMs = 12 * 60 * 60 * 1000;
 
@@ -454,9 +456,16 @@ function App() {
         const effectiveCo = getEffectiveCo(guest);
         if (!effectiveCo) continue;
 
-        // GATE 3 — льготный период 4 ч
+        // GATE 3 — льготный период: 24ч если кровать свободна, 4ч если занята
+        const bedOccupiedByAny = guests.some(g2 =>
+          g2.id !== guest.id &&
+          g2.status === 'active' &&
+          g2.roomId === guest.roomId &&
+          String(g2.bedId) === String(guest.bedId)
+        );
+        const graceForGuest = bedOccupiedByAny ? shortGraceMs : longGraceMs;
         const msOverdue = now.getTime() - effectiveCo.getTime();
-        if (msOverdue < graceMs) continue;
+        if (msOverdue < graceForGuest) continue;
 
         // GATE 4 — недавняя оплата (по payments или по lastPaymentAt на госте)
         const lastPay = guest.lastPaymentAt
@@ -1039,6 +1048,9 @@ const filterByHostel = (items) => {
   const canPerformActions = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === 'admin' || currentUser.role === 'super') return true;
+    // Пользователи с правом просмотра чужого хостела → режим «только чтение» для него
+    // (заселение и оплаты недоступны, только просмотр и восстановление)
+    if (currentUser.canViewHostel1 && selectedHostelFilter !== currentUser.hostelId) return false;
     const hostelId = selectedHostelFilter || currentUser.hostelId;
     if (hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false) return false;
     if (hostelId === 'hostel2' && currentUser.permissions?.canPayInHostel2 === false) return false;
