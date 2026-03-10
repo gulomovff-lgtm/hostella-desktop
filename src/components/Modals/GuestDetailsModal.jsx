@@ -289,22 +289,16 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const handleExtend = () => {
         const days = parseInt(extendDays); if (!days) return;
         setIsPaymentSubmitting(true);
-        // Берём фактический диапазон CI→CO (не устаревшее guest.days);
-        // если checkOut > checkIn, используем реальное кол-во дней
-        const ciMs  = guest.checkInDate ? new Date(guest.checkInDate).getTime() : 0;
-        const coFld = new Date(guest.checkOutDate).getTime();
-        const actualDays = ciMs && coFld > ciMs
-            ? Math.max(parseInt(guest.days) || 0, Math.round((coFld - ciMs) / 86400000))
-            : parseInt(guest.days) || 0;
-        const newTotal = (guest.pricePerNight || 0) * (actualDays + days);
-        const newDays  = actualDays + days;
+        // Прибавляем к существующим значениям — не пересчитываем из временных меток,
+        // чтобы избежать ошибок округления при смеси date-only и ISO-строк
+        const existingDays = parseInt(guest.days) || 0;
+        const newDays  = existingDays + days;
+        const newTotal = (guest.totalPrice || 0) + (guest.pricePerNight || 0) * days;
 
-        // Считаем новый выезд от фактического конца срока (bonusCheckOut или checkOut),
-        // но не раньше сегодняшнего дня — чтобы не уйти снова в прошлое
+        // Отсчёт всегда от checkOutDate (не от сегодня, не от bonusCheckOutDate) —
+        // продление = сдвиг checkOutDate на days дней; bonus сдвигается на тот же офсет в handleExtendGuest
         const coMs    = new Date(guest.checkOutDate).getTime();
-        const bonusMs = guest.bonusCheckOutDate ? new Date(guest.bonusCheckOutDate).getTime() : 0;
-        const baseMs  = Math.max(coMs, bonusMs, Date.now());
-        const baseDate = new Date(baseMs);
+        const baseDate = new Date(coMs);
         baseDate.setHours(12, 0, 0, 0);
         const newCoDate = new Date(baseDate);
         newCoDate.setDate(newCoDate.getDate() + days);
@@ -318,10 +312,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
             onExtend(guest.id, {
                 extendDays: days,
                 payCash: c, payCard: cd, payQR: q,
-                prevDays:       parseInt(guest.days),
-                prevTotalPrice: guest.totalPrice || 0,
-                prevCheckOut:   guest.checkOutDate,
-                prevStatus:     guest.status,
+                prevDays:          parseInt(guest.days),
+                prevTotalPrice:    guest.totalPrice || 0,
+                prevCheckOut:      guest.checkOutDate,
+                prevBonusCheckOut: guest.bonusCheckOutDate || null,
+                prevStatus:        guest.status,
                 newDays, newTotalPrice: newTotal, newCheckOut,
             });
             setIsPaymentSubmitting(false);

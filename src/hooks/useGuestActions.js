@@ -111,6 +111,7 @@ export function useGuestActions(ctx) {
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
           days: item.prevDays, totalPrice: item.prevTotalPrice,
           checkOutDate: item.prevCheckOut, status: item.prevStatus || 'active',
+          bonusCheckOutDate: item.prevBonusCheckOut ? item.prevBonusCheckOut : deleteField(),
         });
         (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
         const rev = (item.payCash || 0) + (item.payCard || 0) + (item.payQR || 0);
@@ -312,11 +313,22 @@ export function useGuestActions(ctx) {
     try {
       const safeStaffId = currentUser.id || currentUser.login;
       const { extendDays, payCash = 0, payCard = 0, payQR = 0,
-              prevDays, prevTotalPrice, prevCheckOut, prevStatus,
+              prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut = null, prevStatus,
               newDays, newTotalPrice, newCheckOut } = extData;
+      // Сдвигаем bonusCheckOutDate на тот же офсет, что и основной checkOutDate
+      let bonusUpdate;
+      if (prevBonusCheckOut) {
+        const extendOffsetMs = new Date(newCheckOut).getTime() - new Date(prevCheckOut).getTime();
+        const newBonusMs = new Date(prevBonusCheckOut).getTime() + extendOffsetMs;
+        bonusUpdate = newBonusMs > new Date(newCheckOut).getTime()
+          ? { bonusCheckOutDate: new Date(newBonusMs).toISOString() }
+          : { bonusCheckOutDate: deleteField() };
+      } else {
+        bonusUpdate = { bonusCheckOutDate: deleteField() };
+      }
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, status: 'active',
-        bonusCheckOutDate: deleteField(), // clear bonus date — real extension supersedes it
+        ...bonusUpdate,
       });
       let paymentIds = [];
       const payTotal = payCash + payCard + payQR;
@@ -327,7 +339,7 @@ export function useGuestActions(ctx) {
         paymentIds = await logTransaction(guestId, { cash: payCash, card: payCard, qr: payQR }, safeStaffId);
       }
       const g = guests.find(x => x.id === guestId);
-      pushUndo({ type: 'extend', label: `+${extendDays} дн. — ${g?.fullName || guestId}`, guestId, prevDays, prevTotalPrice, prevCheckOut, prevStatus, paymentIds, payCash, payCard, payQR });
+      pushUndo({ type: 'extend', label: `+${extendDays} дн. — ${g?.fullName || guestId}`, guestId, prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut, prevStatus, paymentIds, payCash, payCard, payQR });
       if (g) {
         sendTelegramMessage(
           `📅 <b>Продление проживания</b>\n👤 ${g.fullName}\n➕ +${extendDays} дн. → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 Доплачено: ${payTotal.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`,
