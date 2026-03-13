@@ -657,23 +657,34 @@ function App() {
     };
   }, []);
 
+  // Сброс флага при смене пользователя (логин/логаут)
+  useEffect(() => {
+    autoShiftStartedRef.current = false;
+  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'cashier') return;
     if (shifts.length === 0) return;
-    
-    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
-    
-    if (!myActiveShift) {
-      const otherActiveShift = shifts.find(s => 
-        s.hostelId === currentUser.hostelId && 
-        !s.endTime && 
-        s.staffId !== currentUser.id
-      );
-      
-      if (!otherActiveShift) {
+    // Не запускаем автостарт повторно — только один раз за сессию
+    if (autoShiftStartedRef.current) return;
 
-        handleStartShift();
-      }
+    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+
+    if (myActiveShift) {
+      // Смена уже есть — помечаем, больше не трогаем
+      autoShiftStartedRef.current = true;
+      return;
+    }
+
+    const otherActiveShift = shifts.find(s =>
+      s.hostelId === currentUser.hostelId &&
+      !s.endTime &&
+      s.staffId !== currentUser.id
+    );
+
+    if (!otherActiveShift) {
+      autoShiftStartedRef.current = true;
+      handleStartShift();
     }
   }, [currentUser, shifts]);
 
@@ -687,6 +698,12 @@ function App() {
   // Ref-флаг: предотвращает повторный тригер force-logout при множественных
   // обновлениях usersList (Firestore может прислать несколько патчей подряд)
   const forceLogoutTriggeredRef = useRef(false);
+
+  // Ref-флаг: автостарт смены срабатывает только один раз за сессию.
+  // Без него: при закрытии смены Firestore обновляет shifts, useEffect видит
+  // «нет активной смены» и тут же создаёт новую — пока setCurrentUser(null)
+  // ещё не успел обновить state (race condition).
+  const autoShiftStartedRef = useRef(false);
 
   // ─── Force-logout: умный автовыход ───────────────────────────────────────
   // Алгоритм:

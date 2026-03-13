@@ -2,7 +2,7 @@
  * useShiftActions — операции со сменами и пользователями.
  */
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, writeBatch,
+  collection, doc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { hashPassword } from '../utils/hash';
@@ -41,11 +41,24 @@ export function useShiftActions({
         forceLogoutAfter: now,
       });
     }
-    const myOpenShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
-    if (myOpenShift) {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', myOpenShift.id), {
-        endTime: now,
-      });
+    // Ищем открытые смены прямым запросом в Firestore (не из React-стейта),
+    // чтобы гарантированно закрыть смену даже при устаревшем замыкании
+    try {
+      const q = query(
+        collection(db, ...PUBLIC_DATA_PATH, 'shifts'),
+        where('staffId', '==', currentUser.id),
+        where('endTime', '==', null)
+      );
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        await updateDoc(d.ref, { endTime: now });
+      }
+    } catch (e) {
+      // Fallback на React-стейт если Firestore query не сработал
+      const myOpenShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+      if (myOpenShift) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', myOpenShift.id), { endTime: now });
+      }
     }
     onLogout();
   };

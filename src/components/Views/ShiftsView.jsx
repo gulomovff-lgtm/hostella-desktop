@@ -235,6 +235,42 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                 </div>
             )}
 
+            {/* Активные смены — только для админа */}
+            {isAdmin && (() => {
+                const activeShifts = shifts.filter(s => !s.endTime && cashierIds.has(s.staffId));
+                if (!activeShifts.length) return null;
+                return (
+                    <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0"/>
+                            <span className="text-rose-700 font-black text-sm uppercase tracking-wide">Активные смены сейчас</span>
+                            <span className="ml-1 px-2 py-0.5 rounded-full bg-rose-200 text-rose-700 text-xs font-black">{activeShifts.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                            {activeShifts.map(s => {
+                                const staff = users.find(u => u.id === s.staffId);
+                                const hoursGone = ((Date.now() - new Date(s.startTime)) / 3600000).toFixed(1);
+                                return (
+                                    <div key={s.id} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 border border-rose-100">
+                                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"/>
+                                        <div className="flex-1 min-w-0">
+                                            <span className="font-bold text-slate-800">{staff?.name || '—'}</span>
+                                            <span className="text-slate-400 text-sm ml-2">{HOSTELS[s.hostelId]?.name}</span>
+                                            <span className="text-slate-400 text-xs ml-2">с {fmtTime(s.startTime)} {fmtDate(s.startTime)} · {hoursGone}ч</span>
+                                        </div>
+                                        <button
+                                            onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}
+                                            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors">
+                                            <Power size={12}/> Закрыть смену
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
@@ -520,6 +556,14 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                                                     <div className="shrink-0 w-24 text-right">
                                                         {salary !== null ? <span className="text-sm font-black text-emerald-600">{fmt(salary)}</span> : <span className="text-xs text-slate-400">…</span>}
                                                     </div>
+                                                    {isAdmin && active && (
+                                                        <button
+                                                            onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}
+                                                            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors"
+                                                            title="Принудительно закрыть смену">
+                                                            <Power size={12}/> Закрыть
+                                                        </button>
+                                                    )}
                                                     {isAdmin && (
                                                         <button onClick={() => openEdit(s)}
                                                             className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all shrink-0">

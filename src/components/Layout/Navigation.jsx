@@ -9,29 +9,24 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Menu groups definition ───────────────────────────────────────────────────
+// dropdown:true  → группа рендерится как одна кнопка-триггер, открывающая меню
+// dropdown:false → элементы группы rended напрямую в сайдбаре
 const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount, isAdmin) => {
     if (isAdmin) {
         return [
             {
-                id: 'main', label: null,
+                // Главные вкладки — всегда видны напрямую
+                id: 'main', label: null, dropdown: false,
                 items: [
                     { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
                     { id: 'rooms',     icon: BedDouble,        label: t('rooms') },
                     { id: 'calendar',  icon: Calendar,          label: t('calendar') },
+                    { id: 'debts',     icon: AlertCircle,       label: t('debts'),  permKey: 'viewDebts' },
                 ],
             },
             {
-                id: 'ops', label: 'ОПЕРАЦИИ',
-                items: [
-                    { id: 'bookings',      icon: Globe,          label: 'Брони',     badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-                    { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon',  badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-                    { id: 'debts',         icon: AlertCircle,    label: t('debts'),  permKey: 'viewDebts' },
-                    { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),  badge: pendingTasksCount },
-                    { id: 'clients',       icon: Users,          label: t('clients'), permKey: 'viewClients' },
-                ],
-            },
-            {
-                id: 'finance', label: 'ФИНАНСЫ',
+                // Финансы — дропдаун
+                id: 'finance', label: 'ФИНАНСЫ', dropdown: true, dropIcon: BarChart3, dropLabel: 'Финансы',
                 items: [
                     { id: 'reports',   icon: FileText,  label: t('reports'),  adminOnly: true, permKey: 'viewReports'  },
                     { id: 'expenses',  icon: Wallet,    label: t('expenses'), adminOnly: true, permKey: 'viewExpenses' },
@@ -39,21 +34,33 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
                 ],
             },
             {
-                id: 'staff', label: 'ПЕРСОНАЛ',
+                // Операции — дропдаун
+                id: 'ops', label: 'ОПЕРАЦИИ', dropdown: true, dropIcon: Globe, dropLabel: 'Операции',
+                items: [
+                    { id: 'bookings',      icon: Globe,          label: 'Брони',     badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+                    { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon',  badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+                    { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),  badge: pendingTasksCount },
+                    { id: 'clients',       icon: Users,          label: t('clients'), permKey: 'viewClients' },
+                ],
+            },
+            {
+                // Персонал — дропдаун
+                id: 'staff', label: 'ПЕРСОНАЛ', dropdown: true, dropIcon: UserCog, dropLabel: 'Персонал',
                 items: [
                     { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
                     { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
                 ],
             },
             {
-                id: 'settings', label: 'ПРОЧЕЕ',
+                // Прочее — дропдаун
+                id: 'settings', label: 'ПРОЧЕЕ', dropdown: true, dropIcon: Settings, dropLabel: 'Прочее',
                 items: [
                     { id: 'telegram',    icon: BellRing,     label: 'Telegram',   adminOnly: true },
                     { id: 'promos',      icon: Tag,           label: 'Промокоды', adminOnly: true },
                     { id: 'referrals',   icon: Users2,        label: 'Бонусы' },
                     { id: 'hostelconfig',icon: Settings,      label: 'Настройки', adminOnly: true },
-                    { id: 'auditlog',  icon: ClipboardList, label: 'История',  superOnly: true },
-                    { id: 'sessions',  icon: Monitor,       label: 'Сессии',   superOnly: true },
+                    { id: 'auditlog',    icon: ClipboardList, label: 'История',   superOnly: true },
+                    { id: 'sessions',    icon: Monitor,       label: 'Сессии',    superOnly: true },
                 ],
             },
         ];
@@ -61,21 +68,21 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
     // ─── Кассир: брони/e-mehmon/задачи/клиенты → в «Прочее», бонусы → после долгов ───
     return [
         {
-            id: 'main', label: null,
+            id: 'main', label: null, dropdown: false,
             items: [
                 { id: 'rooms',    icon: BedDouble, label: t('rooms') },
                 { id: 'calendar', icon: Calendar,  label: t('calendar') },
             ],
         },
         {
-            id: 'ops', label: 'ОПЕРАЦИИ',
+            id: 'ops', label: 'ОПЕРАЦИИ', dropdown: false,
             items: [
                 { id: 'debts',     icon: AlertCircle, label: t('debts'),   permKey: 'viewDebts' },
                 { id: 'referrals', icon: Users2,      label: 'Бонусы' },
             ],
         },
         {
-            id: 'settings', label: 'ПРОЧЕЕ',
+            id: 'settings', label: 'ПРОЧЕЕ', dropdown: true, dropIcon: Settings, dropLabel: 'Прочее',
             items: [
                 { id: 'bookings',      icon: Globe,          label: 'Брони',    badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
                 { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon', badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
@@ -102,14 +109,15 @@ const Navigation = ({
     const [profilePos,    setProfilePos]    = React.useState({ top: 0 });
     const [checkinOpen,   setCheckinOpen]   = React.useState(false);
     const [checkinPos,    setCheckinPos]    = React.useState({ top: 0 });
-    const [settingsOpen,  setSettingsOpen]  = React.useState(false);
-    const [settingsPos,   setSettingsPos]   = React.useState({ top: 0 });
+    // Unified dropdown state — один openGroup вместо settings-only состояния
+    const [openGroup,    setOpenGroup]    = React.useState(null);
+    const [groupMenuPos, setGroupMenuPos] = React.useState({ top: 0, left: 0 });
     const profileBtnRef  = React.useRef(null);
     const profileRef     = React.useRef(null);
     const checkinBtnRef  = React.useRef(null);
     const checkinMenuRef = React.useRef(null);
-    const settingsBtnRef = React.useRef(null);
-    const settingsMenuRef = React.useRef(null);
+    const groupBtnRefs   = React.useRef({});   // map groupId → HTMLElement
+    const groupMenuRef   = React.useRef(null); // ref на открытое меню
 
     React.useEffect(() => {
         const handler = (e) => {
@@ -121,14 +129,16 @@ const Navigation = ({
                 checkinMenuRef.current && !checkinMenuRef.current.contains(e.target) &&
                 checkinBtnRef.current  && !checkinBtnRef.current.contains(e.target)
             ) setCheckinOpen(false);
-            if (
-                settingsMenuRef.current && !settingsMenuRef.current.contains(e.target) &&
-                settingsBtnRef.current  && !settingsBtnRef.current.contains(e.target)
-            ) setSettingsOpen(false);
+            if (openGroup) {
+                const menuEl = groupMenuRef.current;
+                const btnEl  = groupBtnRefs.current[openGroup];
+                if (menuEl && !menuEl.contains(e.target) && btnEl && !btnEl.contains(e.target))
+                    setOpenGroup(null);
+            }
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
-    }, []);
+    }, [openGroup]);
 
     const handleCheckinToggle = () => {
         if (!checkinOpen && checkinBtnRef.current) {
@@ -149,18 +159,20 @@ const Navigation = ({
         setProfileOpen(o => !o);
     };
 
-    const handleSettingsToggle = () => {
-        if (!settingsOpen && settingsBtnRef.current) {
-            const rect   = settingsBtnRef.current.getBoundingClientRect();
-            const menuH  = 300;
-            // Если от верха кнопки до низа экрана хватает — открываем вниз от кнопки,
-            // иначе прибиваем меню к нижнему краю экрана
+    const handleGroupToggle = (groupId) => {
+        if (openGroup === groupId) { setOpenGroup(null); return; }
+        const btn = groupBtnRefs.current[groupId];
+        if (btn) {
+            const rect  = btn.getBoundingClientRect();
+            const menuH = 300;
+            // если от верха кнопки до низа экрана хватает — открываем от верха кнопки,
+            // иначе прибиваем к нижнему краю экрана
             const top = (window.innerHeight - rect.top >= menuH)
                 ? rect.top
                 : Math.max(8, window.innerHeight - menuH - 8);
-            setSettingsPos({ top, left: rect.right + 8 });
+            setGroupMenuPos({ top, left: rect.right + 8 });
         }
-        setSettingsOpen(o => !o);
+        setOpenGroup(groupId);
     };
 
     const roleLabel   = isSuper ? t('superAdmin') : isAdmin ? t('admin') : t('cashier');
@@ -212,38 +224,55 @@ const Navigation = ({
 
             {/* ── Nav items ── */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'none' }}>
-                {visibleGroups.map((group, gi) => (
-                    <div key={group.id}>
-                        {gi > 0 && (
-                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
-                                {group.label && group.id !== 'settings' && <div className="nav-gl">{group.label}</div>}
-                            </div>
-                        )}
-                        {group.id === 'settings' ? (
-                            /* ── Settings group → dropdown trigger ── */
-                            <>
-                                <div style={{ borderTop: gi > 0 ? undefined : '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
-                                    <div className="nav-gl">ПРОЧЕЕ</div>
-                                </div>
+                {visibleGroups.map((group, gi) => {
+                    if (group.dropdown) {
+                        /* ── Dropdown trigger button ── */
+                        const DropIcon   = group.dropIcon;
+                        const isActive   = group.items.some(i => i.id === activeTab);
+                        const isOpen     = openGroup === group.id;
+                        const totalBadge = group.items.reduce((s, i) => s + (i.badge || 0), 0);
+                        return (
+                            <div key={group.id}>
+                                {gi > 0 && (
+                                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
+                                        {group.label && <div className="nav-gl">{group.label}</div>}
+                                    </div>
+                                )}
                                 <button
-                                    ref={settingsBtnRef}
-                                    onClick={handleSettingsToggle}
+                                    ref={el => { groupBtnRefs.current[group.id] = el; }}
+                                    onClick={() => handleGroupToggle(group.id)}
                                     className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
                                     style={{
-                                        background: settingsOpen ? 'rgba(232,140,64,0.18)' : group.items.some(i => i.id === activeTab) ? 'rgba(232,140,64,0.12)' : 'transparent',
-                                        color:      settingsOpen || group.items.some(i => i.id === activeTab) ? '#e88c40' : '#9ecdd0',
-                                        borderLeft: group.items.some(i => i.id === activeTab) ? '3px solid #e88c40' : '3px solid transparent',
+                                        background: isOpen || isActive ? 'rgba(232,140,64,0.18)' : 'transparent',
+                                        color:      isOpen || isActive ? '#e88c40' : '#9ecdd0',
+                                        borderLeft: isActive ? '3px solid #e88c40' : '3px solid transparent',
                                         outline: 'none',
                                     }}
-                                    onMouseOver={e => { if (!settingsOpen) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
-                                    onMouseOut={e  => { if (!settingsOpen) { e.currentTarget.style.background = group.items.some(i => i.id === activeTab) ? 'rgba(232,140,64,0.12)' : 'transparent'; e.currentTarget.style.color = group.items.some(i => i.id === activeTab) ? '#e88c40' : '#9ecdd0'; } }}
+                                    onMouseOver={e => { if (!isOpen) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
+                                    onMouseOut={e  => { if (!isOpen) { e.currentTarget.style.background = isActive ? 'rgba(232,140,64,0.18)' : 'transparent'; e.currentTarget.style.color = isActive ? '#e88c40' : '#9ecdd0'; } }}
                                 >
-                                    <Settings size={20} strokeWidth={settingsOpen ? 2.5 : 2} />
-                                    <span className="nav-lbl">Прочее</span>
+                                    <DropIcon size={20} strokeWidth={isOpen ? 2.5 : 2} />
+                                    <span className="nav-lbl">{group.dropLabel}</span>
+                                    {totalBadge > 0 && (
+                                        <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                            style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
+                                                animation: group.items.some(i => i.glow) ? 'booking-pulse 1.5s ease-in-out infinite' : 'none' }}>
+                                            {totalBadge}
+                                        </span>
+                                    )}
                                 </button>
-                            </>
-                        ) : (
-                            group.items.map(item => {
+                            </div>
+                        );
+                    }
+                    /* ── Direct items ── */
+                    return (
+                        <div key={group.id}>
+                            {gi > 0 && (
+                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
+                                    {group.label && <div className="nav-gl">{group.label}</div>}
+                                </div>
+                            )}
+                            {group.items.map(item => {
                                 const Icon = item.icon;
                                 const act  = activeTab === item.id;
                                 return (
@@ -275,46 +304,66 @@ const Navigation = ({
                                         )}
                                     </button>
                                 );
-                            })
-                        )}
-                    </div>
-                ))}
+                            })}
+                        </div>
+                    );
+                })}
             </div>
 
-            {/* ── Settings dropdown portal ── */}
-            {settingsOpen && ReactDOM.createPortal(
-                <div ref={settingsMenuRef} style={{
-                    position: 'fixed', left: settingsPos.left, top: settingsPos.top,
-                    width: 190, background: '#1e4a4f',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-                    zIndex: 99999, overflow: 'hidden',
-                    maxHeight: `calc(100vh - ${settingsPos.top}px - 8px)`,
-                    overflowY: 'auto',
-                }}>
-                    {visibleGroups.find(g => g.id === 'settings')?.items.map(item => {
-                        const Icon = item.icon;
-                        const act  = activeTab === item.id;
-                        return (
-                            <button key={item.id}
-                                onClick={() => { setSettingsOpen(false); setActiveTab(item.id); }}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
-                                style={{
-                                    color: act ? '#e88c40' : '#9ecdd0',
-                                    background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                    border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s',
-                                }}
-                                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; } }}
-                                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
-                            >
-                                <Icon size={15} strokeWidth={act ? 2.5 : 2} />
-                                <span style={{ fontWeight: act ? 700 : 600 }}>{item.label}</span>
-                            </button>
-                        );
-                    })}
-                </div>,
-                document.body,
-            )}
+            {/* ── Unified group dropdown portal ── */}
+            {openGroup && (() => {
+                const group = visibleGroups.find(g => g.id === openGroup);
+                if (!group) return null;
+                return ReactDOM.createPortal(
+                    <div ref={groupMenuRef} style={{
+                        position: 'fixed', left: groupMenuPos.left, top: groupMenuPos.top,
+                        width: 200, background: '#1e4a4f',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+                        zIndex: 99999, overflow: 'hidden',
+                        maxHeight: `calc(100vh - ${groupMenuPos.top}px - 8px)`,
+                        overflowY: 'auto',
+                    }}>
+                        {group.label && (
+                            <div style={{
+                                padding: '8px 16px 6px',
+                                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                                fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
+                                color: 'rgba(158,205,208,0.5)', textTransform: 'uppercase',
+                            }}>{group.label}</div>
+                        )}
+                        {group.items.map(item => {
+                            const Icon  = item.icon;
+                            const act   = activeTab === item.id;
+                            const badge = item.badge || 0;
+                            return (
+                                <button key={item.id}
+                                    onClick={() => { setOpenGroup(null); setActiveTab(item.id); }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
+                                    style={{
+                                        color: act ? '#e88c40' : '#9ecdd0',
+                                        background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
+                                        border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s',
+                                    }}
+                                    onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; } }}
+                                    onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
+                                >
+                                    <Icon size={15} strokeWidth={act ? 2.5 : 2} />
+                                    <span style={{ fontWeight: act ? 700 : 600, flex: 1 }}>{item.label}</span>
+                                    {badge > 0 && (
+                                        <span className="w-5 h-5 rounded-full flex items-center justify-center"
+                                            style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
+                                                animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none' }}>
+                                            {badge}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>,
+                    document.body,
+                );
+            })()}
 
             {/* ── Action buttons ── */}
             {canPerformActions && (
