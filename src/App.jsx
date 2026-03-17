@@ -984,10 +984,14 @@ const filterByHostel = (items) => {
   }, [usersList, currentUser, selectedHostelFilter]);
 
   const filteredPayments = useMemo(() => {
-    if (!currentUser) return []; // ? ПРОВЕРКА
+    if (!currentUser) return [];
     const targetHostel = currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId;
     if (currentUser.role === 'super') return payments;
     return payments.filter(p => {
+        // Приоритет: hostelId сохранённый в платеже — зафиксирован в момент транзакции,
+        // не меняется при переводе кассира в другой хостел.
+        if (p.hostelId) return p.hostelId === targetHostel;
+        // Фолбэк для старых платежей без hostelId
         const staff = usersList.find(u => u.id === p.staffId || u.login === p.staffId);
         return staff && (staff.hostelId === targetHostel || staff.hostelId === 'all');
     });
@@ -1432,16 +1436,16 @@ return (
                 {activeTab === 'shifts' && (
                     <ShiftsView 
                         shifts={shifts} 
-                        users={usersList} 
+                        users={filteredUsersForReports} 
                         currentUser={currentUser} 
                         onStartShift={handleStartShift} 
                         onEndShift={handleEndShift} 
                         onTransferShift={handleTransferShift} 
                         lang={lang} 
-                        hostelId={currentUser.hostelId} 
+                        hostelId={currentUser.role === 'super' ? 'all' : selectedHostelFilter} 
                         onAdminAddShift={handleAdminAddShift} 
                         onAdminUpdateShift={handleAdminUpdateShift}
-                        payments={payments}
+                        payments={filteredPayments}
                     />
                 )}
 

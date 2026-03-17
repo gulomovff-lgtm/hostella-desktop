@@ -55,6 +55,11 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
     const displayedShifts = useMemo(() => {
         // Смены только кассиров — admin не учитывается
         let list = shifts.filter(s => cashierIds.has(s.staffId));
+        // Фильтруем по hostelId смены — чтобы старые смены переведённого кассира
+        // не попадали в отчёт нового хостела
+        if (hostelId && hostelId !== 'all') {
+            list = list.filter(s => !s.hostelId || s.hostelId === hostelId);
+        }
         if (!isAdmin) {
             list = list.filter(s => s.staffId === currentUser.id);
         } else {
@@ -64,7 +69,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
             if (filterCashierId) list = list.filter(s => s.staffId === filterCashierId);
         }
         return list.sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
-    }, [shifts, cashierIds, isAdmin, currentUser.id, dateRange, filterCashierId]);
+    }, [shifts, cashierIds, hostelId, isAdmin, currentUser.id, dateRange, filterCashierId]);
 
     const kpi = useMemo(() => {
         const finished = displayedShifts.filter(s => s.endTime);
