@@ -237,7 +237,9 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
 
             {/* Активные смены — только для админа */}
             {isAdmin && (() => {
-                const activeShifts = shifts.filter(s => !s.endTime && cashierIds.has(s.staffId));
+                // Показываем ВСЕ открытые смены — включая «осиротевшие» (удалённый пользователь).
+                // Это позволяет администратору закрыть такую смену и разблокировать вход.
+                const activeShifts = shifts.filter(s => !s.endTime);
                 if (!activeShifts.length) return null;
                 return (
                     <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4">
@@ -250,13 +252,17 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                             {activeShifts.map(s => {
                                 const staff = users.find(u => u.id === s.staffId);
                                 const hoursGone = ((Date.now() - new Date(s.startTime)) / 3600000).toFixed(1);
+                                const isOrphaned = !staff;
                                 return (
-                                    <div key={s.id} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 border border-rose-100">
-                                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"/>
+                                    <div key={s.id} className={`flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 border ${isOrphaned ? 'border-amber-200 bg-amber-50' : 'border-rose-100'}`}>
+                                        <div className={`w-2 h-2 rounded-full ${isOrphaned ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'} shrink-0`}/>
                                         <div className="flex-1 min-w-0">
-                                            <span className="font-bold text-slate-800">{staff?.name || '—'}</span>
+                                            <span className={`font-bold ${isOrphaned ? 'text-amber-700' : 'text-slate-800'}`}>
+                                                {staff?.name || '⚠ Удалённый пользователь'}
+                                            </span>
                                             <span className="text-slate-400 text-sm ml-2">{HOSTELS[s.hostelId]?.name}</span>
                                             <span className="text-slate-400 text-xs ml-2">с {fmtTime(s.startTime)} {fmtDate(s.startTime)} · {hoursGone}ч</span>
+                                            {isOrphaned && <span className="ml-2 text-xs text-amber-600 font-bold">— смена блокирует вход кассирам</span>}
                                         </div>
                                         <button
                                             onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}

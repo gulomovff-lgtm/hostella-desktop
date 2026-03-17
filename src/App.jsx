@@ -577,12 +577,15 @@ function App() {
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
-      return shifts.find(s => 
-          s.hostelId === currentUser.hostelId && 
-          !s.endTime && 
-          s.staffId !== currentUser.id 
+      return shifts.find(s =>
+          s.hostelId === currentUser.hostelId &&
+          !s.endTime &&
+          s.staffId !== currentUser.id &&
+          // Игнорируем «призрачные» смены удалённых пользователей —
+          // иначе удаление кассира блокирует вход всем остальным.
+          usersList.some(u => u.id === s.staffId)
       );
-  }, [shifts, currentUser]);
+  }, [shifts, currentUser, usersList]);
 
   const activeUserForBlock = useMemo(() => {
       if (!activeShiftInMyHostel) return null;
@@ -679,7 +682,9 @@ function App() {
     const otherActiveShift = shifts.find(s =>
       s.hostelId === currentUser.hostelId &&
       !s.endTime &&
-      s.staffId !== currentUser.id
+      s.staffId !== currentUser.id &&
+      // Не учитываем смены удалённых пользователей при авто-старте
+      usersList.some(u => u.id === s.staffId)
     );
 
     if (!otherActiveShift) {
