@@ -569,9 +569,22 @@ function App() {
     if (!isOnline) return;
     const q = getQueue();
     if (!q.length) return;
-    // Firestore (persistentLocalCache) уже синхронизовал записи автоматически.
-    // Очищаем ярлык и удаляем Electron-файл.
-    showNotification(`📶 Синхронизировано оффлайн-оплат (${q.length} записей)`, 'success');
+
+    // 1. Отправляем отложенные Telegram-уведомления (Cloud Functions недоступны оффлайн)
+    const telegramEntries = q.filter(e => e._type === 'telegram');
+    if (telegramEntries.length > 0) {
+      telegramEntries.forEach(e => {
+        sendTelegramMessage(e.text, e.notifType).catch(() => {});
+      });
+    }
+
+    // 2. Firestore (persistentLocalCache) уже синхронизовал платежи/расходы автоматически.
+    //    Очищаем всю очередь и удаляем Electron-файл.
+    const paymentCount = q.filter(e => e._type !== 'telegram').length;
+    const parts = [];
+    if (paymentCount > 0) parts.push(`${paymentCount} оплат`);
+    if (telegramEntries.length > 0) parts.push(`${telegramEntries.length} уведомлений`);
+    showNotification(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
     clearQueue();
   }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -851,7 +864,7 @@ function App() {
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
     setExpenseModal, setUndoStack,
-    showNotification,
+    showNotification, isOnline,
   });
 
   const { addRecurring, updateRecurring, deleteRecurring, toggleActive: toggleRecurringActive, fireNow: fireRecurringNow, getRecurringAdvances } = useRecurringExpenses({
@@ -1047,7 +1060,7 @@ const filterByHostel = (items) => {
     if (!currentUser) return;
     const REMINDER_KEY = 'hostella_booking_reminder_ts';
     const sendReminder = () => {
-      if (pendingBookingsCount > 0) {
+      if (pendingBookingsCount > 0 && isOnline) {
         const list = websiteBookings.slice(0, 5).map(b =>
           `• ${b.fullName || '—'} — ${b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2'}, заезд ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'}`
         ).join('\n');
@@ -1138,7 +1151,7 @@ const filterByHostel = (items) => {
     }); 
   };
 
-  const handleCloneRoom = async (r) => { };
+  const handleCloneRoom = async (r) => { showNotification('Функция клонирования недоступна', 'error'); };
   const handleEditRoom = async (d) => {
     if (!editRoomModal.room?.id) return;
     const { id } = editRoomModal.room;
@@ -1150,7 +1163,7 @@ const filterByHostel = (items) => {
     });
     setEditRoomModal({ open: false, room: null });
   };
-  const handleDeleteRoom = async (r) => { };
+  const handleDeleteRoom = async (r) => { showNotification('Удаление комнат недоступно — обратитесь к администратору', 'error'); };
 
   const handleAddTask = async (task) => { 
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), task); 
@@ -1216,6 +1229,7 @@ if (activeShiftInMyHostel) {
             activeUser={activeUserForBlock} 
             currentUser={currentUser} 
             onLogout={handleLogout}
+            lang={lang}
         />
     );
 }
@@ -1232,8 +1246,8 @@ return (
 
         {/* Баннер офлайн */}
         {!isOnline && (
-          <div className="flex items-center justify-between px-4 py-2 bg-red-600 text-white text-sm z-50">
-            <span>⚠️ <strong>Нет подключения к интернету.</strong> Оплаты не будут сохранены — не проводите платежи до восстановления связи!</span>
+          <div className="flex items-center justify-between px-4 py-2 bg-amber-600 text-white text-sm z-50">
+            <span>📵 <strong>Нет подключения к интернету.</strong> Данные сохраняются локально и синхронизируются при восстановлении связи. Telegram-уведомления будут отправлены автоматически.</span>
           </div>
         )}
 

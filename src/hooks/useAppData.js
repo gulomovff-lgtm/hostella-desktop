@@ -34,6 +34,18 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
 
+  // Fix 13: добавляем слушатели online/offline — snapshot от rooms даёт задержку при старте (fromCache = true)
+  useEffect(() => {
+    const handleOnline  = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     if (!firebaseUser) return;
 
@@ -147,13 +159,16 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setRegistrations([])
     );
 
-    // Recurring expenses
+    // Recurring expenses (Fix 17: только для admin/super — кассирам не нужно)
     const recurringCol = collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
-    const u12 = onSnapshot(
-      recurringCol,
-      (snap) => setRecurringExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => setRecurringExpenses([])
-    );
+    let u12 = () => {};
+    if (currentUser.role === 'admin' || currentUser.role === 'super') {
+      u12 = onSnapshot(
+        recurringCol,
+        (snap) => setRecurringExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+        () => setRecurringExpenses([])
+      );
+    }
 
     // Hostel config (checkInHour, etc.)
     const hostelCfgDoc = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');

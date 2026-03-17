@@ -5,46 +5,9 @@ import {
     Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
-
-// --- COUNTRY_FLAGS ---
-const COUNTRY_FLAGS = {
-  "Узбекистан":"UZ","Россия":"RU","Казахстан":"KZ","Таджикистан":"TJ","Кыргызстан":"KG","Абхазия":"GE",
-  "Австралия":"AU","Австрия":"AT","Азербайджан":"AZ","Албания":"AL","Алжир":"DZ","Ангола":"AO",
-  "Аргентина":"AR","Армения":"AM","Афганистан":"AF","Багамские Острова":"BS","Бангладеш":"BD",
-  "Барбадос":"BB","Бахрейн":"BH","Белоруссия":"BY","Бельгия":"BE","Болгария":"BG","Бразилия":"BR",
-  "Великобритания":"GB","Венгрия":"HU","Венесуэла":"VE","Вьетнам":"VN","Германия":"DE",
-  "Гонконг":"HK","Греция":"GR","Грузия":"GE","Дания":"DK","Египет":"EG","Израиль":"IL",
-  "Индия":"IN","Индонезия":"ID","Иордания":"JO","Ирак":"IQ","Иран":"IR","Ирландия":"IE",
-  "Исландия":"IS","Испания":"ES","Италия":"IT","Канада":"CA","Катар":"QA","Кения":"KE",
-  "Кипр":"CY","Китай":"CN","Колумбия":"CO","Корея (Южная)":"KR","Куба":"CU","Кувейт":"KW",
-  "Латвия":"LV","Литва":"LT","Малайзия":"MY","Мальдивы":"MV","Марокко":"MA","Мексика":"MX",
-  "Молдавия":"MD","Монголия":"MN","Непал":"NP","Нидерланды":"NL","Новая Зеландия":"NZ",
-  "Норвегия":"NO","ОАЭ":"AE","Пакистан":"PK","Польша":"PL","Португалия":"PT","Румыния":"RO",
-  "Саудовская Аравия":"SA","Сербия":"RS","Сингапур":"SG","Сирия":"SY","Словакия":"SK",
-  "Словения":"SI","США":"US","Таиланд":"TH","Туркмения":"TM","Турция":"TR","Украина":"UA",
-  "Филиппины":"PH","Финляндия":"FI","Франция":"FR","Хорватия":"HR","Чехия":"CZ","Чили":"CL",
-  "Швейцария":"CH","Швеция":"SE","Шри-Ланка":"LK","Эстония":"EE","Япония":"JP"
-};
-
-const FLAG_SIZES = [20, 40, 80, 160, 320];
-const snapFlagSize = (s) => FLAG_SIZES.find(f => f >= s) || 320;
-const Flag = ({ code, size = 20 }) => {
-    if (!code) return null;
-    const w = snapFlagSize(size);
-    const w2 = snapFlagSize(size * 2);
-    const h = Math.round(size * 0.75);
-    return (
-        <img
-            src={`https://flagcdn.com/w${w}/${code.toLowerCase()}.png`}
-            srcSet={`https://flagcdn.com/w${w2}/${code.toLowerCase()}.png 2x`}
-            width={size} height={h} alt={code}
-            style={{ display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0 }}
-        />
-    );
-};
-
-// --- Utilities ---
-const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+import { COUNTRY_FLAGS } from '../../constants/countries';
+import { Flag, getTotalPaid } from '../../utils/helpers';
+import ConfirmDialog from '../UI/ConfirmDialog';
 
 const getStayDetails = (checkInDateTime, days) => {
     const start = new Date(checkInDateTime);
@@ -200,6 +163,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const [reduceDaysNoRefund, setReduceDaysNoRefund] = useState(1);
     const [trimDays, setTrimDays] = useState(1);
     const [superPayAmount, setSuperPayAmount] = useState('');
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [newStartDate, setNewStartDate] = useState(() => {
         try { return guest.checkInDate ? new Date(guest.checkInDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]; }
         catch(e) { return new Date().toISOString().split('T')[0]; }
@@ -361,7 +325,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     };
 
     const handleSaveInfo    = () => { onUpdate(guest.id, {...editForm, totalPrice: parseInt(editForm.pricePerNight)*parseInt(guest.days)}); goBack(); };
-    const handleDelete      = () => { if (confirm(t('confirmDelete'))) onDelete(guest); };
+    const handleDelete      = () => { setConfirmDeleteOpen(true); };
     const handleReduceNR    = () => { onReduceDaysNoRefund(guest, parseInt(reduceDaysNoRefund)); onClose(); };
     const handleMoveBooking = () => {
         const s = new Date(newStartDate); s.setHours(12,0,0,0);
@@ -427,6 +391,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     };
 
     return (
+        <>
         <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 animate-in fade-in duration-150">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
 
@@ -569,7 +534,18 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 <>
                                     <button onClick={()=>handlePrint('check')}   className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Чек"><Printer size={17}/></button>
                                     <button onClick={()=>handlePrint('regcard')} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Рег. карта"><FileText size={17}/></button>
-                                    <button onClick={()=>setCurrentView('edit')} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Редактировать"><Edit size={17}/></button>
+                                    <button onClick={() => {
+                                        setEditForm({
+                                            fullName: guest.fullName || '',
+                                            birthDate: guest.birthDate || '',
+                                            passport: guest.passport || '',
+                                            passportIssueDate: guest.passportIssueDate || '',
+                                            phone: guest.phone || '',
+                                            country: guest.country || 'Узбекистан',
+                                            pricePerNight: guest.pricePerNight || 0,
+                                        });
+                                        setCurrentView('edit');
+                                    }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Редактировать"><Edit size={17}/></button>
                                 </>
                             )}
                             {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('moveDate')} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Перенос дат"><CalendarDays size={17}/></button>}
@@ -604,7 +580,10 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                     📶 Оффлайн — оплата сохранится и синхронизируется при подключении
                                 </div>
                             )}
-                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting} className="w-full py-3.5 text-white rounded-xl font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700">ПОДТВЕРДИТЬ ОПЛАТУ</button>
+                            <button onClick={handlePayDebt} disabled={isPaymentSubmitting} className="w-full py-3.5 text-white rounded-xl font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                                {isPaymentSubmitting && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
+                                ПОДТВЕРДИТЬ ОПЛАТУ
+                            </button>
                         </div>
                     </div>
                 )}
@@ -637,7 +616,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                     📶 Оффлайн — оплата сохранится и синхронизируется при подключении
                                 </div>
                             )}
-                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
+                            <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg disabled:opacity-60 flex items-center justify-center gap-2 ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                {isPaymentSubmitting && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
                                 {(!isAdmin && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
                             </button>
                         </div>
@@ -666,7 +646,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                     {balance > 0 && <input type="number" className="mt-3 w-full p-2.5 text-center border border-emerald-200 rounded-xl outline-none font-bold" placeholder="Возврат (опц.)" value={checkoutManualRefund} onChange={e=>setCheckoutManualRefund(e.target.value)}/>}
                                 </div>
                             )}
-                            <button onClick={handleDoCheckout} className="w-full py-3.5 bg-rose-600 text-white rounded-xl font-black shadow-xl shadow-rose-200 hover:bg-rose-700">ПОДТВЕРДИТЬ ВЫСЕЛЕНИЕ</button>
+                            <button onClick={handleDoCheckout} disabled={isPaymentSubmitting} className="w-full py-3.5 bg-rose-600 text-white rounded-xl font-black shadow-xl shadow-rose-200 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed">ПОДТВЕРДИТЬ ВЫСЕЛЕНИЕ</button>
                         </div>
                     </div>
                 )}
@@ -989,6 +969,17 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
             </div>
         </div>
+
+        <ConfirmDialog
+            open={confirmDeleteOpen}
+            title={t('deleteGuest')}
+            message={`${guest.fullName || ''}${guest.room ? ` — ${guest.room}` : ''}`}
+            confirmText={t('delete')}
+            onConfirm={() => { setConfirmDeleteOpen(false); onDelete(guest); }}
+            onCancel={() => setConfirmDeleteOpen(false)}
+            lang={lang}
+        />
+        </>
     );
 };
 

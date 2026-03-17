@@ -135,6 +135,12 @@ export function useShiftActions({
 
   const handleDeleteUser = async (id) => {
     try {
+      // Закрываем все открытые смены перед удалением, иначе открытая смена заблокирует вход другим кассирам
+      const now = new Date().toISOString();
+      const openShifts = shifts.filter(s => s.staffId === id && !s.endTime);
+      for (const s of openShifts) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', s.id), { endTime: now });
+      }
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id));
       showNotification('Сотрудник удалён', 'success');
     } catch (e) {

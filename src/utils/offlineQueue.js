@@ -1,9 +1,13 @@
 /**
  * offlineQueue.js
- * Очередь платежей для работы в оффлайн-режиме.
+ * Очередь платежей и отложенных уведомлений для работы в оффлайн-режиме.
  * Хранит записи в localStorage. При восстановлении интернета —
  * флашится в Firestore через колбэк синхронизации.
  * В Electron также сохраняется в файл через IPC при закрытии приложения.
+ *
+ * Типы записей в очереди (_type):
+ *  - undefined   → обычный платёж (legacy, совместимость)
+ *  - 'telegram'  → отложенное Telegram-уведомление (Cloud Function)
  */
 
 const QUEUE_KEY = 'hostella_offline_payment_queue';
@@ -17,7 +21,7 @@ export const getQueue = () => {
   }
 };
 
-/** Добавить платёж в очередь */
+/** Добавить произвольную запись в очередь */
 export const enqueuePayment = (item) => {
   const queue = getQueue();
   const entry = {
@@ -27,9 +31,21 @@ export const enqueuePayment = (item) => {
   };
   queue.push(entry);
   localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-  // Также сохранить в Electron-файл, если доступно
   persistToElectron(queue);
   return entry._id;
+};
+
+/**
+ * Поставить Telegram-уведомление в очередь для отправки при восстановлении сети.
+ * Fix 15: дедупликация — не добавляем, если такое же сообщение уже есть в очереди
+ * @param {string} text - HTML-текст сообщения
+ * @param {string} [notifType] - тип уведомления ('refund', 'checkout', ...)
+ */
+export const enqueueTelegram = (text, notifType) => {
+  const existing = getQueue();
+  const isDup = existing.some(e => e._type === 'telegram' && e.text === text && e.notifType === notifType);
+  if (isDup) return null;
+  return enqueuePayment({ _type: 'telegram', text, notifType });
 };
 
 /** Удалить один элемент из очереди по _id */

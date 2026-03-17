@@ -4,6 +4,7 @@
 import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
+import { enqueueTelegram } from '../utils/offlineQueue';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
@@ -12,7 +13,7 @@ export function useExpenseActions({
   currentUser, selectedHostelFilter,
   expenses, usersList, lang,
   setExpenseModal, setUndoStack,
-  showNotification,
+  showNotification, isOnline = true,
 }) {
 
   const pushUndo = (item) => {
@@ -48,10 +49,12 @@ export function useExpenseActions({
       if (d.category !== 'Возврат') {
         const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
         const roleLabel = (currentUser.role === 'admin' || currentUser.role === 'super') ? 'Админ' : 'Кассир';
-        await sendTelegramMessage(
-          `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 ${roleLabel}: ${currentUser.name || currentUser.login}`,
-          'expenseAdded'
-        );
+        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 ${roleLabel}: ${currentUser.name || currentUser.login}`;
+        if (isOnline) {
+          await sendTelegramMessage(tgMsg, 'expenseAdded');
+        } else {
+          enqueueTelegram(tgMsg, 'expenseAdded');
+        }
       }
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
@@ -90,7 +93,11 @@ export function useExpenseActions({
       if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
     }
     msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
-    sendTelegramMessage(msg, 'deleteRecord');
+    if (isOnline) {
+      sendTelegramMessage(msg, 'deleteRecord');
+    } else {
+      enqueueTelegram(msg, 'deleteRecord');
+    }
     showNotification('Запись удалена');
   };
 

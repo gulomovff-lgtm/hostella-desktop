@@ -120,7 +120,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
             <button
                 onClick={() => onBedClick(id, null, false)}
                 title={`Место ${id} — свободно`}
-                className="group relative flex flex-col items-center justify-center gap-2 w-40 min-h-[130px] shrink-0 rounded-2xl
+                className="group relative flex flex-col items-center justify-center gap-2 min-w-[120px] w-full sm:w-40 min-h-[130px] shrink-0 rounded-2xl
                            border-2 border-dashed border-slate-200 bg-slate-50
                            hover:border-indigo-300 hover:bg-indigo-50
                            transition-all duration-300 cursor-pointer"
@@ -160,7 +160,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
             onClick={() => onBedClick(id, guest, false)}
             onKeyDown={e => e.key === 'Enter' && onBedClick(id, guest, false)}
             title={`${guest?.fullName || 'Гость'} | Место ${id}`}
-            className={`group relative flex flex-col w-40 min-h-[155px] shrink-0 rounded-2xl border shadow-sm
+            className={`group relative flex flex-col min-w-[120px] w-full sm:w-40 min-h-[155px] shrink-0 rounded-2xl border shadow-sm
                         ${cardBg} ${cardBorder}
                         hover:shadow-md hover:-translate-y-0.5
                         transition-all duration-300 cursor-pointer overflow-hidden text-left`}

@@ -2,44 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
-import { COUNTRIES } from '../../constants/countries';
-
-// --- COUNTRY_FLAGS ---
-const COUNTRY_FLAGS = {
-  "Узбекистан":"UZ","Россия":"RU","Казахстан":"KZ","Таджикистан":"TJ","Кыргызстан":"KG","Абхазия":"GE",
-  "Австралия":"AU","Австрия":"AT","Азербайджан":"AZ","Албания":"AL","Алжир":"DZ","Ангола":"AO",
-  "Аргентина":"AR","Армения":"AM","Афганистан":"AF","Багамские Острова":"BS","Бангладеш":"BD",
-  "Барбадос":"BB","Бахрейн":"BH","Белоруссия":"BY","Бельгия":"BE","Болгария":"BG","Бразилия":"BR",
-  "Великобритания":"GB","Венгрия":"HU","Венесуэла":"VE","Вьетнам":"VN","Германия":"DE",
-  "Гонконг":"HK","Греция":"GR","Грузия":"GE","Дания":"DK","Египет":"EG","Израиль":"IL",
-  "Индия":"IN","Индонезия":"ID","Иордания":"JO","Ирак":"IQ","Иран":"IR","Ирландия":"IE",
-  "Исландия":"IS","Испания":"ES","Италия":"IT","Канада":"CA","Катар":"QA","Кения":"KE",
-  "Кипр":"CY","Китай":"CN","Колумбия":"CO","Корея (Южная)":"KR","Куба":"CU","Кувейт":"KW",
-  "Латвия":"LV","Литва":"LT","Малайзия":"MY","Мальдивы":"MV","Марокко":"MA","Мексика":"MX",
-  "Молдавия":"MD","Монголия":"MN","Непал":"NP","Нидерланды":"NL","Новая Зеландия":"NZ",
-  "Норвегия":"NO","ОАЭ":"AE","Пакистан":"PK","Польша":"PL","Португалия":"PT","Румыния":"RO",
-  "Саудовская Аравия":"SA","Сербия":"RS","Сингапур":"SG","Сирия":"SY","Словакия":"SK",
-  "Словения":"SI","США":"US","Таиланд":"TH","Туркмения":"TM","Турция":"TR","Украина":"UA",
-  "Филиппины":"PH","Финляндия":"FI","Франция":"FR","Хорватия":"HR","Чехия":"CZ","Чили":"CL",
-  "Швейцария":"CH","Швеция":"SE","Шри-Ланка":"LK","Эстония":"EE","Япония":"JP"
-};
-
-const FLAG_SIZES = [20, 40, 80, 160, 320];
-const snapFlagSize = (s) => FLAG_SIZES.find(f => f >= s) || 320;
-const Flag = ({ code, size = 20 }) => {
-    if (!code) return null;
-    const w = snapFlagSize(size);
-    const w2 = snapFlagSize(size * 2);
-    const h = Math.round(size * 0.75);
-    return (
-        <img
-            src={`https://flagcdn.com/w${w}/${code.toLowerCase()}.png`}
-            srcSet={`https://flagcdn.com/w${w2}/${code.toLowerCase()}.png 2x`}
-            width={size} height={h} alt={code}
-            style={{ display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0 }}
-        />
-    );
-};
+import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
+import { Flag } from '../../utils/helpers';
 
 // --- Helpers ---
 const getStayDetails = (checkInDateTime, days) => {

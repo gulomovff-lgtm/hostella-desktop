@@ -136,7 +136,43 @@ const TRANSLATIONS = {
     removeFromEmehmon: "Вывести из E-mehmon",
     registrationActive: "Регистрация активна",
     registrationExpired: "Регистрация истекла",
-    registrationRemoved: "Выведен из E-mehmon"
+    registrationRemoved: "Выведен из E-mehmon",
+    // Navigation groups
+    finance: "Финансы",
+    financeUpper: "ФИНАНСЫ",
+    operations: "Операции",
+    operationsUpper: "ОПЕРАЦИИ",
+    personnel: "Персонал",
+    personnelUpper: "ПЕРСОНАЛ",
+    other2: "Прочее",
+    other2Upper: "ПРОЧЕЕ",
+    main2: "Главное",
+    analytics: "Аналитика",
+    bookings2: "Брони",
+    emehmon: "E-mehmon",
+    bonuses: "Бонусы",
+    telegram2: "Telegram",
+    promos2: "Промокоды",
+    hostelSettings: "Настройки",
+    auditHistory: "История",
+    sessions2: "Сессии",
+    // ShiftBlockScreen
+    shiftBusyTitle: "Смена занята",
+    shiftBusyDesc: "Сейчас в этом хостеле работает",
+    shiftDetails: "Детали смены",
+    cashier2: "Кассир",
+    start: "Начало",
+    shiftActive: "🟢 Смена активна сейчас",
+    contactAdmin: "Обратитесь к администратору для закрытия смены",
+    logout2: "Выйти из системы",
+    // Mobile drawer
+    quickActions: "Быстрые действия",
+    addExpense2: "Добавить расход",
+    menu: "Меню",
+    // Check-in sub-menu
+    checkinOneGuest: "Один гость",
+    checkinGroup: "Группа",
+    checkinRental: "Аренда"
   },
   uz: {
     dashboard: "Boshqaruv", rooms: "Xonalar", calendar: "Kalendar", reports: "Hisobotlar", debts: "Qarzlar", tasks: "Vazifalar", expenses: "Xarajatlar", clients: "Mijozlar", staff: "Xodimlar", shifts: "Smenalar",
@@ -275,7 +311,43 @@ const TRANSLATIONS = {
     removeFromEmehmon: "E-mehmondan chiqarish",
     registrationActive: "Ro'yxat faol",
     registrationExpired: "Ro'yxat tugadi",
-    registrationRemoved: "E-mehmondan chiqarildi"
+    registrationRemoved: "E-mehmondan chiqarildi",
+    // Navigation groups
+    finance: "Moliya",
+    financeUpper: "MOLIYA",
+    operations: "Amaliyotlar",
+    operationsUpper: "AMALIYOTLAR",
+    personnel: "Xodimlar",
+    personnelUpper: "XODIMLAR",
+    other2: "Boshqa",
+    other2Upper: "BOSHQA",
+    main2: "Asosiy",
+    analytics: "Tahlil",
+    bookings2: "Bronlar",
+    emehmon: "E-mehmon",
+    bonuses: "Bonuslar",
+    telegram2: "Telegram",
+    promos2: "Promokodlar",
+    hostelSettings: "Sozlamalar",
+    auditHistory: "Tarix",
+    sessions2: "Sessiyalar",
+    // ShiftBlockScreen
+    shiftBusyTitle: "Smena band",
+    shiftBusyDesc: "Hozir ushbu xotelda ishlayapti",
+    shiftDetails: "Smena tafsilotlari",
+    cashier2: "Kassir",
+    start: "Boshlanish",
+    shiftActive: "🟢 Smena faol",
+    contactAdmin: "Smenani yopish uchun administratorga murojaat qiling",
+    logout2: "Tizimdan chiqish",
+    // Mobile drawer
+    quickActions: "Tezkor amallar",
+    addExpense2: "Xarajat qo'shish",
+    menu: "Menyu",
+    // Check-in sub-menu
+    checkinOneGuest: "Bir mehmon",
+    checkinGroup: "Guruh",
+    checkinRental: "Ijara"
   }
 };
 

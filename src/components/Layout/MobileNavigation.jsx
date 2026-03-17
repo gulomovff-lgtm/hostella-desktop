@@ -8,71 +8,71 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Primary tabs always shown in the bottom bar ─────────────────────────────
-const PRIMARY_TABS_ADMIN = [
-    { id: 'rooms',    icon: BedDouble,   label: 'Комнаты' },
-    { id: 'calendar', icon: Calendar,    label: 'Календарь' },
-    { id: 'bookings', icon: Globe,       label: 'Брони',   badgeKey: 'bookings', glow: true },
-    { id: 'tasks',    icon: CheckSquare, label: 'Задачи',  badgeKey: 'tasks' },
+const PRIMARY_TABS_ADMIN = (t) => [
+    { id: 'rooms',    icon: BedDouble,   label: t('rooms') },
+    { id: 'calendar', icon: Calendar,    label: t('calendar') },
+    { id: 'bookings', icon: Globe,       label: t('bookings2'), badgeKey: 'bookings', glow: true },
+    { id: 'tasks',    icon: CheckSquare, label: t('tasks'),     badgeKey: 'tasks' },
 ];
 
-const PRIMARY_TABS_CASHIER = [
-    { id: 'rooms',    icon: BedDouble,   label: 'Комнаты' },
-    { id: 'calendar', icon: Calendar,    label: 'Календарь' },
-    { id: 'debts',    icon: AlertCircle, label: 'Долги' },
+const PRIMARY_TABS_CASHIER = (t) => [
+    { id: 'rooms',    icon: BedDouble,   label: t('rooms') },
+    { id: 'calendar', icon: Calendar,    label: t('calendar') },
+    { id: 'debts',    icon: AlertCircle, label: t('debts') },
 ];
 
 // ─── Groups for the "Ещё" drawer ─────────────────────────────────────────────
 const MORE_GROUPS_ADMIN = (t) => [
     {
-        label: 'Главное',
+        label: t('main2'),
         items: [
             { id: 'dashboard',     icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
-            { id: 'registrations', icon: ClipboardCheck,  label: 'E-mehmon',     badgeKey: 'registrations' },
+            { id: 'registrations', icon: ClipboardCheck,  label: t('emehmon'),   badgeKey: 'registrations' },
             { id: 'debts',         icon: AlertCircle,     label: t('debts') },
             { id: 'clients',       icon: Users,           label: t('clients') },
         ],
     },
     {
-        label: 'Финансы',
+        label: t('finance'),
         items: [
-            { id: 'reports',   icon: FileText,  label: t('reports'),  adminOnly: true },
-            { id: 'expenses',  icon: Wallet,    label: t('expenses'), adminOnly: true },
-            { id: 'analytics', icon: BarChart3, label: 'Аналитика',  adminOnly: true },
+            { id: 'reports',   icon: FileText,  label: t('reports'),   adminOnly: true },
+            { id: 'expenses',  icon: Wallet,    label: t('expenses'),  adminOnly: true },
+            { id: 'analytics', icon: BarChart3, label: t('analytics'), adminOnly: true },
         ],
     },
     {
-        label: 'Персонал',
+        label: t('personnel'),
         items: [
             { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
             { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
         ],
     },
     {
-        label: 'Прочее',
+        label: t('other2'),
         items: [
-            { id: 'referrals',    icon: Users2,        label: 'Бонусы' },
-            { id: 'telegram',     icon: BellRing,      label: 'Telegram',  adminOnly: true },
-            { id: 'promos',       icon: Tag,            label: 'Промокоды', adminOnly: true },
-            { id: 'hostelconfig', icon: Settings,       label: 'Настройки', adminOnly: true },
-            { id: 'auditlog',     icon: ClipboardList,  label: 'История',   superOnly: true },
+            { id: 'referrals',    icon: Users2,        label: t('bonuses') },
+            { id: 'telegram',     icon: BellRing,      label: t('telegram2'),      adminOnly: true },
+            { id: 'promos',       icon: Tag,            label: t('promos2'),        adminOnly: true },
+            { id: 'hostelconfig', icon: Settings,       label: t('hostelSettings'), adminOnly: true },
+            { id: 'auditlog',     icon: ClipboardList,  label: t('auditHistory'),   superOnly: true },
         ],
     },
 ];
 
 const MORE_GROUPS_CASHIER = (t) => [
     {
-        label: 'Главное',
+        label: t('main2'),
         items: [
-            { id: 'referrals', icon: Users2, label: 'Бонусы' },
+            { id: 'referrals', icon: Users2, label: t('bonuses') },
         ],
     },
     {
-        label: 'Прочее',
+        label: t('other2'),
         items: [
-            { id: 'bookings',      icon: Globe,          label: 'Брони',    badgeKey: 'bookings', glow: true },
-            { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon', badgeKey: 'registrations' },
-            { id: 'tasks',         icon: CheckSquare,    label: 'Задачи',   badgeKey: 'tasks' },
-            { id: 'clients',       icon: Users,          label: 'Клиенты' },
+            { id: 'bookings',      icon: Globe,          label: t('bookings2'), badgeKey: 'bookings', glow: true },
+            { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),   badgeKey: 'registrations' },
+            { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),     badgeKey: 'tasks' },
+            { id: 'clients',       icon: Users,          label: t('clients') },
         ],
     },
 ];
@@ -123,10 +123,8 @@ const MobileNavigation = ({
         return true;
     };
 
-    const moreGroups   = isAdmin
-        ? MORE_GROUPS_ADMIN(t)
-        : MORE_GROUPS_CASHIER(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount);
-    const PRIMARY_TABS  = isAdmin ? PRIMARY_TABS_ADMIN : PRIMARY_TABS_CASHIER;
+    const moreGroups   = isAdmin ? MORE_GROUPS_ADMIN(t) : MORE_GROUPS_CASHIER(t);
+    const PRIMARY_TABS  = isAdmin ? PRIMARY_TABS_ADMIN(t) : PRIMARY_TABS_CASHIER(t);
     const allMoreIds   = moreGroups.flatMap(g => g.items.map(i => i.id));
     const activeInMore = allMoreIds.includes(activeTab);
     const showHostelBar = availableHostels?.length > 1;
@@ -175,7 +173,7 @@ const MobileNavigation = ({
 
                 {/* Title + close */}
                 <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                    <span className="text-white font-black text-base tracking-tight">Меню</span>
+                    <span className="text-white font-black text-base tracking-tight">{t('menu')}</span>
                     <button
                         onClick={() => setDrawerOpen(false)}
                         className="w-8 h-8 flex items-center justify-center rounded-full"
@@ -189,14 +187,14 @@ const MobileNavigation = ({
                 {canPerformActions && isAdmin && (
                     <div className="px-4 pt-4 pb-1">
                         <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'rgba(158,205,208,0.5)' }}>
-                            Быстрые действия
+                            {t('quickActions')}
                         </div>
                         <button
                             onClick={() => { setDrawerOpen(false); onOpenExpense?.(); }}
                             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
                             style={{ background: 'rgba(232,140,64,0.18)', border: '1px solid rgba(232,140,64,0.35)', color: '#f6ad6b' }}
                         >
-                            <Wallet size={15}/> Добавить расход
+                            <Wallet size={15}/> {t('addExpense2')}
                         </button>
                     </div>
                 )}

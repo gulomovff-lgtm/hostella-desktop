@@ -26,26 +26,26 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
             },
             {
                 // Финансы — дропдаун
-                id: 'finance', label: 'ФИНАНСЫ', dropdown: true, dropIcon: BarChart3, dropLabel: 'Финансы',
+                id: 'finance', label: t('financeUpper'), dropdown: true, dropIcon: BarChart3, dropLabel: t('finance'),
                 items: [
                     { id: 'reports',   icon: FileText,  label: t('reports'),  adminOnly: true, permKey: 'viewReports'  },
                     { id: 'expenses',  icon: Wallet,    label: t('expenses'), adminOnly: true, permKey: 'viewExpenses' },
-                    { id: 'analytics', icon: BarChart3, label: 'Аналитика',   adminOnly: true },
+                    { id: 'analytics', icon: BarChart3, label: t('analytics'), adminOnly: true },
                 ],
             },
             {
                 // Операции — дропдаун
-                id: 'ops', label: 'ОПЕРАЦИИ', dropdown: true, dropIcon: Globe, dropLabel: 'Операции',
+                id: 'ops', label: t('operationsUpper'), dropdown: true, dropIcon: Globe, dropLabel: t('operations'),
                 items: [
-                    { id: 'bookings',      icon: Globe,          label: 'Брони',     badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-                    { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon',  badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-                    { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),  badge: pendingTasksCount },
-                    { id: 'clients',       icon: Users,          label: t('clients'), permKey: 'viewClients' },
+                    { id: 'bookings',      icon: Globe,          label: t('bookings2'),   badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+                    { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),     badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+                    { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),       badge: pendingTasksCount },
+                    { id: 'clients',       icon: Users,          label: t('clients'),     permKey: 'viewClients' },
                 ],
             },
             {
                 // Персонал — дропдаун
-                id: 'staff', label: 'ПЕРСОНАЛ', dropdown: true, dropIcon: UserCog, dropLabel: 'Персонал',
+                id: 'staff', label: t('personnelUpper'), dropdown: true, dropIcon: UserCog, dropLabel: t('personnel'),
                 items: [
                     { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
                     { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
@@ -53,14 +53,14 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
             },
             {
                 // Прочее — дропдаун
-                id: 'settings', label: 'ПРОЧЕЕ', dropdown: true, dropIcon: Settings, dropLabel: 'Прочее',
+                id: 'settings', label: t('other2Upper'), dropdown: true, dropIcon: Settings, dropLabel: t('other2'),
                 items: [
-                    { id: 'telegram',    icon: BellRing,     label: 'Telegram',   adminOnly: true },
-                    { id: 'promos',      icon: Tag,           label: 'Промокоды', adminOnly: true },
-                    { id: 'referrals',   icon: Users2,        label: 'Бонусы' },
-                    { id: 'hostelconfig',icon: Settings,      label: 'Настройки', adminOnly: true },
-                    { id: 'auditlog',    icon: ClipboardList, label: 'История',   superOnly: true },
-                    { id: 'sessions',    icon: Monitor,       label: 'Сессии',    superOnly: true },
+                    { id: 'telegram',    icon: BellRing,     label: t('telegram2'),      adminOnly: true },
+                    { id: 'promos',      icon: Tag,           label: t('promos2'),        adminOnly: true },
+                    { id: 'referrals',   icon: Users2,        label: t('bonuses') },
+                    { id: 'hostelconfig',icon: Settings,      label: t('hostelSettings'), adminOnly: true },
+                    { id: 'auditlog',    icon: ClipboardList, label: t('auditHistory'),   superOnly: true },
+                    { id: 'sessions',    icon: Monitor,       label: t('sessions2'),      superOnly: true },
                 ],
             },
         ];
@@ -75,19 +75,19 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
             ],
         },
         {
-            id: 'ops', label: 'ОПЕРАЦИИ', dropdown: false,
+            id: 'ops', label: t('operationsUpper'), dropdown: false,
             items: [
                 { id: 'debts',     icon: AlertCircle, label: t('debts'),   permKey: 'viewDebts' },
-                { id: 'referrals', icon: Users2,      label: 'Бонусы' },
+                { id: 'referrals', icon: Users2,      label: t('bonuses') },
             ],
         },
         {
-            id: 'settings', label: 'ПРОЧЕЕ', dropdown: true, dropIcon: Settings, dropLabel: 'Прочее',
+            id: 'settings', label: t('other2Upper'), dropdown: true, dropIcon: Settings, dropLabel: t('other2'),
             items: [
-                { id: 'bookings',      icon: Globe,          label: 'Брони',    badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-                { id: 'registrations', icon: ClipboardCheck, label: 'E-mehmon', badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-                { id: 'tasks',         icon: CheckSquare,    label: t('tasks'), badge: pendingTasksCount },
-                { id: 'clients',       icon: Users,          label: t('clients'), permKey: 'viewClients' },
+                { id: 'bookings',      icon: Globe,          label: t('bookings2'),  badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+                { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),    badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+                { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),      badge: pendingTasksCount },
+                { id: 'clients',       icon: Users,          label: t('clients'),    permKey: 'viewClients' },
             ],
         },
     ];
@@ -320,7 +320,7 @@ const Navigation = ({
                         width: 200, background: '#1e4a4f',
                         border: '1px solid rgba(255,255,255,0.12)',
                         borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-                        zIndex: 99999, overflow: 'hidden',
+                        zIndex: 180, overflow: 'hidden',
                         maxHeight: `calc(100vh - ${groupMenuPos.top}px - 8px)`,
                         overflowY: 'auto',
                     }}>
@@ -395,12 +395,12 @@ const Navigation = ({
                                 width: 170, background: '#1e4a4f',
                                 border: '1px solid rgba(255,255,255,0.12)',
                                 borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-                                zIndex: 99999, overflow: 'hidden',
+                                zIndex: 180, overflow: 'hidden',
                             }}>
                                 {[
-                                    { label: 'Один гость',  Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
-                                    { label: 'Группа',      Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
-                                    { label: 'Аренда',      Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
+                                    { label: t('checkinOneGuest'), Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
+                                    { label: t('checkinGroup'),     Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
+                                    { label: t('checkinRental'),    Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
                                 ].map(({ label, Icon, color, action }) => (
                                     <button key={label} onClick={action}
                                         className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
@@ -452,7 +452,7 @@ const Navigation = ({
                         style={{
                             position: 'fixed', left: 88, top: profilePos.top, width: 240,
                             background: '#1e4a4f', border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.45)', zIndex: 99999, overflow: 'hidden',
+                            borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.45)', zIndex: 180, overflow: 'hidden',
                         }}
                     >
                         <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
