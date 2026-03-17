@@ -1,8 +1,8 @@
 // --- BUILD INFO ---
-export const BUILD_TS = '20260318-1000';
+export const BUILD_TS = '20260317-1800';
 
 // --- VERSION ---
-export const APP_VERSION = '0.3.19';
+export const APP_VERSION = '0.3.20';
 export const MIN_REQUIRED_VERSION = '0.3.0';
 
 // --- SALARY CONFIG ---

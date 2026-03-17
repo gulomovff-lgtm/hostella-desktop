@@ -224,7 +224,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const handlePayDebt = async () => {
         if (isPaymentSubmitting) return;
         const c=parseInt(payCash)||0, cd=parseInt(payCard)||0, q=parseInt(payQR)||0;
-        if (c+cd+q<=0) return notify('Введите сумму','еррор');
+        if (c+cd+q<=0) return notify('Введите сумму','error');
         setIsPaymentSubmitting(true);
         try {
             await onPayment(guest.id, {cash:c, card:cd, qr:q});
@@ -250,7 +250,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         }
     };
 
-    const handleExtend = () => {
+    const handleExtend = async () => {
         const days = parseInt(extendDays); if (!days) return;
         setIsPaymentSubmitting(true);
         // Прибавляем к существующим значениям — не пересчитываем из временных меток,
@@ -273,7 +273,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
         if (onExtend) {
             // Апп-уровень: с поддержкой undo
-            onExtend(guest.id, {
+            await onExtend(guest.id, {
                 extendDays: days,
                 payCash: c, payCard: cd, payQR: q,
                 prevDays:          parseInt(guest.days),
@@ -973,7 +973,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         <ConfirmDialog
             open={confirmDeleteOpen}
             title={t('deleteGuest')}
-            message={`${guest.fullName || ''}${guest.room ? ` — ${guest.room}` : ''}`}
+            message={`${guest.fullName || ''}${guest.roomNumber ? ` — К.${guest.roomNumber}` : ''}`}
             confirmText={t('delete')}
             onConfirm={() => { setConfirmDeleteOpen(false); onDelete(guest); }}
             onCancel={() => setConfirmDeleteOpen(false)}

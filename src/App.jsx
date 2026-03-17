@@ -114,15 +114,10 @@ import {
 } from 'lucide-react';
 
 // --- Вынесенные компоненты ---
-import ActionBtn from './components/UI/ActionBtn';
-import StatButton from './components/UI/StatButton';
 import LoginScreen from './components/UI/LoginScreen';
 import Button from './components/UI/Button';
-import Card from './components/UI/Card';
-import NavItem from './components/UI/NavItem';
 import Notification from './components/UI/Notification';
 import ShiftBlockScreen from './components/UI/ShiftBlockScreen';
-import StepIndicator from './components/UI/StepIndicator';
 import SimpleInput from './components/UI/SimpleInput';
 import SimpleSelect from './components/UI/SimpleSelect';
 import TopBar from './components/Layout/TopBar';
