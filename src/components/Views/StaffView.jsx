@@ -94,7 +94,7 @@ const PermissionsPanel = ({ role, perms, onChange }) => {
     );
 };
 
-const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1', canViewHostel1: false, permissions: defaultPerms('cashier') };
+const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1', allowedHostels: ['hostel1'], canViewHostel1: false, permissions: defaultPerms('cashier') };
 
 // ─── Component ──────────────────────────────────────────────────────────────
 const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
@@ -117,6 +117,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
         setEditForm({
             name: u.name, login: u.login, pass: u.pass || '',
             role: u.role, hostelId: u.hostelId || 'hostel1',
+            allowedHostels: u.allowedHostels || [u.hostelId || 'hostel1'],
             canViewHostel1: u.canViewHostel1 || false,
             permissions: { ...defaultPerms(u.role), ...(u.permissions || {}) },
         });
@@ -174,9 +175,15 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${role.bg} ${role.text} ${role.border}`}>
                                                     {role.label}
                                                 </span>
-                                                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${hostel.bg} ${hostel.text}`}>
-                                                    {u.canViewHostel1 ? `${hostel.label} + №1` : hostel.label}
-                                                </span>
+                                                {(u.role === 'cashier' && (u.allowedHostels || []).length > 1) ? (
+                                                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                                        🏨 Оба хостела
+                                                    </span>
+                                                ) : (
+                                                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${hostel.bg} ${hostel.text}`}>
+                                                        {u.canViewHostel1 ? `${hostel.label} + №1` : hostel.label}
+                                                    </span>
+                                                )}
                                                 {u.role === 'cashier' && u.permissions?.canPayInHostel1 === false && (
                                                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-500 border border-rose-200">
                                                         🚫 Хостел №1
@@ -252,21 +259,53 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                                                 <select className={INP} value={editForm.role}
                                                     onChange={e => {
                                                         const r = e.target.value;
-                                                        setEditForm(f => ({ ...f, role: r, permissions: { ...defaultPerms(r), ...(f.permissions || {}) } }));
+                                                        setEditForm(f => ({ ...f, role: r, allowedHostels: r === 'cashier' ? (f.allowedHostels || [f.hostelId || 'hostel1']) : [f.hostelId || 'hostel1'], permissions: { ...defaultPerms(r), ...(f.permissions || {}) } }));
                                                     }}>
                                                     <option value="cashier">Кассир</option>
                                                     <option value="admin">Администратор</option>
                                                 </select>
                                             </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостел</label>
-                                                <select className={INP} value={editForm.hostelId}
-                                                    onChange={e => setEditForm({ ...editForm, hostelId: e.target.value })}>
-                                                    <option value="hostel1">Хостел №1</option>
-                                                    <option value="hostel2">Хостел №2</option>
-                                                    <option value="all">Все</option>
-                                                </select>
-                                            </div>
+                                            {editForm.role === 'cashier' ? (
+                                                <div className="col-span-2">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостелы для работы</label>
+                                                    <div className="space-y-1.5 mt-1">
+                                                        {[{id:'hostel1',label:'Хостел №1'},{id:'hostel2',label:'Хостел №2'}].map(h => {
+                                                            const checked = (editForm.allowedHostels || []).includes(h.id);
+                                                            return (
+                                                                <label key={h.id} className="flex items-center gap-2.5 cursor-pointer group py-0.5">
+                                                                    <div
+                                                                        onClick={() => {
+                                                                            const cur = editForm.allowedHostels || ['hostel1'];
+                                                                            const next = checked ? cur.filter(x => x !== h.id) : [...cur, h.id];
+                                                                            if (next.length === 0) return;
+                                                                            setEditForm(f => ({ ...f, allowedHostels: next, hostelId: next[0] }));
+                                                                        }}
+                                                                        className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                                                            checked ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 group-hover:border-indigo-400'
+                                                                        }`}
+                                                                    >
+                                                                        {checked && <Check size={10} className="text-white" strokeWidth={3}/>}
+                                                                    </div>
+                                                                    <span className="text-xs text-slate-600 select-none">{h.label}</span>
+                                                                </label>
+                                                            );
+                                                        })}
+                                                        {(editForm.allowedHostels || []).length > 1 && (
+                                                            <p className="text-[10px] text-indigo-500 font-semibold mt-0.5">✓ При входе кассир выбирает хостел</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостел</label>
+                                                    <select className={INP} value={editForm.hostelId}
+                                                        onChange={e => setEditForm({ ...editForm, hostelId: e.target.value })}>
+                                                        <option value="hostel1">Хостел №1</option>
+                                                        <option value="hostel2">Хостел №2</option>
+                                                        <option value="all">Все</option>
+                                                    </select>
+                                                </div>
+                                            )}
                                             <div className="col-span-2">
                                                 <label className="flex items-center gap-2.5 cursor-pointer group py-1">
                                                     <div
@@ -340,21 +379,53 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
                             <select className={INP} value={addForm.role}
                                 onChange={e => {
                                     const r = e.target.value;
-                                    setAddForm(f => ({ ...f, role: r, permissions: defaultPerms(r) }));
+                                    setAddForm(f => ({ ...f, role: r, allowedHostels: r === 'cashier' ? (f.allowedHostels || [f.hostelId || 'hostel1']) : [f.hostelId || 'hostel1'], permissions: defaultPerms(r) }));
                                 }}>
                                 <option value="cashier">Кассир</option>
                                 <option value="admin">Администратор</option>
                             </select>
                         </div>
-                        <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостел</label>
-                            <select className={INP} value={addForm.hostelId}
-                                onChange={e => setAddForm({ ...addForm, hostelId: e.target.value })}>
-                                <option value="hostel1">Хостел №1</option>
-                                <option value="hostel2">Хостел №2</option>
-                                <option value="all">Все</option>
-                            </select>
-                        </div>
+                        {addForm.role === 'cashier' ? (
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостелы для работы</label>
+                                <div className="space-y-1.5 mt-1">
+                                    {[{id:'hostel1',label:'Хостел №1'},{id:'hostel2',label:'Хостел №2'}].map(h => {
+                                        const checked = (addForm.allowedHostels || ['hostel1']).includes(h.id);
+                                        return (
+                                            <label key={h.id} className="flex items-center gap-2.5 cursor-pointer group py-0.5">
+                                                <div
+                                                    onClick={() => {
+                                                        const cur = addForm.allowedHostels || ['hostel1'];
+                                                        const next = checked ? cur.filter(x => x !== h.id) : [...cur, h.id];
+                                                        if (next.length === 0) return;
+                                                        setAddForm(f => ({ ...f, allowedHostels: next, hostelId: next[0] }));
+                                                    }}
+                                                    className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                                        checked ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 group-hover:border-indigo-400'
+                                                    }`}
+                                                >
+                                                    {checked && <Check size={10} className="text-white" strokeWidth={3}/>}
+                                                </div>
+                                                <span className="text-xs text-slate-600 select-none">{h.label}</span>
+                                            </label>
+                                        );
+                                    })}
+                                    {(addForm.allowedHostels || []).length > 1 && (
+                                        <p className="text-[10px] text-indigo-500 font-semibold mt-0.5">✓ При входе кассир выбирает хостел</p>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостел</label>
+                                <select className={INP} value={addForm.hostelId}
+                                    onChange={e => setAddForm({ ...addForm, hostelId: e.target.value })}>
+                                    <option value="hostel1">Хостел №1</option>
+                                    <option value="hostel2">Хостел №2</option>
+                                    <option value="all">Все</option>
+                                </select>
+                            </div>
+                        )}
                         <div>
                             <label className="flex items-center gap-2.5 cursor-pointer group py-1">
                                 <div

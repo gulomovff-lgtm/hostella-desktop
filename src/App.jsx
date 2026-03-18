@@ -115,6 +115,7 @@ import {
 
 // --- Вынесенные компоненты ---
 import LoginScreen from './components/UI/LoginScreen';
+import HostelPickerScreen from './components/UI/HostelPickerScreen';
 import Button from './components/UI/Button';
 import Notification from './components/UI/Notification';
 import ShiftBlockScreen from './components/UI/ShiftBlockScreen';
@@ -285,6 +286,7 @@ function App() {
     return () => document.removeEventListener('wheel', prevent);
   }, []);
   const [currentUser, setCurrentUser] = useState(null);
+  const [hostelPickerPending, setHostelPickerPending] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [roomFilter, setRoomFilter] = useState('all');
   const [selectedHostelFilter, setSelectedHostelFilter] = useState('hostel1');
@@ -790,6 +792,13 @@ function App() {
     setCurrentUser(enrichedUser); 
     const { pass: _p, ...sessionUser } = enrichedUser;
     sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser)); 
+
+    // Кассир с несколькими хостелами → показываем экран выбора хостела
+    if (enrichedUser.role === 'cashier' && (enrichedUser.allowedHostels || []).length > 1) {
+      setHostelPickerPending(true);
+      return; // сессия и лог — после выбора хостела
+    }
+
     if (enrichedUser.hostelId && enrichedUser.hostelId !== 'all') setSelectedHostelFilter(enrichedUser.hostelId);
     if (enrichedUser.role === 'cashier') setActiveTab('rooms'); 
     else setActiveTab('dashboard'); 
@@ -804,7 +813,20 @@ function App() {
       closeSession(); // async, не блокируем UX
     }
     setCurrentUser(null); 
+    setHostelPickerPending(false);
     sessionStorage.removeItem('hostella_user_v4'); 
+  };
+
+  const handleHostelPick = (hostelId) => {
+    const updated = { ...currentUser, hostelId };
+    setCurrentUser(updated);
+    setSelectedHostelFilter(hostelId);
+    const { pass: _p, ...sessionUser } = updated;
+    sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser));
+    setHostelPickerPending(false);
+    setActiveTab('rooms');
+    createSession(updated);
+    logAction(updated, 'login', { device: navigator.platform, role: updated.role, selectedHostel: hostelId });
   };
   
   // ? ФУНКЦИЯ ЗАСЕЛЕНИЯ (ИСПРАВЛЕННАЯ)
@@ -1214,6 +1236,15 @@ if (!currentUser) return (
         onSeed={seedUsers} 
         lang={lang} 
         setLang={setLang} 
+    />
+);
+
+if (hostelPickerPending) return (
+    <HostelPickerScreen
+        user={currentUser}
+        onPick={handleHostelPick}
+        onLogout={handleLogout}
+        lang={lang}
     />
 );
 
