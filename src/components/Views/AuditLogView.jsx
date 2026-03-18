@@ -9,6 +9,7 @@ const ACTION_META = {
     auto_checkout:        { icon: '🏁', label: 'Авто-выселение',          color: 'amber',   group: 'Гости' },
     undo:                 { icon: '↩️', label: 'Отмена действия',         color: 'indigo',  group: 'Гости' },
     trim_days:            { icon: '✂️', label: 'Срез дней',               color: 'orange',  group: 'Гости' },
+    price_change:         { icon: '💱', label: 'Изменение цены',          color: 'amber',   group: 'Гости' },
     // Брони
     booking_add:          { icon: '📋', label: 'Бронь добавлена',         color: 'purple',  group: 'Брони' },
     booking_accept:       { icon: '✅', label: 'Бронь принята',            color: 'emerald', group: 'Брони' },
@@ -293,7 +294,15 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                                                 {guestLabel && (
                                                     <span className="text-sm font-semibold text-slate-700 truncate">{guestLabel}</span>
                                                 )}
-                                                {det.amount && parseInt(det.amount) > 0 && (
+                                                {entry.action === 'price_change' && det.oldPrice !== undefined && det.newPrice !== undefined && (
+                                                    <span className="text-sm font-bold text-slate-600 flex items-center gap-1">
+                                                        <span className="text-rose-500">{parseInt(det.oldPrice).toLocaleString()}</span>
+                                                        <span className="text-slate-300">→</span>
+                                                        <span className="text-emerald-600">{parseInt(det.newPrice).toLocaleString()}</span>
+                                                        <span className="text-slate-400 font-normal text-xs">сум/ночь</span>
+                                                    </span>
+                                                )}
+                                                {entry.action !== 'price_change' && det.amount && parseInt(det.amount) > 0 && (
                                                     <span className="text-sm font-bold text-emerald-600">{parseInt(det.amount).toLocaleString()} сум</span>
                                                 )}
                                             </div>

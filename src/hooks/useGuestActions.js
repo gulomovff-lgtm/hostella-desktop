@@ -552,6 +552,20 @@ export function useGuestActions(ctx) {
 
   const handleGuestUpdate = async (id, d) => {
     setGuestDetailsModal({ open: false, guest: null });
+    // Логируем изменение цены, если pricePerNight поменялась
+    if (d.pricePerNight !== undefined) {
+      const g = guests.find(x => x.id === id);
+      if (g && parseInt(d.pricePerNight) !== parseInt(g.pricePerNight)) {
+        logAction(currentUser, 'price_change', {
+          guestName:  g.fullName,
+          oldPrice:   parseInt(g.pricePerNight) || 0,
+          newPrice:   parseInt(d.pricePerNight) || 0,
+          roomNumber: g.roomNumber,
+          bedId:      g.bedId,
+          hostelId:   g.hostelId,
+        });
+      }
+    }
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), d);
   };
 
