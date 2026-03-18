@@ -296,7 +296,19 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const endPx   = (co.getTime() - rangeStartMs) / 86400000 * DAY_W;
             const widthPx = Math.max(DAY_W, endPx - startPx);
             if (endPx <= 0 || startPx >= zoom * DAY_W) { result[g.id] = null; return; }
-            result[g.id] = { left: startPx, width: Math.min(widthPx, zoom * DAY_W - startPx) };
+            const visWidth = Math.min(widthPx, zoom * DAY_W - startPx);
+            // Правильный % перехода зелёный→оранжевый: считаем от видимого начала бара
+            let bonusColorPct;
+            if (!isOut && g.bonusCheckOutDate) {
+                const normalCo = parseDate(g.checkOutDate);
+                if (normalCo) {
+                    normalCo.setHours(12, 0, 0, 0);
+                    const normalCoPx = (normalCo.getTime() - rangeStartMs) / 86400000 * DAY_W;
+                    const inBarPx = normalCoPx - startPx;
+                    bonusColorPct = visWidth > 0 ? Math.max(1, Math.min(99, Math.round(inBarPx / visWidth * 100))) : 70;
+                }
+            }
+            result[g.id] = { left: startPx, width: visWidth, bonusColorPct };
         });
         return result;
     }, [filteredGuests, days, DAY_W, zoom]);
@@ -317,7 +329,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         });
     }, [filteredGuests, days, rooms]);
 
-    const getBarStyle = useCallback((g) => {
+    const getBarStyle = useCallback((g, bonusColorPct) => {
         const paid  = getTotalPaid(g);
         const debt  = (g.totalPrice || 0) - paid;
         const isOut = g.status === 'checked_out';
@@ -332,11 +344,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         if (isOut && debt > 0) return { cls: 'border-rose-300 text-rose-700', bg: '#fecdd3' };
         if (isOut) return { cls: 'border-slate-300 text-slate-500', bg: '#e2e8f0' };
         // Бонусный участок — градиент зелёный → оранжевый
+        // pp вычислен в guestBars с учётом левого клиппинга бара (точное совмещение с колонкой даты)
         if (bonusCo && co && bonusCo > co) {
-            const ci = parseDate(g.checkInDate || g.checkInDateTime);
-            const totalMs = ci && bonusCo ? (bonusCo - ci) : 0;
-            const paidMs  = ci && co ? (co - ci) : 0;
-            const pp = totalMs > 0 ? Math.max(5, Math.min(95, Math.round((paidMs / totalMs) * 100))) : 70;
+            const pp = bonusColorPct ?? 70;
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
         }
         if (debt > 0 && paid > 0) return { cls: 'border-red-600 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pct}%,#ef4444 ${pct}%,#dc2626 100%)` };
@@ -531,7 +541,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                 {bedGuests.map(g => {
                                                     const bar = guestBars[g.id];
                                                     if (!bar) return null;
-                                                    const style = getBarStyle(g);
+                                                    const style = getBarStyle(g, bar.bonusColorPct);
                                                     const paid = getTotalPaid(g);
                                                     const debt = (g.totalPrice || 0) - paid;
                                                     const isOut = g.status === 'checked_out';

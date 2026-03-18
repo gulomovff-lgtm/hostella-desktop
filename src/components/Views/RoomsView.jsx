@@ -75,7 +75,7 @@ const buildTimeInfo = (guest, status, nowMs) => {
     const d = Math.floor(ms / 864e5);
     const h = Math.floor((ms % 864e5) / 3_600_000);
     if (d >= 2)  return { label: `Ещё ${d} дн.`,  hot: false };
-    if (d === 1) return { label: `Завтра выезд`,   hot: true  };
+    if (d === 1) return { label: `Ещё 1 дн.`,     hot: true  };
     if (h > 0)   return { label: `Ещё ${h} ч.`,   hot: h < 4 };
     return { label: '< 1 ч.',  hot: true };
 };
@@ -197,7 +197,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                         <CalendarDays size={10} className="shrink-0 text-slate-400" />
                         <span>{fmtShort(guest?.checkInDate)}</span>
                         <ArrowRight size={8} className="text-slate-300 shrink-0" />
-                        <span>{fmtShort(guest?.checkOutDate)}</span>
+                        <span>{fmtShort(guest?.bonusCheckOutDate || guest?.checkOutDate)}</span>
                     </div>
                 )}
                 {timeInfo && (

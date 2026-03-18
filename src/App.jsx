@@ -703,6 +703,17 @@ function App() {
     }
   }, [currentUser, shifts]);
 
+  // Авто-выбор хостела: если у кассира уже открыта смена в хостеле — пропускаем экран выбора
+  useEffect(() => {
+    if (!hostelPickerPending) return;
+    if (!currentUser || currentUser.role !== 'cashier') return;
+    if (!isDataReady) return; // ждём загрузки данных
+    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+    if (myActiveShift?.hostelId) {
+      handleHostelPick(myActiveShift.hostelId);
+    }
+  }, [hostelPickerPending, isDataReady, shifts]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Хартбит: обновляем lastSeen каждые 30с, чтобы сжигать сессию как активную
   useEffect(() => {
     if (!currentUser) return;
