@@ -133,13 +133,12 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    // Audit log — latest 500 entries (super only)
+    // Audit log — ВСЕ записи с начала базы (без limit), super only
     let u10 = () => {};
     if (currentUser.role === 'super') {
       const auditCol = query(
         collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
-        orderBy('timestamp', 'desc'),
-        limit(500)
+        orderBy('timestamp', 'desc')
       );
       u10 = onSnapshot(auditCol,
         (snap) => setAuditLog(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
