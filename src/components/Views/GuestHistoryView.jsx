@@ -3,6 +3,7 @@ import {
     History, Search, Download, ChevronDown, ChevronRight,
     X, Filter, TrendingUp, TrendingDown, Minus, Users,
     Banknote, CreditCard, QrCode, Building2, ArrowRight, RefreshCw,
+    Eye, EyeOff,
 } from 'lucide-react';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -73,6 +74,13 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
     const [pageSize,           setPageSize          ] = useState(100);
     const [sortKey,            setSortKey           ] = useState('checkInDate');
     const [sortAsc,            setSortAsc           ] = useState(false);
+    // Super: hide specific guest records from analytics
+    const HIDDEN_KEY = 'hostella_hidden_guests';
+    const [hiddenIds,   setHiddenIds  ] = useState(() => {
+        try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); }
+        catch { return new Set(); }
+    });
+    const [showHidden,  setShowHidden ] = useState(false);
 
     // Resolve staffId → user name
     const resolveUser = (staffId) => {
@@ -209,10 +217,11 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
             return sortAsc ? va - vb : vb - va;
         });
 
+        if (!showHidden) list = list.filter(g => !hiddenIds.has(g.id));
         return list;
     }, [enriched, filterHostel, filterStatus, filterDateFrom, filterDateTo, filterCashier,
         filterPriceChanged, filterOldPriceMin, filterOldPriceMax, filterDeltaMin,
-        search, sortKey, sortAsc]);
+        search, sortKey, sortAsc, showHidden, hiddenIds]);
 
     const hasFilter = search || filterHostel || filterDateFrom || filterDateTo || filterCashier ||
         filterStatus !== 'all' || filterPriceChanged !== 'all' ||
@@ -224,6 +233,16 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         setFilterPriceChanged('all'); setFilterOldPriceMin('');
         setFilterOldPriceMax(''); setFilterDeltaMin('');
     };
+
+    const hideGuest = (id) => {
+        const next = new Set(hiddenIds); next.add(id); setHiddenIds(next);
+        try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])); } catch {}
+    };
+    const unhideGuest = (id) => {
+        const next = new Set(hiddenIds); next.delete(id); setHiddenIds(next);
+        try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])); } catch {}
+    };
+    const unhideAll = () => { setHiddenIds(new Set()); try { localStorage.removeItem(HIDDEN_KEY); } catch {} };
 
     const toggleExpand = (id) => {
         setExpandedIds(prev => {
@@ -292,10 +311,31 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                         {filtered.length.toLocaleString()} из {enriched.length.toLocaleString()} записей
                     </p>
                 </div>
-                <button onClick={handleExport}
-                    className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors shadow-sm">
-                    <Download size={14}/> Экспорт CSV
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                    {currentUser.role === 'super' && hiddenIds.size > 0 && (
+                        <div className="flex items-center gap-1">
+                            <button onClick={() => setShowHidden(h => !h)}
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border transition-colors ${
+                                    showHidden
+                                        ? 'bg-amber-100 text-amber-700 border-amber-300'
+                                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                                }`}>
+                                {showHidden ? <EyeOff size={13}/> : <Eye size={13}/>}
+                                {showHidden ? 'Спрятать скрытые' : `Скрытые (${hiddenIds.size})`}
+                            </button>
+                            {showHidden && (
+                                <button onClick={unhideAll}
+                                    className="text-xs font-bold text-rose-500 hover:text-rose-700 px-2 py-2">
+                                    Восстановить все
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    <button onClick={handleExport}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors shadow-sm">
+                        <Download size={14}/> Экспорт CSV
+                    </button>
+                </div>
             </div>
 
             {/* Stats */}
@@ -434,18 +474,22 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                 const isActive   = g.status === 'active';
                                 const hasDebt    = g.debt > 0;
 
+                                const isHidden = hiddenIds.has(g.id);
                                 return (
-                                    <div key={g.id} className="group">
+                                    <div key={g.id} className={`group ${isHidden ? 'opacity-40' : ''}`}>
                                         {/* Main row */}
                                         <div
-                                            className={`md:grid md:grid-cols-[2fr_1fr_1.5fr_1fr_1fr_1fr_1fr] flex flex-col px-4 py-3 gap-2 cursor-pointer hover:bg-slate-50/70 transition-colors ${isExpanded ? 'bg-indigo-50/30' : ''}`}
+                                            className={`relative md:grid md:grid-cols-[2fr_1fr_1.5fr_1fr_1fr_1fr_1fr] flex flex-col px-4 py-3 gap-2 cursor-pointer hover:bg-slate-50/70 transition-colors ${isExpanded ? 'bg-indigo-50/30' : ''} ${isHidden ? 'bg-slate-50' : ''}`}
                                             onClick={() => toggleExpand(g.id)}
                                         >
                                             {/* Guest name + hostel */}
                                             <div className="flex items-start gap-2 min-w-0">
                                                 <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${isActive ? 'bg-emerald-400' : 'bg-slate-300'}`}/>
-                                                <div className="min-w-0">
-                                                    <div className="font-bold text-slate-800 text-sm truncate">{g.fullName || '—'}</div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-bold text-slate-800 text-sm truncate flex items-center gap-1">
+                                                        {g.fullName || '—'}
+                                                        {isHidden && <span className="text-[9px] font-normal text-slate-400 italic">(скрыт)</span>}
+                                                    </div>
                                                     <div className="text-xs text-slate-400 flex items-center gap-1">
                                                         <Building2 size={10}/>
                                                         {HOSTELS[g.hostelId] || g.hostelId || '—'}
@@ -455,6 +499,15 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                                         }
                                                     </div>
                                                 </div>
+                                                {currentUser.role === 'super' && (
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); isHidden ? unhideGuest(g.id) : hideGuest(g.id); }}
+                                                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-1.5 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"
+                                                        title={isHidden ? 'Показать запись' : 'Скрыть запись из аналитики'}
+                                                    >
+                                                        {isHidden ? <Eye size={14}/> : <EyeOff size={14}/>}
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {/* Room/Bed */}
@@ -520,34 +573,64 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                                     <span>{g.checkInCashier}</span>
                                                 </div>
 
-                                                {/* Price change history */}
-                                                {g.priceChanges.length > 0 && (
-                                                    <div className="space-y-1">
-                                                        <div className="text-[11px] font-bold text-amber-500 uppercase flex items-center gap-1">
-                                                            <RefreshCw size={10}/> История изменения цены
-                                                        </div>
-                                                        {g.priceChanges.map((c, idx) => (
-                                                            <div key={idx} className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-xs">
-                                                                <span className="font-bold text-rose-500 line-through">{fmt(c.oldPrice)} сум</span>
-                                                                <ArrowRight size={11} className="text-slate-400"/>
-                                                                <span className="font-bold text-emerald-600">{fmt(c.newPrice)} сум</span>
-                                                                <span className={`font-bold text-[10px] px-1.5 py-0.5 rounded-full ${
-                                                                    c.delta > 0
-                                                                        ? 'bg-rose-100 text-rose-700'
-                                                                        : 'bg-emerald-100 text-emerald-700'
-                                                                }`}>
-                                                                    {c.delta > 0 ? '+' : ''}{fmt(c.delta)}
-                                                                </span>
-                                                                <span className="text-slate-500 font-semibold">{c.changedBy}</span>
-                                                                <span className="text-slate-400 ml-auto">
-                                                                    {new Date(c.timestamp).toLocaleDateString('ru', { day:'numeric', month:'short', year:'numeric' })}
-                                                                    {' '}
-                                                                    {new Date(c.timestamp).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
-                                                                </span>
+                                                {/* Price timeline — периоды проживания по ценам */}
+                                                {g.priceChanges.length > 0 && (() => {
+                                                    const ch = g.priceChanges;
+                                                    // Строим периоды: [checkIn → ch[0]] [ch[0] → ch[1]] ... [ch[n-1] → checkOut]
+                                                    const periods = [
+                                                        { price: g.firstPrice, from: g.checkInDate, to: ch[0].timestamp, change: ch[0] },
+                                                        ...ch.slice(0, -1).map((c, i) => ({
+                                                            price: c.newPrice, from: c.timestamp, to: ch[i+1].timestamp, change: ch[i+1],
+                                                        })),
+                                                        { price: ch[ch.length-1].newPrice, from: ch[ch.length-1].timestamp, to: g.checkOutDate, isCurrent: true },
+                                                    ];
+                                                    const fmtTs = iso => iso
+                                                        ? new Date(iso).toLocaleDateString('ru', { day:'numeric', month:'short' })
+                                                        : 'сейчас';
+                                                    return (
+                                                        <div className="space-y-1">
+                                                            <div className="text-[11px] font-bold text-amber-500 uppercase flex items-center gap-1">
+                                                                <RefreshCw size={10}/> Периоды проживания по ценам
                                                             </div>
-                                                        ))}
-                                                    </div>
-                                                )}
+                                                            {periods.map((p, idx) => (
+                                                                <div key={idx} className={`rounded-xl border px-3 py-2 text-xs ${
+                                                                    p.isCurrent ? 'bg-slate-50 border-slate-200' : 'bg-amber-50/60 border-amber-100'
+                                                                }`}>
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        <span className="font-black text-slate-800">{fmt(p.price)} сум/ночь</span>
+                                                                        <span className="text-slate-400">
+                                                                            {fmtTs(p.from)} → {fmtTs(p.to)}
+                                                                        </span>
+                                                                        {p.isCurrent && (
+                                                                            <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">текущая</span>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* Стрелка изменения — под периодом, если есть следующая цена */}
+                                                                    {p.change && (
+                                                                        <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-amber-100">
+                                                                            <span className="text-slate-400">Изменено:</span>
+                                                                            <span className={`font-bold px-1.5 py-0.5 rounded-full text-[10px] ${
+                                                                                p.change.delta > 0
+                                                                                    ? 'bg-rose-100 text-rose-700'
+                                                                                    : 'bg-emerald-100 text-emerald-700'
+                                                                            }`}>
+                                                                                {p.change.delta > 0 ? '↑ +' : '↓ '}{fmt(Math.abs(p.change.delta))}
+                                                                            </span>
+                                                                            <ArrowRight size={10} className="text-slate-300"/>
+                                                                            <span className="font-black text-slate-700">{fmt(p.change.newPrice)} сум/ночь</span>
+                                                                            <span className="text-slate-500 ml-1">{p.change.changedBy}</span>
+                                                                            <span className="text-slate-400 ml-auto">
+                                                                                {new Date(p.change.timestamp).toLocaleDateString('ru', { day:'numeric', month:'short', year:'numeric' })}
+                                                                                {' '}
+                                                                                {new Date(p.change.timestamp).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
+                                                                            </span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })()}
 
                                                 {g.guestPayments.length === 0 ? (
                                                     <div className="text-xs text-slate-400 italic">Платежей нет</div>
