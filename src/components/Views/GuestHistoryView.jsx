@@ -66,17 +66,14 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
     const [filterDateTo,       setFilterDateTo      ] = useState('');
     const [filterCashier,      setFilterCashier     ] = useState('');
     const [filterStatus,       setFilterStatus      ] = useState('all');
-    const [filterPriceChanged, setFilterPriceChanged] = useState('all'); // all | changed | unchanged
-    const [filterOldPriceMin,  setFilterOldPriceMin ] = useState('');
-    const [filterOldPriceMax,  setFilterOldPriceMax ] = useState('');
-    const [filterDeltaMin,     setFilterDeltaMin    ] = useState('');
-    const [expandedIds,        setExpandedIds       ] = useState(new Set());
-    const [pageSize,           setPageSize          ] = useState(100);
-    const [sortKey,            setSortKey           ] = useState('checkInDate');
+    const [filterPriceChanged, setFilterPriceChanged] = useState('all');
+    const [expandedKeys,       setExpandedKeys      ] = useState(new Set());
+    const [expandedStays,      setExpandedStays     ] = useState(new Set());
+    const [pageSize,           setPageSize          ] = useState(50);
+    const [sortKey,            setSortKey           ] = useState('lastDate');
     const [sortAsc,            setSortAsc           ] = useState(false);
-    // Super: hide specific guest records from analytics
-    const HIDDEN_KEY = 'hostella_hidden_guests';
-    const [hiddenIds,   setHiddenIds  ] = useState(() => {
+    const HIDDEN_KEY = 'hostella_hidden_guest_groups';
+    const [hiddenKeys,  setHiddenKeys ] = useState(() => {
         try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); }
         catch { return new Set(); }
     });
@@ -100,42 +97,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     }, [payments, users]);
 
-    // Price change history from auditLog
-    // Indexed by guestId (new entries) + by guestName as fallback (old entries without guestId)
-    const priceChangeMap = useMemo(() => {
-        const byId   = {};  // guestId → [change]
-        const byName = {};  // guestName (lower) → [change]
-        auditLog
-            .filter(e => e.action === 'price_change')
-            .forEach(e => {
-                const entry = {
-                    oldPrice:  parseInt(e.details?.oldPrice)  || 0,
-                    newPrice:  parseInt(e.details?.newPrice)  || 0,
-                    delta:     (parseInt(e.details?.newPrice) || 0) - (parseInt(e.details?.oldPrice) || 0),
-                    timestamp: e.timestamp,
-                    changedBy: e.userName || '—',
-                    guestId:   e.details?.guestId || null,
-                };
-                if (e.details?.guestId) {
-                    const gid = e.details.guestId;
-                    if (!byId[gid]) byId[gid] = [];
-                    byId[gid].push(entry);
-                } else if (e.details?.guestName) {
-                    // старые записи без guestId — индексируем по имени
-                    const key = (e.details.guestName || '').toLowerCase().trim();
-                    if (key) {
-                        if (!byName[key]) byName[key] = [];
-                        byName[key].push(entry);
-                    }
-                }
-            });
-        // Сортируем по времени
-        [...Object.values(byId), ...Object.values(byName)]
-            .forEach(arr => arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
-        return { byId, byName };
-    }, [auditLog]);
-
-    // Build enriched guest list (exclude pure bookings with no checkin)
+    // Обогащаем каждое заселение
     const enriched = useMemo(() => {
         return guests
             .filter(g => g.status !== 'booking')
@@ -150,155 +112,127 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                         shiftEnd:   shift?.endTime   || null,
                     };
                 }).sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                // Cashier at check-in
-                const checkInCashier = resolveUser(g.staffId || g.createdBy);
-
-                // Матчинг по guestId (новые записи) или по имени (старые без guestId)
-                const nameKey = (g.fullName || '').toLowerCase().trim();
-                const priceChanges = priceChangeMap.byId[g.id]
-                    || priceChangeMap.byName[nameKey]
-                    || [];
-                // первая зафиксированная цена (до первого повышения/понижения)
-                const firstPrice = priceChanges.length > 0 ? priceChanges[0].oldPrice : (parseInt(g.pricePerNight) || 0);
-                const maxDelta   = priceChanges.length > 0 ? Math.max(...priceChanges.map(c => Math.abs(c.delta))) : 0;
-
                 return {
                     ...g,
                     guestPayments: enrichedPays,
-                    totalPaid: getTotalPaid(g),
-                    debt: (g.totalPrice || 0) - getTotalPaid(g),
-                    checkInCashier,
-                    priceChanges,
-                    firstPrice,
-                    maxDelta,
+                    totalPaid:     getTotalPaid(g),
+                    checkInCashier: resolveUser(g.staffId || g.createdBy),
                 };
             });
-    }, [guests, payments, shifts, users, priceChangeMap]);
+    }, [guests, payments, shifts, users]);
 
-    // Stats
-    const stats = useMemo(() => {
-        const valid = enriched.filter(g => g.pricePerNight > 0);
-        if (!valid.length) return { count: 0, avg: 0, min: null, max: null, changedCount: 0 };
-        const prices = valid.map(g => parseInt(g.pricePerNight) || 0);
-        const minP = Math.min(...prices);
-        const maxP = Math.max(...prices);
-        const minG = valid.find(g => parseInt(g.pricePerNight) === minP);
-        const maxG = valid.find(g => parseInt(g.pricePerNight) === maxP);
-        const avg  = Math.round(prices.reduce((s, p) => s + p, 0) / prices.length);
-        const changedCount = enriched.filter(g => g.priceChanges.length > 0).length;
-        return { count: valid.length, avg, min: minP, max: maxP, minGuest: minG, maxGuest: maxG, changedCount };
+    // Группируем заселения по имени гостя
+    const grouped = useMemo(() => {
+        const map = new Map();
+        enriched.forEach(g => {
+            const key = (g.fullName || '—').trim();
+            if (!map.has(key)) map.set(key, { key, name: key, stays: [] });
+            map.get(key).stays.push(g);
+        });
+        return Array.from(map.values()).map(grp => {
+            grp.stays.sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate));
+            // Уникальные ненулевые цены — именно это определяет «разные цены»
+            const validPrices = [...new Set(
+                grp.stays.map(s => parseInt(s.pricePerNight) || 0).filter(p => p > 0)
+            )].sort((a, b) => a - b);
+            const hasPriceVariation = validPrices.length > 1;
+            const totalPaid    = grp.stays.reduce((s, g) => s + g.totalPaid, 0);
+            const totalAmount  = grp.stays.reduce((s, g) => s + (g.totalPrice || 0), 0);
+            const isActive     = grp.stays.some(s => s.status === 'active');
+            const hostels      = [...new Set(grp.stays.map(s => s.hostelId).filter(Boolean))];
+            const lastDate     = grp.stays[0]?.checkInDate || '';
+            return { ...grp, validPrices, hasPriceVariation, totalPaid, totalAmount,
+                totalDebt: totalAmount - totalPaid, isActive, hostels, lastDate,
+                stayCount: grp.stays.length };
+        });
     }, [enriched]);
 
-    // Filter + sort
+    // Статистика по сгруппированным данным
+    const stats = useMemo(() => {
+        const allPrices = enriched.map(g => parseInt(g.pricePerNight) || 0).filter(p => p > 0);
+        const avg = allPrices.length ? Math.round(allPrices.reduce((s, p) => s + p, 0) / allPrices.length) : 0;
+        const min = allPrices.length ? Math.min(...allPrices) : null;
+        const max = allPrices.length ? Math.max(...allPrices) : null;
+        const minGuest = min !== null ? enriched.find(g => parseInt(g.pricePerNight) === min) : null;
+        const maxGuest = max !== null ? enriched.find(g => parseInt(g.pricePerNight) === max) : null;
+        return { count: grouped.length, withVariation: grouped.filter(g => g.hasPriceVariation).length,
+            avg, min, max, minGuest, maxGuest };
+    }, [grouped, enriched]);
+
+    // Фильтр + сортировка по сгруппированным гостям
     const filtered = useMemo(() => {
         const s = search.toLowerCase();
-        let list = enriched.filter(g => {
-            if (filterHostel && g.hostelId !== filterHostel) return false;
-            if (filterStatus  === 'active'      && g.status !== 'active')      return false;
-            if (filterStatus  === 'checked_out' && g.status !== 'checked_out') return false;
-            if (filterDateFrom && ymd(g.checkInDate) < filterDateFrom) return false;
-            if (filterDateTo   && ymd(g.checkInDate) > filterDateTo)   return false;
-            if (filterCashier) {
-                const hasPay = g.guestPayments.some(p => p.staffId === filterCashier);
-                const isCheckinCashier = g.staffId === filterCashier || g.createdBy === filterCashier;
-                if (!hasPay && !isCheckinCashier) return false;
-            }
-            // Price change filters
-            if (filterPriceChanged === 'changed'   && g.priceChanges.length === 0) return false;
-            if (filterPriceChanged === 'unchanged' && g.priceChanges.length >  0) return false;
-            if (filterOldPriceMin && g.firstPrice < parseInt(filterOldPriceMin)) return false;
-            if (filterOldPriceMax && g.firstPrice > parseInt(filterOldPriceMax)) return false;
-            if (filterDeltaMin    && g.maxDelta   < parseInt(filterDeltaMin))    return false;
-            if (s) {
-                return (
-                    (g.fullName    || '').toLowerCase().includes(s) ||
-                    (g.roomNumber  || '').toString().includes(s) ||
-                    (g.bedId       || '').toString().includes(s) ||
+        let list = grouped.filter(grp => {
+            if (s && !grp.name.toLowerCase().includes(s) &&
+                !grp.stays.some(g =>
+                    (g.roomNumber || '').toString().includes(s) ||
+                    (g.bedId || '').toString().includes(s) ||
                     g.guestPayments.some(p => p.cashierName.toLowerCase().includes(s))
-                );
+                )) return false;
+            if (filterHostel && !grp.stays.some(g => g.hostelId === filterHostel)) return false;
+            if (filterStatus === 'active'      && !grp.stays.some(g => g.status === 'active'))      return false;
+            if (filterStatus === 'checked_out' && !grp.stays.some(g => g.status === 'checked_out')) return false;
+            if (filterDateFrom && !grp.stays.some(g => ymd(g.checkInDate) >= filterDateFrom)) return false;
+            if (filterDateTo   && !grp.stays.some(g => ymd(g.checkInDate) <= filterDateTo))   return false;
+            if (filterCashier) {
+                const ok = grp.stays.some(g =>
+                    g.guestPayments.some(p => p.staffId === filterCashier) ||
+                    g.staffId === filterCashier || g.createdBy === filterCashier);
+                if (!ok) return false;
             }
+            // Фильтр разных цен — только из данных заселений, без auditLog
+            if (filterPriceChanged === 'changed'   && !grp.hasPriceVariation) return false;
+            if (filterPriceChanged === 'unchanged' &&  grp.hasPriceVariation) return false;
+            if (!showHidden && hiddenKeys.has(grp.key)) return false;
             return true;
         });
-
         list.sort((a, b) => {
-            let va = a[sortKey] ?? 0;
-            let vb = b[sortKey] ?? 0;
-            if (sortKey === 'checkInDate') {
-                va = new Date(va).getTime();
-                vb = new Date(vb).getTime();
-            } else {
-                va = parseInt(va) || 0;
-                vb = parseInt(vb) || 0;
-            }
-            return sortAsc ? va - vb : vb - va;
+            if (sortKey === 'lastDate')    return sortAsc ? new Date(a.lastDate) - new Date(b.lastDate) : new Date(b.lastDate) - new Date(a.lastDate);
+            if (sortKey === 'totalAmount') return sortAsc ? a.totalAmount - b.totalAmount : b.totalAmount - a.totalAmount;
+            if (sortKey === 'stayCount')   return sortAsc ? a.stayCount - b.stayCount : b.stayCount - a.stayCount;
+            return 0;
         });
-
-        if (!showHidden) list = list.filter(g => !hiddenIds.has(g.id));
         return list;
-    }, [enriched, filterHostel, filterStatus, filterDateFrom, filterDateTo, filterCashier,
-        filterPriceChanged, filterOldPriceMin, filterOldPriceMax, filterDeltaMin,
-        search, sortKey, sortAsc, showHidden, hiddenIds]);
+    }, [grouped, search, filterHostel, filterStatus, filterDateFrom, filterDateTo,
+        filterCashier, filterPriceChanged, showHidden, hiddenKeys, sortKey, sortAsc]);
 
     const hasFilter = search || filterHostel || filterDateFrom || filterDateTo || filterCashier ||
-        filterStatus !== 'all' || filterPriceChanged !== 'all' ||
-        filterOldPriceMin || filterOldPriceMax || filterDeltaMin;
+        filterStatus !== 'all' || filterPriceChanged !== 'all';
 
     const resetFilters = () => {
         setSearch(''); setFilterHostel(''); setFilterDateFrom('');
         setFilterDateTo(''); setFilterCashier(''); setFilterStatus('all');
-        setFilterPriceChanged('all'); setFilterOldPriceMin('');
-        setFilterOldPriceMax(''); setFilterDeltaMin('');
+        setFilterPriceChanged('all');
     };
 
-    const hideGuest = (id) => {
-        const next = new Set(hiddenIds); next.add(id); setHiddenIds(next);
+    const hideGroup = (key) => {
+        const next = new Set(hiddenKeys); next.add(key); setHiddenKeys(next);
         try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])); } catch {}
     };
-    const unhideGuest = (id) => {
-        const next = new Set(hiddenIds); next.delete(id); setHiddenIds(next);
+    const unhideGroup = (key) => {
+        const next = new Set(hiddenKeys); next.delete(key); setHiddenKeys(next);
         try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])); } catch {}
     };
-    const unhideAll = () => { setHiddenIds(new Set()); try { localStorage.removeItem(HIDDEN_KEY); } catch {} };
+    const unhideAll = () => { setHiddenKeys(new Set()); try { localStorage.removeItem(HIDDEN_KEY); } catch {}; };
 
-    const toggleExpand = (id) => {
-        setExpandedIds(prev => {
-            const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
-            return next;
-        });
+    const toggleExpand = (key) => {
+        setExpandedKeys(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
     };
-
+    const toggleStay = (id) => {
+        setExpandedStays(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+    };
     const toggleSort = (key) => {
         if (sortKey === key) setSortAsc(a => !a);
         else { setSortKey(key); setSortAsc(false); }
     };
 
     const handleExport = () => {
-        const rows = [['ФИО', 'Хостел', 'Комната', 'Место', 'Заезд', 'Выезд', 'Ночей', 'Перв. цена', 'Тек. цена/ночь', 'Итого', 'Оплачено', 'Долг', 'Статус', 'Кассир при заселении', 'Изм. цены', 'Платежи']];
-        filtered.forEach(g => {
-            const pays = g.guestPayments.map(p => `${p.cashierName}: ${fmt(p.amount)} (${METHOD_LABEL[p.method] || p.method})`).join('; ');
-            const priceChangesStr = g.priceChanges.map(c =>
-                `${fmt(c.oldPrice)}→${fmt(c.newPrice)} (${c.delta > 0 ? '+' : ''}${fmt(c.delta)}) ${c.changedBy} ${new Date(c.timestamp).toLocaleDateString('ru')}`
-            ).join('; ');
-            rows.push([
-                g.fullName || '',
-                HOSTELS[g.hostelId] || g.hostelId || '',
-                g.roomNumber || '',
-                g.bedId || '',
-                fmtDate(g.checkInDate),
-                fmtDate(g.checkOutDate),
-                g.days || '',
-                g.firstPrice || '',
-                g.pricePerNight || '',
-                g.totalPrice || '',
-                g.totalPaid || '',
-                g.debt || 0,
-                g.status === 'active' ? 'Активный' : g.status === 'checked_out' ? 'Выехал' : g.status,
-                g.checkInCashier,
-                priceChangesStr,
-                pays,
-            ]);
+        const rows = [['ФИО', 'Хостел(ы)', 'Заселений', 'Уникальных цен', 'Цены сум/ночь', 'Итого', 'Оплачено', 'Долг']];
+        filtered.forEach(grp => {
+            rows.push([grp.name, grp.hostels.map(h => HOSTELS[h] || h).join('; '),
+                grp.stayCount, grp.validPrices.length,
+                grp.validPrices.map(fmt).join('; '),
+                grp.totalAmount, grp.totalPaid, grp.totalDebt]);
         });
         const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
         const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -325,7 +259,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                         <History size={20} className="text-indigo-500"/> История проживания
                     </h1>
                     <p className="text-sm text-slate-500 mt-0.5">
-                        {filtered.length.toLocaleString()} из {enriched.length.toLocaleString()} записей
+                        {filtered.length.toLocaleString()} гостей · {enriched.length.toLocaleString()} заселений
                     </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -357,25 +291,15 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
 
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                <StatCard icon={Users}    label="Всего постояльцев" value={stats.count.toLocaleString()} />
-                <StatCard icon={Minus}    label="Средняя цена/ночь" value={`${fmt(stats.avg)} сум`} highlight />
-                <StatCard
-                    icon={TrendingDown}
-                    label="Мин. цена (текущая)"
-                    value={stats.min !== null ? `${fmt(stats.min)} сум` : '—'}
-                    sub={stats.minGuest ? `${stats.minGuest.fullName} · ${HOSTELS[stats.minGuest.hostelId] || ''}` : ''}
-                />
-                <StatCard
-                    icon={TrendingUp}
-                    label="Макс. цена (текущая)"
-                    value={stats.max !== null ? `${fmt(stats.max)} сум` : '—'}
-                    sub={stats.maxGuest ? `${stats.maxGuest.fullName} · ${HOSTELS[stats.maxGuest.hostelId] || ''}` : ''}
-                />
+                <StatCard icon={Users}       label="Уникальных гостей"  value={stats.count.toLocaleString()} />
+                <StatCard icon={Minus}       label="Средняя цена/ночь"  value={`${fmt(stats.avg)} сум`} highlight />
+                <StatCard icon={TrendingDown} label="Мин. цена"         value={stats.min !== null ? `${fmt(stats.min)} сум` : '—'} sub={stats.minGuest?.fullName} />
+                <StatCard icon={TrendingUp}   label="Макс. цена"        value={stats.max !== null ? `${fmt(stats.max)} сум` : '—'} sub={stats.maxGuest?.fullName} />
                 <StatCard
                     icon={RefreshCw}
-                    label="С изм. цены"
-                    value={stats.changedCount ? `${stats.changedCount} гост.` : '—'}
-                    sub={stats.changedCount ? `из ${stats.count} всего` : 'история недоступна'}
+                    label="С разными ценами"
+                    value={stats.withVariation ? `${stats.withVariation} гост.` : '—'}
+                    sub={stats.withVariation ? `из ${stats.count} гостей` : 'все по одной цене'}
                 />
             </div>
 
@@ -398,7 +322,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                     </select>
                     <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className={INP + ' w-full'}>
                         <option value="all">Все статусы</option>
-                        <option value="active">Активные</option>
+                        <option value="active">Сейчас живут</option>
                         <option value="checked_out">Выехавшие</option>
                     </select>
                 </div>
@@ -420,7 +344,16 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                             <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className={INP + ' w-full'}/>
                         </div>
                     </div>
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            onClick={() => setFilterPriceChanged(v => v === 'changed' ? 'all' : 'changed')}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-sm border transition-colors ${
+                                filterPriceChanged === 'changed'
+                                    ? 'bg-amber-100 text-amber-700 border-amber-300'
+                                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                            }`}>
+                            <RefreshCw size={14}/> С разными ценами
+                        </button>
                         {hasFilter && (
                             <button onClick={resetFilters}
                                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors">
@@ -429,46 +362,16 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                         )}
                     </div>
                 </div>
-
-                {/* ── Фильтры по изменению цены ─────────────────────────── */}
-                <div className="border-t border-slate-100 pt-3">
-                    <div className="flex items-center gap-2 text-[11px] font-bold text-amber-500 uppercase mb-2">
-                        <RefreshCw size={11}/> Изменение цены
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <select value={filterPriceChanged} onChange={e => setFilterPriceChanged(e.target.value)} className={INP + ' w-full'}>
-                            <option value="all">Все гости</option>
-                            <option value="changed">Только с изм. цены</option>
-                            <option value="unchanged">Без изменений</option>
-                        </select>
-                        <div className="relative">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Перв. цена от, сум</label>
-                            <input type="number" value={filterOldPriceMin} onChange={e => setFilterOldPriceMin(e.target.value)}
-                                placeholder="напр. 50000" className={INP + ' w-full'}/>
-                        </div>
-                        <div className="relative">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Перв. цена до, сум</label>
-                            <input type="number" value={filterOldPriceMax} onChange={e => setFilterOldPriceMax(e.target.value)}
-                                placeholder="напр. 100000" className={INP + ' w-full'}/>
-                        </div>
-                        <div className="relative">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Изменена на ≥, сум</label>
-                            <input type="number" value={filterDeltaMin} onChange={e => setFilterDeltaMin(e.target.value)}
-                                placeholder="напр. 10000" className={INP + ' w-full'}/>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             {/* Table */}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                 {/* Table header */}
-                <div className="hidden md:grid grid-cols-[2fr_1fr_1.5fr_1fr_1fr_1fr_1fr] px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase gap-2">
+                <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_1fr] px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase gap-2">
                     <span>Гость</span>
-                    <span>Место</span>
-                    <span><SortBtn k="checkInDate" label="Даты"/></span>
-                    <span><SortBtn k="pricePerNight" label="Цена/ночь"/></span>
-                    <span><SortBtn k="totalPrice"    label="Итого"/></span>
+                    <span><SortBtn k="stayCount"   label="Заселений"/></span>
+                    <span>Цены сум/ночь</span>
+                    <span><SortBtn k="totalAmount" label="Итого"/></span>
                     <span>Оплачено</span>
                     <span>Долг</span>
                 </div>
@@ -485,31 +388,36 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                     </div>
                 ) : (
                     <>
-                        <div className="divide-y divide-slate-50">
-                            {filtered.slice(0, pageSize).map(g => {
-                                const isExpanded = expandedIds.has(g.id);
-                                const isActive   = g.status === 'active';
-                                const hasDebt    = g.debt > 0;
-
-                                const isHidden = hiddenIds.has(g.id);
+                        <div className="divide-y divide-slate-100">
+                            {filtered.slice(0, pageSize).map(grp => {
+                                const isExpanded = expandedKeys.has(grp.key);
+                                const isHidden   = hiddenKeys.has(grp.key);
+                                const hasDebt    = grp.totalDebt > 0;
                                 return (
-                                    <div key={g.id} className={`group ${isHidden ? 'opacity-40' : ''}`}>
-                                        {/* Main row */}
+                                    <div key={grp.key} className={`group/g ${isHidden ? 'opacity-40' : ''}`}>
+                                        {/* Group header row */}
                                         <div
-                                            className={`relative md:grid md:grid-cols-[2fr_1fr_1.5fr_1fr_1fr_1fr_1fr] flex flex-col px-4 py-3 gap-2 cursor-pointer hover:bg-slate-50/70 transition-colors ${isExpanded ? 'bg-indigo-50/30' : ''} ${isHidden ? 'bg-slate-50' : ''}`}
-                                            onClick={() => toggleExpand(g.id)}
+                                            className={`relative md:grid md:grid-cols-[2.5fr_1fr_1fr_1fr_1fr_1fr] flex flex-col px-4 py-3.5 gap-2 cursor-pointer hover:bg-slate-50/70 transition-colors ${isExpanded ? 'bg-indigo-50/30' : ''}`}
+                                            onClick={() => toggleExpand(grp.key)}
                                         >
-                                            {/* Guest name + hostel */}
+                                            {/* Name */}
                                             <div className="flex items-start gap-2 min-w-0">
-                                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${isActive ? 'bg-emerald-400' : 'bg-slate-300'}`}/>
+                                                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${grp.isActive ? 'bg-emerald-400' : 'bg-slate-300'}`}/>
                                                 <div className="min-w-0 flex-1">
-                                                    <div className="font-bold text-slate-800 text-sm truncate flex items-center gap-1">
-                                                        {g.fullName || '—'}
+                                                    <div className="font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
+                                                        {grp.name}
                                                         {isHidden && <span className="text-[9px] font-normal text-slate-400 italic">(скрыт)</span>}
+                                                        {grp.hasPriceVariation && (
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">разные цены</span>
+                                                        )}
+                                                        {grp.isActive && (
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">живёт</span>
+                                                        )}
                                                     </div>
-                                                    <div className="text-xs text-slate-400 flex items-center gap-1">
-                                                        <Building2 size={10}/>
-                                                        {HOSTELS[g.hostelId] || g.hostelId || '—'}
+                                                    <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
+                                                        {grp.hostels.map(h => (
+                                                            <span key={h} className="flex items-center gap-0.5"><Building2 size={9}/>{HOSTELS[h] || h}</span>
+                                                        ))}
                                                         {isExpanded
                                                             ? <ChevronDown size={11} className="text-indigo-500"/>
                                                             : <ChevronRight size={11} className="opacity-40"/>
@@ -518,176 +426,126 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                                 </div>
                                                 {currentUser.role === 'super' && (
                                                     <button
-                                                        onClick={e => { e.stopPropagation(); isHidden ? unhideGuest(g.id) : hideGuest(g.id); }}
-                                                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-1.5 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"
-                                                        title={isHidden ? 'Показать запись' : 'Скрыть запись из аналитики'}
+                                                        onClick={e => { e.stopPropagation(); isHidden ? unhideGroup(grp.key) : hideGroup(grp.key); }}
+                                                        className="opacity-0 group-hover/g:opacity-100 transition-opacity shrink-0 p-1.5 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"
+                                                        title={isHidden ? 'Показать гостя' : 'Скрыть из аналитики'}
                                                     >
                                                         {isHidden ? <Eye size={14}/> : <EyeOff size={14}/>}
                                                     </button>
                                                 )}
                                             </div>
-
-                                            {/* Room/Bed */}
-                                            <div className="text-sm text-slate-600">
-                                                <span className="font-bold">Ком. {g.roomNumber || '—'}</span>
-                                                <span className="text-slate-400 text-xs ml-1">· {g.bedId || '—'}</span>
-                                            </div>
-
-                                            {/* Dates */}
-                                            <div className="text-xs text-slate-500 space-y-0.5">
-                                                <div>🟢 {fmtDate(g.checkInDate)}</div>
-                                                <div>🔴 {fmtDate(g.checkOutDate)}</div>
-                                                <div className="text-slate-400">{g.days || '?'} ночей</div>
-                                            </div>
-
-                                            {/* Price/night */}
+                                            {/* Stay count */}
                                             <div>
-                                                <div className="flex items-center gap-1">
-                                                    <span className="text-sm font-black text-slate-700">{fmt(g.pricePerNight)}</span>
-                                                    {g.priceChanges.length > 0 && (
-                                                        <span className="text-[9px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
-                                                            ×{g.priceChanges.length} изм.
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                {g.priceChanges.length > 0 && (
-                                                    <div className="text-[10px] text-slate-400 flex items-center gap-0.5">
-                                                        <span className="line-through">{fmt(g.firstPrice)}</span>
-                                                        <ArrowRight size={8}/>
-                                                        <span className={g.priceChanges[g.priceChanges.length-1].delta > 0 ? 'text-rose-500' : 'text-emerald-600'}>{fmt(g.pricePerNight)}</span>
+                                                <div className="font-bold text-slate-700">{grp.stayCount}</div>
+                                                <div className="text-[10px] text-slate-400">заселений</div>
+                                            </div>
+                                            {/* Prices */}
+                                            <div>
+                                                {grp.hasPriceVariation ? (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {grp.validPrices.map((p, i) => (
+                                                            <span key={i} className="text-xs font-bold bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded-lg border border-amber-200">{fmt(p)}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <div className="font-bold text-slate-700">{fmt(grp.validPrices[0] || 0)}</div>
+                                                        <div className="text-[10px] text-slate-400">сум/ночь</div>
                                                     </div>
                                                 )}
-                                                {g.priceChanges.length === 0 && <div className="text-[10px] text-slate-400">сум/ночь</div>}
                                             </div>
-
                                             {/* Total */}
                                             <div>
-                                                <div className="text-sm font-black text-slate-700">{fmt(g.totalPrice)}</div>
+                                                <div className="font-black text-slate-700">{fmt(grp.totalAmount)}</div>
                                                 <div className="text-[10px] text-slate-400">итого</div>
                                             </div>
-
                                             {/* Paid */}
                                             <div>
-                                                <div className="text-sm font-bold text-emerald-600">{fmt(g.totalPaid)}</div>
+                                                <div className="font-bold text-emerald-600">{fmt(grp.totalPaid)}</div>
                                                 <div className="text-[10px] text-slate-400">оплачено</div>
                                             </div>
-
                                             {/* Debt */}
                                             <div>
-                                                <div className={`text-sm font-bold ${hasDebt ? 'text-rose-600' : 'text-slate-400'}`}>
-                                                    {hasDebt ? fmt(g.debt) : '—'}
+                                                <div className={`font-bold ${hasDebt ? 'text-rose-600' : 'text-slate-400'}`}>
+                                                    {hasDebt ? fmt(grp.totalDebt) : '—'}
                                                 </div>
                                                 {hasDebt && <div className="text-[10px] text-rose-400">долг</div>}
                                             </div>
                                         </div>
 
-                                        {/* Expanded: payments by cashier */}
+                                        {/* Expanded: individual stays */}
                                         {isExpanded && (
-                                            <div className="px-8 pt-1 pb-4 bg-indigo-50/20 border-t border-indigo-100/60 space-y-2">
-                                                {/* Check-in cashier */}
-                                                <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                    <span className="font-bold text-slate-600">Заселил:</span>
-                                                    <span>{g.checkInCashier}</span>
-                                                </div>
-
-                                                {/* Price timeline — периоды проживания по ценам */}
-                                                {g.priceChanges.length > 0 && (() => {
-                                                    const ch = g.priceChanges;
-                                                    // Строим периоды с явным указанием кто установил каждую цену
-                                                    const periods = [
-                                                        { price: g.firstPrice, from: g.checkInDate, to: ch[0].timestamp, setBy: g.checkInCashier, change: ch[0] },
-                                                        ...ch.slice(0, -1).map((c, i) => ({
-                                                            price: c.newPrice, from: c.timestamp, to: ch[i+1].timestamp, setBy: c.changedBy, change: ch[i+1],
-                                                        })),
-                                                        { price: ch[ch.length-1].newPrice, from: ch[ch.length-1].timestamp, to: g.checkOutDate, setBy: ch[ch.length-1].changedBy, isCurrent: true },
-                                                    ];
-                                                    const fmtTs = iso => iso
-                                                        ? new Date(iso).toLocaleDateString('ru', { day:'numeric', month:'short' })
-                                                        : 'сейчас';
+                                            <div className="bg-indigo-50/20 border-t border-indigo-100/60 divide-y divide-slate-100/80">
+                                                {grp.stays.map((stay) => {
+                                                    const stayExpanded = expandedStays.has(stay.id);
+                                                    const stayActive   = stay.status === 'active';
+                                                    const stayDebt     = (stay.totalPrice || 0) - stay.totalPaid;
                                                     return (
-                                                        <div className="space-y-1.5">
-                                                            <div className="text-[11px] font-bold text-amber-500 uppercase flex items-center gap-1">
-                                                                <RefreshCw size={10}/> Периоды проживания по ценам
-                                                            </div>
-                                                            {periods.map((p, idx) => (
-                                                                <div key={idx} className={`rounded-xl border px-3 py-2.5 text-xs ${
-                                                                    p.isCurrent ? 'bg-emerald-50/50 border-emerald-200' : 'bg-amber-50/60 border-amber-100'
-                                                                }`}>
-                                                                    {/* Цена + даты */}
-                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                        <span className="font-black text-slate-800 text-sm">{fmt(p.price)} сум/ночь</span>
-                                                                        <span className="text-slate-400 text-[11px]">
-                                                                            {fmtTs(p.from)} → {fmtTs(p.to)}
-                                                                        </span>
-                                                                        {p.isCurrent && (
-                                                                            <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">текущая</span>
-                                                                        )}
-                                                                    </div>
-                                                                    {/* Кто установил эту цену */}
-                                                                    <div className="flex items-center gap-1.5 mt-1 text-[11px]">
-                                                                        <span className="text-slate-400">Установил:</span>
-                                                                        <span className="font-bold text-indigo-600">{p.setBy}</span>
-                                                                    </div>
-                                                                    {/* Кто и когда изменил на следующую цену */}
-                                                                    {p.change && (
-                                                                        <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-amber-200/70 text-[11px]">
-                                                                            <span className="text-slate-400">Изменил цену:</span>
-                                                                            <span className="font-bold text-rose-600">{p.change.changedBy}</span>
-                                                                            <span className="text-slate-400">
-                                                                                {new Date(p.change.timestamp).toLocaleDateString('ru', { day:'numeric', month:'short', year:'numeric' })}
-                                                                                {' '}
-                                                                                {new Date(p.change.timestamp).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
-                                                                            </span>
-                                                                            <span className="ml-auto flex items-center gap-1.5">
-                                                                                <span className={`font-bold px-1.5 py-0.5 rounded-full text-[10px] ${
-                                                                                    p.change.delta > 0
-                                                                                        ? 'bg-rose-100 text-rose-700'
-                                                                                        : 'bg-emerald-100 text-emerald-700'
-                                                                                }`}>
-                                                                                    {p.change.delta > 0 ? '↑ +' : '↓ '}{fmt(Math.abs(p.change.delta))}
-                                                                                </span>
-                                                                                <ArrowRight size={10} className="text-slate-400"/>
-                                                                                <span className="font-black text-slate-700">{fmt(p.change.newPrice)} сум</span>
-                                                                            </span>
-                                                                        </div>
-                                                                    )}
+                                                        <div key={stay.id}>
+                                                            {/* Stay row */}
+                                                            <div
+                                                                className={`flex flex-wrap items-center gap-3 px-8 py-2.5 cursor-pointer hover:bg-indigo-50/40 transition-colors ${stayExpanded ? 'bg-indigo-100/20' : ''}`}
+                                                                onClick={() => toggleStay(stay.id)}
+                                                            >
+                                                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${stayActive ? 'bg-emerald-400' : 'bg-slate-300'}`}/>
+                                                                {/* Dates */}
+                                                                <div className="text-xs text-slate-600 min-w-[180px]">
+                                                                    🟢 {fmtDate(stay.checkInDate)}
+                                                                    <span className="mx-1.5 text-slate-300">→</span>
+                                                                    {stay.checkOutDate ? `🔴 ${fmtDate(stay.checkOutDate)}` : <span className="text-emerald-500">живёт</span>}
+                                                                    {stay.days && <span className="text-slate-400 ml-1.5">· {stay.days} н.</span>}
                                                                 </div>
-                                                            ))}
+                                                                {/* Room */}
+                                                                <div className="text-xs font-bold text-slate-600">
+                                                                    Ком.{stay.roomNumber || '—'} · {stay.bedId || '—'}
+                                                                    <span className="text-[10px] font-normal text-slate-400 ml-1">({HOSTELS[stay.hostelId] || stay.hostelId})</span>
+                                                                </div>
+                                                                {/* Price highlight */}
+                                                                <div className={`text-xs font-black px-2 py-1 rounded-lg ${
+                                                                    grp.hasPriceVariation ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                                                                }`}>
+                                                                    {fmt(stay.pricePerNight)} сум/н.
+                                                                </div>
+                                                                {/* Totals */}
+                                                                <div className="text-xs text-slate-600 ml-auto">
+                                                                    <span className="font-bold">{fmt(stay.totalPrice)}</span>
+                                                                    <span className="text-slate-400 mx-1">·</span>
+                                                                    <span className="text-emerald-600 font-bold">{fmt(stay.totalPaid)}</span>
+                                                                    {stayDebt > 0 && <span className="text-rose-500 ml-1">-{fmt(stayDebt)}</span>}
+                                                                </div>
+                                                                {/* Cashier */}
+                                                                <div className="text-xs text-indigo-600 font-bold">{stay.checkInCashier}</div>
+                                                                {stay.guestPayments.length > 0 && (
+                                                                    stayExpanded
+                                                                        ? <ChevronDown size={12} className="text-indigo-500 shrink-0"/>
+                                                                        : <ChevronRight size={12} className="text-slate-300 shrink-0"/>
+                                                                )}
+                                                            </div>
+                                                            {/* Payments */}
+                                                            {stayExpanded && stay.guestPayments.length > 0 && (
+                                                                <div className="px-16 py-2 space-y-1 bg-white/50">
+                                                                    {stay.guestPayments.map((p, idx) => {
+                                                                        const shiftLabel = p.shiftStart
+                                                                            ? `${new Date(p.shiftStart).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}–${p.shiftEnd ? new Date(p.shiftEnd).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' }) : '...'}`
+                                                                            : null;
+                                                                        return (
+                                                                            <div key={p.id || idx}
+                                                                                className="flex flex-wrap items-center gap-2 bg-white border border-slate-100 rounded-xl px-3 py-1.5 text-xs">
+                                                                                <MethodChip method={p.method} amount={p.amount}/>
+                                                                                <span className="font-bold text-slate-700">{p.cashierName}</span>
+                                                                                {shiftLabel && <span className="text-slate-400">смена {shiftLabel}</span>}
+                                                                                <span className="text-slate-400 ml-auto">
+                                                                                    {new Date(p.date).toLocaleDateString('ru', { day:'numeric', month:'short' })}
+                                                                                    {' '}{new Date(p.date).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     );
-                                                })()}
-
-                                                {g.guestPayments.length === 0 ? (
-                                                    <div className="text-xs text-slate-400 italic">Платежей нет</div>
-                                                ) : (
-                                                    <div className="space-y-1.5">
-                                                        <div className="text-[11px] font-bold text-slate-400 uppercase">Платежи</div>
-                                                        {g.guestPayments.map((p, idx) => {
-                                                            const shiftLabel = p.shiftStart
-                                                                ? `Смена: ${new Date(p.shiftStart).toLocaleDateString('ru', { day:'numeric', month:'short' })} ${new Date(p.shiftStart).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })} – ${p.shiftEnd ? new Date(p.shiftEnd).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' }) : 'сейчас'}`
-                                                                : null;
-                                                            return (
-                                                                <div key={p.id || idx}
-                                                                    className="flex flex-wrap items-center gap-2 bg-white border border-slate-100 rounded-xl px-3 py-2 shadow-sm text-xs">
-                                                                    {/* Method chip */}
-                                                                    <MethodChip method={p.method} amount={p.amount}/>
-                                                                    {/* Cashier */}
-                                                                    <span className="font-bold text-slate-700">{p.cashierName}</span>
-                                                                    {/* Shift */}
-                                                                    {shiftLabel && (
-                                                                        <span className="text-slate-400">{shiftLabel}</span>
-                                                                    )}
-                                                                    {/* Date */}
-                                                                    <span className="text-slate-400 ml-auto">
-                                                                        {new Date(p.date).toLocaleDateString('ru', { day:'numeric', month:'short' })}
-                                                                        {' '}
-                                                                        {new Date(p.date).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
-                                                                    </span>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
+                                                })}
                                             </div>
                                         )}
                                     </div>
@@ -697,9 +555,9 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
 
                         {filtered.length > pageSize && (
                             <div className="py-4 text-center border-t border-slate-100">
-                                <button onClick={() => setPageSize(p => p + 100)}
+                                <button onClick={() => setPageSize(p => p + 50)}
                                     className="flex items-center gap-2 mx-auto px-5 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                                    <ChevronDown size={15}/> Показать ещё ({(filtered.length - pageSize).toLocaleString()} записей)
+                                    <ChevronDown size={15}/> Показать ещё ({(filtered.length - pageSize).toLocaleString()} гостей)
                                 </button>
                             </div>
                         )}
