@@ -576,53 +576,61 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                                 {/* Price timeline — периоды проживания по ценам */}
                                                 {g.priceChanges.length > 0 && (() => {
                                                     const ch = g.priceChanges;
-                                                    // Строим периоды: [checkIn → ch[0]] [ch[0] → ch[1]] ... [ch[n-1] → checkOut]
+                                                    // Строим периоды с явным указанием кто установил каждую цену
                                                     const periods = [
-                                                        { price: g.firstPrice, from: g.checkInDate, to: ch[0].timestamp, change: ch[0] },
+                                                        { price: g.firstPrice, from: g.checkInDate, to: ch[0].timestamp, setBy: g.checkInCashier, change: ch[0] },
                                                         ...ch.slice(0, -1).map((c, i) => ({
-                                                            price: c.newPrice, from: c.timestamp, to: ch[i+1].timestamp, change: ch[i+1],
+                                                            price: c.newPrice, from: c.timestamp, to: ch[i+1].timestamp, setBy: c.changedBy, change: ch[i+1],
                                                         })),
-                                                        { price: ch[ch.length-1].newPrice, from: ch[ch.length-1].timestamp, to: g.checkOutDate, isCurrent: true },
+                                                        { price: ch[ch.length-1].newPrice, from: ch[ch.length-1].timestamp, to: g.checkOutDate, setBy: ch[ch.length-1].changedBy, isCurrent: true },
                                                     ];
                                                     const fmtTs = iso => iso
                                                         ? new Date(iso).toLocaleDateString('ru', { day:'numeric', month:'short' })
                                                         : 'сейчас';
                                                     return (
-                                                        <div className="space-y-1">
+                                                        <div className="space-y-1.5">
                                                             <div className="text-[11px] font-bold text-amber-500 uppercase flex items-center gap-1">
                                                                 <RefreshCw size={10}/> Периоды проживания по ценам
                                                             </div>
                                                             {periods.map((p, idx) => (
-                                                                <div key={idx} className={`rounded-xl border px-3 py-2 text-xs ${
-                                                                    p.isCurrent ? 'bg-slate-50 border-slate-200' : 'bg-amber-50/60 border-amber-100'
+                                                                <div key={idx} className={`rounded-xl border px-3 py-2.5 text-xs ${
+                                                                    p.isCurrent ? 'bg-emerald-50/50 border-emerald-200' : 'bg-amber-50/60 border-amber-100'
                                                                 }`}>
+                                                                    {/* Цена + даты */}
                                                                     <div className="flex flex-wrap items-center gap-2">
-                                                                        <span className="font-black text-slate-800">{fmt(p.price)} сум/ночь</span>
-                                                                        <span className="text-slate-400">
+                                                                        <span className="font-black text-slate-800 text-sm">{fmt(p.price)} сум/ночь</span>
+                                                                        <span className="text-slate-400 text-[11px]">
                                                                             {fmtTs(p.from)} → {fmtTs(p.to)}
                                                                         </span>
                                                                         {p.isCurrent && (
                                                                             <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">текущая</span>
                                                                         )}
                                                                     </div>
-                                                                    {/* Стрелка изменения — под периодом, если есть следующая цена */}
+                                                                    {/* Кто установил эту цену */}
+                                                                    <div className="flex items-center gap-1.5 mt-1 text-[11px]">
+                                                                        <span className="text-slate-400">Установил:</span>
+                                                                        <span className="font-bold text-indigo-600">{p.setBy}</span>
+                                                                    </div>
+                                                                    {/* Кто и когда изменил на следующую цену */}
                                                                     {p.change && (
-                                                                        <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-amber-100">
-                                                                            <span className="text-slate-400">Изменено:</span>
-                                                                            <span className={`font-bold px-1.5 py-0.5 rounded-full text-[10px] ${
-                                                                                p.change.delta > 0
-                                                                                    ? 'bg-rose-100 text-rose-700'
-                                                                                    : 'bg-emerald-100 text-emerald-700'
-                                                                            }`}>
-                                                                                {p.change.delta > 0 ? '↑ +' : '↓ '}{fmt(Math.abs(p.change.delta))}
-                                                                            </span>
-                                                                            <ArrowRight size={10} className="text-slate-300"/>
-                                                                            <span className="font-black text-slate-700">{fmt(p.change.newPrice)} сум/ночь</span>
-                                                                            <span className="text-slate-500 ml-1">{p.change.changedBy}</span>
-                                                                            <span className="text-slate-400 ml-auto">
+                                                                        <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-amber-200/70 text-[11px]">
+                                                                            <span className="text-slate-400">Изменил цену:</span>
+                                                                            <span className="font-bold text-rose-600">{p.change.changedBy}</span>
+                                                                            <span className="text-slate-400">
                                                                                 {new Date(p.change.timestamp).toLocaleDateString('ru', { day:'numeric', month:'short', year:'numeric' })}
                                                                                 {' '}
                                                                                 {new Date(p.change.timestamp).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
+                                                                            </span>
+                                                                            <span className="ml-auto flex items-center gap-1.5">
+                                                                                <span className={`font-bold px-1.5 py-0.5 rounded-full text-[10px] ${
+                                                                                    p.change.delta > 0
+                                                                                        ? 'bg-rose-100 text-rose-700'
+                                                                                        : 'bg-emerald-100 text-emerald-700'
+                                                                                }`}>
+                                                                                    {p.change.delta > 0 ? '↑ +' : '↓ '}{fmt(Math.abs(p.change.delta))}
+                                                                                </span>
+                                                                                <ArrowRight size={10} className="text-slate-400"/>
+                                                                                <span className="font-black text-slate-700">{fmt(p.change.newPrice)} сум</span>
                                                                             </span>
                                                                         </div>
                                                                     )}
