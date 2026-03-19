@@ -4,7 +4,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, FileText, AlertCircle,
     CheckSquare, Wallet, Users, UserCog, Clock, Lock, LogOut,
     UserPlus, Power, Globe, BellRing, Tag, ClipboardList,
-    Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor,
+    Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -28,9 +28,10 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
                 // Финансы — дропдаун
                 id: 'finance', label: t('financeUpper'), dropdown: true, dropIcon: BarChart3, dropLabel: t('finance'),
                 items: [
-                    { id: 'reports',   icon: FileText,  label: t('reports'),  adminOnly: true, permKey: 'viewReports'  },
-                    { id: 'expenses',  icon: Wallet,    label: t('expenses'), adminOnly: true, permKey: 'viewExpenses' },
-                    { id: 'analytics', icon: BarChart3, label: t('analytics'), adminOnly: true },
+                    { id: 'reports',      icon: FileText,  label: t('reports'),        adminOnly: true, permKey: 'viewReports'  },
+                    { id: 'expenses',     icon: Wallet,    label: t('expenses'),       adminOnly: true, permKey: 'viewExpenses' },
+                    { id: 'analytics',    icon: BarChart3, label: t('analytics'),      adminOnly: true },
+                    { id: 'guesthistory', icon: History,   label: 'История гостей',    adminOnly: true },
                 ],
             },
             {

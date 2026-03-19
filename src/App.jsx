@@ -144,6 +144,7 @@ import SessionsView from './components/Views/SessionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
+import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction, logSystemError } from './utils/auditLog';
 import { createSession, closeSession, heartbeatSession, getLoginAt } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
@@ -1594,6 +1595,16 @@ return (
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (
                     <SessionsView sessions={sessions} users={usersList} />
+                )}
+
+                {activeTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <GuestHistoryView
+                        guests={guests}
+                        payments={payments}
+                        shifts={shifts}
+                        users={usersList}
+                        currentUser={currentUser}
+                    />
                 )}
 
                 {activeTab === 'analytics' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
