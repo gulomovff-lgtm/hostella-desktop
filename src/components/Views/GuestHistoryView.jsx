@@ -263,7 +263,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                     </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                    {currentUser.role === 'super' && hiddenIds.size > 0 && (
+                    {currentUser.role === 'super' && hiddenKeys.size > 0 && (
                         <div className="flex items-center gap-1">
                             <button onClick={() => setShowHidden(h => !h)}
                                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border transition-colors ${
@@ -272,7 +272,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                         : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                                 }`}>
                                 {showHidden ? <EyeOff size={13}/> : <Eye size={13}/>}
-                                {showHidden ? 'Спрятать скрытые' : `Скрытые (${hiddenIds.size})`}
+                                {showHidden ? 'Спрятать скрытые' : `Скрытые (${hiddenKeys.size})`}
                             </button>
                             {showHidden && (
                                 <button onClick={unhideAll}
