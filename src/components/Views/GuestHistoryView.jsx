@@ -100,26 +100,39 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     }, [payments, users]);
 
-    // Price change history from auditLog (indexed by guestId)
+    // Price change history from auditLog
+    // Indexed by guestId (new entries) + by guestName as fallback (old entries without guestId)
     const priceChangeMap = useMemo(() => {
-        const map = {};
+        const byId   = {};  // guestId → [change]
+        const byName = {};  // guestName (lower) → [change]
         auditLog
-            .filter(e => e.action === 'price_change' && e.details?.guestId)
+            .filter(e => e.action === 'price_change')
             .forEach(e => {
-                const gid = e.details.guestId;
-                if (!map[gid]) map[gid] = [];
-                map[gid].push({
-                    oldPrice:  parseInt(e.details.oldPrice)  || 0,
-                    newPrice:  parseInt(e.details.newPrice)  || 0,
-                    delta:     (parseInt(e.details.newPrice) || 0) - (parseInt(e.details.oldPrice) || 0),
+                const entry = {
+                    oldPrice:  parseInt(e.details?.oldPrice)  || 0,
+                    newPrice:  parseInt(e.details?.newPrice)  || 0,
+                    delta:     (parseInt(e.details?.newPrice) || 0) - (parseInt(e.details?.oldPrice) || 0),
                     timestamp: e.timestamp,
                     changedBy: e.userName || '—',
-                });
+                    guestId:   e.details?.guestId || null,
+                };
+                if (e.details?.guestId) {
+                    const gid = e.details.guestId;
+                    if (!byId[gid]) byId[gid] = [];
+                    byId[gid].push(entry);
+                } else if (e.details?.guestName) {
+                    // старые записи без guestId — индексируем по имени
+                    const key = (e.details.guestName || '').toLowerCase().trim();
+                    if (key) {
+                        if (!byName[key]) byName[key] = [];
+                        byName[key].push(entry);
+                    }
+                }
             });
-        Object.values(map).forEach(arr =>
-            arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-        );
-        return map;
+        // Сортируем по времени
+        [...Object.values(byId), ...Object.values(byName)]
+            .forEach(arr => arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
+        return { byId, byName };
     }, [auditLog]);
 
     // Build enriched guest list (exclude pure bookings with no checkin)
@@ -141,7 +154,11 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                 // Cashier at check-in
                 const checkInCashier = resolveUser(g.staffId || g.createdBy);
 
-                const priceChanges = priceChangeMap[g.id] || [];
+                // Матчинг по guestId (новые записи) или по имени (старые без guestId)
+                const nameKey = (g.fullName || '').toLowerCase().trim();
+                const priceChanges = priceChangeMap.byId[g.id]
+                    || priceChangeMap.byName[nameKey]
+                    || [];
                 // первая зафиксированная цена (до первого повышения/понижения)
                 const firstPrice = priceChanges.length > 0 ? priceChanges[0].oldPrice : (parseInt(g.pricePerNight) || 0);
                 const maxDelta   = priceChanges.length > 0 ? Math.max(...priceChanges.map(c => Math.abs(c.delta))) : 0;
