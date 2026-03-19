@@ -557,6 +557,7 @@ export function useGuestActions(ctx) {
       const g = guests.find(x => x.id === id);
       if (g && parseInt(d.pricePerNight) !== parseInt(g.pricePerNight)) {
         logAction(currentUser, 'price_change', {
+          guestId:    id,
           guestName:  g.fullName,
           oldPrice:   parseInt(g.pricePerNight) || 0,
           newPrice:   parseInt(d.pricePerNight) || 0,

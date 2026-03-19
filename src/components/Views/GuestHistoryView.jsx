@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
     History, Search, Download, ChevronDown, ChevronRight,
     X, Filter, TrendingUp, TrendingDown, Minus, Users,
-    Banknote, CreditCard, QrCode, Building2,
+    Banknote, CreditCard, QrCode, Building2, ArrowRight, RefreshCw,
 } from 'lucide-react';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -58,17 +58,21 @@ const MethodChip = ({ method, amount }) => {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [], currentUser }) => {
-    const [search,         setSearch        ] = useState('');
-    const [filterHostel,   setFilterHostel  ] = useState('');
-    const [filterDateFrom, setFilterDateFrom] = useState('');
-    const [filterDateTo,   setFilterDateTo  ] = useState('');
-    const [filterCashier,  setFilterCashier ] = useState('');
-    const [filterStatus,   setFilterStatus  ] = useState('all'); // all | active | checked_out
-    const [expandedIds,    setExpandedIds   ] = useState(new Set());
-    const [pageSize,       setPageSize      ] = useState(100);
-    const [sortKey,        setSortKey       ] = useState('checkInDate'); // checkInDate | pricePerNight | totalPrice
-    const [sortAsc,        setSortAsc       ] = useState(false);
+const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [], currentUser, auditLog = [] }) => {
+    const [search,             setSearch            ] = useState('');
+    const [filterHostel,       setFilterHostel      ] = useState('');
+    const [filterDateFrom,     setFilterDateFrom    ] = useState('');
+    const [filterDateTo,       setFilterDateTo      ] = useState('');
+    const [filterCashier,      setFilterCashier     ] = useState('');
+    const [filterStatus,       setFilterStatus      ] = useState('all');
+    const [filterPriceChanged, setFilterPriceChanged] = useState('all'); // all | changed | unchanged
+    const [filterOldPriceMin,  setFilterOldPriceMin ] = useState('');
+    const [filterOldPriceMax,  setFilterOldPriceMax ] = useState('');
+    const [filterDeltaMin,     setFilterDeltaMin    ] = useState('');
+    const [expandedIds,        setExpandedIds       ] = useState(new Set());
+    const [pageSize,           setPageSize          ] = useState(100);
+    const [sortKey,            setSortKey           ] = useState('checkInDate');
+    const [sortAsc,            setSortAsc           ] = useState(false);
 
     // Resolve staffId → user name
     const resolveUser = (staffId) => {
@@ -87,6 +91,28 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         });
         return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     }, [payments, users]);
+
+    // Price change history from auditLog (indexed by guestId)
+    const priceChangeMap = useMemo(() => {
+        const map = {};
+        auditLog
+            .filter(e => e.action === 'price_change' && e.details?.guestId)
+            .forEach(e => {
+                const gid = e.details.guestId;
+                if (!map[gid]) map[gid] = [];
+                map[gid].push({
+                    oldPrice:  parseInt(e.details.oldPrice)  || 0,
+                    newPrice:  parseInt(e.details.newPrice)  || 0,
+                    delta:     (parseInt(e.details.newPrice) || 0) - (parseInt(e.details.oldPrice) || 0),
+                    timestamp: e.timestamp,
+                    changedBy: e.userName || '—',
+                });
+            });
+        Object.values(map).forEach(arr =>
+            arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+        );
+        return map;
+    }, [auditLog]);
 
     // Build enriched guest list (exclude pure bookings with no checkin)
     const enriched = useMemo(() => {
@@ -107,27 +133,36 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                 // Cashier at check-in
                 const checkInCashier = resolveUser(g.staffId || g.createdBy);
 
+                const priceChanges = priceChangeMap[g.id] || [];
+                // первая зафиксированная цена (до первого повышения/понижения)
+                const firstPrice = priceChanges.length > 0 ? priceChanges[0].oldPrice : (parseInt(g.pricePerNight) || 0);
+                const maxDelta   = priceChanges.length > 0 ? Math.max(...priceChanges.map(c => Math.abs(c.delta))) : 0;
+
                 return {
                     ...g,
                     guestPayments: enrichedPays,
                     totalPaid: getTotalPaid(g),
                     debt: (g.totalPrice || 0) - getTotalPaid(g),
                     checkInCashier,
+                    priceChanges,
+                    firstPrice,
+                    maxDelta,
                 };
             });
-    }, [guests, payments, shifts, users]);
+    }, [guests, payments, shifts, users, priceChangeMap]);
 
     // Stats
     const stats = useMemo(() => {
         const valid = enriched.filter(g => g.pricePerNight > 0);
-        if (!valid.length) return { count: 0, avg: 0, min: null, max: null };
+        if (!valid.length) return { count: 0, avg: 0, min: null, max: null, changedCount: 0 };
         const prices = valid.map(g => parseInt(g.pricePerNight) || 0);
         const minP = Math.min(...prices);
         const maxP = Math.max(...prices);
         const minG = valid.find(g => parseInt(g.pricePerNight) === minP);
         const maxG = valid.find(g => parseInt(g.pricePerNight) === maxP);
         const avg  = Math.round(prices.reduce((s, p) => s + p, 0) / prices.length);
-        return { count: valid.length, avg, min: minP, max: maxP, minGuest: minG, maxGuest: maxG };
+        const changedCount = enriched.filter(g => g.priceChanges.length > 0).length;
+        return { count: valid.length, avg, min: minP, max: maxP, minGuest: minG, maxGuest: maxG, changedCount };
     }, [enriched]);
 
     // Filter + sort
@@ -140,11 +175,16 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
             if (filterDateFrom && ymd(g.checkInDate) < filterDateFrom) return false;
             if (filterDateTo   && ymd(g.checkInDate) > filterDateTo)   return false;
             if (filterCashier) {
-                // Should have at least one payment from this cashier
                 const hasPay = g.guestPayments.some(p => p.staffId === filterCashier);
                 const isCheckinCashier = g.staffId === filterCashier || g.createdBy === filterCashier;
                 if (!hasPay && !isCheckinCashier) return false;
             }
+            // Price change filters
+            if (filterPriceChanged === 'changed'   && g.priceChanges.length === 0) return false;
+            if (filterPriceChanged === 'unchanged' && g.priceChanges.length >  0) return false;
+            if (filterOldPriceMin && g.firstPrice < parseInt(filterOldPriceMin)) return false;
+            if (filterOldPriceMax && g.firstPrice > parseInt(filterOldPriceMax)) return false;
+            if (filterDeltaMin    && g.maxDelta   < parseInt(filterDeltaMin))    return false;
             if (s) {
                 return (
                     (g.fullName    || '').toLowerCase().includes(s) ||
@@ -170,13 +210,19 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         });
 
         return list;
-    }, [enriched, filterHostel, filterStatus, filterDateFrom, filterDateTo, filterCashier, search, sortKey, sortAsc]);
+    }, [enriched, filterHostel, filterStatus, filterDateFrom, filterDateTo, filterCashier,
+        filterPriceChanged, filterOldPriceMin, filterOldPriceMax, filterDeltaMin,
+        search, sortKey, sortAsc]);
 
-    const hasFilter = search || filterHostel || filterDateFrom || filterDateTo || filterCashier || filterStatus !== 'all';
+    const hasFilter = search || filterHostel || filterDateFrom || filterDateTo || filterCashier ||
+        filterStatus !== 'all' || filterPriceChanged !== 'all' ||
+        filterOldPriceMin || filterOldPriceMax || filterDeltaMin;
 
     const resetFilters = () => {
         setSearch(''); setFilterHostel(''); setFilterDateFrom('');
         setFilterDateTo(''); setFilterCashier(''); setFilterStatus('all');
+        setFilterPriceChanged('all'); setFilterOldPriceMin('');
+        setFilterOldPriceMax(''); setFilterDeltaMin('');
     };
 
     const toggleExpand = (id) => {
@@ -193,9 +239,12 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
     };
 
     const handleExport = () => {
-        const rows = [['ФИО', 'Хостел', 'Комната', 'Место', 'Заезд', 'Выезд', 'Ночей', 'Цена/ночь', 'Итого', 'Оплачено', 'Долг', 'Статус', 'Кассир при заселении', 'Платежи']];
+        const rows = [['ФИО', 'Хостел', 'Комната', 'Место', 'Заезд', 'Выезд', 'Ночей', 'Перв. цена', 'Тек. цена/ночь', 'Итого', 'Оплачено', 'Долг', 'Статус', 'Кассир при заселении', 'Изм. цены', 'Платежи']];
         filtered.forEach(g => {
             const pays = g.guestPayments.map(p => `${p.cashierName}: ${fmt(p.amount)} (${METHOD_LABEL[p.method] || p.method})`).join('; ');
+            const priceChangesStr = g.priceChanges.map(c =>
+                `${fmt(c.oldPrice)}→${fmt(c.newPrice)} (${c.delta > 0 ? '+' : ''}${fmt(c.delta)}) ${c.changedBy} ${new Date(c.timestamp).toLocaleDateString('ru')}`
+            ).join('; ');
             rows.push([
                 g.fullName || '',
                 HOSTELS[g.hostelId] || g.hostelId || '',
@@ -204,12 +253,14 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                 fmtDate(g.checkInDate),
                 fmtDate(g.checkOutDate),
                 g.days || '',
+                g.firstPrice || '',
                 g.pricePerNight || '',
                 g.totalPrice || '',
                 g.totalPaid || '',
                 g.debt || 0,
                 g.status === 'active' ? 'Активный' : g.status === 'checked_out' ? 'Выехал' : g.status,
                 g.checkInCashier,
+                priceChangesStr,
                 pays,
             ]);
         });
@@ -248,20 +299,26 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <StatCard icon={Users}       label="Всего постояльцев" value={stats.count.toLocaleString()} />
-                <StatCard icon={Minus}       label="Средняя цена/ночь"  value={`${fmt(stats.avg)} сум`} highlight />
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <StatCard icon={Users}    label="Всего постояльцев" value={stats.count.toLocaleString()} />
+                <StatCard icon={Minus}    label="Средняя цена/ночь" value={`${fmt(stats.avg)} сум`} highlight />
                 <StatCard
                     icon={TrendingDown}
-                    label="Минимальная цена"
+                    label="Мин. цена (текущая)"
                     value={stats.min !== null ? `${fmt(stats.min)} сум` : '—'}
                     sub={stats.minGuest ? `${stats.minGuest.fullName} · ${HOSTELS[stats.minGuest.hostelId] || ''}` : ''}
                 />
                 <StatCard
                     icon={TrendingUp}
-                    label="Максимальная цена"
+                    label="Макс. цена (текущая)"
                     value={stats.max !== null ? `${fmt(stats.max)} сум` : '—'}
                     sub={stats.maxGuest ? `${stats.maxGuest.fullName} · ${HOSTELS[stats.maxGuest.hostelId] || ''}` : ''}
+                />
+                <StatCard
+                    icon={RefreshCw}
+                    label="С изм. цены"
+                    value={stats.changedCount ? `${stats.changedCount} гост.` : '—'}
+                    sub={stats.changedCount ? `из ${stats.count} всего` : 'история недоступна'}
                 />
             </div>
 
@@ -313,6 +370,35 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                 <X size={12}/> Сбросить
                             </button>
                         )}
+                    </div>
+                </div>
+
+                {/* ── Фильтры по изменению цены ─────────────────────────── */}
+                <div className="border-t border-slate-100 pt-3">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-amber-500 uppercase mb-2">
+                        <RefreshCw size={11}/> Изменение цены
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <select value={filterPriceChanged} onChange={e => setFilterPriceChanged(e.target.value)} className={INP + ' w-full'}>
+                            <option value="all">Все гости</option>
+                            <option value="changed">Только с изм. цены</option>
+                            <option value="unchanged">Без изменений</option>
+                        </select>
+                        <div className="relative">
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Перв. цена от, сум</label>
+                            <input type="number" value={filterOldPriceMin} onChange={e => setFilterOldPriceMin(e.target.value)}
+                                placeholder="напр. 50000" className={INP + ' w-full'}/>
+                        </div>
+                        <div className="relative">
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Перв. цена до, сум</label>
+                            <input type="number" value={filterOldPriceMax} onChange={e => setFilterOldPriceMax(e.target.value)}
+                                placeholder="напр. 100000" className={INP + ' w-full'}/>
+                        </div>
+                        <div className="relative">
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Изменена на ≥, сум</label>
+                            <input type="number" value={filterDeltaMin} onChange={e => setFilterDeltaMin(e.target.value)}
+                                placeholder="напр. 10000" className={INP + ' w-full'}/>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -386,8 +472,22 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
 
                                             {/* Price/night */}
                                             <div>
-                                                <div className="text-sm font-black text-slate-700">{fmt(g.pricePerNight)}</div>
-                                                <div className="text-[10px] text-slate-400">сум/ночь</div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-sm font-black text-slate-700">{fmt(g.pricePerNight)}</span>
+                                                    {g.priceChanges.length > 0 && (
+                                                        <span className="text-[9px] font-bold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                                            ×{g.priceChanges.length} изм.
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {g.priceChanges.length > 0 && (
+                                                    <div className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                                                        <span className="line-through">{fmt(g.firstPrice)}</span>
+                                                        <ArrowRight size={8}/>
+                                                        <span className={g.priceChanges[g.priceChanges.length-1].delta > 0 ? 'text-rose-500' : 'text-emerald-600'}>{fmt(g.pricePerNight)}</span>
+                                                    </div>
+                                                )}
+                                                {g.priceChanges.length === 0 && <div className="text-[10px] text-slate-400">сум/ночь</div>}
                                             </div>
 
                                             {/* Total */}
@@ -419,6 +519,35 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                                                     <span className="font-bold text-slate-600">Заселил:</span>
                                                     <span>{g.checkInCashier}</span>
                                                 </div>
+
+                                                {/* Price change history */}
+                                                {g.priceChanges.length > 0 && (
+                                                    <div className="space-y-1">
+                                                        <div className="text-[11px] font-bold text-amber-500 uppercase flex items-center gap-1">
+                                                            <RefreshCw size={10}/> История изменения цены
+                                                        </div>
+                                                        {g.priceChanges.map((c, idx) => (
+                                                            <div key={idx} className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-xs">
+                                                                <span className="font-bold text-rose-500 line-through">{fmt(c.oldPrice)} сум</span>
+                                                                <ArrowRight size={11} className="text-slate-400"/>
+                                                                <span className="font-bold text-emerald-600">{fmt(c.newPrice)} сум</span>
+                                                                <span className={`font-bold text-[10px] px-1.5 py-0.5 rounded-full ${
+                                                                    c.delta > 0
+                                                                        ? 'bg-rose-100 text-rose-700'
+                                                                        : 'bg-emerald-100 text-emerald-700'
+                                                                }`}>
+                                                                    {c.delta > 0 ? '+' : ''}{fmt(c.delta)}
+                                                                </span>
+                                                                <span className="text-slate-500 font-semibold">{c.changedBy}</span>
+                                                                <span className="text-slate-400 ml-auto">
+                                                                    {new Date(c.timestamp).toLocaleDateString('ru', { day:'numeric', month:'short', year:'numeric' })}
+                                                                    {' '}
+                                                                    {new Date(c.timestamp).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
 
                                                 {g.guestPayments.length === 0 ? (
                                                     <div className="text-xs text-slate-400 italic">Платежей нет</div>

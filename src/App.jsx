@@ -1604,6 +1604,7 @@ return (
                         shifts={shifts}
                         users={usersList}
                         currentUser={currentUser}
+                        auditLog={auditLog}
                     />
                 )}
 
