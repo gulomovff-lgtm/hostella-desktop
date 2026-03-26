@@ -63,6 +63,7 @@ const MORE_GROUPS_CASHIER = (t) => [
     {
         label: t('main2'),
         items: [
+            { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
             { id: 'referrals', icon: Users2, label: t('bonuses') },
         ],
     },
@@ -119,7 +120,13 @@ const MobileNavigation = ({
 
     const filterItem = (item) => {
         if (item.superOnly) return isSuper;
-        if (item.adminOnly) return isAdmin;
+        if (item.adminOnly) {
+            if (isAdmin) return !item.permKey || currentUser.permissions?.[item.permKey] !== false;
+            // cashier: only if explicit permission granted
+            if (item.permKey) return currentUser.permissions?.[item.permKey] === true;
+            return false;
+        }
+        if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
         return true;
     };
 
@@ -129,9 +136,9 @@ const MobileNavigation = ({
     const activeInMore = allMoreIds.includes(activeTab);
     const showHostelBar = availableHostels?.length > 1;
 
-    const NAV_BG     = '#1a3c40';
+    const NAV_BG     = 'var(--nav-bg)';
     const ACTIVE_CLR = '#e88c40';
-    const MUTED_CLR  = '#9ecdd0';
+    const MUTED_CLR  = 'var(--nav-muted)';
 
     return (
         <>
@@ -158,7 +165,7 @@ const MobileNavigation = ({
                 style={{
                     bottom: 0,
                     maxHeight: '76vh',
-                    background: '#1e3e3e',
+                    background: 'var(--nav-popup)',
                     borderRadius: '22px 22px 0 0',
                     boxShadow: '0 -8px 48px rgba(0,0,0,0.55)',
                     overflowY: 'auto',

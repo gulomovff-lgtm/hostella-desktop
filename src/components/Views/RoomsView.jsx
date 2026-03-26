@@ -5,6 +5,7 @@ import {
     TrendingUp, Users, ArrowRight, Layers, RotateCcw,
     Building2, User
 } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -22,11 +23,12 @@ const parseDate = d => {
 };
 
 const fmt = n => (n ? Number(n).toLocaleString('ru-RU') : '0');
-const fmtShort = d => {
+const fmtShort = (d, lang = 'ru') => {
     if (!d) return '—';
     const dt = parseDate(d);
     if (!dt) return '—';
-    return `${dt.getDate()} ${['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'][dt.getMonth()]}`;
+    const months = TRANSLATIONS[lang]?.monthsShort || ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    return `${dt.getDate()} ${months[dt.getMonth()]}`;
 };
 const getDaysDiff = (a, b) => (!a || !b) ? 0 : Math.ceil((b - a) / 864e5);
 
@@ -59,37 +61,40 @@ const CF = {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Временная информация до выезда
 // ─────────────────────────────────────────────────────────────────────────────
-const buildTimeInfo = (guest, status, nowMs) => {
+const buildTimeInfo = (guest, status, nowMs, lang = 'ru') => {
     if (!guest?.checkOutDate || status === 'free' || status === 'booking' || status === 'free_limited') return null;
     const co = parseDate(guest.checkOutDate);
     if (!co) return null;
+    const tr = (k) => TRANSLATIONS[lang]?.[k] || k;
     // Bonus day: show bonus indicator instead of overdue
     const bonusCo = guest.bonusCheckOutDate ? parseDate(guest.bonusCheckOutDate) : null;
     if (bonusCo && nowMs >= co.getTime() && nowMs < bonusCo.getTime()) {
         const msBonus = bonusCo.getTime() - nowMs;
         const hBonus = Math.max(0, Math.floor(msBonus / 3_600_000));
-        return { label: hBonus > 0 ? `🎁 Бонус, ещё ${hBonus}ч.` : '🎁 Бонус', hot: false, isBonus: true };
+        const bonus = tr('bonusBadge');
+        return { label: hBonus > 0 ? `${bonus}, ${tr('stillPrefix')} ${hBonus}${tr('hoursShort')}` : bonus, hot: false, isBonus: true };
     }
     const ms = co.getTime() - nowMs;
-    if (ms <= 0) return { label: 'Выезд просрочен', hot: true };
+    if (ms <= 0) return { label: tr('timeout'), hot: true };
     const d = Math.floor(ms / 864e5);
     const h = Math.floor((ms % 864e5) / 3_600_000);
-    if (d >= 2)  return { label: `Ещё ${d} дн.`,  hot: false };
-    if (d === 1) return { label: `Ещё 1 дн.`,     hot: true  };
-    if (h > 0)   return { label: `Ещё ${h} ч.`,   hot: h < 4 };
-    return { label: '< 1 ч.',  hot: true };
+    if (d >= 2)  return { label: `${tr('stillPrefix')} ${d} ${tr('daysShort')}`,  hot: false };
+    if (d === 1) return { label: `${tr('stillPrefix')} 1 ${tr('daysShort')}`,     hot: true  };
+    if (h > 0)   return { label: `${tr('stillPrefix')} ${h} ${tr('hoursShort')}`, hot: h < 4 };
+    return { label: tr('lessThan1h'), hot: true };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Badge «Просрочено»
 // ─────────────────────────────────────────────────────────────────────────────
-const TimeoutBadge = ({ isBonus = false }) => (
-    isBonus
-        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-orange-100 text-orange-600 border border-orange-200">🎁 Бонус</span>
+const TimeoutBadge = ({ isBonus = false, lang = 'ru' }) => {
+    const tr = (k) => TRANSLATIONS[lang]?.[k] || k;
+    return isBonus
+        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-orange-100 text-orange-600 border border-orange-200">{tr('bonusBadge')}</span>
         : <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-purple-100 text-purple-700 border border-purple-200">
-            <Clock size={8} strokeWidth={3} /> Просрочено
-          </span>
-);
+            <Clock size={8} strokeWidth={3} /> {tr('overdueBadge')}
+          </span>;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  KPI-карточка
@@ -110,16 +115,17 @@ const KpiCard = ({ icon: Icon, label, value, sub, colorClass }) => (
 // ─────────────────────────────────────────────────────────────────────────────
 //  КАРТОЧКА КОЙКИ
 // ─────────────────────────────────────────────────────────────────────────────
-const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
-    const { id, status, guest, debt, freeForDays, isTimeout, isBonus } = bed;
+const BedCell = React.memo(({ bed, onBedClick, nowMs, lang = 'ru' }) => {
+    const { id, status, guest, debt, freeForDays, isTimeout, isBonus, incomingGuest, incomingDays } = bed;
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const flagCode = guest?.country ? CF[guest.country] : null;
-    const timeInfo = buildTimeInfo(guest, status, nowMs);
+    const timeInfo = buildTimeInfo(guest, status, nowMs, lang);
 
     if (status === 'free') {
         return (
             <button
                 onClick={() => onBedClick(id, null, false)}
-                title={`Место ${id} — свободно`}
+                title={`${t('bed2')} ${id}`}
                 className="group relative flex flex-col items-center justify-center gap-2 min-w-[120px] w-full sm:w-40 min-h-[130px] shrink-0 rounded-2xl
                            border-2 border-dashed border-slate-200 bg-slate-50
                            hover:border-indigo-300 hover:bg-indigo-50
@@ -132,7 +138,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                                 group-hover:scale-110 transition-all duration-300">
                     <Plus size={22} className="text-slate-300 group-hover:text-indigo-500 transition-colors" strokeWidth={2.5} />
                 </div>
-                <span className="text-[11px] font-bold text-slate-400 group-hover:text-indigo-500 transition-colors">Заселить</span>
+                <span className="text-[11px] font-bold text-slate-400 group-hover:text-indigo-500 transition-colors">{t('checkin')}</span>
             </button>
         );
     }
@@ -159,7 +165,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
             role="button" tabIndex={0}
             onClick={() => onBedClick(id, guest, false)}
             onKeyDown={e => e.key === 'Enter' && onBedClick(id, guest, false)}
-            title={`${guest?.fullName || 'Гость'} | Место ${id}`}
+            title={`${guest?.fullName || t('nameUnknown')} | ${t('bed2')} ${id}`}
             className={`group relative flex flex-col min-w-[120px] w-full sm:w-40 min-h-[155px] shrink-0 rounded-2xl border shadow-sm
                         ${cardBg} ${cardBorder}
                         hover:shadow-md hover:-translate-y-0.5
@@ -187,7 +193,7 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
 
             <div className="flex flex-col flex-1 px-3 py-2.5 gap-1">
                 <div className={`text-[13px] font-extrabold leading-snug line-clamp-2 ${nameCls} ${isTimeout ? 'opacity-60 line-through' : ''}`}>
-                    {guest?.fullName || 'Имя не указано'}
+                    {guest?.fullName || t('nameUnknown')}
                 </div>
                 {!flagCode && guest?.country && (
                     <div className="text-[10px] text-slate-400 font-semibold truncate">{guest.country}</div>
@@ -195,33 +201,49 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                 {(guest?.checkInDate || guest?.checkOutDate) && (
                     <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 mt-0.5">
                         <CalendarDays size={10} className="shrink-0 text-slate-400" />
-                        <span>{fmtShort(guest?.checkInDate)}</span>
+                        <span>{fmtShort(guest?.checkInDate, lang)}</span>
                         <ArrowRight size={8} className="text-slate-300 shrink-0" />
-                        <span>{fmtShort(guest?.bonusCheckOutDate || guest?.checkOutDate)}</span>
+                        <span>{fmtShort(guest?.bonusCheckOutDate || guest?.checkOutDate, lang)}</span>
                     </div>
                 )}
                 {timeInfo && (
                     <span className={`text-[10px] font-bold mt-0.5 ${timeInfo.hot ? 'text-rose-500' : 'text-slate-400'}`}>{timeInfo.label}</span>
                 )}
                 {status === 'free_limited' && freeForDays != null && (
-                    <span className="text-[10px] font-bold text-sky-600 mt-0.5">Заезд через {freeForDays} дн.</span>
+                    <span className="text-[10px] font-bold text-sky-600 mt-0.5">{t('free')} {freeForDays} {t('daysShort')}</span>
+                )}
+                {incomingGuest && incomingDays !== null && (
+                    <div className={`flex items-center gap-1 mt-1 rounded-lg px-2 py-1 ${
+                        incomingDays === 0 ? 'bg-rose-100 border border-rose-200'
+                        : incomingDays <= 2 ? 'bg-orange-100 border border-orange-200'
+                        : 'bg-amber-50 border border-amber-200'
+                    }`}>
+                        <CalendarDays size={9} className={incomingDays <= 2 ? 'text-rose-500 shrink-0' : 'text-amber-500 shrink-0'}/>
+                        <span className={`text-[9px] font-black truncate ${
+                            incomingDays === 0 ? 'text-rose-700'
+                            : incomingDays <= 2 ? 'text-orange-700'
+                            : 'text-amber-700'
+                        }`}>
+                            {incomingDays === 0 ? t('arrivalToday') : `${t('arrivesIn')} ${incomingDays} ${t('daysShort')}`}
+                        </span>
+                    </div>
                 )}
                 {status === 'booking' && (
                     <span className="text-[10px] font-bold text-amber-700 mt-0.5 flex items-center gap-1">
-                        <CalendarDays size={9} />Бронь / ожидает заезда
+                        <CalendarDays size={9} />{t('bookingWaiting')}
                     </span>
                 )}
 
-                {(isTimeout || (bed?.isBonus)) && <TimeoutBadge isBonus={bed?.isBonus} />}
+                {(isTimeout || (bed?.isBonus)) && <TimeoutBadge isBonus={bed?.isBonus} lang={lang} />}
                 {debt > 0 ? (
                     <div className="flex items-center gap-1.5 mt-auto bg-rose-100/80 border border-rose-200 rounded-lg px-2 py-1">
                         <Wallet size={11} className="text-rose-500 shrink-0" />
-                        <span className="text-[11px] font-black text-rose-600">Долг: {fmt(debt)}</span>
+                        <span className="text-[11px] font-black text-rose-600">{t('debt')}: {fmt(debt)}</span>
                     </div>
                 ) : status === 'occupied' ? (
                     <div className="flex items-center gap-1 mt-auto opacity-70">
                         <CheckCircle2 size={11} className="text-teal-500" />
-                        <span className="text-[10px] font-semibold text-teal-600">Оплачено</span>
+                        <span className="text-[10px] font-semibold text-teal-600">{t('paid')}</span>
                     </div>
                 ) : null}
             </div>
@@ -234,21 +256,21 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs }) => {
                 {!isTimeout && (
                     <button onClick={e => { e.stopPropagation(); onBedClick(id, guest, false); }}
                         className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition-colors border border-white/20">
-                        <User size={12} /> Детали гостя
+                        <User size={12} /> {t('guestDetails')}
                     </button>
                 )}
                 {/* Продлить — для активных и просроченных */}
                 {(status === 'occupied' || isTimeout) && (
                     <button onClick={e => { e.stopPropagation(); onBedClick(id, guest, 'extend'); }}
                         className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-indigo-500/80 hover:bg-indigo-500 text-white text-[11px] font-bold transition-colors border border-indigo-400/40">
-                        <Clock size={12} /> Продлить
+                        <Clock size={12} /> {t('extend')}
                     </button>
                 )}
-                {/* Заселить нового — только для просроченных */}
-                {isTimeout && (
+                {/* Заселить нового — для просроченных, free_limited И ожидающих бронирования */}
+                {(isTimeout || status === 'free_limited' || status === 'booking') && (
                     <button onClick={e => { e.stopPropagation(); onBedClick(id, null, false); }}
                         className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors border border-emerald-400/40">
-                        <Plus size={12} /> Заселить
+                        <Plus size={12} /> {t('checkinNew')}
                     </button>
                 )}
             </div>
@@ -260,8 +282,9 @@ BedCell.displayName = 'BedCell';
 // ─────────────────────────────────────────────────────────────────────────────
 //  СПАРКЛАЙН — 14 дней загрузки комнаты
 // ─────────────────────────────────────────────────────────────────────────────
-const Sparkline = ({ guests, capacity }) => {
+const Sparkline = ({ guests, capacity, lang = 'ru' }) => {
     const DAYS = 14;
+    const tr = (k) => TRANSLATIONS[lang]?.[k] || k;
     const cap = parseInt(capacity) || 1;
     const today = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d; }, []);
     const bars = useMemo(() => {
@@ -279,8 +302,8 @@ const Sparkline = ({ guests, capacity }) => {
     }, [guests, cap, today]);
     const BAR_H = 18;
     return (
-        <div title={`Загрузка последние ${DAYS} дней`}>
-            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">{DAYS} дней</div>
+        <div title={`${tr('occupancy')} ${DAYS} ${tr('days')}`}>
+            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">{DAYS} {tr('days')}</div>
             <div className="flex items-end gap-px w-full" style={{ height: BAR_H }}>
                 {bars.map((pct, i) => (
                     <div key={i}
@@ -313,11 +336,15 @@ const buildBedsData = (room, guests) => {
     const beds = [];
     for (let i = 1; i <= cap; i++) {
         const bg = byBed[String(i)] || [];
-        const activeGuest = bg.find(g => g.status === 'active');
+        // Активный гость — статус active И дата заезда уже наступила
+        const activeGuest = bg.find(g => g.status === 'active' && new Date(g.checkInDate) <= now);
         const nextBooking = bg
-            .filter(g => g.status === 'booking')
+            .filter(g => (g.status === 'booking' ||
+                (g.status === 'active' && new Date(g.checkInDate) > now)) &&
+                g !== activeGuest)
             .sort((a, b) => new Date(a.checkInDate) - new Date(b.checkInDate))[0];
         let status = 'free', displayGuest = null, debt = 0, isTimeout = false, isBonus = false, freeForDays = null;
+        let incomingGuest = null, incomingDays = null;
         if (activeGuest) {
             const co      = parseDate(activeGuest.checkOutDate);
             const bonusCo = activeGuest.bonusCheckOutDate ? parseDate(activeGuest.bonusCheckOutDate) : null;
@@ -331,13 +358,19 @@ const buildBedsData = (room, guests) => {
                 debt = Math.max(0, (activeGuest.totalPrice || 0) - getTotalPaid(activeGuest));
                 isTimeout = !!expired;
                 status = isTimeout ? 'timeout' : 'occupied';
+                // Входящее бронирование даже при занятой ячейке
+                if (nextBooking) {
+                    const du = getDaysDiff(now, parseDate(nextBooking.checkInDate));
+                    incomingGuest = nextBooking;
+                    incomingDays = Math.max(0, du);
+                }
             }
         } else if (nextBooking) {
             const du = getDaysDiff(now, parseDate(nextBooking.checkInDate));
             if (du <= 0) { status = 'booking'; displayGuest = nextBooking; }
             else { status = 'free_limited'; displayGuest = nextBooking; freeForDays = du; }
         }
-        beds.push({ id: i, status, guest: displayGuest, debt, isTimeout, isBonus, freeForDays });
+        beds.push({ id: i, status, guest: displayGuest, debt, isTimeout, isBonus, freeForDays, incomingGuest, incomingDays });
     }
     return beds;
 };
@@ -347,8 +380,9 @@ const buildBedsData = (room, guests) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  СТРОКА КОМНАТЫ
 // ─────────────────────────────────────────────────────────────────────────────
-const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, filter, guestSearch }) => {
+const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, filter, guestSearch, lang = 'ru' }) => {
     const nowMs = useNow();
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const bedsData = useMemo(() => buildBedsData(room, guests), [room, guests]);
 
     const stats = useMemo(() => bedsData.reduce((a, b) => {
@@ -404,8 +438,8 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                 <div className="flex items-center gap-1 shrink-0">
                     {stats.free > 0 && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black">{stats.free}св</span>}
                     {stats.debtSum > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[9px] font-black">д</span>}
-                    {stats.timeout > 0 && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-black">{stats.timeout}пр</span>}
-                    {stats.booking > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[9px] font-black">{stats.booking}бр</span>}
+                    {stats.timeout > 0 && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-black">{stats.timeout}{t('bedsTimeoutShort')}</span>}
+                    {stats.booking > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[9px] font-black">{stats.booking}{t('bedsBookingShort')}</span>}
                 </div>
 
                 {/* Админ-кнопки */}
@@ -425,7 +459,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                         <div>
                             <div className="flex items-center gap-1.5 mb-0.5">
                                 <Building2 size={13} className="text-slate-400" />
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Номер</span>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('room')}</span>
                             </div>
                             <span className="text-4xl font-black text-slate-800 tracking-tighter leading-none">{room.number}</span>
                             {room.name && <div className="text-xs font-semibold text-slate-500 mt-1">{room.name}</div>}
@@ -440,7 +474,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                     </div>
                     <div className="mt-auto">
                         <div className="flex justify-between items-center mb-1.5">
-                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Заполненность</span>
+                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('roomCapacity')}</span>
                             <span className="text-xs font-black text-slate-700">{stats.occ}/{cap}</span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -450,15 +484,15 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                                                  'bg-gradient-to-r from-emerald-300 to-teal-400'
                             }`} style={{ width: `${occPct}%` }} />
                         </div>
-                        <div className="text-[10px] font-semibold text-slate-400 mt-1">{occPct}% занято</div>
+                        <div className="text-[10px] font-semibold text-slate-400 mt-1">{occPct}% {t('occupied')}</div>
                         <div className="mt-3">
-                            <Sparkline guests={guests} capacity={room.capacity} />
+                            <Sparkline guests={guests} capacity={room.capacity} lang={lang} />
                         </div>
                         <div className="flex flex-wrap gap-1.5 mt-3">
-                            {stats.free > 0 && <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold">{stats.free} св.</span>}
+                            {stats.free > 0 && <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold">{stats.free} {t('bedsFreeShort')}</span>}
                             {stats.debtSum > 0 && <span className="px-2 py-1 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-[10px] font-bold flex items-center gap-1"><Wallet size={9}/>{fmt(stats.debtSum)}</span>}
-                            {stats.timeout > 0 && <span className="px-2 py-1 rounded-lg bg-purple-50 border border-purple-100 text-purple-700 text-[10px] font-bold flex items-center gap-1"><Clock size={9}/>{stats.timeout} прос.</span>}
-                            {stats.booking > 0 && <span className="px-2 py-1 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-[10px] font-bold flex items-center gap-1"><CalendarDays size={9}/>{stats.booking} бр.</span>}
+                            {stats.timeout > 0 && <span className="px-2 py-1 rounded-lg bg-purple-50 border border-purple-100 text-purple-700 text-[10px] font-bold flex items-center gap-1"><Clock size={9}/>{stats.timeout} {t('bedsTimeoutShort')}</span>}
+                            {stats.booking > 0 && <span className="px-2 py-1 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-[10px] font-bold flex items-center gap-1"><CalendarDays size={9}/>{stats.booking} {t('bedsBookingShort')}</span>}
                         </div>
                     </div>
                 </div>
@@ -473,28 +507,12 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             if (filter === 'timeout'  && !bed.isTimeout && bed.status !== 'free') return null;
                             if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
                             return (
-                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} nowMs={nowMs} />
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-
-            {/* Мобильная сетка коек: горизонтальная прокрутка */}
-            <div className="md:hidden overflow-x-auto scrollbar-hide bg-slate-50 px-3 py-3">
-                <div className="flex gap-2.5">
-                    {visibleBeds.map(bed => {
-                        if (filter === 'debt'     && bed.debt <= 0 && bed.status !== 'free') return null;
-                        if (filter === 'free'     && bed.status !== 'free' && bed.status !== 'free_limited') return null;
-                        if (filter === 'occupied' && bed.status !== 'occupied' && !bed.isTimeout && bed.status !== 'free') return null;
-                        if (filter === 'timeout'  && !bed.isTimeout && bed.status !== 'free') return null;
-                        if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
-                        return (
-                            <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} nowMs={nowMs} />
+                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} nowMs={nowMs} lang={lang} />
                         );
                     })}
                 </div>
             </div>
+        </div>
         </div>
     );
 });
@@ -503,22 +521,22 @@ RoomRow.displayName = 'RoomRow';
 // ─────────────────────────────────────────────────────────────────────────────
 //  ГЛАВНЫЙ КОМПОНЕНТ
 // ─────────────────────────────────────────────────────────────────────────────
-const FILTERS = [
-    { key: 'all',      label: 'Все',        icon: Layers        },
-    { key: 'free',     label: 'Свободные',  icon: Plus          },
-    { key: 'occupied', label: 'Занятые',    icon: Users         },
-    { key: 'debt',     label: 'Долги',      icon: Wallet        },
-    { key: 'timeout',  label: 'Просрочены', icon: AlertTriangle },
-    { key: 'booking',  label: 'Брони',      icon: CalendarDays  },
-];
-
 const RoomsView = ({
     filteredRooms, guestsByRoom, currentUser,
-    onBedClick, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom,
+    onBedClick, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom, lang = 'ru',
 }) => {
     const [filter, setFilter]           = useState('all');
     const [guestSearch, setGuestSearch] = useState('');
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
 
+    const FILTERS = [
+        { key: 'all',      label: t('all'),             icon: Layers        },
+        { key: 'free',     label: t('filterFree'),       icon: Plus          },
+        { key: 'occupied', label: t('filterOccupied'),   icon: Users         },
+        { key: 'debt',     label: t('debts'),            icon: Wallet        },
+        { key: 'timeout',  label: t('filterTimeout'),    icon: AlertTriangle },
+        { key: 'booking',  label: t('filterBooking'),    icon: CalendarDays  },
+    ];
 
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
@@ -571,7 +589,7 @@ const RoomsView = ({
                         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         <input
                             type="text"
-                            placeholder="Поиск по имени..."
+                            placeholder={t('searchByName')}
                             value={guestSearch}
                             onChange={e => setGuestSearch(e.target.value)}
                             className="w-full pl-8 pr-8 py-2 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-700
@@ -593,7 +611,7 @@ const RoomsView = ({
                                        shadow-[0_4px_14px_-4px_rgba(79,70,229,0.5)] active:scale-95"
                         >
                             <Plus size={14} strokeWidth={3} />
-                            <span>Новый</span>
+                            <span>{t('new')}</span>
                         </button>
                     )}
 
@@ -611,15 +629,15 @@ const RoomsView = ({
                 {/* Мини-статистика */}
                 <div className="flex items-center gap-2 flex-wrap px-3 md:px-5 pb-2.5">
                     <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                        <BedDouble size={11} className="text-slate-400" />{totals.beds} мест
+                        <BedDouble size={11} className="text-slate-400" />{totals.beds} {t('kpiBeds')}
                     </span>
                     <span className="text-slate-200">·</span>
                     <span className="flex items-center gap-1 text-[11px] font-semibold text-teal-600">
-                        <Users size={11} />{totals.occ} занято
+                        <Users size={11} />{totals.occ} {t('occupied')}
                     </span>
                     <span className="text-slate-200">·</span>
                     <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                        <TrendingUp size={11} />{totals.free} свободно
+                        <TrendingUp size={11} />{totals.free} {t('free')}
                     </span>
                     {totals.debtSum > 0 && <>
                         <span className="text-slate-200">·</span>
@@ -630,7 +648,7 @@ const RoomsView = ({
                     {totals.timeoutCount > 0 && <>
                         <span className="text-slate-200">·</span>
                         <span className="flex items-center gap-1 text-[11px] font-semibold text-purple-600">
-                            <AlertTriangle size={11} />{totals.timeoutCount} просрочено
+                            <AlertTriangle size={11} />{totals.timeoutCount} {t('overdueBadge')}
                         </span>
                     </>}
                 </div>
@@ -649,6 +667,7 @@ const RoomsView = ({
                         onBedClick={onBedClick}
                         filter={filter}
                         guestSearch={guestSearch}
+                        lang={lang}
                     />
                 ))}
 
@@ -657,8 +676,8 @@ const RoomsView = ({
                         <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-5">
                             <BedDouble size={40} className="text-slate-300" strokeWidth={1.5} />
                         </div>
-                        <span className="text-lg font-black text-slate-400">Номера не найдены</span>
-                        <span className="text-sm font-medium text-slate-400 mt-1">Попробуйте изменить фильтры</span>
+                        <span className="text-lg font-black text-slate-400">{t('roomsNotFound')}</span>
+                        <span className="text-sm font-medium text-slate-400 mt-1">{t('tryFiltersHint')}</span>
                     </div>
                 )}
             </div>

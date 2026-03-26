@@ -7,6 +7,7 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { parseIcal } from '../../utils/ical';
+import TRANSLATIONS from '../../constants/translations';
 
 const HOSTELS = {
     hostel1: 'Хостел №1',
@@ -23,7 +24,8 @@ const FORMAT_DATE = (iso) => {
     } catch { return iso; }
 };
 
-const BookingCard = ({ booking, onAccept, onReject }) => {
+const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [confirming, setConfirming] = useState(false);
 
     return (
@@ -33,7 +35,7 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
                 <div className="flex items-center gap-2">
                     <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#e88c40] uppercase tracking-wide bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
                         <Globe size={10} />
-                        С сайта
+                        {t('fromWebsite')}
                     </span>
                     <span className="text-[11px] font-bold text-slate-400">
                         {HOSTELS[booking.hostelId] || booking.hostelId}
@@ -62,7 +64,7 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
                 <div className="flex items-start gap-2">
                     <CalendarDays size={14} className="text-slate-400 mt-0.5 flex-shrink-0" />
                     <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase">Заезд</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">{t('arrivalLabel')}</div>
                         <div className="text-sm font-bold text-slate-700">{FORMAT_DATE(booking.checkInDate)}</div>
                     </div>
                 </div>
@@ -70,7 +72,7 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
                 <div className="flex items-start gap-2">
                     <Clock size={14} className="text-slate-400 mt-0.5 flex-shrink-0" />
                     <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase">Дней</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">{t('days')}</div>
                         <div className="text-sm font-bold text-slate-700">{booking.days || '—'}</div>
                     </div>
                 </div>
@@ -93,7 +95,7 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
                                    transition-all active:scale-[0.98]"
                     >
                         <BedDouble size={14} strokeWidth={2.5} />
-                        Заселить
+                        {t('checkin')}
                         <ChevronRight size={13} strokeWidth={3} />
                     </button>
                     <button
@@ -103,26 +105,26 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
                                    border border-rose-200 transition-all active:scale-[0.98]"
                     >
                         <XCircle size={14} />
-                        Отклонить
+                        {t('reject')}
                     </button>
                 </div>
             ) : (
                 <div className="px-4 pb-4">
                     <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-2 text-sm text-rose-700 font-medium text-center">
-                        Удалить бронирование?
+                        {t('deleteBookingConfirm')}
                     </div>
                     <div className="flex gap-2">
                         <button
                             onClick={() => onReject(booking)}
                             className="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-black transition-all"
                         >
-                            Да, удалить
+                            {t('yesDelete')}
                         </button>
                         <button
                             onClick={() => setConfirming(false)}
                             className="flex-1 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-bold transition-all"
                         >
-                            Отмена
+                            {t('cancel')}
                         </button>
                     </div>
                 </div>
@@ -131,7 +133,8 @@ const BookingCard = ({ booking, onAccept, onReject }) => {
     );
 };
 
-const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }) => {
+const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang = 'ru', rooms }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [tab, setTab]           = useState('website');
     const [bcData, setBcData]     = useState([]);
     const [syncing, setSyncing]   = useState(false);
@@ -189,9 +192,9 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
 
             setBcData(reservations);
             setLastSync(now);
-            setSyncMsg(`Синхронизировано: ${reservations.length} ${reservations.length === 1 ? 'бронь' : 'броней'}`);
+            setSyncMsg(`${t('syncedAt')} ${reservations.length}`);
         } catch (e) {
-            setSyncMsg('Ошибка: ' + (e.message || e));
+            setSyncMsg(`${t('error')}: ` + (e.message || e));
         } finally {
             setSyncing(false);
             setTimeout(() => setSyncMsg(''), 6000);
@@ -221,7 +224,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
                         : { color: '#64748b' }}
                 >
                     <Globe size={14} />
-                    С сайта
+                    {t('fromWebsite')}
                     {pending.length > 0 && (
                         <span className="bg-[#e88c40] text-white text-[10px] font-black rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
                             {pending.length}
@@ -252,24 +255,24 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
                         <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
                             <Inbox size={28} className="text-slate-400" />
                         </div>
-                        <div className="text-slate-500 font-bold text-base">Новых бронирований нет</div>
+                        <div className="text-slate-500 font-bold text-base">{t('noNewBookings')}</div>
                         <div className="text-slate-400 text-sm text-center max-w-xs">
-                            Когда гости оставят заявку на сайте, они появятся здесь
+                            {t('noNewBookingsSub')}
                         </div>
                     </div>
                 ) : (
                     <div>
                         <div className="flex items-center gap-3 mb-4">
                             <div>
-                                <h2 className="font-black text-slate-800 text-lg">Заявки с сайта</h2>
+                                <h2 className="font-black text-slate-800 text-lg">{t('webRequests')}</h2>
                                 <p className="text-sm text-slate-400 font-medium">
-                                    {pending.length} {pending.length === 1 ? 'новая заявка' : pending.length < 5 ? 'новых заявки' : 'новых заявок'}
+                                    {pending.length} {lang === 'uz' ? 'ta so\'rov' : pending.length === 1 ? 'новая заявка' : pending.length < 5 ? 'новых заявки' : 'новых заявок'}
                                 </p>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                             {pending.map(b => (
-                                <BookingCard key={b.id} booking={b} onAccept={onAccept} onReject={onReject} />
+                                <BookingCard key={b.id} booking={b} onAccept={onAccept} onReject={onReject} lang={lang} />
                             ))}
                         </div>
                     </div>
@@ -288,7 +291,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
                             </h2>
                             {lastSync && (
                                 <p className="text-xs text-slate-400 font-medium mt-0.5">
-                                    Синхронизировано: {new Date(lastSync).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                {t('syncedAt')} {new Date(lastSync).toLocaleString(lang === 'uz' ? 'uz-UZ' : 'ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                 </p>
                             )}
                         </div>
@@ -304,7 +307,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
                                 style={{ background: '#003580', color: '#fff', opacity: syncing ? 0.7 : 1 }}
                             >
                                 <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-                                {syncing ? 'Загрузка...' : 'Синхронизировать'}
+                                {syncing ? t('syncingLabel') : t('syncBtn')}
                             </button>
                         </div>
                     </div>
@@ -314,25 +317,25 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
                             <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
                                 <Calendar size={28} className="text-blue-300" />
                             </div>
-                            <div className="text-slate-500 font-bold text-base">Нет данных</div>
+                            <div className="text-slate-500 font-bold text-base">{t('noData')}</div>
                             <div className="text-slate-400 text-sm text-center max-w-xs">
-                                Добавьте iCal URL в Настройки → Хостел, затем нажмите «Синхронизировать»
+                                {t('noBookingComDataSub')}
                             </div>
                         </div>
                     ) : (<>
                         {upcoming.length > 0 && (
                             <>
-                                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">Предстоящие — {upcoming.length}</h3>
+                                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">{t('upcoming')} — {upcoming.length}</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-6">
-                        {upcoming.map(r => <BookingComCard key={r.uid} res={r} matchedRoom={bookingNameToRoom[r.room?.toLowerCase()?.trim()]} />)}
+                        {upcoming.map(r => <BookingComCard key={r.uid} res={r} matchedRoom={bookingNameToRoom[r.room?.toLowerCase()?.trim()]} lang={lang} />)}
                                 </div>
                             </>
                         )}
                         {past.length > 0 && (
                             <>
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Прошедшие — {past.length}</h3>
+                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">{t('pastBookings')} — {past.length}</h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 opacity-60">
-                                {past.map(r => <BookingComCard key={r.uid} res={r} matchedRoom={bookingNameToRoom[r.room?.toLowerCase()?.trim()]} />)}
+                                {past.map(r => <BookingComCard key={r.uid} res={r} matchedRoom={bookingNameToRoom[r.room?.toLowerCase()?.trim()]} lang={lang} />)}
                                 </div>
                             </>
                         )}
@@ -344,7 +347,8 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang, rooms }
 };
 
 // ── Booking.com reservation card ──────────────────────────────────────────────
-const BookingComCard = ({ res, matchedRoom }) => {
+const BookingComCard = ({ res, matchedRoom, lang = 'ru' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const fmtDate = (d) => {
         if (!d) return '—';
         try { return new Date(d + 'T00:00:00').toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' }); }
@@ -389,23 +393,23 @@ const BookingComCard = ({ res, matchedRoom }) => {
                                 </span>
                             )}
                             {!matchedRoom && (
-                                <span className="ml-2 text-[10px] text-amber-500 font-bold" title="Название не связано с комнатой">? не сопоставлено</span>
+                                <span className="ml-2 text-[10px] text-amber-500 font-bold" title="">? {t('notMatched')}</span>
                             )}
                         </span>
                     </div>
                 )}
                 <div className="flex gap-4 pt-0.5">
                     <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase">Заезд</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">{t('arrivalLabel')}</div>
                         <div className="text-sm font-bold text-slate-700">{fmtDate(res.checkIn)}</div>
                     </div>
                     <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase">Выезд</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">{t('checkOut')}</div>
                         <div className="text-sm font-bold text-slate-700">{fmtDate(res.checkOut)}</div>
                     </div>
                     {nights !== null && (
                         <div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Ночей</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase">{t('nights2')}</div>
                             <div className="text-sm font-bold text-slate-700">{nights}</div>
                         </div>
                     )}

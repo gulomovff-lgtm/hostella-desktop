@@ -1,19 +1,20 @@
 import React, { useState } from 'react';
 import { Download, Plus, Search, Trash2, ToggleLeft, ToggleRight, Play, ChevronDown, ChevronUp, Pencil, X, Check } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 const CAT_META = [
-    { key:'Аренда',              icon:'🏠', bg:'#ede9fe', text:'#6d28d9', bar:'#7c3aed' },
-    { key:'Коммунальные услуги', icon:'💡', bg:'#e0f2fe', text:'#0369a1', bar:'#0284c7' },
-    { key:'Зарплата',            icon:'💼', bg:'#eef2ff', text:'#4338ca', bar:'#4f46e5' },
-    { key:'Аванс',               icon:'💰', bg:'#fef9c3', text:'#a16207', bar:'#ca8a04' },
-    { key:'Продукты',            icon:'🛒', bg:'#dcfce7', text:'#15803d', bar:'#16a34a' },
-    { key:'Канцелярия',          icon:'📎', bg:'#f1f5f9', text:'#475569', bar:'#94a3b8' },
-    { key:'Ремонт',              icon:'🔧', bg:'#ffedd5', text:'#c2410c', bar:'#ea580c' },
-    { key:'Интернет',            icon:'🌐', bg:'#ccfbf1', text:'#0f766e', bar:'#0d9488' },
-    { key:'Реклама',             icon:'📣', bg:'#fce7f3', text:'#be185d', bar:'#db2777' },
-    { key:'Другое',              icon:'📦', bg:'#f8fafc', text:'#64748b', bar:'#94a3b8' },
+    { key:'Аренда',              icon:'🏠', bg:'#ede9fe', text:'#6d28d9', bar:'#7c3aed', darkBg:'rgba(124,58,237,0.2)',  darkText:'#c4b5fd' },
+    { key:'Коммунальные услуги', icon:'💡', bg:'#e0f2fe', text:'#0369a1', bar:'#0284c7', darkBg:'rgba(2,132,199,0.2)',   darkText:'#7dd3fc' },
+    { key:'Зарплата',            icon:'💼', bg:'#eef2ff', text:'#4338ca', bar:'#4f46e5', darkBg:'rgba(79,70,229,0.2)',   darkText:'#a5b4fc' },
+    { key:'Аванс',               icon:'💰', bg:'#fef9c3', text:'#a16207', bar:'#ca8a04', darkBg:'rgba(202,138,4,0.2)',   darkText:'#fcd34d' },
+    { key:'Продукты',            icon:'🛒', bg:'#dcfce7', text:'#15803d', bar:'#16a34a', darkBg:'rgba(22,163,74,0.2)',   darkText:'#86efac' },
+    { key:'Канцелярия',          icon:'📎', bg:'#f1f5f9', text:'#475569', bar:'#94a3b8', darkBg:'rgba(100,116,139,0.2)', darkText:'#94a3b8' },
+    { key:'Ремонт',              icon:'🔧', bg:'#ffedd5', text:'#c2410c', bar:'#ea580c', darkBg:'rgba(234,88,12,0.2)',   darkText:'#fdba74' },
+    { key:'Интернет',            icon:'🌐', bg:'#ccfbf1', text:'#0f766e', bar:'#0d9488', darkBg:'rgba(13,148,136,0.2)',  darkText:'#5eead4' },
+    { key:'Реклама',             icon:'📣', bg:'#fce7f3', text:'#be185d', bar:'#db2777', darkBg:'rgba(219,39,119,0.2)',  darkText:'#f9a8d4' },
+    { key:'Другое',              icon:'📦', bg:'#f8fafc', text:'#64748b', bar:'#94a3b8', darkBg:'rgba(100,116,139,0.2)', darkText:'#94a3b8' },
 ];
-const CAT_FALLBACK = { icon:'📦', bg:'#f8fafc', text:'#64748b', bar:'#94a3b8' };
+const CAT_FALLBACK = { icon:'📦', bg:'#f8fafc', text:'#64748b', bar:'#94a3b8', darkBg:'rgba(100,116,139,0.2)', darkText:'#94a3b8' };
 
 const getCat = (c) => {
     if (!c) return CAT_FALLBACK;
@@ -60,7 +61,13 @@ const ExpensesView = ({
     onAddRecurringAdvance,
     recurringAdvances = {},
     currentUser,
+    lang = 'ru',
 }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const catBg  = (m) => m ? (isDark ? m.darkBg  : m.bg)   : '#f8fafc';
+    const catClr = (m) => m ? (isDark ? m.darkText : m.text) : '#64748b';
+    const locale = lang === 'uz' ? 'uz-UZ' : 'ru-RU';
     const now = new Date();
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     const [recurringOpen, setRecurringOpen] = useState(false);
@@ -157,7 +164,7 @@ const ExpensesView = ({
             {/* Header */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                    <h2 className="text-xl font-black text-slate-800">Расходы</h2>
+                    <h2 className="text-xl font-black text-slate-800">{t('expenses')}</h2>
                     <p className="text-xs text-slate-400 mt-0.5">{filteredExpenses.filter(e=>e.category!=='Возврат').length} записей · {refunds.length > 0 ? `${refunds.length} возвратов` : 'все категории'}</p>
                 </div>
                 <div className="flex gap-2">
@@ -167,7 +174,7 @@ const ExpensesView = ({
                     </button>
                     <button onClick={onAddExpense}
                         className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold bg-rose-500 hover:bg-rose-600 text-white shadow-sm shadow-rose-200 transition-colors">
-                        <Plus size={16}/> Добавить расход
+                        <Plus size={16}/> {t('addExpense2')}
                     </button>
                 </div>
             </div>
@@ -177,35 +184,35 @@ const ExpensesView = ({
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-base">💸</div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Итого</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('total')}</span>
                     </div>
                     <div className="text-2xl font-black text-rose-600">{fmt(totalAll)}</div>
-                    <div className="text-xs text-slate-400 mt-1">за всё время</div>
+                    <div className="text-xs text-slate-400 mt-1">{t('expForAllTime')}</div>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-base">📅</div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Этот месяц</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('thisMonth')}</span>
                     </div>
                     <div className="text-2xl font-black text-amber-600">{fmt(thisMonth)}</div>
                     {monthDiff !== null && (
                         <div className={`text-xs mt-1 font-semibold ${monthDiff > 0 ? 'text-rose-500' : 'text-teal-500'}`}>
-                            {monthDiff > 0 ? '↑' : '↓'} {Math.abs(monthDiff)}% vs прошлый
+                            {monthDiff > 0 ? '↑' : '↓'} {Math.abs(monthDiff)}% {t('vsLast')}
                         </div>
                     )}
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-base">📆</div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Прошлый месяц</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('lastMonth')}</span>
                     </div>
                     <div className="text-2xl font-black text-slate-700">{fmt(prevMonth)}</div>
-                    <div className="text-xs text-slate-400 mt-1">{prevMonthExp.length} записей</div>
+                    <div className="text-xs text-slate-400 mt-1">{prevMonthExp.length} {t('expRecords').toLowerCase()}</div>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-base">📊</div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Записей</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('expRecords')}</span>
                     </div>
                     <div className="text-2xl font-black text-indigo-600">{filteredExpenses.length}</div>
                     <div className="text-xs text-slate-400 mt-1">{cats.length} категорий</div>
@@ -216,7 +223,7 @@ const ExpensesView = ({
             {byCategory.length > 0 && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
-                        <span className="text-sm font-black text-slate-600 uppercase tracking-wide">По категориям</span>
+                        <span className="text-sm font-black text-slate-600 uppercase tracking-wide">{t('expByCategory')}</span>
                         <span className="text-xs text-slate-400">{fmt(totalAll)} сум</span>
                     </div>
                     <div className="space-y-2.5">
@@ -230,8 +237,8 @@ const ExpensesView = ({
                                     style={{outline:'none'}}>
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-sm">{m.icon}</span>
-                                        <span className="text-sm font-semibold flex-1" style={{color: active ? m.text : '#475569'}}>{c.name}</span>
-                                        <span className="text-xs font-bold" style={{color: m.text}}>
+                                        <span className="text-sm font-semibold flex-1" style={{color: active ? catClr(m) : (isDark ? '#94a3b8' : '#475569')}}>{c.name}</span>
+                                        <span className="text-xs font-bold" style={{color: catClr(m)}}>
                                             {fmt(c.total)} <span className="font-normal text-slate-400">({pct}%)</span>
                                         </span>
                                     </div>
@@ -246,7 +253,7 @@ const ExpensesView = ({
                     {expenseCatFilter !== 'Все' && (
                         <button onClick={() => setExpenseCatFilter('Все')}
                             className="mt-3 text-xs font-bold text-slate-400 hover:text-slate-600 underline">
-                            Показать все категории
+                            {t('showAllCategories')}
                         </button>
                     )}
                 </div>
@@ -257,7 +264,7 @@ const ExpensesView = ({
                 <div className="relative flex-1 min-w-48">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                     <input value={expSearch} onChange={e=>setExpSearch(e.target.value)}
-                        placeholder="Поиск по категории или комментарию…"
+                    placeholder={t('expSearchPlaceholder')}
                         className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-rose-200 transition-all"/>
                 </div>
                 <input type="date" value={expDateFrom} onChange={e => setExpDateFrom(e.target.value)}
@@ -268,12 +275,12 @@ const ExpensesView = ({
                 {(expDateFrom || expDateTo) && (
                     <button onClick={() => { setExpDateFrom(''); setExpDateTo(''); }}
                         className="text-xs font-bold text-slate-400 hover:text-rose-500 transition-colors shrink-0 px-2 py-1 rounded-lg border border-slate-200 bg-white">
-                        × Сбросить
+                        × {t('expResetFilter')}
                     </button>
                 )}
                 {expenseCatFilter !== 'Все' && (
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold shrink-0"
-                         style={{background: getCat(expenseCatFilter).bg, color: getCat(expenseCatFilter).text}}>
+                             style={{background: catBg(getCat(expenseCatFilter)), color: catClr(getCat(expenseCatFilter))}}>
                         {getCat(expenseCatFilter).icon} {expenseCatFilter}
                         <button onClick={() => setExpenseCatFilter('Все')} className="ml-1 opacity-60 hover:opacity-100">✕</button>
                     </div>
@@ -291,7 +298,7 @@ const ExpensesView = ({
                     >
                         <div className="flex items-center gap-2.5">
                             <span className="text-base">🔄</span>
-                            <span className="text-sm font-black text-indigo-700">Регулярные расходы</span>
+                            <span className="text-sm font-black text-indigo-700">{t('expRecurring')}</span>
                             {recurringExpenses.length > 0 && (
                                 <span className="text-xs bg-indigo-200 text-indigo-700 rounded-full px-2 py-0.5 font-bold">{recurringExpenses.length}</span>
                             )}
@@ -307,7 +314,7 @@ const ExpensesView = ({
                     {recurringOpen && (
                         <div className="divide-y divide-slate-50">
                             {recurringExpenses.length === 0 && !addForm && (
-                                <div className="py-8 text-center text-slate-400 text-sm">Нет шаблонов. Добавьте первый.</div>
+                                <div className="py-8 text-center text-slate-400 text-sm">{t('expNoTemplates')}</div>
                             )}
 
                             {recurringExpenses.map(tmpl => {
@@ -329,10 +336,10 @@ const ExpensesView = ({
                                                     <span className="text-sm font-bold text-slate-700">{tmpl.name}</span>
                                                     <span className="text-xs font-semibold" style={{ color: m.text }}>{tmpl.category}</span>
                                                     {firedThisMonth && (
-                                                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">✓ начислено</span>
+                                                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">✓ {t('expCharged')}</span>
                                                     )}
                                                     {advancedThisMonth > 0 && (
-                                                        <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">аванс {fmt(advancedThisMonth)}</span>
+                                                        <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{t('expAdvanceBadge')} {fmt(advancedThisMonth)}</span>
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-2 mt-0.5">
@@ -399,7 +406,7 @@ const ExpensesView = ({
                                         {/* Форма аванса для шаблона зарплаты */}
                                         {isAdvanceOpen && (
                                             <div className="px-5 py-3 bg-amber-50 border-t border-amber-100 flex items-center gap-3 flex-wrap">
-                                                <span className="text-xs font-bold text-amber-700 shrink-0">💰 Аванс ({tmpl.name}):</span>
+                                                <span className="text-xs font-bold text-amber-700 shrink-0">💰 {t('expAdvanceBadge')} ({tmpl.name}):</span>
                                                 {advancedThisMonth > 0 && (
                                                     <span className="text-xs text-amber-600">уже выдано {fmt(advancedThisMonth)}</span>
                                                 )}
@@ -421,13 +428,13 @@ const ExpensesView = ({
                                                     }}
                                                     className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white text-xs font-bold transition-colors"
                                                 >
-                                                    Выдать
+                                                    {t('done')}
                                                 </button>
                                                 <button
                                                     onClick={() => setRecurringAdvanceTargetId(null)}
                                                     className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-100 transition-colors"
                                                 >
-                                                    Отмена
+                                                    {t('cancel')}
                                                 </button>
                                             </div>
                                         )}
@@ -435,40 +442,40 @@ const ExpensesView = ({
                                             <form onSubmit={handleEditForm} className="px-5 py-4 bg-indigo-50 border-t border-indigo-100 space-y-3">
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <div className="col-span-2">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Название *</label>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('expName')} *</label>
                                                         <input value={editForm.name} onChange={e => setEditForm(f=>({...f,name:e.target.value}))}
                                                             required
                                                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Категория</label>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('category')}</label>
                                                         <select value={editForm.category} onChange={e => setEditForm(f=>({...f,category:e.target.value}))}
                                                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200">
                                                             {CATS.map(c => <option key={c}>{c}</option>)}
                                                         </select>
                                                     </div>
                                                     <div>
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Сумма *</label>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('amount')} *</label>
                                                         <input type="number" min="1" value={editForm.amount} onChange={e => setEditForm(f=>({...f,amount:e.target.value}))}
                                                             required
                                                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Число месяца (1-28)</label>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('expDayOfMonth')}</label>
                                                         <input type="number" min="1" max="28" value={editForm.dayOfMonth} onChange={e => setEditForm(f=>({...f,dayOfMonth:parseInt(e.target.value)||1}))}
                                                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Хостел</label>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('expHostel')}</label>
                                                         <select value={editForm.hostelId} onChange={e => setEditForm(f=>({...f,hostelId:e.target.value}))}
                                                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200">
-                                                            <option value="all">Все хостелы</option>
-                                                            <option value="hostel1">Хостел №1</option>
-                                                            <option value="hostel2">Хостел №2</option>
+                                                            <option value="all">{t('expAllHostels')}</option>
+                                                            <option value="hostel1">{t('expHostel1')}</option>
+                                                            <option value="hostel2">{t('expHostel2')}</option>
                                                         </select>
                                                     </div>
                                                     <div className="col-span-2">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Комментарий</label>
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('comment')}</label>
                                                         <input value={editForm.comment} onChange={e => setEditForm(f=>({...f,comment:e.target.value}))}
                                                             placeholder="Необязательно…"
                                                             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
@@ -477,11 +484,11 @@ const ExpensesView = ({
                                                 <div className="flex gap-2">
                                                     <button type="submit"
                                                         className="flex-1 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold transition-colors">
-                                                        Сохранить
+                                                        {t('save')}
                                                     </button>
                                                     <button type="button" onClick={() => setEditId(null)}
                                                         className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-500 hover:bg-slate-100 transition-colors">
-                                                        Отмена
+                                                        {t('cancel')}
                                                     </button>
                                                 </div>
                                             </form>
@@ -495,40 +502,40 @@ const ExpensesView = ({
                                 <form onSubmit={handleAddForm} className="px-5 py-4 bg-slate-50 space-y-3">
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="col-span-2">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Название *</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('expName')} *</label>
                                             <input value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))}
                                                 placeholder="Аренда офиса…" required
                                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Категория</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('category')}</label>
                                             <select value={form.category} onChange={e => setForm(f=>({...f,category:e.target.value}))}
                                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200">
                                                 {CATS.map(c => <option key={c}>{c}</option>)}
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Сумма *</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('amount')} *</label>
                                             <input type="number" min="1" value={form.amount} onChange={e => setForm(f=>({...f,amount:e.target.value}))}
                                                 placeholder="0" required
                                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Число месяца (1-28)</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('expDayOfMonth')}</label>
                                             <input type="number" min="1" max="28" value={form.dayOfMonth} onChange={e => setForm(f=>({...f,dayOfMonth:parseInt(e.target.value)||1}))}
                                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Хостел</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('expHostel')}</label>
                                             <select value={form.hostelId} onChange={e => setForm(f=>({...f,hostelId:e.target.value}))}
                                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200">
-                                                <option value="all">Все хостелы</option>
-                                                <option value="hostel1">Хостел №1</option>
-                                                <option value="hostel2">Хостел №2</option>
+                                                <option value="all">{t('expAllHostels')}</option>
+                                                <option value="hostel1">{t('expHostel1')}</option>
+                                                <option value="hostel2">{t('expHostel2')}</option>
                                             </select>
                                         </div>
                                         <div className="col-span-2">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">Комментарий</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide block mb-1">{t('comment')}</label>
                                             <input value={form.comment} onChange={e => setForm(f=>({...f,comment:e.target.value}))}
                                                 placeholder="Необязательно…"
                                                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-200" />
@@ -549,7 +556,7 @@ const ExpensesView = ({
                                 <div className="px-5 py-3">
                                     <button onClick={() => setAddForm(true)}
                                         className="flex items-center gap-2 text-sm font-semibold text-indigo-500 hover:text-indigo-700 transition-colors">
-                                        <Plus size={15} /> Добавить шаблон
+                                        <Plus size={15} /> {t('expAddTemplate')}
                                     </button>
                                 </div>
                             )}
@@ -561,17 +568,18 @@ const ExpensesView = ({
             {/* Grouped list */}
             {Object.keys(byMonth).length === 0 ? (
                 <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center text-slate-400 text-sm">
-                    Нет расходов
+                    {t('expNoExpenses')}
                 </div>
             ) : (
                 <div className="space-y-4">
                     {Object.entries(byMonth).map(([mk, mg]) => {
                         const monthItems = mg.items.filter(matchFn);
                         if (monthItems.length === 0) return null;
+                        const monthLabel = new Date(mk + '-01').toLocaleDateString(locale, {month:'long',year:'numeric'});
                         return (
                             <div key={mk} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                                 <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-100">
-                                    <span className="text-sm font-black text-slate-700 capitalize">{mg.label}</span>
+                                    <span className="text-sm font-black text-slate-700 capitalize">{monthLabel}</span>
                                     <span className="text-sm font-black text-rose-600">₊{fmt(mg.items.filter(matchFn).reduce((s,e)=>s+amtFn(e),0))}</span>
                                 </div>
                                 <div className="divide-y divide-slate-50">
@@ -579,7 +587,7 @@ const ExpensesView = ({
                                         const m = getCat(e.category);
                                         const staff = usersList.find(u=>u.id===e.staffId||u.login===e.staffId);
                                         const d = new Date(e.date);
-                                        const dateStr = `${d.getDate()} ${d.toLocaleDateString('ru',{month:'short'})}`;
+                                        const dateStr = `${d.getDate()} ${d.toLocaleDateString(locale,{month:'short'})}`;
                                         const isSalary = e.category === 'Зарплата';
                                         const isAdvanceRow = e.category === 'Аванс';
                                         const staffAdvances = isSalary
@@ -592,14 +600,14 @@ const ExpensesView = ({
                                             <div key={e.id} className={`group flex flex-col gap-0 ${isAdvanceRow ? 'bg-amber-50/40' : ''}`}>
                                                 <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
                                                     <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 font-bold"
-                                                         style={{background: m.bg}}>
+                                                         style={{background: catBg(m)}}>
                                                         {m.icon}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-sm font-bold" style={{color: m.text}}>{e.category}</span>
+                                                            <span className="text-sm font-bold" style={{color: catClr(m)}}>{e.category}</span>
                                                             {staff && <span className="text-xs text-slate-400">{staff.name.split(' ')[0]}</span>}
-                                                            {isAdvanceRow && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">аванс</span>}
+                                                            {isAdvanceRow && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{t('expAdvanceBadge')}</span>}
                                                         </div>
                                                         {e.comment && <div className="text-xs text-slate-500 truncate mt-0.5">{e.comment}</div>}
                                                         {isSalary && totalAdvances > 0 && (
@@ -684,7 +692,7 @@ const ExpensesView = ({
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-sm font-bold text-teal-700">Возврат</span>
+                                            <span className="text-sm font-bold text-teal-700">{t('expRefund')}</span>
                                             {staff && <span className="text-xs text-slate-400">{staff.name.split(' ')[0]}</span>}
                                         </div>
                                         {e.comment && <div className="text-xs text-slate-500 truncate mt-0.5">{e.comment}</div>}

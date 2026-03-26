@@ -295,6 +295,20 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
   const [lang, setLang] = useState('ru');
+  const [loginThemeId, setLoginThemeId] = useState(
+    () => localStorage.getItem('hostella_login_theme') || 'auto'
+  );
+  const handleSetLoginTheme = (id) => {
+    setLoginThemeId(id);
+    localStorage.setItem('hostella_login_theme', id);
+  };
+  const [appTheme, setAppTheme] = useState(() => {
+    const saved = localStorage.getItem('hostella_app_theme') || 'green';
+    const valid  = saved === 'dark' ? 'dark' : 'green'; // сброс старых тем
+    if (valid === 'dark') document.documentElement.dataset.theme = 'dark';
+    else delete document.documentElement.dataset.theme;
+    return valid;
+  });
   const [hasUpdate, setHasUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(null); // 0-100
@@ -305,6 +319,13 @@ function App() {
     const id = Date.now() + Math.random();
     setNotifications(prev => [...prev.slice(-2), { id, message, type }]);
   };
+
+  // ─── Тема навигации ────────────────────────────────────────────────────────
+  useEffect(() => {
+    localStorage.setItem('hostella_app_theme', appTheme);
+    if (appTheme === 'green') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = appTheme;
+  }, [appTheme]);
 
   // ─── Проверка минимальной версии при старте ───────────────────────────────
   useEffect(() => {
@@ -586,21 +607,27 @@ function App() {
     clearQueue();
   }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Хелпер: найти пользователя по staffId/staffLogin (устойчив к смене document ID)
+  const findUserByShift = useCallback((s) => {
+    return usersList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
+  }, [usersList]);
+
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
       return shifts.find(s =>
           s.hostelId === currentUser.hostelId &&
           !s.endTime &&
           s.staffId !== currentUser.id &&
+          (s.staffLogin ? s.staffLogin !== currentUser.login : true) &&
           // Игнорируем «призрачные» смены удалённых пользователей —
           // иначе удаление кассира блокирует вход всем остальным.
-          usersList.some(u => u.id === s.staffId)
+          usersList.some(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin))
       );
   }, [shifts, currentUser, usersList]);
 
   const activeUserForBlock = useMemo(() => {
       if (!activeShiftInMyHostel) return null;
-      return usersList.find(u => u.id === activeShiftInMyHostel.staffId);
+      return usersList.find(u => u.id === activeShiftInMyHostel.staffId || (activeShiftInMyHostel.staffLogin && u.login === activeShiftInMyHostel.staffLogin));
   }, [activeShiftInMyHostel, usersList]);
 
   useEffect(() => {
@@ -671,6 +698,20 @@ function App() {
     };
   }, []);
 
+  // Автосинхронизация сессии: если после загрузки usersList логин совпадает, но ID устарел —
+  // обновляем currentUser свежими данными из Firestore, но сохраняем hostelId сессии.
+  useEffect(() => {
+    if (!currentUser || !usersList.length) return;
+    const fresh = usersList.find(u => u.login === currentUser.login);
+    if (fresh && fresh.id !== currentUser.id) {
+      // Сохраняем hostelId из сессии (кассир выбрал хостел при входе)
+      const merged = { ...fresh, hostelId: currentUser.hostelId };
+      const { pass: _p, ...sessionUser } = merged;
+      setCurrentUser(merged);
+      sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser));
+    }
+  }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Сброс флага при смене пользователя (логин/логаут)
   useEffect(() => {
     autoShiftStartedRef.current = false;
@@ -703,17 +744,6 @@ function App() {
       handleStartShift();
     }
   }, [currentUser, shifts]);
-
-  // Авто-выбор хостела: если у кассира уже открыта смена в хостеле — пропускаем экран выбора
-  useEffect(() => {
-    if (!hostelPickerPending) return;
-    if (!currentUser || currentUser.role !== 'cashier') return;
-    if (!isDataReady) return; // ждём загрузки данных
-    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
-    if (myActiveShift?.hostelId) {
-      handleHostelPick(myActiveShift.hostelId);
-    }
-  }, [hostelPickerPending, isDataReady, shifts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Хартбит: обновляем lastSeen каждые 30с, чтобы сжигать сессию как активную
   useEffect(() => {
@@ -755,7 +785,9 @@ function App() {
     const loginAt = getLoginAt();
     if (!loginAt) return;
 
-    const myDoc = usersList.find(u => u.id === currentUser.id);
+    // Ищем документ по login (стабильный), а не по id — защита от смены Firestore document ID
+    const myDoc = usersList.find(u => u.login === currentUser.login && u.role !== 'super')
+                ?? usersList.find(u => u.id === currentUser.id);
     if (!myDoc?.forceLogoutAfter) return;
 
     const forceAtMs = new Date(myDoc.forceLogoutAfter).getTime();
@@ -1009,20 +1041,23 @@ function App() {
 const filterByHostel = (items) => {
     if (!currentUser) return [];
     if (currentUser.role === 'super') return items;
-    
-    if (currentUser.canViewHostel1) {
+    const allowed = currentUser.allowedHostels || [];
+    if (currentUser.canViewHostel1 || allowed.length > 1) {
         return items.filter(i => i.hostelId === selectedHostelFilter);
     }
-    
     const target = currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId;
     return items.filter(i => i.hostelId === target);
   };
   
   const filteredUsersForReports = useMemo(() => {
-     if (!currentUser) return []; // ? ПРОВЕРКА
+     if (!currentUser) return [];
      const targetHostel = currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId;
      if (currentUser.role === 'super') return usersList; 
-     return usersList.filter(u => u.hostelId === targetHostel || u.role === 'super' || u.hostelId === 'all');
+     return usersList.filter(u =>
+       u.hostelId === targetHostel ||
+       (u.allowedHostels || []).includes(targetHostel) ||
+       u.role === 'super' || u.hostelId === 'all'
+     );
   }, [usersList, currentUser, selectedHostelFilter]);
 
   const filteredPayments = useMemo(() => {
@@ -1110,20 +1145,22 @@ const filterByHostel = (items) => {
     if (currentUser.role === 'admin' || currentUser.role === 'super') {
       return Object.keys(HOSTELS);
     }
-    
-    if (currentUser.canViewHostel1) {
-      return ['hostel1', 'hostel2'];
-    }
-    
+    // allowedHostels — основной механизм. canViewHostel1 — устаревший fallback
+    const allowed = currentUser.allowedHostels || [];
+    if (allowed.length > 1) return allowed;
+    if (currentUser.canViewHostel1) return ['hostel1', 'hostel2'];
     return [];
   }, [currentUser]);
 
   const canPerformActions = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === 'admin' || currentUser.role === 'super') return true;
-    // Пользователи с правом просмотра чужого хостела → режим «только чтение» для него
-    // (заселение и оплаты недоступны, только просмотр и восстановление)
-    if (currentUser.canViewHostel1 && selectedHostelFilter !== currentUser.hostelId) return false;
+    // Кассир с несколькими хостелами — может селить в любом из своих
+    const allowed = currentUser.allowedHostels || [currentUser.hostelId];
+    const isAllowedHostel = allowed.includes(selectedHostelFilter);
+    // Устаревший canViewHostel1 — режим только чтения для чужого хостела
+    if (currentUser.canViewHostel1 && !isAllowedHostel && selectedHostelFilter !== currentUser.hostelId) return false;
+    if (!isAllowedHostel && !currentUser.canViewHostel1) return false;
     const hostelId = selectedHostelFilter || currentUser.hostelId;
     if (hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false) return false;
     if (hostelId === 'hostel2' && currentUser.permissions?.canPayInHostel2 === false) return false;
@@ -1245,9 +1282,11 @@ if (!currentUser) return (
     <LoginScreen 
         users={usersList} 
         onLogin={handleLogin} 
-        onSeed={seedUsers} 
+        onSeed={seedUsers}
         lang={lang} 
-        setLang={setLang} 
+        setLang={setLang}
+        themeId={loginThemeId}
+        setThemeId={handleSetLoginTheme}
     />
 );
 
@@ -1257,6 +1296,7 @@ if (hostelPickerPending) return (
         onPick={handleHostelPick}
         onLogout={handleLogout}
         lang={lang}
+        themeId={loginThemeId}
     />
 );
 
@@ -1367,11 +1407,13 @@ return (
                 setLang={setLang}
                 onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
                 registrationsAlertCount={registrationsAlertCount}
+                appTheme={appTheme}
+                setAppTheme={setAppTheme}
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-6 pt-2 pb-32 md:pb-6">
-                {activeTab === 'dashboard' && currentUser.role === 'admin' && (
+                {activeTab === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.permissions?.viewStats === true) && (
                     <DashboardView
                         rooms={filteredRooms}
                         guests={filteredGuests}
@@ -1488,7 +1530,8 @@ return (
                 {activeTab === 'shifts' && (
                     <ShiftsView 
                         shifts={shifts} 
-                        users={filteredUsersForReports} 
+                        users={filteredUsersForReports}
+                        allUsers={usersList}
                         currentUser={currentUser} 
                         onStartShift={handleStartShift} 
                         onEndShift={handleEndShift} 
@@ -1546,6 +1589,7 @@ return (
                         : currentUser.permissions?.viewExpenses === true
                 ) && (
                     <ExpensesView
+                        lang={lang}
                         filteredExpenses={filteredExpenses}
                         expenseCatFilter={expenseCatFilter}
                         setExpenseCatFilter={setExpenseCatFilter}
@@ -1727,6 +1771,7 @@ return (
                 room={filteredRooms.find(r => r.id === guestDetailsModal.guest.roomId)} 
                 currentUser={currentUser}
                 clients={clients}
+                guests={filteredGuests}
                 initialView={guestDetailsModal.initialView || 'dashboard'}
                 onClose={() => setGuestDetailsModal({open: false, guest: null})} 
                 onUpdate={handleGuestUpdate} 

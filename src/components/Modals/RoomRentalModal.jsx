@@ -67,9 +67,9 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
     };
 
     const handleSubmit = async () => {
-        if (!fullName.trim()) { notify?.('Введите ФИО', 'error'); return; }
+        if (!fullName.trim()) { notify?.(t('enterName'), 'error'); return; }
         if (freeCount !== capacity) {
-            notify?.(`В комнате ${capacity - freeCount} занятых мест. Сначала выселите гостей.`, 'error');
+            notify?.(`${capacity - freeCount} ${t('rentOccupiedWarning')}`, 'error');
             return;
         }
         setSubmitting(true);
@@ -132,8 +132,8 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><Building2 size={18} className="text-white"/></div>
                         <div>
-                            <div className="font-black text-white text-base">Сдать комнату целиком</div>
-                            <div className="text-teal-100 text-xs">Все места одному клиенту</div>
+                            <div className="font-black text-white text-base">{t('rentalTitle')}</div>
+                            <div className="text-teal-100 text-xs">{t('rentalSubtitle')}</div>
                         </div>
                     </div>
                     <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full text-white">
@@ -145,17 +145,17 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                     {/* Room + dates */}
                     <div className="grid grid-cols-3 gap-3">
                         <div>
-                            <label className={labelClass}>Комната</label>
+                            <label className={labelClass}>{t('room')}</label>
                             <select className={inputClass} value={roomId} onChange={e => setRoomId(e.target.value)}>
-                                {allRooms.map(r => <option key={r.id} value={r.id}>№{r.number} — {r.capacity} мест</option>)}
+                                {allRooms.map(r => <option key={r.id} value={r.id}>№{r.number} — {r.capacity} {t('kpiBeds')}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className={labelClass}>Заезд</label>
+                            <label className={labelClass}>{t('checkinShort')}</label>
                             <input type="date" className={inputClass} value={checkInDate} onChange={e => setCheckInDate(e.target.value)}/>
                         </div>
                         <div>
-                            <label className={labelClass}>Дней</label>
+                            <label className={labelClass}>{t('days')}</label>
                             <div className="flex items-center gap-1">
                                 <button onClick={() => setDays(d => Math.max(1, d - 1))} className="w-8 h-10 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-600 text-sm">−</button>
                                 <input type="number" className={`${inputClass} text-center`} value={days} onChange={e => setDays(Math.max(1, parseInt(e.target.value) || 1))}/>
@@ -167,7 +167,7 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                     {/* Ручная цена */}
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>Цена за место/ночь (не обязательно)</label>
+                            <label className={labelClass}>{t('priceOptional')}</label>
                             <div className="relative">
                                 <input type="number" className={`${inputClass} pr-14`}
                                     placeholder={String(parseInt(room?.price) || 0)}
@@ -179,7 +179,7 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                         {pricePerBed > 0 && (
                             <div className="flex items-end pb-0.5">
                                 <span className="text-xs text-slate-500">
-                                    {pricePerBed.toLocaleString()} × {capacity} мест × {days} дн. = <strong className="text-teal-700">{totalPriceAll.toLocaleString()} сум</strong>
+                                    {pricePerBed.toLocaleString()} × {capacity} {t('kpiBeds')} × {days} {t('daysShort')} = <strong className="text-teal-700">{totalPriceAll.toLocaleString()} сум</strong>
                                 </span>
                             </div>
                         )}
@@ -189,9 +189,9 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                     {room && (
                         <div className={`rounded-xl p-4 border-2 ${freeCount === capacity ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
                             <div className="flex items-center justify-between mb-2">
-                                <span className="font-bold text-sm">Комната №{room.number}</span>
+                                <span className="font-bold text-sm">{t('room')} №{room.number}</span>
                                 <span className={`text-xs font-black px-2 py-1 rounded-full ${freeCount === capacity ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'}`}>
-                                    {freeCount}/{capacity} свободно
+                                    {freeCount}/{capacity} {t('free').toLowerCase()}
                                 </span>
                             </div>
                             <div className="flex gap-1.5 flex-wrap">
@@ -202,12 +202,12 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                                 ))}
                             </div>
                             <div className="mt-3 flex items-center justify-between text-sm font-bold text-slate-700">
-                                <span>Итого за все места × {days} дн.</span>
+                                <span>{t('totalAllBeds')} × {days} {t('daysShort')}</span>
                                 <span className="text-teal-700 text-lg">{totalPriceAll.toLocaleString()} сум</span>
                             </div>
                             {freeCount !== capacity && (
                                 <div className="mt-2 text-amber-700 text-xs font-semibold">
-                                    ⚠ {capacity - freeCount} мест занято. Аренда доступна только когда все места свободны.
+                                    ⚠ {capacity - freeCount} {t('rentOccupiedWarning')}
                                 </div>
                             )}
                         </div>
@@ -216,7 +216,7 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                     {/* Guest info */}
                     <div className="space-y-3">
                         <div>
-                            <label className={labelClass}>ФИО клиента *</label>
+                            <label className={labelClass}>{t('clientName')} *</label>
                             <div className="relative">
                                 <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                                 <input className={`${inputClass} pl-8`} placeholder="ИВАНОВ ИВАН ИВАНОВИЧ"
@@ -225,16 +225,16 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className={labelClass}>Паспорт</label>
+                                <label className={labelClass}>{t('passport')}</label>
                                 <input className={inputClass} placeholder="AB1234567" value={passport} onChange={e => setPassport(e.target.value.toUpperCase())}/>
                             </div>
                             <div>
-                                <label className={labelClass}>Телефон</label>
+                                <label className={labelClass}>{t('phone')}</label>
                                 <input className={inputClass} placeholder="+998 90 000-00-00" value={phone} onChange={e => setPhone(e.target.value)}/>
                             </div>
                         </div>
                         <div>
-                            <label className={labelClass}>Комментарий</label>
+                            <label className={labelClass}>{t('comment')}</label>
                             <input className={inputClass} placeholder="Корпоратив, мероприятие..." value={comment} onChange={e => setComment(e.target.value)}/>
                         </div>
                     </div>
@@ -243,9 +243,9 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
                     {canPay && (
                         <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
                             <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-bold uppercase text-slate-500">Оплата</span>
+                                <span className="text-xs font-bold uppercase text-slate-500">{t('payment')}</span>
                                 <span className={`text-xs font-bold ${totalPaid >= totalPriceAll ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                    {totalPaid >= totalPriceAll ? '✓ Оплачено' : `Остаток: ${(totalPriceAll - totalPaid).toLocaleString()}`}
+                                    {totalPaid >= totalPriceAll ? `✓ ${t('paid')}` : `${t('remaining')}: ${(totalPriceAll - totalPaid).toLocaleString()}`}
                                 </span>
                             </div>
                             {[['paidCash', setPaidCash, paidCash, DollarSign, 'Нал.'],
@@ -269,11 +269,11 @@ const RoomRentalModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, not
 
                 {/* Footer */}
                 <div className="px-6 py-4 border-t border-slate-200 bg-white shrink-0 flex items-center justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2.5 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors text-sm">Отмена</button>
+                    <button onClick={onClose} className="px-4 py-2.5 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors text-sm">{t('cancel')}</button>
                     <button onClick={handleSubmit} disabled={!fullName.trim() || submitting || freeCount !== capacity}
                         className="flex items-center gap-2 px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black shadow transition-colors disabled:opacity-50 text-sm">
                         <Building2 size={16}/>
-                        {submitting ? 'Оформление...' : `Сдать комнату №${room?.number || ''}`}
+                        {submitting ? t('processing') : `${t('rentRoom')} №${room?.number || ''}`}
                     </button>
                 </div>
             </div>

@@ -71,6 +71,7 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
         {
             id: 'main', label: null, dropdown: false,
             items: [
+                { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
                 { id: 'rooms',    icon: BedDouble, label: t('rooms') },
                 { id: 'calendar', icon: Calendar,  label: t('calendar') },
             ],
@@ -95,19 +96,25 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
+const APP_THEMES = [
+    { id: 'green', emoji: '🌿', label: 'Светлая' },
+    { id: 'dark',  emoji: '🌙', label: 'Тёмная'  },
+];
+
 const Navigation = ({
     currentUser, activeTab, setActiveTab, pendingTasksCount, pendingBookingsCount, lang,
     canPerformActions, onOpenExpense, onOpenCheckIn, onOpenShift,
     onOpenGroupCheckIn, onOpenRoomRental,
     onLogout, setLang, onOpenChangePassword,
     registrationsAlertCount = 0,
+    appTheme = 'green', setAppTheme,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
     const isSuper = currentUser.role === 'super';
 
     const [profileOpen,  setProfileOpen]  = React.useState(false);
-    const [profilePos,    setProfilePos]    = React.useState({ top: 0 });
+    const [profilePos,    setProfilePos]    = React.useState({ bottom: 0 });
     const [checkinOpen,   setCheckinOpen]   = React.useState(false);
     const [checkinPos,    setCheckinPos]    = React.useState({ top: 0 });
     // Unified dropdown state — один openGroup вместо settings-only состояния
@@ -151,11 +158,8 @@ const Navigation = ({
 
     const handleProfileToggle = () => {
         if (!profileOpen && profileBtnRef.current) {
-            const rect  = profileBtnRef.current.getBoundingClientRect();
-            const menuH = 250;
-            const below = window.innerHeight - rect.bottom;
-            const top   = below < menuH ? rect.top - menuH + rect.height : rect.top;
-            setProfilePos({ top: Math.max(8, top) });
+            const rect = profileBtnRef.current.getBoundingClientRect();
+            setProfilePos({ bottom: window.innerHeight - rect.bottom });
         }
         setProfileOpen(o => !o);
     };
@@ -204,7 +208,7 @@ const Navigation = ({
     return (
         <div
             className="hidden md:flex flex-col shrink-0 overflow-hidden"
-            style={{ width: 80, background: '#1a3c40', borderRight: '1px solid rgba(255,255,255,0.07)' }}
+            style={{ width: 80, background: 'var(--nav-bg)', borderRight: '1px solid rgba(255,255,255,0.07)' }}
         >
             <style>{`
                 .dsb:focus,.dsb-btn:focus{outline:none!important;box-shadow:none!important}
@@ -245,12 +249,12 @@ const Navigation = ({
                                     className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
                                     style={{
                                         background: isOpen || isActive ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                        color:      isOpen || isActive ? '#e88c40' : '#9ecdd0',
+                                        color:      isOpen || isActive ? '#e88c40' : 'var(--nav-muted)',
                                         borderLeft: isActive ? '3px solid #e88c40' : '3px solid transparent',
                                         outline: 'none',
                                     }}
                                     onMouseOver={e => { if (!isOpen) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
-                                    onMouseOut={e  => { if (!isOpen) { e.currentTarget.style.background = isActive ? 'rgba(232,140,64,0.18)' : 'transparent'; e.currentTarget.style.color = isActive ? '#e88c40' : '#9ecdd0'; } }}
+                                    onMouseOut={e  => { if (!isOpen) { e.currentTarget.style.background = isActive ? 'rgba(232,140,64,0.18)' : 'transparent'; e.currentTarget.style.color = isActive ? '#e88c40' : 'var(--nav-muted)'; } }}
                                 >
                                     <DropIcon size={20} strokeWidth={isOpen ? 2.5 : 2} />
                                     <span className="nav-lbl">{group.dropLabel}</span>
@@ -283,12 +287,12 @@ const Navigation = ({
                                         className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
                                         style={{
                                             background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                            color:      act ? '#e88c40' : '#9ecdd0',
+                                            color:      act ? '#e88c40' : 'var(--nav-muted)',
                                             borderLeft: act ? '3px solid #e88c40' : '3px solid transparent',
                                             outline: 'none',
                                         }}
                                         onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
-                                        onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
+                                        onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
                                     >
                                         <Icon size={20} strokeWidth={act ? 2.5 : 2} />
                                         <span className="nav-lbl">{item.label}</span>
@@ -318,7 +322,7 @@ const Navigation = ({
                 return ReactDOM.createPortal(
                     <div ref={groupMenuRef} style={{
                         position: 'fixed', left: groupMenuPos.left, top: groupMenuPos.top,
-                        width: 200, background: '#1e4a4f',
+                        width: 200, background: 'var(--nav-popup)',
                         border: '1px solid rgba(255,255,255,0.12)',
                         borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
                         zIndex: 180, overflow: 'hidden',
@@ -342,12 +346,12 @@ const Navigation = ({
                                     onClick={() => { setOpenGroup(null); setActiveTab(item.id); }}
                                     className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
                                     style={{
-                                        color: act ? '#e88c40' : '#9ecdd0',
+                                        color: act ? '#e88c40' : 'var(--nav-muted)',
                                         background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
                                         border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s',
                                     }}
                                     onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; } }}
-                                    onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ecdd0'; } }}
+                                    onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
                                 >
                                     <Icon size={15} strokeWidth={act ? 2.5 : 2} />
                                     <span style={{ fontWeight: act ? 700 : 600, flex: 1 }}>{item.label}</span>
@@ -393,7 +397,7 @@ const Navigation = ({
                         {checkinOpen && ReactDOM.createPortal(
                             <div ref={checkinMenuRef} style={{
                                 position: 'fixed', left: checkinPos.left, top: checkinPos.top,
-                                width: 170, background: '#1e4a4f',
+                                width: 170, background: 'var(--nav-popup)',
                                 border: '1px solid rgba(255,255,255,0.12)',
                                 borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
                                 zIndex: 180, overflow: 'hidden',
@@ -442,7 +446,7 @@ const Navigation = ({
                          style={{ background: '#e88c40', color: '#fff' }}>
                         {(currentUser.name || '?')[0].toUpperCase()}
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: '#9ecdd0', maxWidth: 68, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--nav-muted)', maxWidth: 68, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {currentUser.name.split(' ')[0]}
                     </span>
                 </button>
@@ -451,27 +455,45 @@ const Navigation = ({
                     <div
                         ref={profileRef}
                         style={{
-                            position: 'fixed', left: 88, top: profilePos.top, width: 240,
-                            background: '#1e4a4f', border: '1px solid rgba(255,255,255,0.12)',
+                            position: 'fixed', left: 88, bottom: profilePos.bottom, width: 240,
+                            background: 'var(--nav-popup)', border: '1px solid rgba(255,255,255,0.12)',
                             borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.45)', zIndex: 180, overflow: 'hidden',
                         }}
                     >
                         <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
                             <div className="text-sm font-black text-white">{currentUser.name}</div>
-                            <div className="text-xs mt-0.5" style={{ color: '#9ecdd0' }}>{roleLabel}</div>
+                            <div className="text-xs mt-0.5" style={{ color: 'var(--nav-muted)' }}>{roleLabel}</div>
                         </div>
                         <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                            <div className="text-[11px] font-bold uppercase mb-2" style={{ color: '#9ecdd0' }}>{t('language')}</div>
+                            <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>{t('language')}</div>
                             <div className="flex gap-2">
                                 {['ru', 'uz'].map(l => (
                                     <button key={l} onClick={() => setLang(l)}
                                         className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all"
-                                        style={lang === l ? { background: '#e88c40', color: '#fff' } : { background: 'rgba(255,255,255,0.08)', color: '#9ecdd0' }}>
+                                        style={lang === l ? { background: '#e88c40', color: '#fff' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
                                         {l.toUpperCase()}
                                     </button>
                                 ))}
                             </div>
                         </div>
+                        {setAppTheme && (
+                            <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                                <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>Тема</div>
+                                <div className="flex gap-2">
+                                    {APP_THEMES.map(th => (
+                                        <button
+                                            key={th.id}
+                                            onClick={() => setAppTheme(th.id)}
+                                            className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1"
+                                            style={appTheme === th.id
+                                                ? { background: '#e88c40', color: '#fff' }
+                                                : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
+                                            <span>{th.emoji}</span><span>{th.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <button
                             onClick={() => { setProfileOpen(false); onOpenChangePassword(); }}
                             className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"

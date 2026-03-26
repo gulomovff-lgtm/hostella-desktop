@@ -339,14 +339,21 @@ export function useGuestActions(ctx) {
       const { extendDays, payCash = 0, payCard = 0, payQR = 0,
               prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut = null, prevStatus,
               newDays, newTotalPrice, newCheckOut } = extData;
-      // Сдвигаем bonusCheckOutDate на тот же офсет, что и основной checkOutDate
+      // Бонус: если он остаётся ДО нового checkOut — оставляем на месте (бонус будет посередине бара);
+      // иначе сдвигаем на тот же офсет (старое поведение, если продлевают не от конца бонуса).
       let bonusUpdate;
       if (prevBonusCheckOut) {
-        const extendOffsetMs = new Date(newCheckOut).getTime() - new Date(prevCheckOut).getTime();
-        const newBonusMs = new Date(prevBonusCheckOut).getTime() + extendOffsetMs;
-        bonusUpdate = newBonusMs > new Date(newCheckOut).getTime()
-          ? { bonusCheckOutDate: new Date(newBonusMs).toISOString() }
-          : { bonusCheckOutDate: deleteField() };
+        const prevBonusMs  = new Date(prevBonusCheckOut).getTime();
+        const newCheckOutMs = new Date(newCheckOut).getTime();
+        if (prevBonusMs <= newCheckOutMs) {
+          // Бонус теперь в середине — не трогаем bonusCheckOutDate
+          bonusUpdate = {};
+        } else {
+          // Бонус всё ещё после checkOut — сдвигаем на тот же офсет
+          const extendOffsetMs = newCheckOutMs - new Date(prevCheckOut).getTime();
+          const newBonusMs = prevBonusMs + extendOffsetMs;
+          bonusUpdate = { bonusCheckOutDate: new Date(newBonusMs).toISOString() };
+        }
       } else {
         bonusUpdate = { bonusCheckOutDate: deleteField() };
       }
@@ -496,12 +503,89 @@ export function useGuestActions(ctx) {
 
   const handleMoveGuest = async (g, rid, rnum, bid) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
+      const now = new Date();
+      const todayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+
+      // Парсим дату заезда аналогично parseDate в CalendarView
+      const rawCheckIn = new Date(g.checkInDate);
+      if (!g.checkInDate.includes('T')) rawCheckIn.setHours(12, 0, 0, 0);
+
+      const daysPassed = Math.floor((todayNoon - rawCheckIn) / 86400000);
+
+      // Если гость ещё не заехал (бронь на будущее) — просто переносим комнату
+      if (daysPassed <= 0) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
+        setMoveGuestModal({ open: false, guest: null });
+        setGuestDetailsModal({ open: false, guest: null });
+        showNotification('Перемещено!');
+        return;
+      }
+
+      const totalDays = parseInt(g.days) || 1;
+      const remainingDays = totalDays - daysPassed;
+
+      // Если оставшихся дней нет — просто обновляем комнату (гость уже давно выселен)
+      if (remainingDays <= 0) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
+        setMoveGuestModal({ open: false, guest: null });
+        setGuestDetailsModal({ open: false, guest: null });
+        showNotification('Перемещено!');
+        return;
+      }
+
+      // --- Финансовый сплит (пропорционально дням) ---
+      const totalPaid = g.amountPaid ?? ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0));
+      const ratio1 = daysPassed / totalDays;
+      const ratio2 = remainingDays / totalDays;
+      const price = parseInt(g.pricePerNight) || 0;
+
+      // --- 1. Обновляем старую запись: обрезаем до сегодня, выселяем ---
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
+        days:        daysPassed,
+        checkOutDate: todayNoon.toISOString(),
+        totalPrice:  daysPassed * price,
+        amountPaid:  Math.floor(totalPaid * ratio1),
+        paidCash:    Math.floor((g.paidCash || 0) * ratio1),
+        paidCard:    Math.floor((g.paidCard || 0) * ratio1),
+        paidQR:      Math.floor((g.paidQR   || 0) * ratio1),
+        status:      'checked_out',
+        // Убираем бонусный период из старой записи
+        bonusCheckOutDate: null,
+        bonusDaysAdded:    null,
+      });
+
+      // --- 2. Создаём новую запись в новой комнате с сегодняшней даты ---
+      // Конечная дата берём из оригинального checkOut (если бонус активен — из bonusCheckOutDate)
+      const originalCheckOut = (g.bonusCheckOutDate && new Date(g.bonusCheckOutDate) > new Date(g.checkOutDate))
+        ? g.bonusCheckOutDate
+        : g.checkOutDate;
+
+      const newGuest = {
+        ...g,
+        id: undefined,
+        roomId:      rid,
+        roomNumber:  rnum,
+        bedId:       bid,
+        checkInDate:  todayNoon.toISOString(),
+        checkOutDate: originalCheckOut,
+        days:         remainingDays,
+        totalPrice:   remainingDays * price,
+        amountPaid:   Math.floor(totalPaid * ratio2),
+        paidCash:     Math.floor((g.paidCash || 0) * ratio2),
+        paidCard:     Math.floor((g.paidCard || 0) * ratio2),
+        paidQR:       Math.floor((g.paidQR   || 0) * ratio2),
+        status:       'active',
+        checkInDateTime: null,
+        movedFromRoom:   g.roomNumber || null, // для истории
+      };
+      delete newGuest.id;
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
+
       setMoveGuestModal({ open: false, guest: null });
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification('Moved!');
+      showNotification(`Перемещено: ${daysPassed} дн. остались в ком. ${g.roomNumber}, ${remainingDays} дн. → ком. ${rnum}`);
     } catch (e) {
-      showNotification('Error: ' + e.message, 'error');
+      showNotification('Ошибка: ' + e.message, 'error');
     }
   };
 

@@ -11,6 +11,9 @@ import {
 } from 'lucide-react';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
+// Категории постоянных расходов (C_fixed): не зависят от числа гостей
+const FIXED_CATEGORIES = new Set(['Аренда', 'Коммунальные услуги', 'Зарплата', 'Интернет', 'Реклама']);
+
 const COUNTRY_FLAGS = {
     "Узбекистан":"uz","Россия":"ru","Казахстан":"kz","Таджикистан":"tj","Кыргызстан":"kg",
     "Беларусь":"by","Украина":"ua","Германия":"de","США":"us","Китай":"cn","Турция":"tr",
@@ -373,6 +376,50 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         return Math.round(total / checkedOutInPeriod.length);
     }, [filteredGuests, startDate, endDate]);
 
+    // ─── Реальная доходность на гостя P = R - (Cvar + Cfixed/N) ──────────────
+
+    // Гостей за период (количество заселений)
+    const guestCount = useMemo(() => {
+        return filteredGuests.filter(g => {
+            if (!g.checkInDate) return false;
+            const ci = new Date(g.checkInDate);
+            return ci >= startDate && ci <= endDate;
+        }).length;
+    }, [filteredGuests, startDate, endDate]);
+
+    // N_total — человеко-ночи (сумма дней всех гостей, заселившихся в периоде)
+    const nTotal = useMemo(() => {
+        return filteredGuests
+            .filter(g => {
+                if (!g.checkInDate) return false;
+                const ci = new Date(g.checkInDate);
+                return ci >= startDate && ci <= endDate;
+            })
+            .reduce((s, g) => s + Math.max(1, parseInt(g.days) || 1), 0);
+    }, [filteredGuests, startDate, endDate]);
+
+    // C_fixed — постоянные расходы (не зависят от числа гостей)
+    const cFixed = useMemo(() => filteredExpenses
+        .filter(e => FIXED_CATEGORIES.has(e.category))
+        .reduce((s, e) => s + (parseInt(e.amount) || 0), 0),
+    [filteredExpenses]);
+
+    // C_var — переменные расходы (зависят от числа гостей: продукты, ремонт и т.д.)
+    const cVar = useMemo(() => filteredExpenses
+        .filter(e => !FIXED_CATEGORIES.has(e.category) && e.category !== 'Возврат')
+        .reduce((s, e) => s + (parseInt(e.amount) || 0), 0),
+    [filteredExpenses]);
+
+    // R — выручка на 1 койко-ночь
+    const R_night        = nTotal > 0 ? totalIncome / nTotal : 0;
+    // Переменные расходы на 1 койко-ночь
+    const cVarNight      = nTotal > 0 ? cVar / nTotal : 0;
+    // Доля постоянных расходов на 1 койко-ночь
+    const cFixedNight    = nTotal > 0 ? cFixed / nTotal : 0;
+    // P_guest = R - (C_var/N + C_fixed/N)
+    const pGuest         = Math.round(R_night - cVarNight - cFixedNight);
+    const rentability    = R_night > 0 ? Math.round((pGuest / R_night) * 100) : 0;
+
     return (
         <div className="flex-1 overflow-y-auto bg-[#f0f2f5]">
             <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
@@ -425,10 +472,147 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     <KpiCard icon={Calendar}      label="Доход / день"    value={avgPerDay}    color="#8b5cf6" />
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <KpiCard icon={Users}         label="Гостей за период" value={filteredGuests.filter(g => { const ci=new Date(g.checkInDate); return ci>=startDate && ci<=endDate; }).length + ' чел.'} color="#06b6d4" />
-                    <KpiCard icon={BedDouble}     label="Средний чек"      value={avgCheck}    color="#f59e0b" />
-                    <KpiCard icon={Banknote}      label="Наличные"         value={filteredPayments.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#10b981" />
-                    <KpiCard icon={CreditCard}    label="Безнал + QR"      value={filteredPayments.filter(p=>p.method!=='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#3b82f6" />
+                    <KpiCard icon={Users}         label="Гостей за период"    value={guestCount + ' чел.'}  color="#06b6d4" />
+                    <KpiCard icon={BedDouble}     label="Средний чек"         value={avgCheck}              color="#f59e0b" />
+                    <KpiCard icon={Banknote}      label="Наличные"            value={filteredPayments.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#10b981" />
+                    <KpiCard icon={CreditCard}    label="Безнал + QR"         value={filteredPayments.filter(p=>p.method!=='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#3b82f6" />
+                </div>
+
+                {/* ── Доходность на гостя ── */}
+                <div className="rounded-3xl overflow-hidden shadow-lg border border-slate-100">
+
+                    {/* ═══ Hero ═══ */}
+                    <div style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%)' }}
+                        className="px-6 pt-6 pb-5 relative overflow-hidden">
+                        {/* Декоративные круги */}
+                        <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/[0.03] pointer-events-none"/>
+                        <div className="absolute -bottom-6 -left-6 w-32 h-32 rounded-full bg-violet-500/10 pointer-events-none"/>
+
+                        <div className="text-[10px] font-bold text-violet-400 uppercase tracking-[3px] mb-4">
+                            Реальная доходность · P = R − (C_var + C_fix / N)
+                        </div>
+
+                        {nTotal === 0 ? (
+                            <div className="text-white/40 text-sm py-2">Нет данных за выбранный период</div>
+                        ) : (
+                            <div className="flex items-end justify-between gap-4 flex-wrap">
+                                <div>
+                                    <div className="text-violet-300 text-xs font-semibold mb-1">Прибыль на 1 гостя/ночь</div>
+                                    <div className={`text-5xl font-black tracking-tight ${pGuest >= 0 ? 'text-white' : 'text-orange-300'}`}>
+                                        {pGuest >= 0 ? '+' : ''}{pGuest.toLocaleString('ru')}
+                                        <span className="text-xl font-semibold text-white/40 ml-2">сум</span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-6">
+                                    <div className="text-center">
+                                        <div className={`text-4xl font-black ${rentability >= 0 ? 'text-amber-300' : 'text-orange-400'}`}>{rentability}%</div>
+                                        <div className="text-[10px] text-violet-400 font-medium mt-1">рентабельность</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-2xl font-black text-slate-300">{nTotal.toLocaleString('ru')}</div>
+                                        <div className="text-[10px] text-violet-400 font-medium mt-1">чел / ночей</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-2xl font-black text-slate-300">{guestCount}</div>
+                                        <div className="text-[10px] text-violet-400 font-medium mt-1">заселений</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ═══ Формула — визуальные блоки ═══ */}
+                    {nTotal > 0 && (
+                        <div className="bg-white px-5 pt-5 pb-4">
+                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Декомпозиция формулы</div>
+
+                            <div className="flex items-stretch gap-0 overflow-x-auto pb-1">
+
+                                {/* R */}
+                                <div className="flex-1 min-w-[90px] rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 p-4 flex flex-col">
+                                    <div className="text-[9px] font-black text-emerald-500 uppercase tracking-wider">R</div>
+                                    <div className="text-[9px] text-emerald-400 font-medium mb-auto pb-2">выручка / ночь</div>
+                                    <div className="text-xl font-black text-emerald-700">{Math.round(R_night).toLocaleString('ru')}</div>
+                                    <div className="text-[9px] text-emerald-500 mt-0.5">Доход ÷ N</div>
+                                </div>
+
+                                {/* operator - */}
+                                <div className="flex items-center justify-center px-2 flex-shrink-0">
+                                    <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center">
+                                        <span className="text-slate-500 font-black text-base leading-none">−</span>
+                                    </div>
+                                </div>
+
+                                {/* C_var */}
+                                <div className="flex-1 min-w-[90px] rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200 p-4 flex flex-col">
+                                    <div className="text-[9px] font-black text-amber-500 uppercase tracking-wider">C_var</div>
+                                    <div className="text-[9px] text-amber-400 font-medium mb-auto pb-2">перем. / ночь</div>
+                                    <div className="text-xl font-black text-amber-700">{Math.round(cVarNight).toLocaleString('ru')}</div>
+                                    <div className="text-[9px] text-amber-500 mt-0.5">Перем. ÷ N</div>
+                                </div>
+
+                                {/* operator - */}
+                                <div className="flex items-center justify-center px-2 flex-shrink-0">
+                                    <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center">
+                                        <span className="text-slate-500 font-black text-base leading-none">−</span>
+                                    </div>
+                                </div>
+
+                                {/* C_fix/N */}
+                                <div className="flex-1 min-w-[90px] rounded-2xl bg-gradient-to-br from-rose-50 to-rose-100/50 border border-rose-200 p-4 flex flex-col">
+                                    <div className="text-[9px] font-black text-rose-500 uppercase tracking-wider">C_fix / N</div>
+                                    <div className="text-[9px] text-rose-400 font-medium mb-auto pb-2">пост. / ночь</div>
+                                    <div className="text-xl font-black text-rose-700">{Math.round(cFixedNight).toLocaleString('ru')}</div>
+                                    <div className="text-[9px] text-rose-500 mt-0.5">Пост. ÷ N</div>
+                                </div>
+
+                                {/* operator = */}
+                                <div className="flex items-center justify-center px-2 flex-shrink-0">
+                                    <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center">
+                                        <span className="text-indigo-600 font-black text-base leading-none">=</span>
+                                    </div>
+                                </div>
+
+                                {/* P */}
+                                <div className={`flex-1 min-w-[90px] rounded-2xl border-2 p-4 flex flex-col ${
+                                    pGuest >= 0
+                                        ? 'bg-gradient-to-br from-indigo-50 to-indigo-100/50 border-indigo-300'
+                                        : 'bg-gradient-to-br from-orange-50 to-orange-100/50 border-orange-300'
+                                }`}>
+                                    <div className={`text-[9px] font-black uppercase tracking-wider ${pGuest >= 0 ? 'text-indigo-500' : 'text-orange-500'}`}>P — итог</div>
+                                    <div className={`text-[9px] font-medium mb-auto pb-2 ${pGuest >= 0 ? 'text-indigo-400' : 'text-orange-400'}`}>прибыль / ночь</div>
+                                    <div className={`text-xl font-black ${pGuest >= 0 ? 'text-indigo-700' : 'text-orange-700'}`}>
+                                        {pGuest >= 0 ? '+' : ''}{pGuest.toLocaleString('ru')}
+                                    </div>
+                                    <div className={`text-[9px] mt-0.5 font-semibold ${pGuest >= 0 ? 'text-indigo-500' : 'text-orange-500'}`}>{rentability}% маржа</div>
+                                </div>
+                            </div>
+
+                            {/* Нижняя строка: суммарные значения */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+                                {[
+                                    { label: 'Постоянные расходы', value: cFixed, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-100' },
+                                    { label: 'Переменные расходы', value: cVar, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
+                                    { label: 'Доходы за период', value: totalIncome, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
+                                    { label: 'Чел / ночей (N)', value: nTotal, color: 'text-slate-700', bg: 'bg-slate-50 border-slate-100', noFmt: true },
+                                ].map(({ label, value, color, bg, noFmt }) => (
+                                    <div key={label} className={`rounded-xl border px-3 py-2.5 ${bg}`}>
+                                        <div className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">{label}</div>
+                                        <div className={`text-base font-black mt-0.5 ${color}`}>
+                                            {noFmt ? value.toLocaleString('ru') : value.toLocaleString('ru')}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Расшифровка категорий */}
+                            <div className="mt-3 flex flex-wrap gap-3 text-[9px] text-slate-400 leading-relaxed">
+                                <span><span className="text-amber-500 font-bold">Переменные:</span> Продукты, Канцелярия, Ремонт, Другое</span>
+                                <span className="text-slate-300">·</span>
+                                <span><span className="text-rose-500 font-bold">Постоянные:</span> Аренда, Зарплата, Коммунал., Интернет, Реклама</span>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Диаграммы 2x2 ── */}

@@ -67,7 +67,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
 
     const addGuest = () => {
         if (guestList.length >= (room?.capacity || 1)) {
-            notify?.('Нет свободных мест', 'error');
+            notify?.( t('noFreeBeds'), 'error');
             return;
         }
         setGuestList(prev => [...prev, { ...EMPTY_GUEST, id: Date.now() }]);
@@ -107,13 +107,13 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
     const handleSubmit = async () => {
         const invalid = guestList.find(g => !g.fullName.trim() || !g.bedId);
         if (invalid) {
-            notify?.('Заполните ФИО и выберите место для каждого гостя', 'error');
+            notify?.(t('fillNameAndBed'), 'error');
             return;
         }
         // Check duplicate beds
         const beds = guestList.map(g => g.bedId);
         if (new Set(beds).size !== beds.length) {
-            notify?.('Два гостя не могут занимать одно место', 'error');
+            notify?.( t('duplicateBeds'), 'error');
             return;
         }
         setSubmitting(true);
@@ -169,8 +169,8 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                     <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><Users size={18} className="text-white"/></div>
                         <div>
-                            <div className="font-black text-white text-base">Групповое заселение</div>
-                            <div className="text-indigo-200 text-xs">{guestList.length} гостей • {grandTotal > 0 ? grandTotal.toLocaleString() + ' сум' : 'итого'}</div>
+                            <div className="font-black text-white text-base">{t('checkinGroupTitle')}</div>
+                            <div className="text-indigo-200 text-xs">{guestList.length} {lang === 'uz' ? 'mehmon' : 'гостей'} • {grandTotal > 0 ? grandTotal.toLocaleString() + (lang === 'uz' ? " so'm" : ' сум') : t('total')}</div>
                         </div>
                     </div>
                     <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full text-white transition-colors">
@@ -182,17 +182,17 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                 <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-slate-50 shrink-0">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
-                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Комната</label>
+                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('room')}</label>
                             <select className={inputClass} value={selectedRoomId} onChange={e => setSelectedRoomId(e.target.value)}>
                                 {allRooms.map(r => <option key={r.id} value={r.id}>№{r.number} — {r.capacity} мест</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Дата заезда</label>
+                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('checkIn')}</label>
                             <input type="date" className={inputClass} value={checkInDate} onChange={e => setCheckInDate(e.target.value)}/>
                         </div>
                         <div>
-                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Дней</label>
+                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('days')}</label>
                             <div className="flex items-center gap-1">
                                 <button onClick={() => setDays(d => Math.max(1, d - 1))} className="w-8 h-9 bg-slate-200 hover:bg-slate-300 rounded-lg font-bold text-slate-600 flex items-center justify-center text-sm">−</button>
                                 <input type="number" className={`${inputClass} text-center`} value={days} onChange={e => setDays(Math.max(1, parseInt(e.target.value) || 1))}/>
@@ -200,7 +200,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                             </div>
                         </div>
                         <div>
-                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Цена/ночь для всех</label>
+                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('pricePerNightAll')}</label>
                             <div className="relative">
                                 <input type="number" className={`${inputClass} pr-12`}
                                     placeholder={room ? String(parseInt(room.price) || 0) : '0'}
@@ -213,7 +213,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                     {/* Free beds map */}
                     {room && (
                         <div className="mt-3 flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-slate-400">Места:</span>
+                            <span className="text-xs font-bold text-slate-400">{t('bedsLabel')}</span>
                             {freeBeds.map(b => (
                                 <span key={b.id} className={`px-2 py-1 rounded-lg text-[11px] font-bold border ${
                                     b.occupied ? 'bg-rose-100 text-rose-500 border-rose-200' :
@@ -243,8 +243,8 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                 <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
                                     <div className="flex items-center gap-2">
                                         <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-black">{idx + 1}</div>
-                                        <span className="text-sm font-bold text-slate-700">{g.fullName || `Гость ${idx + 1}`}</span>
-                                        {g.bedId && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Место {g.bedId}</span>}
+                                        <span className="text-sm font-bold text-slate-700">{g.fullName || `${t('guestNum')} ${idx + 1}`}</span>
+                                        {g.bedId && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">{t('bed2')} {g.bedId}</span>}
                                         {total > 0 && <span className="text-xs text-slate-400 font-semibold">{total.toLocaleString()} сум</span>}
                                         {debt > 0 && <span className="text-xs text-rose-600 font-bold">долг: {debt.toLocaleString()}</span>}
                                     </div>
@@ -255,37 +255,37 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                 <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
                                     {/* Место */}
                                     <div>
-                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Место *</label>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{t('bed2')} *</label>
                                         <select className={inputClass} value={g.bedId}
                                             onChange={e => updateGuest(g.id, 'bedId', e.target.value)}>
-                                            <option value="">— выбрать —</option>
+                                            <option value="">{t('selectOption')}</option>
                                             {freeBeds.filter(b => !b.occupied && (!b.staged || b.id === g.bedId)).map(b => (
-                                                <option key={b.id} value={b.id}>Место {b.id}</option>
+                                                <option key={b.id} value={b.id}>{t('bed2')} {b.id}</option>
                                             ))}
                                         </select>
                                     </div>
                                     {/* ФИО */}
                                     <div className="md:col-span-2">
-                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">ФИО *</label>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{t('guestName')} *</label>
                                         <input className={inputClass} placeholder="ИВАНОВ ИВАН ИВАНОВИЧ" value={g.fullName}
                                             onChange={e => updateGuest(g.id, 'fullName', e.target.value)}/>
                                     </div>
                                     {/* Страна */}
                                     <div>
-                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Страна</label>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{t('country')}</label>
                                         <input className={inputClass} placeholder="Узбекистан" value={g.country}
                                             onChange={e => updateGuest(g.id, 'country', e.target.value)}/>
                                     </div>
                                     {/* Паспорт */}
                                     <div>
-                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Паспорт</label>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{t('passport')}</label>
                                         <input className={inputClass} placeholder="AB1234567" value={g.passport}
                                             onChange={e => updateGuest(g.id, 'passport', e.target.value)}/>
                                     </div>
                                     {/* Оплата */}
                                     {canPay && (
                                         <>
-                                            {[['paidCash', DollarSign, 'Нал.'], ['paidCard', CreditCard, 'Карта'], ['paidQR', QrCode, 'QR']].map(([field, Icon, lbl]) => (
+                                            {[['paidCash', DollarSign, t('cashShort')], ['paidCard', CreditCard, t('cardShort')], ['paidQR', QrCode, 'QR']].map(([field, Icon, lbl]) => (
                                                 <div key={field}>
                                                     <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{lbl}</label>
                                                     <div className="relative">
@@ -312,17 +312,17 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                     <button onClick={addGuest} disabled={guestList.length >= (room?.capacity || 1)}
                         className="flex items-center gap-2 px-4 py-2.5 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-colors disabled:opacity-40">
                         <Plus size={16}/>
-                        Добавить гостя
+                        {t('addGuest')}
                     </button>
                     <div className="flex items-center gap-3">                        {grandTotal > 0 && (
-                            <span className="text-sm font-bold text-slate-600 hidden md:block">Итого: {grandTotal.toLocaleString()} сум</span>
+                            <span className="text-sm font-bold text-slate-600 hidden md:block">{t('total')}: {grandTotal.toLocaleString()} {lang === 'uz' ? "so'm" : 'сум'}</span>
                         )}                        <button onClick={onClose} className="px-4 py-2.5 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors text-sm">
-                            Отмена
+                            {t('cancel')}
                         </button>
                         <button onClick={handleSubmit} disabled={!canSubmit}
                             className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black shadow transition-colors disabled:opacity-50 text-sm">
                             <Users size={16}/>
-                            {submitting ? 'Заселение...' : `Заселить ${guestList.length} гостей`}
+                            {submitting ? t('checkingIn') : `${t('checkin')} ${guestList.length} ${lang === 'uz' ? 'mehmon' : 'гостей'}`}
                         </button>
                     </div>
                 </div>

@@ -77,6 +77,21 @@ export const useRecurringExpenses = ({
         if (firedInSession.current.has(sessionKey)) continue;
         firedInSession.current.add(sessionKey); // блокируем сразу
 
+        // Персистентная проверка: расход за этот месяц уже существует в коллекции?
+        // Защищает от гонки между несколькими вкладками/пользователями.
+        const alreadyExists = expenses.some(e =>
+          e.recurringId === tmpl.id &&
+          typeof e.date === 'string' &&
+          e.date.startsWith(curMonthKey)
+        );
+        if (alreadyExists) {
+          // lastFiredMonth устарел — синхронизируем без начисления
+          updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'recurringExpenses', tmpl.id), {
+            lastFiredMonth: curMonthKey,
+          }).catch(() => {});
+          continue;
+        }
+
         // Определяем хостелы для начисления
         const targetHostels =
           tmpl.hostelId === 'all' || !tmpl.hostelId
@@ -123,9 +138,14 @@ export const useRecurringExpenses = ({
         }
       }
     })();
-    // Запускаем только при изменении списка шаблонов или смене пользователя
+    // Запускаем при изменении шаблонов, пользователя, или загрузке расходов с recurringId
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recurringExpenses.map(t => `${t.id}:${t.lastFiredMonth}:${t.active}`).join(','), currentUser?.id]);
+  }, [
+    recurringExpenses.map(t => `${t.id}:${t.lastFiredMonth}:${t.active}`).join(','),
+    currentUser?.id,
+    // Ключ по уже начисленным авто-расходам: пересчитываем, когда expenses загрузились
+    expenses.filter(e => e.recurringId).map(e => `${e.recurringId}:${e.date?.slice(0,7)}`).join(','),
+  ]);
 
   /* ── CRUD ──────────────────────────────────────────────────────────── */
 

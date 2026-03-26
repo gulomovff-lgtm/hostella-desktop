@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
@@ -122,7 +122,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -209,6 +209,27 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
     const disableWheel = e => e.target.blur();
     const goBack = () => { setCurrentView('dashboard'); setPayCash(''); setPayCard(''); setPayQR(''); };
 
+    // Вычисляем конфликт: следующий гость на том же месте после окончания текущей брони
+    const extendConflict = useMemo(() => {
+        if (!guests?.length) return null;
+        const baseCo = (guest.bonusCheckOutDate && new Date(guest.bonusCheckOutDate) > new Date(guest.checkOutDate))
+            ? guest.bonusCheckOutDate : guest.checkOutDate;
+        const baseDate = new Date(baseCo);
+        baseDate.setHours(12, 0, 0, 0);
+        const nextConflict = guests
+            .filter(g =>
+                g.id !== guest.id &&
+                g.roomId === guest.roomId &&
+                String(g.bedId) === String(guest.bedId) &&
+                (g.status === 'booking' || g.status === 'active') &&
+                new Date(g.checkInDate) >= baseDate
+            )
+            .sort((a, b) => new Date(a.checkInDate) - new Date(b.checkInDate))[0];
+        if (!nextConflict) return null;
+        const maxDays = Math.max(0, Math.floor((new Date(nextConflict.checkInDate) - baseDate) / (1000 * 60 * 60 * 24)));
+        return { maxDays, nextGuest: nextConflict, isOver: (parseInt(extendDays) || 1) > maxDays };
+    }, [guests, guest, extendDays]);
+
     const applyMagnet = field => {
         const extCost = currentView === 'extend' ? extendDays * parseInt(guest.pricePerNight) : 0;
         const total  = debt + extCost;
@@ -252,6 +273,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
     const handleExtend = async () => {
         const days = parseInt(extendDays); if (!days) return;
+        // Блокируем продление, если конфликт с другим заселением
+        if (extendConflict?.isOver) {
+            const d = new Date(extendConflict.nextGuest.checkInDate).toLocaleDateString('ru-RU');
+            return notify(`Нельзя продлить: ${extendConflict.nextGuest.fullName} заезжает ${d} на это место. Макс. ${extendConflict.maxDays} дн.`, 'error');
+        }
         setIsPaymentSubmitting(true);
         // Прибавляем к существующим значениям — не пересчитываем из временных меток,
         // чтобы избежать ошибок округления при смеси date-only и ISO-строк
@@ -259,9 +285,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
         const newDays  = existingDays + days;
         const newTotal = (guest.totalPrice || 0) + (guest.pricePerNight || 0) * days;
 
-        // Отсчёт всегда от checkOutDate (не от сегодня, не от bonusCheckOutDate) —
-        // продление = сдвиг checkOutDate на days дней; bonus сдвигается на тот же офсет в handleExtendGuest
-        const coMs    = new Date(guest.checkOutDate).getTime();
+        // Если есть активный бонусный период — продлеваем ОТ конца бонуса, чтобы
+        // бонус остался на своих ячейках (посередине бара), а не сдвигался в конец
+        const baseCo = (guest.bonusCheckOutDate && new Date(guest.bonusCheckOutDate) > new Date(guest.checkOutDate))
+            ? guest.bonusCheckOutDate
+            : guest.checkOutDate;
+        const coMs    = new Date(baseCo).getTime();
         const baseDate = new Date(coMs);
         baseDate.setHours(12, 0, 0, 0);
         const newCoDate = new Date(baseDate);
@@ -418,14 +447,14 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             {!isBooking && (
                                 <div className={`rounded-xl p-3 border flex items-center justify-between bg-white ${debt > 0 ? 'border-rose-200' : 'border-emerald-200'}`}>
                                     <div>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Долг / Баланс</div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">{t('debtBalance')}</div>
                                         {debt > 0
                                             ? <div className="text-xl font-black text-rose-600">⚠{debt.toLocaleString()}</div>
-                                            : <div className="text-xl font-black text-emerald-600">Оплачено ✓</div>}
+                                            : <div className="text-xl font-black text-emerald-600">{t('paidFull')}</div>}
                                     </div>
                                     <div className="text-right text-xs text-slate-400 space-y-0.5">
-                                        <div>Итого: <span className="font-bold text-slate-600">{(guest.totalPrice||0).toLocaleString()}</span></div>
-                                        <div>Оплачено: <span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
+                                        <div>{t('total')}: <span className="font-bold text-slate-600">{(guest.totalPrice||0).toLocaleString()}</span></div>
+                                        <div>{t('paid')}: <span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
                                     </div>
                                 </div>
                             )}
@@ -447,13 +476,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             )}
 
                             <div className="bg-white rounded-xl border border-slate-200 p-3">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">Проживание</div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">{t('accommodation')}</div>
                                 <div className="grid grid-cols-4 gap-1 text-center">
                                     {[
-                                        ['Заезд',  new Date(guest.checkInDate).toLocaleDateString('ru',{day:'2-digit',month:'2-digit'})],
-                                        ['Выезд',  new Date(guest.checkOutDate).toLocaleDateString('ru',{day:'2-digit',month:'2-digit'})],
-                                        ['Дней',   guest.days],
-                                        ['Тариф',  parseInt(guest.pricePerNight).toLocaleString()],
+                                        [t('arrivalLabel'),  new Date(guest.checkInDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru',{day:'2-digit',month:'2-digit'})],
+                                        [t('checkoutDate'),  new Date(guest.checkOutDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru',{day:'2-digit',month:'2-digit'})],
+                                        [t('days'),   guest.days],
+                                        [t('tariff'),  parseInt(guest.pricePerNight).toLocaleString()],
                                     ].map(([l,v])=>(
                                         <div key={l}>
                                             <div className="text-[10px] text-slate-400">{l}</div>
@@ -465,7 +494,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
                             <div className="bg-white rounded-xl border border-slate-200 p-3">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center justify-between">
-                                    <span>Личные данные</span>
+                                    <span>{t('personalData')}</span>
                                     <button onClick={()=>photoInputRef.current?.click()} className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-[10px] font-bold"><Camera size={12}/> Фото</button>
                                     <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload}/>
                                 </div>
@@ -477,12 +506,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                 )}
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                                     {[
-                                        ['Паспорт',    guest.passport || '—'],
-                                        ['Дата рожд.', guest.birthDate ? new Date(guest.birthDate).toLocaleDateString('ru') : '—'],
-                                        ['Выдан',      guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString('ru') : '—'],
-                                        ['Телефон',    guest.phone || '—'],
-                                        ['Страна',     guest.country || '—'],
-                                        ['Оплата',     [guest.paidCash>0&&`Нал:${(+guest.paidCash).toLocaleString()}`, guest.paidCard>0&&`Карта:${(+guest.paidCard).toLocaleString()}`, guest.paidQR>0&&`QR:${(+guest.paidQR).toLocaleString()}`].filter(Boolean).join(' · ')||'—'],
+                                        [t('passport'),    guest.passport || '—'],
+                                        [t('birthDateShort'), guest.birthDate ? new Date(guest.birthDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru') : '—'],
+                                        [t('issuedLabel'),      guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru') : '—'],
+                                        [t('phone'),    guest.phone || '—'],
+                                        [t('country'),     guest.country || '—'],
+                                        [t('payment'),     [guest.paidCash>0&&`Нал:${(+guest.paidCash).toLocaleString()}`, guest.paidCard>0&&`Карта:${(+guest.paidCard).toLocaleString()}`, guest.paidQR>0&&`QR:${(+guest.paidQR).toLocaleString()}`].filter(Boolean).join(' · ')||'—'],
                                     ].map(([l,v])=>(
                                         <div key={l}>
                                             <span className="text-[10px] text-slate-400">{l}: </span>
@@ -510,21 +539,21 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
                             {isBooking ? (
                                 <div className="space-y-2">
-                                    <div className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl text-amber-800 text-sm font-bold flex items-center gap-2"><Clock size={15}/> БРОНЬ — не заселён</div>
-                                    <button onClick={()=>onActivateBooking(guest)} className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold">ЗАСЕЛИТЬ</button>
+                                    <div className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl text-amber-800 text-sm font-bold flex items-center gap-2"><Clock size={15}/> {t('bookingPending')}</div>
+                                    <button onClick={()=>onActivateBooking(guest)} className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold">{t('checkin')}</button>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={()=>setCurrentView('moveDate')} className="py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-1"><Calendar size={14}/> Перенести</button>
-                                        <button onClick={handleDelete} className="py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 flex items-center justify-center gap-1"><Trash2 size={14}/> Отменить</button>
+                                        <button onClick={()=>setCurrentView('moveDate')} className="py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-1"><Calendar size={14}/> {t('postpone')}</button>
+                                        <button onClick={handleDelete} className="py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 flex items-center justify-center gap-1"><Trash2 size={14}/> {t('cancel')}</button>
                                     </div>
                                 </div>
                             ) : !isCheckedOut ? (
                                 <div className="grid grid-cols-2 gap-2">
                                     {canPay && (
-                                        <button onClick={()=>setCurrentView('pay')} className="py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 flex items-center justify-center gap-1.5"><Wallet size={15}/> Оплата</button>
+                                        <button onClick={()=>setCurrentView('pay')} className="py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 flex items-center justify-center gap-1.5"><Wallet size={15}/> {t('payment')}</button>
                                     )}
-                                    <button onClick={()=>setCurrentView('extend')}   className="py-3 rounded-xl bg-sky-500    text-white font-bold text-sm hover:bg-sky-600    flex items-center justify-center gap-1.5"><Clock size={15}/> Продлить</button>
-                                    <button onClick={()=>setCurrentView('split')}    className="py-3 rounded-xl bg-amber-400  text-white font-bold text-sm hover:bg-amber-500  flex items-center justify-center gap-1.5"><Split size={15}/> Пауза</button>
-                                    <button onClick={()=>setCurrentView('checkout')} className="py-3 rounded-xl bg-rose-500   text-white font-bold text-sm hover:bg-rose-600   flex items-center justify-center gap-1.5"><LogOut size={15}/> Выселить</button>
+                                    <button onClick={()=>setCurrentView('extend')}   className="py-3 rounded-xl bg-sky-500    text-white font-bold text-sm hover:bg-sky-600    flex items-center justify-center gap-1.5"><Clock size={15}/> {t('extend')}</button>
+                                    <button onClick={()=>setCurrentView('split')}    className="py-3 rounded-xl bg-amber-400  text-white font-bold text-sm hover:bg-amber-500  flex items-center justify-center gap-1.5"><Split size={15}/> {t('pauseBtn')}</button>
+                                    <button onClick={()=>setCurrentView('checkout')} className="py-3 rounded-xl bg-rose-500   text-white font-bold text-sm hover:bg-rose-600   flex items-center justify-center gap-1.5"><LogOut size={15}/> {t('evict')}</button>
                                 </div>
                             ) : null}
                         </div>
@@ -560,19 +589,19 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             {isAdmin && <button onClick={handleDelete} className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title="Удалить"><Trash2 size={17}/></button>}
                             {isAdmin && !isCheckedOut && <button onClick={()=>setCurrentView('admin')} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title="Админ"><Lock size={17}/></button>}
                             {currentUser.role === 'super' && !isCheckedOut && <button onClick={()=>setCurrentView('superPay')} className="p-2 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg" title="Зачёт суммы"><ShieldCheck size={17}/></button>}
-                            {(currentUser.role === 'super' || currentUser.canViewHostel1 || currentUser.canRestoreGuests) && isCheckedOut && <button onClick={()=>{ if(confirm('Восстановить гостя как активного?')) { onUpdate(guest.id, { status: 'active', autoCheckedOut: false, systemComment: '' }); notify('Гость восстановлен', 'success'); onClose(); }}} className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-violet-100 text-violet-700 hover:bg-violet-200 rounded-lg text-xs font-bold" title="Восстановить гостя"><RotateCcw size={14}/> Восстановить</button>}
+                            {(currentUser.role === 'super' || currentUser.canViewHostel1 || currentUser.canRestoreGuests) && isCheckedOut && <button onClick={()=>{ if(confirm('Восстановить гостя как активного?')) { onUpdate(guest.id, { status: 'active', autoCheckedOut: false, systemComment: '' }); notify('Гость восстановлен', 'success'); onClose(); }}} className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-violet-100 text-violet-700 hover:bg-violet-200 rounded-lg text-xs font-bold" title="Восстановить гостя"><RotateCcw size={14}/> {t('restoreGuest')}</button>}
                         </div>
                     </div>
                 )}
 
                 {currentView === 'pay' && (
                     <div className="flex flex-col overflow-hidden">
-                        {hdr('Оплата', true)}
+                        {hdr(t('payment'), true)}
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
                             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
-                                <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">Долг</span><span className="font-black text-rose-600 text-xl">{debt.toLocaleString()}</span></div>
-                                <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">Вношу</span><span className="font-black text-emerald-600 text-xl">+{((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)).toLocaleString()}</span></div>
-                                <div className="flex justify-between pt-2 border-t border-dashed border-slate-200"><span className="text-xs text-slate-400 uppercase font-bold">Останется</span><span className="font-bold text-slate-500">{Math.max(0,debt-((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))).toLocaleString()}</span></div>
+                                <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">{t('debt')}</span><span className="font-black text-rose-600 text-xl">{debt.toLocaleString()}</span></div>
+                                <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">{t('paying')}</span><span className="font-black text-emerald-600 text-xl">+{((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)).toLocaleString()}</span></div>
+                                <div className="flex justify-between pt-2 border-t border-dashed border-slate-200"><span className="text-xs text-slate-400 uppercase font-bold">{t('willRemain')}</span><span className="font-bold text-slate-500">{Math.max(0,debt-((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))).toLocaleString()}</span></div>
                             </div>
                             {payFields}
                             {!isOnline && (
@@ -590,17 +619,30 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
                 {currentView === 'extend' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('Продление', true)}
+                        {hdr(t('extendTitle'), true)}
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
                             <div className="flex items-center justify-center gap-5">
                                 <button onClick={()=>setExtendDays(Math.max(1,extendDays-1))} className="w-14 h-14 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200"><Minus size={28}/></button>
                                 <div className="text-center">
                                     <input type="number" className="w-20 text-center text-5xl font-black text-slate-800 bg-transparent outline-none" value={extendDays} onChange={e=>setExtendDays(Math.max(1,parseInt(e.target.value)||1))} onWheel={disableWheel}/>
-                                    <div className="text-slate-400 font-bold text-xs uppercase">Дней</div>
+                                    <div className="text-slate-400 font-bold text-xs uppercase">{t('days')}</div>
                                 </div>
                                 <button onClick={()=>setExtendDays(d=>d+1)} className="w-14 h-14 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200"><Plus size={28}/></button>
                             </div>
                             <div className="flex gap-2 justify-center">{[1,3,7,30].map(d=><button key={d} onClick={()=>setExtendDays(d)} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-sm font-bold hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600">+{d}</button>)}</div>
+                            {extendConflict && (
+                                <div className="flex items-start gap-2 p-3 rounded-xl border bg-amber-50 border-amber-300">
+                                    <span className="text-amber-500 text-base shrink-0">⚠️</span>
+                                    <div>
+                                        <div className="font-black text-amber-700 text-sm">Место занято через {extendConflict.maxDays} дн.</div>
+                                        <div className="text-xs text-amber-600 mt-0.5">
+                                            <b>{extendConflict.nextGuest.fullName}</b> заезжает {new Date(extendConflict.nextGuest.checkInDate).toLocaleDateString('ru-RU')}.
+                                            Максимум: <b>{extendConflict.maxDays} дн.</b>
+                                            {extendConflict.isOver && <span className="ml-1 text-rose-600 font-black"> ❌ Невозможно!</span>}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {!isAdmin && (
                             <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
                                 <div className="text-xs font-bold text-slate-400 uppercase mb-3">Оплатить сейчас (опц.)</div>
@@ -608,7 +650,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             </div>
                             )}
                             <div className="flex justify-between items-center px-1">
-                                <span className="text-slate-500 font-bold">Стоимость:</span>
+                                <span className="text-slate-500 font-bold">{t('cost')}:</span>
                                 <span className="text-2xl font-black text-indigo-600">+{(extendDays*parseInt(guest.pricePerNight)).toLocaleString()}</span>
                             </div>
                             {!isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)) > 0 && (
@@ -618,7 +660,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                             )}
                             <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg disabled:opacity-60 flex items-center justify-center gap-2 ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
                                 {isPaymentSubmitting && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
-                                {(!isAdmin && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?'ОПЛАТИТЬ И ПРОДЛИТЬ':'ПРОДЛИТЬ (В ДОЛГ)'}
+                                {(!isAdmin && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0)?t('payAndExtend'):t('extendInDebt')}
                             </button>
                         </div>
                     </div>
@@ -626,13 +668,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
 
                 {currentView === 'checkout' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('Выселение', true)}
+                        {hdr(t('evict'), true)}
                         <div className="p-5 flex-1 overflow-y-auto space-y-4">
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-                                <div className="flex justify-between"><span className="text-slate-500">Прожито</span><span className="font-bold">{daysStayed} д.</span></div>
-                                <div className="flex justify-between"><span className="text-slate-500">Стоимость</span><span className="font-bold">{actualCost.toLocaleString()}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-500">{t('stayed')}</span><span className="font-bold">{daysStayed} {t('daysShort')}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-500">{t('cost')}</span><span className="font-bold">{actualCost.toLocaleString()}</span></div>
                                 <div className="h-px bg-slate-200"/>
-                                <div className="flex justify-between"><span className="text-slate-500">Оплачено</span><span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-500">{t('paid')}</span><span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
                             </div>
                             {balance < 0 ? (
                                 <div className="p-4 bg-rose-50 border-2 border-rose-100 rounded-xl text-center">
@@ -646,7 +688,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], onClose, on
                                     {balance > 0 && <input type="number" className="mt-3 w-full p-2.5 text-center border border-emerald-200 rounded-xl outline-none font-bold" placeholder="Возврат (опц.)" value={checkoutManualRefund} onChange={e=>setCheckoutManualRefund(e.target.value)}/>}
                                 </div>
                             )}
-                            <button onClick={handleDoCheckout} disabled={isPaymentSubmitting} className="w-full py-3.5 bg-rose-600 text-white rounded-xl font-black shadow-xl shadow-rose-200 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed">ПОДТВЕРДИТЬ ВЫСЕЛЕНИЕ</button>
+                            <button onClick={handleDoCheckout} disabled={isPaymentSubmitting} className="w-full py-3.5 bg-rose-600 text-white rounded-xl font-black shadow-xl shadow-rose-200 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed">{t('confirmEviction')}</button>
                         </div>
                     </div>
                 )}

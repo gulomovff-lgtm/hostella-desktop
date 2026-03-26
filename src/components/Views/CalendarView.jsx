@@ -86,7 +86,7 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
                     <div className="flex-1">
                         <h4 className="font-black text-xl text-white mb-1 tracking-tight">{guest.fullName}</h4>
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-                            <span className="flex items-center gap-1 bg-white/10 px-2 py-0.5 rounded"><User size={10}/> {guest.passport || 'Нет пасп.'}</span>
+                            <span className="flex items-center gap-1 bg-white/10 px-2 py-0.5 rounded"><User size={10}/> {guest.passport || t('noPassport')}</span>
                             <span>{guest.country}</span>
                         </div>
                     </div>
@@ -96,13 +96,13 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
                         isBonus?'bg-orange-400 text-white':
                         isExpired?'bg-rose-500 text-white':
                         debt>0?'bg-orange-500 text-white':'bg-emerald-500 text-white'}`}>
-                        {guest.status==='booking'?'Бронь':guest.status==='checked_out'?'Выселен':isBonus?'🎁 Бонус':isExpired?'Просрочен':debt>0?'Долг':'Оплачено'}
+                        {guest.status==='booking'?t('booking'):guest.status==='checked_out'?t('calCheckedOutLabel'):isBonus?t('bonusBadge'):isExpired?t('calOverdueLabel'):debt>0?t('debt'):t('paid')}
                     </div>
                 </div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-4">
-                {[['Комната',`№${guest.roomNumber} / Место ${guest.bedId}`],['Период',`${guest.days} дн.`],
-                  ['Заезд',new Date(guest.checkInDate).toLocaleDateString()],['Выезд',checkOut.toLocaleDateString()]
+                {[[t('room'),`№${guest.roomNumber} / ${t('bed2')} ${guest.bedId}`],[t('period'),`${guest.days} ${t('daysShort')}`],
+                  [t('arrivalLabel'),new Date(guest.checkInDate).toLocaleDateString()],[t('checkoutDate'),checkOut.toLocaleDateString()]
                 ].map(([l,v])=>(
                     <div key={l} className="bg-slate-800/50 rounded-xl p-3 border border-white/5">
                         <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">{l}</div>
@@ -112,23 +112,23 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
             </div>
             {guest.status !== 'booking' && (
                 <div className="bg-slate-800/50 rounded-xl p-4 mb-4 border border-white/5">
-                    <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase">К оплате</span><span className="font-bold text-lg">{guest.totalPrice?.toLocaleString()}</span></div>
-                    <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/10"><span className="text-xs font-bold text-slate-400 uppercase">Оплачено</span><span className="font-bold text-emerald-400 text-lg">{totalPaid.toLocaleString()}</span></div>
+                    <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase">{t('totalDue')}</span><span className="font-bold text-lg">{guest.totalPrice?.toLocaleString()}</span></div>
+                    <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/10"><span className="text-xs font-bold text-slate-400 uppercase">{t('paid')}</span><span className="font-bold text-emerald-400 text-lg">{totalPaid.toLocaleString()}</span></div>
                     {debt > 0
-                        ? <div className="flex justify-between items-center pt-1"><span className="text-xs font-bold text-rose-400 uppercase">Остаток долга</span><span className="font-black text-rose-400 text-xl">-{debt.toLocaleString()}</span></div>
-                        : <div className="text-center text-xs font-bold text-emerald-500 uppercase pt-1">Вся сумма оплачена</div>}
+                        ? <div className="flex justify-between items-center pt-1"><span className="text-xs font-bold text-rose-400 uppercase">{t('debtRemaining')}</span><span className="font-black text-rose-400 text-xl">-{debt.toLocaleString()}</span></div>
+                        : <div className="text-center text-xs font-bold text-emerald-500 uppercase pt-1">{t('allPaid')}</div>}
                 </div>
             )}
             {guest.status === 'active' && !isExpired && (
                 <div className="bg-slate-800/30 rounded-xl p-3 border border-white/5">
-                    <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase mb-2"><span>Прогресс</span><span>{daysStayed}/{daysTotal} дн.</span></div>
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase mb-2"><span>{t('progress')}</span><span>{daysStayed}/{daysTotal} {t('daysShort')}</span></div>
                     <div className="w-full h-3 bg-slate-700 rounded-full overflow-hidden">
                         <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
                             style={{ width:`${Math.min(100,(daysStayed/daysTotal)*100)}%` }}/>
                     </div>
                     <div className="flex justify-between items-center mt-2">
-                        <div className="text-xs font-bold text-slate-300">Осталось: <span className="text-white">{daysLeft} дн.</span></div>
-                        {debt > 0 && <div className="text-[9px] font-bold text-rose-400 bg-rose-400/10 px-1.5 py-0.5 rounded-md uppercase">Есть долг</div>}
+                        <div className="text-xs font-bold text-slate-300">{t('daysLeft')}: <span className="text-white">{daysLeft} {t('daysShort')}</span></div>
+                        {debt > 0 && <div className="text-[9px] font-bold text-rose-400 bg-rose-400/10 px-1.5 py-0.5 rounded-md uppercase">{t('hasDebt')}</div>}
                     </div>
                 </div>
             )}
@@ -137,9 +137,9 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
                     <div className="flex items-center gap-2">
                         <span className="text-lg">🎁</span>
                         <div>
-                            <span className="text-xs font-bold text-orange-300 uppercase">Бонусных дней</span>
+                            <span className="text-xs font-bold text-orange-300 uppercase">{t('bonusDaysLabel')}</span>
                             <div className="text-[10px] text-orange-400/80">
-                                {(guest.bonusDaysAdded || 0) > 0 ? 'начислено' : 'доступно'}
+                                {(guest.bonusDaysAdded || 0) > 0 ? t('bonusAwarded') : t('bonusAvailable')}
                             </div>
                         </div>
                     </div>
@@ -267,7 +267,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             if (seen.has(g.id)) return false; seen.add(g.id);
             const ci = parseDate(g.checkInDate || g.checkInDateTime);
             const isOut = g.status === 'checked_out';
-            const co = parseDate((!isOut && g.bonusCheckOutDate) ? g.bonusCheckOutDate : g.checkOutDate);
+            const regCo   = parseDate(g.checkOutDate);
+            const bonusCo = (!isOut && g.bonusCheckOutDate) ? parseDate(g.bonusCheckOutDate) : null;
+            const co = (bonusCo && regCo && bonusCo > regCo) ? bonusCo : (regCo || bonusCo);
             if (!ci) return false;
             if (co && co < rangeStart) return false;
             if (ci > rangeEnd) return false;
@@ -287,7 +289,10 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         filteredGuests.forEach(g => {
             let ci = parseDate(g.checkInDate || g.checkInDateTime);
             const isOut = g.status === 'checked_out';
-            let co = parseDate((!isOut && g.bonusCheckOutDate) ? g.bonusCheckOutDate : g.checkOutDate);
+            const regCoDate   = parseDate(g.checkOutDate);
+            const bonusCoDate = (!isOut && g.bonusCheckOutDate) ? parseDate(g.bonusCheckOutDate) : null;
+            // Конец бара = max(checkOutDate, bonusCheckOutDate)
+            let co = (bonusCoDate && regCoDate && bonusCoDate > regCoDate) ? bonusCoDate : (regCoDate || bonusCoDate);
             if (!ci) return;
             if (!co) { co = new Date(ci); co.setDate(co.getDate() + parseInt(g.days || 1)); }
             ci = new Date(ci); ci.setHours(12,0,0,0);
@@ -297,18 +302,27 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const widthPx = Math.max(DAY_W, endPx - startPx);
             if (endPx <= 0 || startPx >= zoom * DAY_W) { result[g.id] = null; return; }
             const visWidth = Math.min(widthPx, zoom * DAY_W - startPx);
-            // Правильный % перехода зелёный→оранжевый: считаем от видимого начала бара
-            let bonusColorPct;
-            if (!isOut && g.bonusCheckOutDate) {
-                const normalCo = parseDate(g.checkOutDate);
-                if (normalCo) {
-                    normalCo.setHours(12, 0, 0, 0);
-                    const normalCoPx = (normalCo.getTime() - rangeStartMs) / 86400000 * DAY_W;
-                    const inBarPx = normalCoPx - startPx;
+            let bonusColorPct, bonusPct1, bonusPct2;
+            if (!isOut && bonusCoDate && regCoDate) {
+                const bCo = new Date(bonusCoDate); bCo.setHours(12,0,0,0);
+                const rCo = new Date(regCoDate);   rCo.setHours(12,0,0,0);
+                if (bCo > rCo) {
+                    // Бонус В КОНЦЕ бара (старое поведение)
+                    const inBarPx = rCo.getTime()/86400000*DAY_W - rangeStartMs/86400000*DAY_W - startPx;
                     bonusColorPct = visWidth > 0 ? Math.max(1, Math.min(99, Math.round(inBarPx / visWidth * 100))) : 70;
+                } else {
+                    // Бонус В СЕРЕДИНЕ бара (после бонуса гость продлился)
+                    const bonusDaysAdded = g.bonusDaysAdded || 0;
+                    const bonusStartMs = bCo.getTime() - bonusDaysAdded * 86400000;
+                    const p1Px = bonusStartMs / 86400000 * DAY_W - rangeStartMs / 86400000 * DAY_W - startPx;
+                    const p2Px = bCo.getTime() / 86400000 * DAY_W - rangeStartMs / 86400000 * DAY_W - startPx;
+                    const p1 = visWidth > 0 ? Math.round(p1Px / visWidth * 100) : 40;
+                    const p2 = visWidth > 0 ? Math.round(p2Px / visWidth * 100) : 60;
+                    bonusPct1 = Math.max(1, Math.min(98, p1));
+                    bonusPct2 = Math.max(bonusPct1 + 1, Math.min(99, p2));
                 }
             }
-            result[g.id] = { left: startPx, width: visWidth, bonusColorPct };
+            result[g.id] = { left: startPx, width: visWidth, bonusColorPct, bonusPct1, bonusPct2 };
         });
         return result;
     }, [filteredGuests, days, DAY_W, zoom]);
@@ -319,7 +333,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const count = filteredGuests.filter(g => {
                 if (g.status === 'checked_out') return false;
                 const ci = parseDate(g.checkInDate || g.checkInDateTime);
-                const co = parseDate(g.bonusCheckOutDate ? g.bonusCheckOutDate : g.checkOutDate);
+                const bCo = g.bonusCheckOutDate ? parseDate(g.bonusCheckOutDate) : null;
+                const rCo = parseDate(g.checkOutDate);
+                const co  = (bCo && rCo && bCo > rCo) ? bCo : (rCo || bCo);
                 if (!ci) return false;
                 const ciStr = getLocalDateString(ci);
                 const coStr = co ? getLocalDateString(co) : null;
@@ -329,22 +345,26 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         });
     }, [filteredGuests, days, rooms]);
 
-    const getBarStyle = useCallback((g, bonusColorPct) => {
+    const getBarStyle = useCallback((g, barData) => {
+        const { bonusColorPct, bonusPct1, bonusPct2 } = barData || {};
         const paid  = getTotalPaid(g);
         const debt  = (g.totalPrice || 0) - paid;
         const isOut = g.status === 'checked_out';
         const isBk  = g.status === 'booking';
         const co    = parseDate(g.checkOutDate);
         const bonusCo = g.bonusCheckOutDate ? parseDate(g.bonusCheckOutDate) : null;
-        const effectiveCo = bonusCo || co;
+        const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : co;
         const isExp = effectiveCo && new Date() > effectiveCo && !isOut;
         const pct   = g.totalPrice ? Math.min(100, Math.round((paid / g.totalPrice) * 100)) : 100;
         if (isBk)  return { cls: 'border-yellow-500 text-yellow-900', bg: '#fef08a' };
         if (isExp) return { cls: 'border-red-700 text-white', bg: '#dc2626' };
         if (isOut && debt > 0) return { cls: 'border-rose-300 text-rose-700', bg: '#fecdd3' };
         if (isOut) return { cls: 'border-slate-300 text-slate-500', bg: '#e2e8f0' };
-        // Бонусный участок — градиент зелёный → оранжевый
-        // pp вычислен в guestBars с учётом левого клиппинга бара (точное совмещение с колонкой даты)
+        // Бонус В СЕРЕДИНЕ бара: зелёный → оранжевый → зелёный
+        if (bonusCo && co && bonusCo <= co && bonusPct1 != null && bonusPct2 != null) {
+            return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${bonusPct1}%,#f97316 ${bonusPct1}%,#ea580c ${bonusPct2}%,#16a34a ${bonusPct2}%,#22c55e 100%)` };
+        }
+        // Бонус В КОНЦЕ бара: зелёный → оранжевый
         if (bonusCo && co && bonusCo > co) {
             const pp = bonusColorPct ?? 70;
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
@@ -377,10 +397,11 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
     const monthLabel = useMemo(() => {
         const months = days.reduce((acc, d) => { const k = `${d.date.getFullYear()}-${d.month}`; acc[k] = d.date; return acc; }, {});
-        return Object.values(months).map(d => d.toLocaleDateString('ru', { month: 'long', year: 'numeric' })).join(' / ');
-    }, [days]);
+        const locale = lang === 'uz' ? 'uz-UZ' : 'ru';
+        return Object.values(months).map(d => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })).join(' / ');
+    }, [days, lang]);
 
-    const WDAY = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+    const WDAY = t('weekdaysShort');
     const totalWidth = LABEL_W + zoom * DAY_W;
 
     return (
@@ -390,7 +411,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                 <div className="flex items-center gap-1">
                     <button onClick={() => shift(-7)} title="-7 дней" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronsLeft size={15}/></button>
                     <button onClick={() => shift(-1)} title="-1 день" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronLeft size={15}/></button>
-                    <button onClick={goToday} className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-700 shadow-sm">Сегодня</button>
+                    <button onClick={goToday} className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-700 shadow-sm">{t('today')}</button>
                     <button onClick={() => shift(1)} title="+1 день" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronRight size={15}/></button>
                     <button onClick={() => shift(7)} title="+7 дней" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronsRight size={15}/></button>
                 </div>
@@ -408,10 +429,10 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                 </div>
                 <div className="relative">
                     <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск гостя…" className="pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-36"/>
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('calSearchPlaceholder')} className="pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-36"/>
                 </div>
                 <div className="hidden lg:flex items-center gap-3 text-[10px] font-bold text-slate-500 border-l border-slate-200 pl-3 ml-1">
-                    {[{bg:'#22c55e',label:'Оплачено'},{bg:'#fef08a',label:'Бронь',border:'#ca8a04'},{bg:'#ef4444',label:'Долг'},{bg:'#dc2626',label:'Просрочен'},{bg:'#e2e8f0',label:'Выселен',border:'#94a3b8'}].map(l => (
+                    {[{bg:'#22c55e',label:t('paid')},{bg:'#fef08a',label:t('booking'),border:'#ca8a04'},{bg:'#ef4444',label:t('debt')},{bg:'#dc2626',label:t('calOverdueLabel')},{bg:'#e2e8f0',label:t('calCheckedOutLabel'),border:'#94a3b8'}].map(l => (
                         <div key={l.label} className="flex items-center gap-1">
                             <span className="w-3 h-3 rounded inline-block flex-shrink-0 border" style={{ background:l.bg, borderColor:l.border||l.bg }}/>
                             {l.label}
@@ -424,7 +445,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             <div className="md:hidden shrink-0 bg-white border-b border-slate-200 shadow-sm z-50">
                 <div className="flex items-center gap-1 px-2 py-1.5">
                     <button onClick={() => shift(-zoom)} className="p-1.5 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200 shrink-0"><ChevronLeft size={16}/></button>
-                    <button onClick={goToday} className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-black active:bg-slate-700 shrink-0">Сег</button>
+                    <button onClick={goToday} className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-black active:bg-slate-700 shrink-0">{t('today')}</button>
                     <button onClick={() => shift(zoom)} className="p-1.5 rounded-lg bg-slate-100 text-slate-600 active:bg-slate-200 shrink-0"><ChevronRight size={16}/></button>
                     <span className="flex-1 text-center text-xs font-bold text-slate-700 capitalize truncate px-1">{monthLabel}</span>
                     <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 shrink-0">
@@ -438,7 +459,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                 </div>
                 <div className="relative px-2 pb-1.5">
                     <Search size={11} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск гостя…"
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('calSearchPlaceholder')}
                         className="w-full pl-6 pr-3 py-1 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none"/>
                 </div>
             </div>
@@ -449,7 +470,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     {/* Date header */}
                     <div className="flex sticky top-0 z-40 bg-white border-b-2 border-slate-200 shadow-sm" style={{ height: 42 }}>
                         <div className="shrink-0 flex items-center justify-center bg-slate-50 border-r-2 border-slate-300 text-[10px] font-black text-slate-400 uppercase tracking-wide sticky left-0 z-50" style={{ width: LABEL_W }}>
-                            Номер / Место
+                            {t('calRoomBed')}
                         </div>
                         {days.map((d, i) => {
                             const isToday = d.str === todayStr;
@@ -457,9 +478,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                             return (
                                 <div key={d.str} className={`shrink-0 relative flex flex-col items-center justify-center border-r select-none
                                     ${isToday ? 'bg-indigo-600 text-white' : isSun || isSat ? 'bg-amber-50 text-amber-700' : 'bg-white text-slate-600'}
-                                    ${i > 0 ? 'border-slate-200' : ''}`} style={{ width: DAY_W }}>
+                                    border-slate-200`} style={{ width: DAY_W }}>
                                     {isNew && <span className={`absolute -left-px top-0 h-full w-0.5 ${isToday ? 'bg-indigo-400' : 'bg-slate-300'}`}/>}
-                                    {isNew && <span className={`absolute top-0 left-1 text-[8px] font-black uppercase ${isToday ? 'text-indigo-200' : 'text-slate-400'}`}>{d.date.toLocaleDateString('ru',{month:'short'})}</span>}
+                                    {isNew && <span className={`absolute top-0 left-1 text-[8px] font-black uppercase ${isToday ? 'text-indigo-200' : 'text-slate-400'}`}>{d.date.toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru',{month:'short'})}</span>}
                                     <span className={`text-[9px] font-bold uppercase leading-none mt-1 ${isToday ? 'text-indigo-200' : isSun||isSat ? 'text-amber-500' : 'text-slate-400'}`}>{WDAY[d.wd]}</span>
                                     <span className={`text-sm font-black leading-tight ${isToday ? 'text-white' : ''}`}>{d.day}</span>
                                 </div>
@@ -469,7 +490,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
                     {/* Occupancy summary row */}
                     <div className="flex sticky top-[42px] z-30 bg-white border-b border-slate-200" style={{ height: 22 }}>
-                        <div className="shrink-0 flex items-center justify-center bg-slate-50 border-r-2 border-slate-300 text-[9px] font-black text-slate-400 uppercase sticky left-0 z-40" style={{ width: LABEL_W }}>Загрузка</div>
+                        <div className="shrink-0 flex items-center justify-center bg-slate-50 border-r-2 border-slate-300 text-[9px] font-black text-slate-400 uppercase sticky left-0 z-40" style={{ width: LABEL_W }}>{t('occupancy')}</div>
                         {dailyOcc.map((o, i) => {
                             const isToday = days[i].str === todayStr;
                             const color = o.pct >= 90 ? '#10b981' : o.pct >= 60 ? '#f59e0b' : o.pct >= 30 ? '#6366f1' : '#94a3b8';
@@ -541,7 +562,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                 {bedGuests.map(g => {
                                                     const bar = guestBars[g.id];
                                                     if (!bar) return null;
-                                                    const style = getBarStyle(g, bar.bonusColorPct);
+                                                    const style = getBarStyle(g, bar);
                                                     const paid = getTotalPaid(g);
                                                     const debt = (g.totalPrice || 0) - paid;
                                                     const isOut = g.status === 'checked_out';

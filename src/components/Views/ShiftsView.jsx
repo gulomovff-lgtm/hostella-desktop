@@ -32,11 +32,11 @@ const FillButton = ({ onClick, disabled }) => (
 );
 
 // --- ShiftsView ---
-const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTransferShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, payments = [] }) => {
+const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, onTransferShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, payments = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
-    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+    const myActiveShift = shifts.find(s => (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login)) && !s.endTime);
     const allCashiers = users.filter(u => u.role === 'cashier' && u.id !== currentUser.id);
     const [transferTarget, setTransferTarget] = useState('');
     const [view, setView] = useState('grid');
@@ -50,7 +50,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
     const [shiftForm, setShiftForm] = useState({ staffId: '', startTime: '', endTime: '', hostelId: 'hostel1' });
     const [hoveredCell, setHoveredCell] = useState(null);
 
-    const cashierIds = useMemo(() => new Set(users.filter(u => u.role === 'cashier').map(u => u.id)), [users]);
+    const cashierIds = useMemo(() => new Set((allUsers || users).filter(u => u.role === 'cashier').map(u => u.id)), [users, allUsers]);
 
     const displayedShifts = useMemo(() => {
         // Смены только кассиров — admin не учитывается
@@ -190,7 +190,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
 
     const handleExportExcel = () => {
         const rows = displayedShifts.map(s => {
-            const staff = users.find(u=>u.id===s.staffId)?.name||'?';
+            const staff = (users.find(u=>u.id===s.staffId || (s.staffLogin && u.login===s.staffLogin)))?.name || s.staffName || '?';
             const start = new Date(s.startTime), end = s.endTime ? new Date(s.endTime) : null;
             const hours = end ? ((end-start)/3600000).toFixed(1) : '—';
             const salary = end ? calculateSalary(s.startTime, s.endTime) : 0;
@@ -255,15 +255,17 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                         </div>
                         <div className="space-y-2">
                             {activeShifts.map(s => {
-                                const staff = users.find(u => u.id === s.staffId);
+                                const resolveList = allUsers || users;
+                                const staff = resolveList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
                                 const hoursGone = ((Date.now() - new Date(s.startTime)) / 3600000).toFixed(1);
                                 const isOrphaned = !staff;
+                                const displayName = staff?.name || s.staffName || (isOrphaned ? '⚠ Удалённый пользователь' : '?');
                                 return (
                                     <div key={s.id} className={`flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 border ${isOrphaned ? 'border-amber-200 bg-amber-50' : 'border-rose-100'}`}>
                                         <div className={`w-2 h-2 rounded-full ${isOrphaned ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'} shrink-0`}/>
                                         <div className="flex-1 min-w-0">
                                             <span className={`font-bold ${isOrphaned ? 'text-amber-700' : 'text-slate-800'}`}>
-                                                {staff?.name || '⚠ Удалённый пользователь'}
+                                                {displayName}
                                             </span>
                                             <span className="text-slate-400 text-sm ml-2">{HOSTELS[s.hostelId]?.name}</span>
                                             <span className="text-slate-400 text-xs ml-2">с {fmtTime(s.startTime)} {fmtDate(s.startTime)} · {hoursGone}ч</span>
@@ -384,6 +386,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                                                 </th>
                                             );
                                         })}
+                                        <th className="border-b-2 border-slate-200 bg-slate-50 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{minWidth:52}} rowSpan={2}>Смен</th>
                                         <th className="border-b-2 border-slate-200 bg-slate-50 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{minWidth:80}} rowSpan={2}>Итого</th>
                                     </tr>
                                     <tr>
@@ -410,6 +413,7 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                                         const staffShifts = shiftMap[staff.id] || {};
                                         const totalH = displayedShifts.filter(s=>s.staffId===staff.id&&s.endTime).reduce((sum,s)=>sum+(new Date(s.endTime)-new Date(s.startTime))/3600000,0);
                                         const totalS = displayedShifts.filter(s=>s.staffId===staff.id&&s.endTime).reduce((sum,s)=>sum+calculateSalary(s.startTime,s.endTime),0);
+                                        const fullShifts = displayedShifts.filter(s=>s.staffId===staff.id&&s.endTime&&(new Date(s.endTime)-new Date(s.startTime))/3600000>=6).length;
                                         const hasActive = displayedShifts.some(s=>s.staffId===staff.id&&!s.endTime);
                                         return (
                                             <tr key={staff.id} className={si%2===0?'bg-white':'bg-slate-50/50'}>
@@ -478,6 +482,10 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                                                         });
                                                     });
                                                 })()}
+                                                <td className="px-3 text-center border-l border-slate-100">
+                                                    <div className="text-base font-black text-indigo-700">{fullShifts}</div>
+                                                    <div className="text-[9px] text-slate-400">&gt;6ч</div>
+                                                </td>
                                                 <td className="px-3 text-right">
                                                     <div className="text-sm font-black text-indigo-600">{totalH.toFixed(1)}ч</div>
                                                     <div className="text-[10px] text-slate-400">{fmt(totalS)}</div>
@@ -499,6 +507,10 @@ const ShiftsView = ({ shifts, users, currentUser, onStartShift, onEndShift, onTr
                                                 );
                                             });
                                         })}
+                                        <td className="px-3 text-center border-l border-slate-200">
+                                            <div className="text-base font-black text-indigo-700">{displayedShifts.filter(s=>s.endTime&&(new Date(s.endTime)-new Date(s.startTime))/3600000>=6).length}</div>
+                                            <div className="text-[9px] text-slate-400">&gt;6ч</div>
+                                        </td>
                                         <td className="px-3 text-right">
                                             <div className="text-sm font-black text-indigo-600">{kpi.totalH}ч</div>
                                             <div className="text-[10px] text-slate-400">{fmt(kpi.totalSal)}</div>

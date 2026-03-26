@@ -82,8 +82,8 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
     // Resolve staffId → user name
     const resolveUser = (staffId) => {
         if (!staffId) return '—';
-        const u = users.find(u => u.id === staffId || u.login === staffId);
-        return u?.name || u?.login || staffId;
+        const u = users.find(u => u.id === staffId || u.uid === staffId || u.login === staffId);
+        return u?.name || u?.login || '(Удалённый кассир)';
     };
 
     // Unique cashiers from payments (for filter dropdown)
@@ -226,19 +226,194 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         else { setSortKey(key); setSortAsc(false); }
     };
 
+    const handleExportExcel = () => {
+        const today = new Date().toLocaleString('ru');
+        const dl  = iso => iso ? new Date(iso).toLocaleDateString('ru') : '';
+        const dt  = iso => iso ? new Date(iso).toLocaleString('ru')     : '';
+        const esc = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+        const sc  = (v, id='')  => `<Cell${id?` ss:StyleID="${id}"`:''} ><Data ss:Type="String">${esc(v)}</Data></Cell>`;
+        const nc  = (v, id='')  => `<Cell${id?` ss:StyleID="${id}"`:''} ><Data ss:Type="Number">${isNaN(+v)?0:+v}</Data></Cell>`;
+        const eR  = ()          => '<Row ss:Height="5"/>';
+        const row = (...cs)     => `<Row>${cs.join('')}</Row>`;
+        const hR  = (...cs)     => `<Row ss:Height="22">${cs.join('')}</Row>`;
+
+        const styles = `<Styles>
+          <Style ss:ID="title"><Font ss:Bold="1" ss:Size="12" ss:Color="#1a3c40"/><Alignment ss:Vertical="Center"/></Style>
+          <Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:Size="10"/>
+            <Interior ss:Color="#1a3c40" ss:Pattern="Solid"/>
+            <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+            <Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#e88c40"/></Borders></Style>
+          <Style ss:ID="e"><Interior ss:Color="#f0f7f8" ss:Pattern="Solid"/><Font ss:Size="10"/><Alignment ss:Vertical="Center"/></Style>
+          <Style ss:ID="o"><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Font ss:Size="10"/><Alignment ss:Vertical="Center"/></Style>
+          <Style ss:ID="ne"><Interior ss:Color="#f0f7f8" ss:Pattern="Solid"/><Font ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="no"><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Font ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="warn"><Interior ss:Color="#fff3cd" ss:Pattern="Solid"/><Font ss:Color="#856404" ss:Bold="1" ss:Size="10"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
+          <Style ss:ID="ok"><Interior ss:Color="#d1fae5" ss:Pattern="Solid"/><Font ss:Color="#065f46" ss:Bold="1" ss:Size="10"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
+          <Style ss:ID="ge"><Interior ss:Color="#f0f7f8" ss:Pattern="Solid"/><Font ss:Color="#16a34a" ss:Bold="1" ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="go"><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Font ss:Color="#16a34a" ss:Bold="1" ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="de"><Interior ss:Color="#f0f7f8" ss:Pattern="Solid"/><Font ss:Color="#dc2626" ss:Bold="1" ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="do"><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Font ss:Color="#dc2626" ss:Bold="1" ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="tot"><Interior ss:Color="#1a3c40" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Color="#FFFFFF" ss:Size="10"/><NumberFormat ss:Format="#,##0"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+          <Style ss:ID="totl"><Interior ss:Color="#1a3c40" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Color="#e88c40" ss:Size="10"/><Alignment ss:Vertical="Center"/></Style>
+        </Styles>`;
+
+        // ═══ ЛИСТ 1 — Сводка (то что на экране) ════════════════════════
+        const s1cols = `<Column ss:Width="30"/><Column ss:Width="200"/><Column ss:Width="130"/>
+          <Column ss:Width="70"/><Column ss:Width="180"/><Column ss:Width="85"/>
+          <Column ss:Width="115"/><Column ss:Width="105"/><Column ss:Width="90"/><Column ss:Width="80"/>`;
+
+        const s1rows = filtered.map((grp, i) => {
+            const s = i%2===0, ns = s?'ne':'no', es = s?'e':'o';
+            const varied = grp.hasPriceVariation;
+            return row(
+                nc(i+1, es),
+                sc(grp.name, es),
+                sc(grp.hostels.map(h=>HOSTELS[h]||h).join(', '), es),
+                nc(grp.stayCount, ns),
+                sc(grp.validPrices.map(p=>p.toLocaleString('ru')).join(' / '), es),
+                sc(varied ? 'Да' : 'Нет', varied ? 'warn' : 'ok'),
+                nc(grp.totalAmount, ns),
+                nc(grp.totalPaid,   s?'ge':'go'),
+                nc(grp.totalDebt,   grp.totalDebt>0 ? (s?'de':'do') : (s?'ge':'go')),
+                sc(grp.isActive ? 'Живет' : 'Выехал', es),
+            );
+        }).join('');
+
+        const tA = filtered.reduce((s,g)=>s+g.totalAmount,0);
+        const tP = filtered.reduce((s,g)=>s+g.totalPaid,0);
+        const tD = filtered.reduce((s,g)=>s+g.totalDebt,0);
+        const tS = filtered.reduce((s,g)=>s+g.stayCount,0);
+
+        const sheet1 = `<Worksheet ss:Name="Гости (экран)"><Table>${s1cols}
+          ${hR(sc(`HOSTELLA — Список гостей    Дата: ${today}    Гостей: ${filtered.length}`,'title'))}
+          ${eR()}
+          ${hR(sc('N','hdr'),sc('ФИО гостя','hdr'),sc('Хостел(ы)','hdr'),sc('Заселений','hdr'),
+               sc('Цены сум/ночь','hdr'),sc('Разные цены','hdr'),sc('Начислено','hdr'),
+               sc('Оплачено','hdr'),sc('Долг','hdr'),sc('Статус','hdr'))}
+          ${s1rows}
+          ${eR()}
+          ${row(sc('','totl'),sc('ИТОГО','totl'),sc('','totl'),nc(tS,'tot'),sc('','totl'),sc('','totl'),
+               nc(tA,'tot'),nc(tP,'tot'),nc(tD,'tot'),sc('','totl'))}
+        </Table></Worksheet>`;
+
+        // ═══ ЛИСТ 2 — Детальные платежи ════════════════════════════════
+        const s2cols = `<Column ss:Width="30"/><Column ss:Width="190"/><Column ss:Width="115"/>
+          <Column ss:Width="70"/><Column ss:Width="60"/><Column ss:Width="90"/><Column ss:Width="90"/>
+          <Column ss:Width="55"/><Column ss:Width="90"/><Column ss:Width="75"/>
+          <Column ss:Width="135"/><Column ss:Width="95"/><Column ss:Width="85"/><Column ss:Width="75"/><Column ss:Width="60"/>
+          <Column ss:Width="155"/><Column ss:Width="115"/>`;
+
+        let rowN = 1;
+        const s2rows = filtered.map(grp =>
+            grp.stays.map(stay => {
+                const nights = (() => {
+                    try { const ms = new Date(stay.checkOutDate)-new Date(stay.checkInDate);
+                          return ms>0 ? Math.round(ms/86400000) : ''; } catch { return ''; }
+                })();
+                const base = [stay.fullName||'', HOSTELS[stay.hostelId]||stay.hostelId||'',
+                    stay.roomNumber||'', stay.bedId||'',
+                    dl(stay.checkInDate), dl(stay.checkOutDate),
+                    nights, parseInt(stay.pricePerNight)||0,
+                    stay.status==='active'?'Живет':'Выехал'];
+
+                if (stay.guestPayments.length === 0) {
+                    const i = rowN++; const s=i%2===0, es=s?'e':'o', ns=s?'ne':'no';
+                    return row(nc(i,es), sc(base[0],es), sc(base[1],es), sc(base[2],es), sc(base[3],es),
+                        sc(base[4],es), sc(base[5],es), nc(base[6],ns), nc(base[7],ns), sc(base[8],es),
+                        sc('',es), nc(0,ns), nc(0,ns), nc(0,ns), nc(0,ns), sc('',es), sc('',es));
+                }
+                return stay.guestPayments.map((p, pi) => {
+                    const i = pi===0 ? rowN++ : rowN-1;
+                    const s = i%2===0, es=s?'e':'o', ns=s?'ne':'no', gs=s?'ge':'go';
+                    return row(
+                        pi===0 ? nc(i,es) : sc('',es),
+                        sc(pi===0?base[0]:'', es), sc(pi===0?base[1]:'',es),
+                        sc(pi===0?base[2]:'',es), sc(pi===0?base[3]:'',es),
+                        sc(pi===0?base[4]:'',es), sc(pi===0?base[5]:'',es),
+                        pi===0?nc(base[6],ns):sc('',es), pi===0?nc(base[7],ns):sc('',es),
+                        sc(pi===0?base[8]:'',es),
+                        sc(dt(p.date),es),
+                        nc(parseInt(p.amount)||0, gs),
+                        nc(parseInt(p.cash)||0,   ns),
+                        nc(parseInt(p.card)||0,   ns),
+                        nc(parseInt(p.qr)||0,     ns),
+                        sc(p.cashierName||'', es),
+                        sc(HOSTELS[p.hostelId]||p.hostelId||'', es),
+                    );
+                }).join('');
+            }).join('')
+        ).join('');
+
+        const sheet2 = `<Worksheet ss:Name="Платежи (детально)"><Table>${s2cols}
+          ${hR(sc(`HOSTELLA — Детальные платежи    Дата: ${today}`,'title'))}
+          ${eR()}
+          ${hR(sc('N','hdr'),sc('ФИО гостя','hdr'),sc('Хостел','hdr'),sc('Комната','hdr'),sc('Место','hdr'),
+               sc('Дата заезда','hdr'),sc('Дата выезда','hdr'),sc('Ночей','hdr'),sc('Цена/ночь','hdr'),sc('Статус','hdr'),
+               sc('Дата оплаты','hdr'),sc('Сумма','hdr'),sc('Наличные','hdr'),sc('Карта','hdr'),sc('QR','hdr'),
+               sc('Кассир','hdr'),sc('Хостел кассира','hdr'))}
+          ${s2rows}
+        </Table></Worksheet>`;
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${styles}${sheet1}${sheet2}
+</Workbook>`;
+
+        const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `Hostella_Гости_${new Date().toISOString().slice(0,10)}.xls`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+    };
+
     const handleExport = () => {
-        const rows = [['ФИО', 'Хостел(ы)', 'Заселений', 'Уникальных цен', 'Цены сум/ночь', 'Итого', 'Оплачено', 'Долг']];
+        const rows = [[
+            'ФИО гостя', 'Хостел (заселение)', 'Комната', 'Место',
+            'Дата заезда', 'Дата выезда', 'Цена/ночь', 'Статус',
+            'Дата оплаты', 'Сумма оплаты', 'Наличные', 'Карта', 'QR',
+            'Кассир', 'Хостел (кассир)',
+        ]];
         filtered.forEach(grp => {
-            rows.push([grp.name, grp.hostels.map(h => HOSTELS[h] || h).join('; '),
-                grp.stayCount, grp.validPrices.length,
-                grp.validPrices.map(fmt).join('; '),
-                grp.totalAmount, grp.totalPaid, grp.totalDebt]);
+            grp.stays.forEach(stay => {
+                if (stay.guestPayments.length === 0) {
+                    // Нет платежей — одна строка с прочерками
+                    rows.push([
+                        stay.fullName || '—',
+                        HOSTELS[stay.hostelId] || stay.hostelId || '—',
+                        stay.roomNumber || '—', stay.bedId || '—',
+                        fmtDate(stay.checkInDate), fmtDate(stay.checkOutDate),
+                        parseInt(stay.pricePerNight) || 0,
+                        stay.status === 'active' ? 'Живёт' : 'Выехал',
+                        '—', 0, 0, 0, 0, '—', '—',
+                    ]);
+                } else {
+                    stay.guestPayments.forEach(p => {
+                        rows.push([
+                            stay.fullName || '—',
+                            HOSTELS[stay.hostelId] || stay.hostelId || '—',
+                            stay.roomNumber || '—', stay.bedId || '—',
+                            fmtDate(stay.checkInDate), fmtDate(stay.checkOutDate),
+                            parseInt(stay.pricePerNight) || 0,
+                            stay.status === 'active' ? 'Живёт' : 'Выехал',
+                            p.date ? new Date(p.date).toLocaleString('ru') : '—',
+                            parseInt(p.amount) || 0,
+                            parseInt(p.cash)   || 0,
+                            parseInt(p.card)   || 0,
+                            parseInt(p.qr)     || 0,
+                            p.cashierName || '—',
+                            HOSTELS[p.hostelId] || p.hostelId || '—',
+                        ]);
+                    });
+                }
+            });
         });
         const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
         const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `guest_history_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `guest_payments_${new Date().toISOString().slice(0, 10)}.csv`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
     };
 
@@ -282,9 +457,13 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                             )}
                         </div>
                     )}
+                    <button onClick={handleExportExcel}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm">
+                        <Download size={14}/> Excel
+                    </button>
                     <button onClick={handleExport}
                         className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors shadow-sm">
-                        <Download size={14}/> Экспорт CSV
+                        <Download size={14}/> CSV
                     </button>
                 </div>
             </div>

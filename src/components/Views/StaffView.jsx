@@ -115,7 +115,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, lang }) => {
     const startEdit = u => {
         setEditId(u.id);
         setEditForm({
-            name: u.name, login: u.login, pass: u.pass || '',
+            name: u.name, login: u.login, pass: '',
             role: u.role, hostelId: u.hostelId || 'hostel1',
             allowedHostels: u.allowedHostels || [u.hostelId || 'hostel1'],
             canViewHostel1: u.canViewHostel1 || false,

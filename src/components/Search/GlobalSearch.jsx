@@ -70,7 +70,7 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
                         ref={inputRef}
                         type="text"
                         className="flex-1 bg-transparent text-xl font-bold text-slate-800 placeholder:text-slate-400 outline-none"
-                        placeholder="Поиск гостя (имя, паспорт) или комнаты..."
+                        placeholder={t('searchGuestPlaceholder')}
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                     />
@@ -83,14 +83,14 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
                 <div className="max-h-[60vh] overflow-y-auto bg-slate-50/50">
                     {results.guests.length === 0 && results.rooms.length === 0 ? (
                         <div className="p-8 text-center text-slate-400">
-                            {query.length < 2 ? 'Введите минимум 2 символа' : 'Ничего не найдено'}
+                            {query.length < 2 ? t('searchMinChars') : t('searchNothing')}
                         </div>
                     ) : (
                         <div className="p-2 space-y-4">
                             {/* Rooms Section */}
                             {results.rooms.length > 0 && (
                                 <div>
-                                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Комнаты</div>
+                                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t('rooms')}</div>
                                     {results.rooms.map(room => (
                                         <button
                                             key={room.id}
@@ -101,8 +101,8 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
                                                 {room.number}
                                             </div>
                                             <div className="flex-1">
-                                                <div className="font-bold text-slate-800">Комната №{room.number}</div>
-                                                <div className="text-xs text-slate-500">{room.capacity} мест • {parseInt(room.price).toLocaleString()} сум</div>
+                                            <div className="font-bold text-slate-800">{t('room')} №{room.number}</div>
+                                            <div className="text-xs text-slate-500">{room.capacity} {t('kpiBeds')} • {parseInt(room.price).toLocaleString()} сум</div>
                                             </div>
                                             <ArrowRight size={18} className="text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"/>
                                         </button>
@@ -113,7 +113,7 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
                             {/* Guests Section */}
                             {results.guests.length > 0 && (
                                 <div>
-                                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Гости</div>
+                                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t('guests')}</div>
                                     {results.guests.map(guest => {
                                         const isOld = guest.status === 'checked_out';
                                         const isBooking = guest.status === 'booking';
@@ -134,13 +134,13 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
                                                 <div className="flex-1">
                                                     <div className="flex justify-between items-center">
                                                         <span className={`font-bold ${isOld ? 'text-slate-600' : 'text-slate-900'}`}>{displayName}</span>
-                                                        {isOld && <span className="text-[10px] bg-slate-200 px-1.5 rounded text-slate-500 font-bold">Архив</span>}
-                                                        {isBooking && <span className="text-[10px] bg-amber-100 px-1.5 rounded text-amber-700 font-bold">Бронь</span>}
+                                                        {isOld && <span className="text-[10px] bg-slate-200 px-1.5 rounded text-slate-500 font-bold">{t('archived')}</span>}
+                                                        {isBooking && <span className="text-[10px] bg-amber-100 px-1.5 rounded text-amber-700 font-bold">{t('booking')}</span>}
                                                     </div>
                                                     <div className="text-xs text-slate-500 flex items-center gap-2">
                                                         {guest.passport && <span>{guest.passport}</span>}
                                                         {guest.passport && <span>•</span>}
-                                                        <span>{isBooking ? `${guest.checkInDate ? new Date(guest.checkInDate).toLocaleDateString('ru',{day:'numeric',month:'short'}) : ''}` : `Комната ${guest.roomNumber}`}</span>
+                                                        <span>{isBooking ? `${guest.checkInDate ? new Date(guest.checkInDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru-RU',{day:'numeric',month:'short'}) : ''}` : `${t('room')} ${guest.roomNumber}`}</span>
                                                     </div>
                                                 </div>
                                             </button>
@@ -154,8 +154,8 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
 
                 {/* Footer Hint */}
                 <div className="px-4 py-2 bg-slate-100/50 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400 font-bold">
-                    <span>Перемещение: ↑ ↓</span>
-                    <span>Выбрать: Enter</span>
+                    <span>{t('searchNavHint')}</span>
+                    <span>{t('searchSelectHint')}</span>
                 </div>
             </div>
         </div>

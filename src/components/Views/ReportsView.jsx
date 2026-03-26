@@ -14,41 +14,119 @@ const getLocalDatetimeString = (dateObj) => {
     return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16);
 };
 
-const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0) => {
-    const balance = totalIncome - totalExpense;
-    let tableContent = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-        <head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-        <style>
-            body { font-family: Arial, sans-serif; }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid #000000; padding: 8px; text-align: left; vertical-align: top; }
-            th { background-color: #4f46e5; color: #ffffff; font-weight: bold; }
-            .income { color: #166534; font-weight: bold; }
-            .expense { color: #9f1239; font-weight: bold; }
-            .amount { text-align: right; }
-            .total-row { background-color: #f3f4f6; font-weight: bold; border-top: 3px solid #000000; }
-            .total-label { text-align: right; font-size: 14px; }
-            .total-value { text-align: right; font-size: 14px; }
-        </style></head><body><table><thead><tr>
-            <th>Дата</th><th>Тип</th><th>Хостел</th><th>Кассир</th><th>Сумма</th><th>Метод</th><th>Описание</th>
-        </tr></thead><tbody>`;
-    data.forEach(row => {
-        const typeClass = row.type === 'income' ? 'income' : 'expense';
-        const typeLabel = row.type === 'income' ? 'Приход' : 'Расход';
-        tableContent += `<tr>
-            <td>${row.date}</td><td class="${typeClass}">${typeLabel}</td><td>${row.hostel}</td>
-            <td>${row.staff}</td><td class="amount">${parseInt(row.amount).toLocaleString()}</td>
-            <td>${row.method}</td><td>${row.comment}</td></tr>`;
-    });
-    tableContent += `
-        <tr class="total-row"><td colspan="4" class="total-label">ИТОГО ПРИХОД:</td><td class="total-value income">${totalIncome.toLocaleString()}</td><td colspan="2"></td></tr>
-        <tr class="total-row"><td colspan="4" class="total-label">ИТОГО РАСХОД:</td><td class="total-value expense">${totalExpense.toLocaleString()}</td><td colspan="2"></td></tr>
-        <tr class="total-row" style="background-color: #e0e7ff;"><td colspan="4" class="total-label" style="font-size: 16px;">БАЛАНС:</td>
-        <td class="total-value" style="font-size: 16px; color: ${balance >= 0 ? '#166534' : '#9f1239'};">${balance.toLocaleString()}</td><td colspan="2"></td></tr>
-        </tbody></table></body></html>`;
-    const blob = new Blob([tableContent], { type: 'application/vnd.ms-excel' });
-    const link = document.createElement("a");
+const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '') => {
+    const net = totalIncome - totalExpense - totalRefund;
+    const loc = n => Number(n).toLocaleString('ru');
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const mLabel = m => ({ cash:'Наличные', card:'Терминал', qr:'QR' }[m] || m || '—');
+
+    // ── inline style helpers ──────────────────────────────────────────────
+    const TD  = 'border:1px solid #e2e8f0;padding:7px 10px;font-family:Arial,sans-serif;font-size:11px;vertical-align:middle;';
+    const TH  = 'border:1px solid #3730a3;padding:8px 10px;font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#ffffff;background-color:#4338ca;text-align:center;';
+    const th  = t => `<th style="${TH}">${t}</th>`;
+
+    // summary card cell
+    const card = (bg, fg, label, value, sub) =>
+        `<td colspan="2" style="background-color:${bg};border:2px solid ${fg};border-radius:4px;padding:12px 16px;text-align:center;vertical-align:middle;">
+            <div style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;color:${fg};text-transform:uppercase;letter-spacing:1px;">${label}</div>
+            <div style="font-family:Arial,sans-serif;font-size:22px;font-weight:bold;color:${fg};margin:4px 0;">${value}</div>
+            <div style="font-family:Arial,sans-serif;font-size:9px;color:${fg};opacity:0.7;">${sub}</div>
+        </td>`;
+
+    const incCount = data.filter(r => r.type === 'income').length;
+    const expCount = data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length;
+    const refCount = data.filter(r => r.category === 'Возврат').length;
+    const netBg = net >= 0 ? '#dbeafe' : '#fee2e2';
+    const netFg = net >= 0 ? '#1e3a8a' : '#7f1d1d';
+
+    // ── row builder ────────────────────────────────────────────────────────
+    const rowHtml = data.map((row, i) => {
+        const isRef = row.category === 'Возврат';
+        const isInc = row.type === 'income';
+        const [rowBg, typeBg, typeFg, amtFg] = isInc
+            ? ['#f0fdf4','#dcfce7','#166534','#166534']
+            : isRef
+                ? ['#fffbeb','#fef3c7','#92400e','#92400e']
+                : ['#fff1f2','#ffe4e6','#9f1239','#9f1239'];
+        const typeLabel = isInc ? '▲ ПРИХОД' : isRef ? '↩ ВОЗВРАТ' : '▼ РАСХОД';
+        const sign = isInc ? '+' : '-';
+        const stripe = i % 2 === 0 ? rowBg : (isInc ? '#e8fef1' : isRef ? '#fef5d9' : '#ffe8ea');
+        return `<tr>
+            <td style="${TD}background-color:#f8fafc;color:#94a3b8;text-align:center;">${i+1}</td>
+            <td style="${TD}background-color:${stripe};color:#334155;">${esc(row.date)}</td>
+            <td style="${TD}background-color:${typeBg};color:${typeFg};font-weight:bold;text-align:center;">${typeLabel}</td>
+            <td style="${TD}background-color:${stripe};color:#334155;">${esc(row.hostel)}</td>
+            <td style="${TD}background-color:${stripe};color:#334155;">${esc(row.staff)}</td>
+            <td style="${TD}background-color:${stripe};color:${amtFg};font-weight:bold;text-align:right;font-size:12px;">${sign}${loc(row.amount)}</td>
+            <td style="${TD}background-color:${stripe};color:#475569;text-align:center;">${mLabel(row.method)}</td>
+            <td style="${TD}background-color:${stripe};color:#64748b;">${esc(row.comment)}</td>
+        </tr>`;
+    }).join('');
+
+    // ── totals ─────────────────────────────────────────────────────────────
+    const totRow = (label, value, bg, fg) =>
+        `<tr><td colspan="5" style="${TD}background-color:${bg};text-align:right;font-weight:bold;font-size:12px;color:${fg};border-top:2px solid ${fg};">${label}</td>
+         <td style="${TD}background-color:${bg};text-align:right;font-weight:bold;font-size:14px;color:${fg};border-top:2px solid ${fg};">${value}</td>
+         <td colspan="2" style="${TD}background-color:${bg};border-top:2px solid ${fg};"></td></tr>`;
+
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style>table{mso-displayed-decimal-separator:".";mso-displayed-thousand-separator:" ";}</style>
+</head><body>
+<table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;">
+  <!-- ШАПКА -->
+  <tr>
+    <td colspan="8" style="background-color:#1e1b4b;padding:16px 20px;text-align:center;">
+      <div style="font-family:Arial,sans-serif;font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:2px;">HOSTELLA</div>
+      <div style="font-family:Arial,sans-serif;font-size:13px;color:#a5b4fc;margin-top:4px;">Финансовый отчёт</div>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="4" style="background-color:#312e81;padding:8px 20px;font-family:Arial,sans-serif;font-size:11px;color:#c7d2fe;">
+      <b style="color:#e0e7ff;">Хостел:</b> ${esc(hostelLabel)}
+    </td>
+    <td colspan="4" style="background-color:#312e81;padding:8px 20px;font-family:Arial,sans-serif;font-size:11px;color:#c7d2fe;text-align:right;">
+      <b style="color:#e0e7ff;">Период:</b> ${esc(periodStr)}
+    </td>
+  </tr>
+  <!-- ПУСТАЯ СТРОКА -->
+  <tr><td colspan="8" style="height:10px;background-color:#f8fafc;"></td></tr>
+  <!-- СВОДНЫЕ КАРТОЧКИ -->
+  <tr>
+    ${card('#dcfce7','#166534','▲ Приход','+'+loc(totalIncome), incCount+' операций')}
+    ${card('#ffe4e6','#9f1239','▼ Расход','-'+loc(totalExpense), expCount+' операций')}
+    ${card('#fef3c7','#92400e','↩ Возврат','-'+loc(totalRefund), refCount+' операций')}
+    ${card(netBg,netFg,'= Баланс',(net>=0?'+':'')+loc(net), data.length+' всего')}
+  </tr>
+  <!-- ПУСТАЯ СТРОКА -->
+  <tr><td colspan="8" style="height:12px;background-color:#f8fafc;"></td></tr>
+  <!-- ЗАГОЛОВКИ ТАБЛИЦЫ -->
+  <tr>${th('№')}${th('Дата и время')}${th('Тип')}${th('Хостел')}${th('Кассир')}${th('Сумма')}${th('Метод')}${th('Описание / Гость')}</tr>
+  <!-- СТРОКИ ДАННЫХ -->
+  ${rowHtml}
+  <!-- ПУСТАЯ СТРОКА -->
+  <tr><td colspan="8" style="height:8px;background-color:#f8fafc;"></td></tr>
+  <!-- ИТОГИ -->
+  ${totRow('ИТОГО ПРИХОД:', '+'+loc(totalIncome),'#dcfce7','#166534')}
+  ${totRow('ИТОГО РАСХОД:', '-'+loc(totalExpense),'#ffe4e6','#9f1239')}
+  ${totalRefund > 0 ? totRow('ИТОГО ВОЗВРАТ:', '-'+loc(totalRefund),'#fef3c7','#92400e') : ''}
+  <tr>
+    <td colspan="5" style="${TD}background-color:${netBg};text-align:right;font-weight:bold;font-size:14px;color:${netFg};border-top:3px solid ${netFg};">БАЛАНС:</td>
+    <td style="${TD}background-color:${netBg};text-align:right;font-weight:bold;font-size:18px;color:${netFg};border-top:3px solid ${netFg};">${(net>=0?'+':'')+loc(net)}</td>
+    <td colspan="2" style="${TD}background-color:${netBg};border-top:3px solid ${netFg};"></td>
+  </tr>
+  <!-- НИЖНИЙ КОЛОНТИТУЛ -->
+  <tr><td colspan="8" style="height:8px;background-color:#f8fafc;"></td></tr>
+  <tr>
+    <td colspan="8" style="background-color:#f1f5f9;padding:8px 20px;font-family:Arial,sans-serif;font-size:9px;color:#94a3b8;text-align:center;">
+      Сформировано: ${new Date().toLocaleString('ru')} · Hostella Management System
+    </td>
+  </tr>
+</table>
+</body></html>`;
+
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = filename;
     document.body.appendChild(link);
@@ -79,7 +157,7 @@ const printReport = (data, totalIncome, totalExpense, filters, users) => {
     </div>
     <table><thead><tr><th>Дата</th><th>Тип</th><th>Сумма</th><th>Метод</th><th>Кассир</th><th>Описание</th></tr></thead><tbody>`;
     data.forEach(row => {
-        const staffName = users.find(u => u.id === row.staffId || u.login === row.staffId)?.name || row.staffId;
+        const staffName = users.find(u => u.id === row.staffId || u.login === row.staffId)?.name || '(Удалённый кассир)';
         const typeLabel = row.type === 'income' ? 'Приход' : 'Расход';
         const typeClass = row.type === 'income' ? 'income' : 'expense';
         html += `<tr><td>${new Date(row.date).toLocaleString()}</td><td class="${typeClass}">${typeLabel}</td>
@@ -165,16 +243,21 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const totalExpense = filteredData.filter(t => t.type === 'expense' && t.category !== 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
 
     const handleExport = () => {
+        const hostelLabel = filters.hostelId
+            ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId)
+            : 'Все хостелы';
+        const periodStr = `${new Date(filters.start).toLocaleString('ru')} — ${new Date(filters.end).toLocaleString('ru')}`;
         const exportData = filteredData.map(item => ({
-            date: new Date(item.date).toLocaleString(),
+            date: new Date(item.date).toLocaleString('ru'),
             type: item.type,
-            staff: users.find(u => u.id === item.staffId || u.login === item.staffId)?.name || item.staffId,
-            hostel: HOSTEL_LIST.find(h => h.id === item.hostelId)?.name || item.hostelId || '-',
-            amount: item.amount,
+            category: item.category || (item.type === 'income' ? 'Оплата' : 'Расход'),
+            staff: users.find(u => u.id === item.staffId || u.login === item.staffId)?.name || '—',
+            hostel: HOSTEL_LIST.find(h => h.id === item.hostelId)?.name || item.hostelId || '—',
+            amount: parseInt(item.amount) || 0,
             method: item.method || '-',
-            comment: item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : '-')
+            comment: item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : null) || '—',
         }));
-        exportToExcel(exportData, `Otchet_${filters.hostelId || 'All'}.xls`, totalIncome, totalExpense);
+        exportToExcel(exportData, `Hostella_Финансы_${new Date().toISOString().slice(0,10)}.xls`, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr);
     };
 
     const applyPreset = (preset) => {

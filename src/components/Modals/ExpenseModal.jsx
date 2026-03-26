@@ -15,16 +15,17 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
     const [photoUploading, setPhotoUploading] = useState(false);
     const fileRef = useRef();
 
+    const isDark = document.documentElement.dataset.theme === 'dark';
     const CAT_LIST = [
-        { key: 'Аренда',              icon: '🏠', bg: '#ede9fe', text: '#6d28d9' },
-        { key: 'Коммунальные услуги', icon: '💡', bg: '#e0f2fe', text: '#0369a1' },
-        { key: 'Зарплата',            icon: '💼', bg: '#eef2ff', text: '#4338ca' },
-        { key: 'Продукты',            icon: '🛒', bg: '#dcfce7', text: '#15803d' },
-        { key: 'Канцелярия',          icon: '📎', bg: '#f1f5f9', text: '#475569' },
-        { key: 'Ремонт',              icon: '🔧', bg: '#ffedd5', text: '#c2410c' },
-        { key: 'Интернет',            icon: '🌐', bg: '#ccfbf1', text: '#0f766e' },
-        { key: 'Реклама',             icon: '📣', bg: '#fce7f3', text: '#be185d' },
-        { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b' },
+        { key: 'Аренда',              icon: '🏠', bg: '#ede9fe', text: '#6d28d9', darkBg: 'rgba(124,58,237,0.2)',   darkText: '#c4b5fd' },
+        { key: 'Коммунальные услуги', icon: '💡', bg: '#e0f2fe', text: '#0369a1', darkBg: 'rgba(2,132,199,0.2)',    darkText: '#7dd3fc' },
+        { key: 'Зарплата',            icon: '💼', bg: '#eef2ff', text: '#4338ca', darkBg: 'rgba(79,70,229,0.2)',    darkText: '#a5b4fc' },
+        { key: 'Продукты',            icon: '🛒', bg: '#dcfce7', text: '#15803d', darkBg: 'rgba(22,163,74,0.2)',    darkText: '#86efac' },
+        { key: 'Канцелярия',          icon: '📎', bg: '#f1f5f9', text: '#475569', darkBg: 'rgba(100,116,139,0.2)',  darkText: '#94a3b8' },
+        { key: 'Ремонт',              icon: '🔧', bg: '#ffedd5', text: '#c2410c', darkBg: 'rgba(234,88,12,0.2)',    darkText: '#fdba74' },
+        { key: 'Интернет',            icon: '🌐', bg: '#ccfbf1', text: '#0f766e', darkBg: 'rgba(13,148,136,0.2)',   darkText: '#5eead4' },
+        { key: 'Реклама',             icon: '📣', bg: '#fce7f3', text: '#be185d', darkBg: 'rgba(219,39,119,0.2)',   darkText: '#f9a8d4' },
+        { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b', darkBg: 'rgba(100,116,139,0.15)', darkText: '#94a3b8' },
     ];
 
     const handlePhotoSelect = (file) => {
@@ -100,9 +101,15 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
                                     onClick={() => setCategory(c.key)}
                                     style={{
                                         outline: 'none',
-                                        background: category === c.key ? c.bg : '#f8fafc',
-                                        border: `2px solid ${category === c.key ? c.text : '#e2e8f0'}`,
-                                        color: category === c.key ? c.text : '#64748b',
+                                        background: category === c.key
+                                            ? (isDark ? c.darkBg : c.bg)
+                                            : (isDark ? 'rgba(30,41,59,0.8)' : '#f8fafc'),
+                                        border: `2px solid ${category === c.key
+                                            ? (isDark ? c.darkText : c.text)
+                                            : (isDark ? '#334155' : '#e2e8f0')}`,
+                                        color: category === c.key
+                                            ? (isDark ? c.darkText : c.text)
+                                            : (isDark ? '#94a3b8' : '#64748b'),
                                         borderRadius: 12, padding: '8px 4px',
                                         display: 'flex', flexDirection: 'column', alignItems: 'center',
                                         gap: 4, cursor: 'pointer', transition: 'all 0.15s',

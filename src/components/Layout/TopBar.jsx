@@ -11,7 +11,7 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
     const handleMaximize = () => window.electronAPI?.maximize();
     const handleClose = () => window.electronAPI?.close();
     return (
-        <div className="flex-shrink-0 hidden md:flex" style={{background:'#1a3c40', WebkitAppRegion:'drag'}}>
+        <div className="flex-shrink-0 hidden md:flex" style={{background:'var(--nav-bg)', WebkitAppRegion:'drag'}}>
             <div className="flex items-center h-14 pl-8 pr-2 gap-6 w-full">
 
                 {/* Logo mark */}
@@ -33,9 +33,9 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
                 {/* Search button */}
                 <button onClick={onOpenSearch} title="Поиск (Ctrl+K)"
                     className="flex items-center gap-2.5 px-4 py-1.5 text-xs font-bold transition-all"
-                    style={{...btnBase, WebkitAppRegion:'no-drag', background:'transparent', color:'#9ecdd0', border:'1px solid rgba(255,255,255,0.15)', borderRadius:6, outline:'none'}}
+                    style={{...btnBase, WebkitAppRegion:'no-drag', background:'transparent', color:'var(--nav-muted)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:6, outline:'none'}}
                     onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff';}}
-                    onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='#9ecdd0';}}>
+                    onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}>
                     <Search size={15}/>
                     <span>{t('search').replace('...','').trim()}</span>
                     <span style={{fontSize:10, opacity:0.45, marginLeft:4}}>Ctrl+K</span>
@@ -49,9 +49,9 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
                                 className="px-4 py-1.5 text-xs font-bold transition-all"
                                 style={selectedHostelFilter === hid
                                     ? {background:'#e88c40', color:'#fff', outline:'none'}
-                                    : {...btnBase, background:'transparent', color:'#9ecdd0', outline:'none'}}
+                                    : {...btnBase, background:'transparent', color:'var(--nav-muted)', outline:'none'}}
                                 onMouseOver={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff'; }}}
-                                onMouseOut={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='transparent'; e.currentTarget.style.color='#9ecdd0'; }}}>
+                                onMouseOut={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)'; }}}>
                                 {hostels[hid]?.name}
                             </button>
                         ))}
@@ -64,17 +64,17 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
                 {/* Window controls */}
                 <div className="flex items-center gap-0 shrink-0" style={{WebkitAppRegion:'no-drag'}}>
                     <button onClick={handleMinimize} className="p-2 hover:bg-black hover:bg-opacity-20 transition-colors"
-                        style={{background:'transparent', border:'none', color:'#9ecdd0', cursor:'pointer', outline:'none'}}
+                        style={{background:'transparent', border:'none', color:'var(--nav-muted)', cursor:'pointer', outline:'none'}}
                         title="Свернуть">
                         <Minus size={18}/>
                     </button>
                     <button onClick={handleMaximize} className="p-2 hover:bg-black hover:bg-opacity-20 transition-colors"
-                        style={{background:'transparent', border:'none', color:'#9ecdd0', cursor:'pointer', outline:'none'}}
+                        style={{background:'transparent', border:'none', color:'var(--nav-muted)', cursor:'pointer', outline:'none'}}
                         title="Развернуть">
                         <Square size={18}/>
                     </button>
                     <button onClick={handleClose} className="p-2 hover:bg-red-600 transition-colors"
-                        style={{background:'transparent', border:'none', color:'#9ecdd0', cursor:'pointer', outline:'none'}}
+                        style={{background:'transparent', border:'none', color:'var(--nav-muted)', cursor:'pointer', outline:'none'}}
                         title="Закрыть">
                         <X size={18}/>
                     </button>

@@ -409,7 +409,7 @@ export const printReport = (data, totalIncome, totalExpense, filters, users) => 
     `;
     
     data.forEach(row => {
-        const staffName = users.find(u => u.id === row.staffId || u.login === row.staffId)?.name || row.staffId;
+        const staffName = users.find(u => u.id === row.staffId || u.login === row.staffId)?.name || '(Удалённый кассир)';
         const typeLabel = row.type === 'income' ? 'Приход' : 'Расход';
         const typeClass = row.type === 'income' ? 'income' : 'expense';
         
