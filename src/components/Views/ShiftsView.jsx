@@ -218,7 +218,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         {myActiveShift && <div className="text-sm text-emerald-700 font-semibold mt-0.5">Началась в {fmtTime(myActiveShift.startTime)} · {fmtDate(myActiveShift.startTime)}</div>}
                     </div>
                     {!myActiveShift ? (
-                        <button onClick={onStartShift} className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-sm transition-colors">
+                        <button onClick={() => onStartShift(hostelId)} className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-sm transition-colors">
                             <Power size={18}/> Начать смену
                         </button>
                     ) : (

@@ -4,7 +4,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, FileText, AlertCircle,
     CheckSquare, Wallet, Users, UserCog, Clock, Lock, LogOut,
     UserPlus, Power, Globe, BellRing, Tag, ClipboardList,
-    Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History,
+    Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -40,6 +40,7 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
                 items: [
                     { id: 'bookings',      icon: Globe,          label: t('bookings2'),   badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
                     { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),     badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+                    { id: 'cadastre',      icon: Home,           label: 'Кадастр' },
                     { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),       badge: pendingTasksCount },
                     { id: 'clients',       icon: Users,          label: t('clients'),     permKey: 'viewClients' },
                 ],
@@ -66,7 +67,7 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
             },
         ];
     }
-    // ─── Кассир: брони/e-mehmon/задачи/клиенты → в «Прочее», бонусы → после долгов ───
+    // ─── Кассир: номера/календарь/долги/клиенты напрямую, остальное в «Прочее» ───
     return [
         {
             id: 'main', label: null, dropdown: false,
@@ -74,22 +75,18 @@ const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAle
                 { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
                 { id: 'rooms',    icon: BedDouble, label: t('rooms') },
                 { id: 'calendar', icon: Calendar,  label: t('calendar') },
-            ],
-        },
-        {
-            id: 'ops', label: t('operationsUpper'), dropdown: false,
-            items: [
-                { id: 'debts',     icon: AlertCircle, label: t('debts'),   permKey: 'viewDebts' },
-                { id: 'referrals', icon: Users2,      label: t('bonuses') },
+                { id: 'debts',    icon: AlertCircle, label: t('debts'), permKey: 'viewDebts' },
+                { id: 'clients',  icon: Users,       label: t('clients'), permKey: 'viewClients' },
             ],
         },
         {
             id: 'settings', label: t('other2Upper'), dropdown: true, dropIcon: Settings, dropLabel: t('other2'),
             items: [
+                { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),      badge: pendingTasksCount },
                 { id: 'bookings',      icon: Globe,          label: t('bookings2'),  badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
                 { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),    badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-                { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),      badge: pendingTasksCount },
-                { id: 'clients',       icon: Users,          label: t('clients'),    permKey: 'viewClients' },
+                { id: 'cadastre',      icon: Home,           label: 'Кадастр' },
+                { id: 'referrals',     icon: Users2,         label: t('bonuses') },
             ],
         },
     ];
@@ -213,17 +210,20 @@ const Navigation = ({
             <style>{`
                 .dsb:focus,.dsb-btn:focus{outline:none!important;box-shadow:none!important}
                 @keyframes booking-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,140,64,0.8)}50%{box-shadow:0 0 0 6px rgba(232,140,64,0)}}
-                .nav-item{padding-top:9px;padding-bottom:9px}
-                .nav-lbl{font-size:9px;font-weight:600;letter-spacing:.01em;line-height:1;margin-top:3px;text-align:center}
-                .nav-gl{font-size:7px;font-weight:800;letter-spacing:.10em;color:rgba(158,205,208,.4);text-align:center;padding:5px 4px 2px;text-transform:uppercase}
+                @keyframes nav-bar-in{from{opacity:0;transform:scaleY(0)}to{opacity:1;transform:scaleY(1)}}
+                @keyframes checkin-border{0%,100%{box-shadow:0 0 0 0 rgba(20,184,166,0.55)}50%{box-shadow:0 0 0 4px rgba(20,184,166,0)}}
+                .nav-item{padding-top:9px;padding-bottom:9px;position:relative}
+                .nav-lbl{font-size:9px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s}
+                .nav-gl{font-size:7px;font-weight:800;letter-spacing:.10em;color:rgba(158,205,208,.3);text-align:center;padding:4px 4px 2px;text-transform:uppercase}
+                .nav-act-bar{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:0 3px 3px 0;background:#e88c40;animation:nav-bar-in .18s ease both}
                 @media(max-height:680px){
-                    .nav-item{padding-top:5px!important;padding-bottom:5px!important}
-                    .nav-gl{padding:3px 4px 1px!important}
+                    .nav-item{padding-top:3px!important;padding-bottom:3px!important}
+                    .nav-gl{padding:2px 4px 1px!important}
                 }
                 @media(max-height:540px){
                     .nav-lbl{display:none!important}
                     .nav-gl{display:none!important}
-                    .nav-item{padding-top:3px!important;padding-bottom:3px!important}
+                    .nav-item{padding-top:2px!important;padding-bottom:2px!important}
                 }
             `}</style>
 
@@ -248,15 +248,15 @@ const Navigation = ({
                                     onClick={() => handleGroupToggle(group.id)}
                                     className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
                                     style={{
-                                        background: isOpen || isActive ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                        color:      isOpen || isActive ? '#e88c40' : 'var(--nav-muted)',
-                                        borderLeft: isActive ? '3px solid #e88c40' : '3px solid transparent',
+                                        background: isActive || isOpen ? 'rgba(232,140,64,0.12)' : 'transparent',
+                                        color: isOpen || isActive ? '#f5b574' : 'var(--nav-muted)',
                                         outline: 'none',
                                     }}
-                                    onMouseOver={e => { if (!isOpen) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
-                                    onMouseOut={e  => { if (!isOpen) { e.currentTarget.style.background = isActive ? 'rgba(232,140,64,0.18)' : 'transparent'; e.currentTarget.style.color = isActive ? '#e88c40' : 'var(--nav-muted)'; } }}
+                                    onMouseOver={e => { if (!isOpen && !isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
+                                    onMouseOut={e  => { if (!isOpen && !isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
                                 >
-                                    <DropIcon size={20} strokeWidth={isOpen ? 2.5 : 2} />
+                                    {(isActive || isOpen) && <span className="nav-act-bar" />}
+                                    <DropIcon size={24} strokeWidth={isOpen || isActive ? 2.5 : 2} />
                                     <span className="nav-lbl">{group.dropLabel}</span>
                                     {totalBadge > 0 && (
                                         <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
@@ -286,15 +286,15 @@ const Navigation = ({
                                         onClick={() => setActiveTab(item.id)}
                                         className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
                                         style={{
-                                            background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                            color:      act ? '#e88c40' : 'var(--nav-muted)',
-                                            borderLeft: act ? '3px solid #e88c40' : '3px solid transparent',
+                                            background: act ? 'rgba(232,140,64,0.12)' : 'transparent',
+                                            color: act ? '#f5b574' : 'var(--nav-muted)',
                                             outline: 'none',
                                         }}
-                                        onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#fff'; } }}
+                                        onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
                                         onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
                                     >
-                                        <Icon size={20} strokeWidth={act ? 2.5 : 2} />
+                                        {act && <span className="nav-act-bar" />}
+                                        <Icon size={24} strokeWidth={act ? 2.5 : 2} />
                                         <span className="nav-lbl">{item.label}</span>
                                         {(item.badge ?? 0) > 0 && (
                                             <span
@@ -372,29 +372,73 @@ const Navigation = ({
 
             {/* ── Action buttons ── */}
             {canPerformActions && (
-                <div className="py-2 flex flex-col gap-1 px-1.5"
+                <div className="px-2 py-2.5 flex flex-col gap-1.5"
                      style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }}>
-                    <button
-                        onClick={onOpenExpense} title={t('expense')}
-                        className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
-                        style={{ ...btnBase, background: 'rgba(232,140,64,0.18)', color: '#f6ad6b', border: '1px solid rgba(232,140,64,0.28)', gap: 3 }}
-                        onMouseOver={e => { e.currentTarget.style.background = '#e88c40'; e.currentTarget.style.color = '#fff'; }}
-                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(232,140,64,0.18)'; e.currentTarget.style.color = '#f6ad6b'; }}
-                    >
-                        <Wallet size={17} /><span style={{ fontSize: 9, fontWeight: 700 }}>{t('expense')}</span>
-                    </button>
-                    {canCheckin && (<>
+
+                    {/* Заселить — приоритетная */}
+                    {canCheckin && (
                         <button
                             ref={checkinBtnRef}
                             onClick={handleCheckinToggle}
-                            className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
-                            style={{ ...btnBase, background: checkinOpen ? 'rgba(94,234,212,0.28)' : 'rgba(94,234,212,0.13)', color: checkinOpen ? '#fff' : '#5eead4', border: '1px solid rgba(94,234,212,0.22)', gap: 3 }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(94,234,212,0.28)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = checkinOpen ? 'rgba(94,234,212,0.28)' : 'rgba(94,234,212,0.13)'; e.currentTarget.style.color = checkinOpen ? '#fff' : '#5eead4'; }}
+                            className="dsb-btn w-full flex flex-col items-center justify-center rounded-2xl"
+                            style={{ ...btnBase,
+                                padding: '9px 4px 7px',
+                                gap: 4,
+                                background: checkinOpen
+                                    ? 'linear-gradient(160deg,#0f9688,#0d7a6e)'
+                                    : 'rgba(20,184,166,0.18)',
+                                color: checkinOpen ? '#fff' : '#5eead4',
+                                border: `1.5px solid ${checkinOpen ? 'rgba(94,234,212,0.5)' : 'rgba(20,184,166,0.3)'}`,
+                                boxShadow: checkinOpen ? '0 4px 18px rgba(20,184,166,0.45)' : 'none',
+                                animation: !checkinOpen ? 'checkin-border 2.5s ease-in-out infinite' : 'none',
+                            }}
+                            onMouseOver={e => { e.currentTarget.style.background = 'linear-gradient(160deg,#0f9688,#0d7a6e)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.boxShadow = '0 4px 18px rgba(20,184,166,0.45)'; e.currentTarget.style.borderColor = 'rgba(94,234,212,0.5)'; }}
+                            onMouseOut={e  => { if (!checkinOpen) { e.currentTarget.style.background = 'rgba(20,184,166,0.18)'; e.currentTarget.style.color = '#5eead4'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'rgba(20,184,166,0.3)'; } }}
                         >
-                            <UserPlus size={17} /><span style={{ fontSize: 9, fontWeight: 700 }}>{t('checkin')}</span>
+                            <UserPlus size={18} strokeWidth={2.5} />
+                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('checkin')}</span>
                         </button>
-                        {checkinOpen && ReactDOM.createPortal(
+                    )}
+
+                    {/* Расход */}
+                    <button
+                        onClick={onOpenExpense} title={t('expense')}
+                        className="dsb-btn w-full flex flex-col items-center justify-center rounded-xl"
+                        style={{ ...btnBase,
+                            padding: '7px 4px 5px',
+                            gap: 3,
+                            background: 'rgba(234,179,8,0.14)',
+                            color: '#fde047',
+                            border: '1px solid rgba(234,179,8,0.22)',
+                        }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.32)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(234,179,8,0.5)'; }}
+                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(234,179,8,0.14)'; e.currentTarget.style.color = '#fde047'; e.currentTarget.style.borderColor = 'rgba(234,179,8,0.22)'; }}
+                    >
+                        <Wallet size={16} strokeWidth={2.5} />
+                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('expense')}</span>
+                    </button>
+
+                    {/* Смена */}
+                    {canCheckin && (
+                        <button
+                            onClick={onOpenShift} title={t('shift')}
+                            className="dsb-btn w-full flex flex-col items-center justify-center rounded-xl"
+                            style={{ ...btnBase,
+                                padding: '7px 4px 5px',
+                                gap: 3,
+                                background: 'rgba(239,68,68,0.14)',
+                                color: '#fca5a5',
+                                border: '1px solid rgba(239,68,68,0.22)',
+                            }}
+                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.32)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.5)'; }}
+                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.color = '#fca5a5'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.22)'; }}
+                        >
+                            <Power size={16} strokeWidth={2.5} />
+                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('shift')}</span>
+                        </button>
+                    )}
+
+                    {checkinOpen && ReactDOM.createPortal(
                             <div ref={checkinMenuRef} style={{
                                 position: 'fixed', left: checkinPos.left, top: checkinPos.top,
                                 width: 170, background: 'var(--nav-popup)',
@@ -420,16 +464,6 @@ const Navigation = ({
                             </div>,
                             document.body,
                         )}
-                        <button
-                            onClick={onOpenShift} title={t('shift')}
-                            className="dsb-btn w-full flex flex-col items-center justify-center py-2.5 rounded-xl"
-                            style={{ ...btnBase, background: 'rgba(239,68,68,0.16)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.28)', gap: 3 }}
-                            onMouseOver={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.16)'; e.currentTarget.style.color = '#fca5a5'; }}
-                        >
-                            <Power size={17} /><span style={{ fontSize: 9, fontWeight: 700 }}>{t('shift')}</span>
-                        </button>
-                    </>)}
                 </div>
             )}
 
@@ -447,7 +481,7 @@ const Navigation = ({
                         {(currentUser.name || '?')[0].toUpperCase()}
                     </div>
                     <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--nav-muted)', maxWidth: 68, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {currentUser.name.split(' ')[0]}
+                        {(currentUser.name || '?').split(' ')[0]}
                     </span>
                 </button>
 

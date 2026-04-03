@@ -1,4 +1,5 @@
 import React from 'react';
+import * as XLSX from 'xlsx';
 import { COUNTRY_MAP, COUNTRIES } from '../constants/countries';
 
 // Renders a country flag image from flagcdn.com by ISO code
@@ -122,86 +123,38 @@ export const calculateSalary = (startTime, endTime) => {
     return Math.round(diffDays * DAILY_SALARY);
 };
 
-// ? ИСПРАВЛЕНИЕ: Улучшенный экспорт в Excel с правильными итогами
+// ? ИСПРАВЛЕНИЕ: Экспорт в Excel через SheetJS (реальный .xlsx)
 export const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0) => {
     const balance = totalIncome - totalExpense;
-    
-    let tableContent = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-        <head>
-            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-            <style>
-                body { font-family: Arial, sans-serif; }
-                table { border-collapse: collapse; width: 100%; }
-                th, td { border: 1px solid #000000; padding: 8px; text-align: left; vertical-align: top; }
-                th { background-color: #4f46e5; color: #ffffff; font-weight: bold; }
-                .income { color: #166534; font-weight: bold; }
-                .expense { color: #9f1239; font-weight: bold; }
-                .amount { text-align: right; }
-                .total-row { background-color: #f3f4f6; font-weight: bold; border-top: 3px solid #000000; }
-                .total-label { text-align: right; font-size: 14px; }
-                .total-value { text-align: right; font-size: 14px; }
-            </style>
-        </head>
-        <body>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Дата</th>
-                        <th>Тип</th>
-                        <th>Хостел</th>
-                        <th>Кассир</th>
-                        <th>Сумма</th>
-                        <th>Метод</th>
-                        <th>Описание</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
+    const typeLabel = type => type === 'income' ? 'Приход' : 'Расход';
+    const mLabel = m => ({ cash: 'Наличные', card: 'Терминал', qr: 'QR' }[m] || m || '—');
+    const CATEGORY_RU = { accommodation: 'Проживание' };
 
-    data.forEach(row => {
-        const typeClass = row.type === 'income' ? 'income' : 'expense';
-        const typeLabel = row.type === 'income' ? 'Приход' : 'Расход';
-        tableContent += `
-            <tr>
-                <td>${row.date}</td>
-                <td class="${typeClass}">${typeLabel}</td>
-                <td>${row.hostel}</td>
-                <td>${row.staff}</td>
-                <td class="amount">${parseInt(row.amount).toLocaleString()}</td>
-                <td>${row.method}</td>
-                <td>${row.comment}</td>
-            </tr>
-        `;
-    });
+    const rows = data.map(row => ({
+        'Дата':       row.date,
+        'Тип':        typeLabel(row.type),
+        'Хостел':     row.hostel,
+        'Кассир':     row.staff,
+        'Сумма':      row.type === 'expense' ? -Math.abs(parseInt(row.amount)) : parseInt(row.amount),
+        'Метод':      mLabel(row.method),
+        'Описание':   CATEGORY_RU[row.comment] || row.comment || '—',
+    }));
 
-    tableContent += `
-        <tr class="total-row">
-            <td colspan="4" class="total-label">ИТОГО ПРИХОД:</td>
-            <td class="total-value income">${totalIncome.toLocaleString()}</td>
-            <td colspan="2"></td>
-        </tr>
-        <tr class="total-row">
-            <td colspan="4" class="total-label">ИТОГО РАСХОД:</td>
-            <td class="total-value expense">${totalExpense.toLocaleString()}</td>
-            <td colspan="2"></td>
-        </tr>
-        <tr class="total-row" style="background-color: #e0e7ff;">
-            <td colspan="4" class="total-label" style="font-size: 16px;">БАЛАНС:</td>
-            <td class="total-value" style="font-size: 16px; color: ${balance >= 0 ? '#166534' : '#9f1239'};">${balance.toLocaleString()}</td>
-            <td colspan="2"></td>
-        </tr>
-    `;
+    rows.push({});
+    rows.push({ 'Дата': 'ИТОГО ПРИХОД',  'Сумма': totalIncome });
+    rows.push({ 'Дата': 'ИТОГО РАСХОД',  'Сумма': -totalExpense });
+    rows.push({ 'Дата': 'БАЛАНС',        'Сумма': balance });
 
-    tableContent += `</tbody></table></body></html>`;
-
-    const blob = new Blob([tableContent], { type: 'application/vnd.ms-excel' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+        { wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 18 },
+        { wch: 14 }, { wch: 12 }, { wch: 38 },
+    ];
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws, 'Операции');
+    const xlsxFilename = filename.replace(/\.xls$/, '.xlsx');
+    XLSX.writeFile(wb, xlsxFilename);
 };
 
 // ? ИСПРАВЛЕНИЕ: Улучшенная печать документов (чеки, анкеты, справки)

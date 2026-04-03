@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, ChevronLeft, ChevronRight, Upload, RefreshCw } from 'lucide-react';
+import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, ChevronLeft, ChevronRight, Upload, RefreshCw, UserPlus } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import ClientEditModal from '../Modals/ClientEditModal';
@@ -114,7 +114,7 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
 };
 
 // --- ClientsView ---
-const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set() }) => {
+const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set() }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [search, setSearch] = useState('');
     const [editingClient, setEditingClient] = useState(null);
@@ -203,6 +203,7 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                     </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                    <Button icon={UserPlus} onClick={() => setEditingClient({ fullName: '', passport: '', birthDate: '', country: 'Узбекистан', clientStatus: 'normal' })}>Добавить</Button>
                     {isAdmin && <>
                         <Button icon={Merge} variant="secondary" onClick={onDeduplicate}>{t('deduplicate')}</Button>
                         <Button icon={Globe} variant="secondary" onClick={handleNormalize}>{t('normalizeCountries')}</Button>
@@ -294,7 +295,11 @@ const ClientsView = ({ clients, onUpdateClient, onImportClients, onDeduplicate, 
                 </div>
             )}
 
-            {editingClient && <ClientEditModal client={editingClient} onClose={() => setEditingClient(null)} onSave={(d) => { onUpdateClient(editingClient.id, d); setEditingClient(null); }} lang={lang}/>}
+            {editingClient && <ClientEditModal client={editingClient} onClose={() => setEditingClient(null)} onSave={(d) => {
+                if (editingClient.id) { onUpdateClient(editingClient.id, d); }
+                else if (onAddClient) { onAddClient(d); }
+                setEditingClient(null);
+            }} lang={lang}/>}
             {isImportModalOpen && <ClientImportModal onClose={() => setIsImportModalOpen(false)} onImport={(data) => { onImportClients(data); setIsImportModalOpen(false); }} lang={lang}/>}
 
             {confirmBulkDeleteOpen && (

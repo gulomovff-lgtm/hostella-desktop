@@ -135,6 +135,10 @@ export function useGuestActions(ctx) {
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), trimRestore);
       } else if (item.type === 'expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
+      } else if (item.type === 'balance_topup') {
+        // Откатываем пополнение баланса: уменьшаем balance клиента, удаляем запись в кассе
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.clientId), { balance: increment(-item.amount) });
+        if (item.paymentId) fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', item.paymentId));
       }
       await fb.commit();
       setUndoStack(prev => prev.filter(u => u.id !== item.id));
@@ -168,7 +172,8 @@ export function useGuestActions(ctx) {
       const docRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
       const guestId = docRef.id;
 
-      const totalPaid = (Number(formData.paidCash) || 0) + (Number(formData.paidCard) || 0) + (Number(formData.paidQR) || 0);
+      const paidBalance = Number(formData.paidBalance) || 0;
+      const totalPaid = (Number(formData.paidCash) || 0) + (Number(formData.paidCard) || 0) + (Number(formData.paidQR) || 0) + paidBalance;
       let checkinPaymentIds = [];
       if (totalPaid > 0) {
         const payRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
@@ -178,12 +183,23 @@ export function useGuestActions(ctx) {
           cash: Number(formData.paidCash) || 0,
           card: Number(formData.paidCard) || 0,
           qr:   Number(formData.paidQR)   || 0,
+          balance: paidBalance,
           date: new Date().toISOString(),
           type: 'income', category: 'accommodation', comment: formData.fullName,
           hostelId: targetHostelId, admin: currentUser.login || 'admin',
-          method: Number(formData.paidCash) > 0 ? 'cash' : (Number(formData.paidCard) > 0 ? 'card' : 'qr'),
+          method: Number(formData.paidCash) > 0 ? 'cash' : (Number(formData.paidCard) > 0 ? 'card' : (Number(formData.paidQR) > 0 ? 'qr' : 'balance')),
         });
         checkinPaymentIds = [payRef.id];
+      }
+      // Вычитаем применённый баланс из профиля клиента
+      if (paidBalance > 0) {
+        const clientRec = clients.find(c => c.passport && formData.passport &&
+          c.passport.replace(/\s/g,'').toUpperCase() === formData.passport.replace(/\s/g,'').toUpperCase());
+        if (clientRec) {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
+            balance: increment(-paidBalance),
+          });
+        }
       }
 
       if (formData.status === 'active') {
@@ -270,20 +286,41 @@ export function useGuestActions(ctx) {
       }
 
       if (actualRefund > 0) {
-        // Firestore persistence обеспечивает сохранение расхода оффлайн,
-        // но без try/catch ошибка могла прерывать функцию до этой строки.
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
-          amount: actualRefund, category: 'Возврат',
-          comment: `Возврат: ${guest.fullName} (${guest.passport})`,
-          date: new Date().toISOString(),
-          staffId: currentUser.id || currentUser.login,
-          hostelId: currentUser.hostelId || guest.hostelId,
-        });
-        const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${actualRefund.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
-        if (isOnline) {
-          sendTelegramMessage(refundMsg, 'refund');
+        if (final.leaveOnBalance) {
+          // Зачисляем переплату на баланс клиента
+          const clientRec = clients.find(c => c.passport && guest.passport &&
+            c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
+          if (clientRec) {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
+              balance: increment(actualRefund),
+            });
+          }
+
         } else {
-          enqueueTelegram(refundMsg, 'refund');
+          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
+            amount: actualRefund, category: 'Возврат',
+            comment: `Возврат: ${guest.fullName} (${guest.passport})`,
+            date: new Date().toISOString(),
+            staffId: currentUser.id || currentUser.login,
+            hostelId: currentUser.hostelId || guest.hostelId,
+          });
+          const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${actualRefund.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+          if (isOnline) {
+            sendTelegramMessage(refundMsg, 'refund');
+          } else {
+            enqueueTelegram(refundMsg, 'refund');
+          }
+        }
+      }
+
+      // Микс: дополнительно зачисляем часть на баланс клиента
+      if ((final.mixBalanceAmount || 0) > 0) {
+        const clientRec = clients.find(c => c.passport && guest.passport &&
+          c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
+        if (clientRec) {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
+            balance: increment(final.mixBalanceAmount),
+          });
         }
       }
       // Fix 10: логируем выселение в auditLog
@@ -300,21 +337,36 @@ export function useGuestActions(ctx) {
   const handlePayment = async (guestId, amounts) => {
     try {
       const safeStaffId = currentUser.id || currentUser.login;
-      const { cash = 0, card = 0, qr = 0 } = amounts;
-      const total = cash + card + qr;
+      const { cash = 0, card = 0, qr = 0, balance: balanceUsed = 0 } = amounts;
+      const total = cash + card + qr + balanceUsed;
       // Firestore offline persistence (persistentLocalCache) handles queuing automatically.
       // We also track in offlineQueue for Electron temp-file safety and UI badge.
+      const g = guests.find(x => x.id === guestId);
       if (!isOnline) {
         enqueuePayment({ guestId, amounts: { cash, card, qr }, staffId: safeStaffId,
-          hostelId: currentUser.hostelId, guestName: guests.find(x=>x.id===guestId)?.fullName || '' });
+          hostelId: currentUser.hostelId, guestName: g?.fullName || '' });
       }
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      const currentPaid = g ? (g.amountPaid || (g.paidCash||0) + (g.paidCard||0) + (g.paidQR||0)) : 0;
+      const overpay = total > 0 ? Math.max(0, currentPaid + total - (g?.totalPrice || 0)) : 0;
+      const guestUpdate = {
         paidCash: increment(cash), paidCard: increment(card), paidQR: increment(qr),
         amountPaid: increment(total),
-      });
+      };
+      if (balanceUsed > 0) guestUpdate.paidBalance = increment(balanceUsed);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), guestUpdate);
       const paymentIds = await logTransaction(guestId, amounts, safeStaffId);
+      const normStr = s => (s||'').replace(/\s/g,'').toUpperCase();
+      const clientRec = g ? clients.find(c =>
+        (c.passport && g.passport && normStr(c.passport) === normStr(g.passport)) ||
+        (g.fullName && normStr(c.fullName) === normStr(g.fullName))
+      ) : null;
+      if (balanceUsed > 0 && clientRec) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
+      }
+      if (overpay > 0 && clientRec) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(overpay) });
+      }
       if (total > 0) {
-        const g = guests.find(x => x.id === guestId);
         pushUndo({ type: 'payment', label: `${total.toLocaleString()} сум — ${g?.fullName || guestId}`, guestId, paymentIds, cash, card, qr });
         if (g) {
           const hostelLabel = g.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';

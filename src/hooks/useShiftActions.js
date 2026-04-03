@@ -15,16 +15,17 @@ export function useShiftActions({
 
   // ── Смены ────────────────────────────────────────────────────────────────
 
-  const handleStartShift = async () => {
+  const handleStartShift = async (hostelIdOverride) => {
     if (!currentUser?.id) return;
     const active = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
     if (active) return;
+    const hostelId = hostelIdOverride || currentUser.hostelId;
     try {
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), {
         staffId:   currentUser.id,
         staffLogin: currentUser.login || null,
         staffName:  currentUser.name  || null,
-        hostelId: currentUser.hostelId,
+        hostelId,
         startTime: new Date().toISOString(),
         endTime: null,
       });

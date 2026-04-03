@@ -607,7 +607,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
                             {/* Расшифровка категорий */}
                             <div className="mt-3 flex flex-wrap gap-3 text-[9px] text-slate-400 leading-relaxed">
-                                <span><span className="text-amber-500 font-bold">Переменные:</span> Продукты, Канцелярия, Ремонт, Другое</span>
+                                <span><span className="text-amber-500 font-bold">Переменные:</span> Продукты, Налоги, Ремонт, Другое</span>
                                 <span className="text-slate-300">·</span>
                                 <span><span className="text-rose-500 font-bold">Постоянные:</span> Аренда, Зарплата, Коммунал., Интернет, Реклама</span>
                             </div>

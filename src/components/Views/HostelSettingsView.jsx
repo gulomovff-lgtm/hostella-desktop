@@ -116,6 +116,55 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                         </select>
                     </div>
                 </div>
+                {/* Автоматизация */}
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                            <RefreshCw size={12}/> Авто-выселение
+                        </label>
+                        <button
+                            type="button"
+                            onClick={() => onChange(hostelId, 'autoCheckoutEnabled', !(s.autoCheckoutEnabled ?? true))}
+                            className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold transition-colors border ${
+                                (s.autoCheckoutEnabled ?? true)
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-slate-100 text-slate-500 border-slate-200'
+                            }`}
+                        >
+                            {(s.autoCheckoutEnabled ?? true) ? '✓ Включено' : 'Выключено'}
+                        </button>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                            <RefreshCw size={12}/> Авто-синхр. клиентов
+                        </label>
+                        <button
+                            type="button"
+                            onClick={() => onChange(hostelId, 'autoSync', { ...(s.autoSync || {}), enabled: !(s.autoSync?.enabled) })}
+                            className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold transition-colors border ${
+                                s.autoSync?.enabled
+                                    ? 'bg-teal-600 text-white border-teal-600'
+                                    : 'bg-slate-100 text-slate-500 border-slate-200'
+                            }`}
+                        >
+                            {s.autoSync?.enabled ? '✓ Включена' : 'Выключена'}
+                        </button>
+                    </div>
+                </div>
+                {s.autoSync?.enabled && (
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Частота синхронизации</label>
+                        <select
+                            className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700"
+                            value={s.autoSync?.frequency || 'daily'}
+                            onChange={e => onChange(hostelId, 'autoSync', { ...(s.autoSync || {}), frequency: e.target.value })}
+                        >
+                            <option value="daily">Каждый день</option>
+                            <option value="weekly">Каждую неделю</option>
+                            <option value="monthly">Каждый месяц</option>
+                        </select>
+                    </div>
+                )}
                 {/* Booking.com iCal */}
                 <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
@@ -158,10 +207,11 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
 
     const SETTINGS_DOC = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
 
-    const [settings, setSettings] = useState({
-        hostel1: { name: 'Хостел №1', address: '', phone: '', logoUrl: '', checkInHour: 14, checkOutHour: 12 },
-        hostel2: { name: 'Хостел №2', address: '', phone: '', logoUrl: '', checkInHour: 14, checkOutHour: 12 },
-    });
+    const HOSTEL_DEFAULTS = {
+        hostel1: { name: 'Хостел №1', address: '', phone: '', logoUrl: '', checkInHour: 14, checkOutHour: 12, autoCheckoutEnabled: true, autoSync: { enabled: false, frequency: 'daily' } },
+        hostel2: { name: 'Хостел №2', address: '', phone: '', logoUrl: '', checkInHour: 14, checkOutHour: 12, autoCheckoutEnabled: true, autoSync: { enabled: false, frequency: 'daily' } },
+    };
+    const [settings, setSettings] = useState(HOSTEL_DEFAULTS);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [loadingSettings, setLoadingSettings] = useState(true);
@@ -178,8 +228,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             if (snap.exists()) {
                 const data = snap.data();
                 setSettings(s => ({
-                    hostel1: { checkInHour: 14, checkOutHour: 12, ...s.hostel1, ...(data.hostel1 || {}) },
-                    hostel2: { checkInHour: 14, checkOutHour: 12, ...s.hostel2, ...(data.hostel2 || {}) },
+                    hostel1: { ...s.hostel1, ...(data.hostel1 || {}), autoSync: { enabled: false, frequency: 'daily', ...(s.hostel1?.autoSync || {}), ...(data.hostel1?.autoSync || {}) } },
+                    hostel2: { ...s.hostel2, ...(data.hostel2 || {}), autoSync: { enabled: false, frequency: 'daily', ...(s.hostel2?.autoSync || {}), ...(data.hostel2?.autoSync || {}) } },
                 }));
             }
         }).finally(() => setLoadingSettings(false));

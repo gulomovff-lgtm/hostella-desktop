@@ -19,6 +19,8 @@ export const NOTIFICATION_TYPES = {
     registration:       { label: 'Регистрация E-mehmon',      icon: '🪪', category: 'guests',  color: '#6366f1' },
     registrationExtend: { label: 'Продление E-mehmon',          icon: '🔄', category: 'guests',  color: '#8b5cf6' },
     registrationRemove: { label: 'Вывод из E-mehmon',            icon: '🔴', category: 'guests',  color: '#94a3b8' },
+    cadastreNew:        { label: 'Кадастр — новая регистрация',    icon: '🏠', category: 'guests', color: '#6366f1' },
+    cadastreExpiring:   { label: 'Кадастр — истекает регистрация', icon: '⚠️', category: 'guests', color: '#f59e0b' },
     // ── Бронирование ───────────────────────────────────────────────────────
     newBooking:      { label: 'Онлайн-бронь (новая)',        icon: '📋', category: 'booking', color: '#8b5cf6' },
     bookingAccepted: { label: 'Бронь принята',               icon: '✅', category: 'booking', color: '#10b981' },
@@ -68,6 +70,8 @@ export const DEFAULT_TEMPLATES = {
     shiftStart:      '🟢 <b>Смена начата</b>\n👤 {{staffName}}\n🏨 {{hostel}}\n🕐 {{time}}',
     shiftEnd:        '🔴 <b>Смена закрыта</b>\n👤 {{staffName}}\n🏨 {{hostel}}\n💰 Наличные: {{cash}} | Терминал: {{card}} | QR: {{qr}}\n🕐 {{time}}',
     dailyReport:     '📊 <b>Ежедневный отчёт — {{date}}</b>\n🏨 {{hostel}}\n👥 Гостей: {{activeGuests}}\n📈 Выручка: {{revenue}} сум\n💸 Расходы: {{expenses}} сум',
+    cadastreNew:      '🏠 <b>Кадастр-регистрация добавлена</b>\n👤 {{guestName}}\n🪪 {{passport}}\n📍 {{address}}\n📅 {{checkIn}} → {{checkOut}} ({{days}} дн.)\n💰 {{amount}} сум\n🏨 {{hostel}}\n👷 {{staffName}}',
+    cadastreExpiring: '⚠️ <b>Кадастр-регистрация истекает</b>\n👤 {{guestName}}\n🪪 {{passport}}\n📍 {{address}}\n📅 Окончание: <b>{{checkOut}}</b>\n⏰ Осталось: <b>{{daysLeft}} дн.</b>',
 };
 
 // Variables per type
@@ -93,6 +97,8 @@ const TEMPLATE_VARS = {
     shiftStart:      ['staffName','hostel','time'],
     shiftEnd:        ['staffName','hostel','cash','card','qr','time'],
     dailyReport:     ['date','hostel','activeGuests','revenue','expenses'],
+    cadastreNew:      ['guestName','passport','address','checkIn','checkOut','days','amount','hostel','staffName'],
+    cadastreExpiring: ['guestName','passport','address','checkOut','daysLeft'],
 };
 
 const SAMPLE_DATA = {
@@ -119,6 +125,9 @@ const SAMPLE_DATA = {
     expenses: '45 000',
     extendDays: '3',
     recordType: 'Расход',
+    address: 'Ташкент, ул. Навои, 12',
+    daysLeft: '2',
+    passport: 'AA1234567',
 };
 
 const fillTemplate = (tpl, data) =>

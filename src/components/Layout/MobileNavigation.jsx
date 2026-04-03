@@ -12,13 +12,15 @@ const PRIMARY_TABS_ADMIN = (t) => [
     { id: 'rooms',    icon: BedDouble,   label: t('rooms') },
     { id: 'calendar', icon: Calendar,    label: t('calendar') },
     { id: 'bookings', icon: Globe,       label: t('bookings2'), badgeKey: 'bookings', glow: true },
-    { id: 'tasks',    icon: CheckSquare, label: t('tasks'),     badgeKey: 'tasks' },
+    { id: 'debts',    icon: AlertCircle, label: t('debts') },
+    { id: 'clients',  icon: Users,       label: t('clients') },
 ];
 
 const PRIMARY_TABS_CASHIER = (t) => [
     { id: 'rooms',    icon: BedDouble,   label: t('rooms') },
     { id: 'calendar', icon: Calendar,    label: t('calendar') },
     { id: 'debts',    icon: AlertCircle, label: t('debts') },
+    { id: 'clients',  icon: Users,       label: t('clients') },
 ];
 
 // ─── Groups for the "Ещё" drawer ─────────────────────────────────────────────
@@ -28,8 +30,7 @@ const MORE_GROUPS_ADMIN = (t) => [
         items: [
             { id: 'dashboard',     icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
             { id: 'registrations', icon: ClipboardCheck,  label: t('emehmon'),   badgeKey: 'registrations' },
-            { id: 'debts',         icon: AlertCircle,     label: t('debts') },
-            { id: 'clients',       icon: Users,           label: t('clients') },
+            { id: 'tasks',         icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks' },
         ],
     },
     {
@@ -64,7 +65,7 @@ const MORE_GROUPS_CASHIER = (t) => [
         label: t('main2'),
         items: [
             { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
-            { id: 'referrals', icon: Users2, label: t('bonuses') },
+            { id: 'tasks',     icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks' },
         ],
     },
     {
@@ -72,8 +73,7 @@ const MORE_GROUPS_CASHIER = (t) => [
         items: [
             { id: 'bookings',      icon: Globe,          label: t('bookings2'), badgeKey: 'bookings', glow: true },
             { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),   badgeKey: 'registrations' },
-            { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),     badgeKey: 'tasks' },
-            { id: 'clients',       icon: Users,          label: t('clients') },
+            { id: 'referrals',     icon: Users2,         label: t('bonuses') },
         ],
     },
 ];
@@ -81,7 +81,8 @@ const MORE_GROUPS_CASHIER = (t) => [
 // ─── Component ────────────────────────────────────────────────────────────────
 const MobileNavigation = ({
     currentUser, activeTab, setActiveTab,
-    pendingTasksCount, pendingBookingsCount, lang,
+    pendingTasksCount, pendingBookingsCount, lang, setLang,
+    appTheme, setAppTheme,
     selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter,
     onLogout,
     canPerformActions, onOpenCheckIn, onOpenGroupCheckIn, onOpenRoomRental,
@@ -296,6 +297,38 @@ const MobileNavigation = ({
 
                 {/* Logout */}
                 <div className="px-4 pt-4">
+                    {/* Lang + Theme row */}
+                    <div className="flex items-center gap-2 mb-3">
+                        {/* Language toggle */}
+                        <div className="flex rounded-xl overflow-hidden border border-white/10 flex-1">
+                            {['ru','uz'].map(l => (
+                                <button
+                                    key={l}
+                                    onClick={() => setLang?.(l)}
+                                    className="flex-1 py-2 text-xs font-black uppercase tracking-wider transition-colors"
+                                    style={{
+                                        background: lang === l ? 'rgba(232,140,64,0.25)' : 'rgba(255,255,255,0.05)',
+                                        color: lang === l ? '#e88c40' : MUTED_CLR,
+                                    }}
+                                >
+                                    {l.toUpperCase()}
+                                </button>
+                            ))}
+                        </div>
+                        {/* Dark theme toggle */}
+                        <button
+                            onClick={() => setAppTheme?.(appTheme === 'dark' ? 'green' : 'dark')}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors flex-1 justify-center"
+                            style={{
+                                background: appTheme === 'dark' ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)',
+                                border: appTheme === 'dark' ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.1)',
+                                color: appTheme === 'dark' ? '#a5b4fc' : MUTED_CLR,
+                            }}
+                        >
+                            {appTheme === 'dark' ? '🌙' : '☀️'}
+                            <span>{appTheme === 'dark' ? 'Тёмная' : 'Светлая'}</span>
+                        </button>
+                    </div>
                     <button
                         onClick={() => { setDrawerOpen(false); onLogout(); }}
                         className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold text-sm active:scale-95 transition-transform"

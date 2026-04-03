@@ -146,6 +146,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         passport: initialClient?.passport || '',
         passportIssueDate: initialClient?.passportIssueDate || '',
         country: initialClient?.country || 'Узбекистан',
+        kppDate: initialClient?.kppDate || '',
         birthDate: initialClient?.birthDate || '',
         phone: initialClient?.phone || '',
 
@@ -155,6 +156,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         paidCash: '',
         paidCard: '',
         paidQR: '',
+        paidBalance: 0,
         passportPhoto: '',
         status: 'active'
     });
@@ -166,8 +168,20 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitConflict, setSubmitConflict] = useState(null); // { maxDays, guestName, guestDate, alternatives }
     const [currencyMode, setCurrencyMode] = useState('UZS'); // 'UZS' | 'USD'
+    const [clientBalance, setClientBalance] = useState(0);
 
-    // --- Scan + Photo ---
+    // Подтягиваем баланс клиента при каждом изменении паспорта (включая initialClient, скан, ручной ввод)
+    useEffect(() => {
+        const passport = formData.passport?.replace(/\s/g, '').toUpperCase();
+        if (!passport || passport.length < 5) { setClientBalance(0); return; }
+        const found = clientsDb.find(c => c.passport && c.passport.replace(/\s/g, '').toUpperCase() === passport);
+        const bal = found?.balance || 0;
+        setClientBalance(bal);
+        // Сбрасываем ранее применённый баланс если клиент изменился
+        setFormData(p => ({ ...p, paidBalance: 0 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formData.passport]);
+
     const [scanMode, setScanMode] = useState(false); // false | 'usb' | 'ocr'
     const [ocrLoading, setOcrLoading] = useState(false);
     const scanInputRef = useRef(null);
@@ -244,8 +258,10 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const usdRate = rates?.USD?.rate || 0;
 
     const totalPrice = (parseInt(formData.days) || 0) * (parseInt(formData.pricePerNight) || 0);
+    const appliedBalance = formData.paidBalance || 0;
     const totalPaid = (parseInt(formData.paidCash) || 0) + (parseInt(formData.paidCard) || 0) + (parseInt(formData.paidQR) || 0);
-    const balance = totalPrice - totalPaid;
+    const effectiveTotal = Math.max(0, totalPrice - appliedBalance);
+    const balance = effectiveTotal - totalPaid;
 
     // Конвертация для USD-режима
     const toDisplay = (uzs) => currencyMode === 'USD' && usdRate > 0 ? (uzs / usdRate).toFixed(2) : String(uzs || '');
@@ -327,7 +343,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         if (field !== 'paidCash') others += (parseInt(formData.paidCash) || 0);
         if (field !== 'paidCard') others += (parseInt(formData.paidCard) || 0);
         if (field !== 'paidQR')   others += (parseInt(formData.paidQR)   || 0);
-        const remainder = Math.max(0, totalPrice - others);
+        const remainder = Math.max(0, effectiveTotal - others);
         handleChange(field, String(remainder));
     };
 
@@ -339,10 +355,11 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             passportIssueDate: client.passportIssueDate || '',
             phone: client.phone || '',
             birthDate: client.birthDate || '',
-            country: client.country || 'Узбекистан'
+            country: client.country || 'Узбекистан',
+            paidBalance: 0,
         }));
         setShowSuggestions(false);
-        // Check blacklist/warning in clients database
+        // Check blacklist/warning in clients database (balance is handled by useEffect on passport)
         const dbClient = clientsDb.find(c => c.passport && c.passport === client.passport);
         if (dbClient?.clientStatus === 'blacklist') {
             setBlacklistWarning({ level: 'blacklist', name: dbClient.fullName });
@@ -648,7 +665,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-                                <SimpleInput label={t('passportIssueDateLabel')} type="date" value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)}/>
+                                {formData.country && formData.country !== 'Узбекистан' && (
+                                    <SimpleInput label={t('passportIssueDateLabel')} type="date" value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)} error={errors.passportIssueDate}/>
+                                )}
                                 <SimpleInput label={t('phone')} value={formData.phone} onChange={val => handleChange('phone', val)} placeholder="+998..." icon={Phone}/>
                             </div>
 
@@ -666,6 +685,16 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     </div>
                                 </div>
                             </div>
+
+                            {formData.country && formData.country !== 'Узбекистан' && (
+                                <SimpleInput
+                                    label="Дата прохода КПП"
+                                    type="date"
+                                    value={formData.kppDate}
+                                    onChange={val => handleChange('kppDate', val)}
+                                    error={errors.kppDate}
+                                />
+                            )}
 
                             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mt-2">
                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-100 pb-2">{t('stayConditions')}</h3>
@@ -694,12 +723,45 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     <p className="text-amber-600 text-xs mt-1">{t('adminNoPaymentSub')}</p>
                                 </div>
                             )}
+                            {/* Balance block — visible for all roles if client has balance */}
+                            {clientBalance > 0 && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <span className="text-sm font-black text-blue-700">💳 Баланс клиента</span>
+                                        <span className="text-lg font-black text-blue-700">{clientBalance.toLocaleString()} сум</span>
+                                    </div>
+                                    {appliedBalance === 0 ? (
+                                        <button
+                                            onClick={() => setFormData(p => ({ ...p, paidBalance: Math.min(clientBalance, totalPrice), paidCash: '', paidCard: '', paidQR: '' }))}
+                                            className="w-full py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors"
+                                        >
+                                            Применить к оплате
+                                        </button>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1 text-sm font-semibold text-blue-700">✅ Применено {appliedBalance.toLocaleString()} сум</div>
+                                            <button
+                                                onClick={() => setFormData(p => ({ ...p, paidBalance: 0 }))}
+                                                className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors"
+                                            >
+                                                Отменить
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {currentUser?.role !== 'admin' && (<>
                                 <div className="bg-slate-800 rounded-xl p-6 text-white shadow-lg">
                                     <div className="flex justify-between items-end mb-4">
                                         <div className="opacity-70 text-sm font-medium uppercase">{t('totalDue')}</div>
                                         <div className="text-3xl font-bold">{displayTotal}</div>
                                     </div>
+                                    {appliedBalance > 0 && (
+                                        <div className="flex justify-between items-center mb-2 text-emerald-300">
+                                            <span className="text-sm opacity-90">💳 Баланс клиента</span>
+                                            <span className="font-bold">−{appliedBalance.toLocaleString()} сум</span>
+                                        </div>
+                                    )}
                                     <div className="h-px bg-white/10 mb-4"/>
                                     <div className="flex justify-between items-center">
                                         <span className="font-bold opacity-90">{t('remaining')}</span>
@@ -829,9 +891,23 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 if (!formData.fullName.trim()) errs.fullName = t('fieldRequired');
                                 if (!formData.passport.trim()) errs.passport = t('fieldRequired');
                                 if (!formData.birthDate) errs.birthDate = t('fieldRequired');
+                                if (formData.country && formData.country !== 'Узбекистан') {
+                                    if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
+                                    if (!formData.kppDate) errs.kppDate = t('fieldRequired');
+                                }
                                 if (!(parseInt(formData.pricePerNight) > 0)) errs.pricePerNight = t('priceRequired');
                                 if (Object.keys(errs).length > 0) { setErrors(errs); return; }
                                 setErrors({});
+                            }
+                            // При переходе на шаг оплаты — авто-применяем баланс (читаем актуальный clientBalance)
+                            if (step === 2) {
+                                const passport = formData.passport?.replace(/\s/g, '').toUpperCase();
+                                const found = clientsDb.find(c => c.passport && c.passport.replace(/\s/g, '').toUpperCase() === passport);
+                                const freshBal = found?.balance || 0;
+                                setClientBalance(freshBal);
+                                if (freshBal > 0) {
+                                    setFormData(p => ({ ...p, paidBalance: freshBal, paidCash: '', paidCard: '', paidQR: '' }));
+                                }
                             }
                             setStep(step + 1);
                         }} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-sm transition-colors flex items-center gap-2">

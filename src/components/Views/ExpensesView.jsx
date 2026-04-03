@@ -8,7 +8,7 @@ const CAT_META = [
     { key:'Зарплата',            icon:'💼', bg:'#eef2ff', text:'#4338ca', bar:'#4f46e5', darkBg:'rgba(79,70,229,0.2)',   darkText:'#a5b4fc' },
     { key:'Аванс',               icon:'💰', bg:'#fef9c3', text:'#a16207', bar:'#ca8a04', darkBg:'rgba(202,138,4,0.2)',   darkText:'#fcd34d' },
     { key:'Продукты',            icon:'🛒', bg:'#dcfce7', text:'#15803d', bar:'#16a34a', darkBg:'rgba(22,163,74,0.2)',   darkText:'#86efac' },
-    { key:'Канцелярия',          icon:'📎', bg:'#f1f5f9', text:'#475569', bar:'#94a3b8', darkBg:'rgba(100,116,139,0.2)', darkText:'#94a3b8' },
+    { key:'Налоги',                icon:'🏛️', bg:'#f1f5f9', text:'#475569', bar:'#94a3b8', darkBg:'rgba(100,116,139,0.2)', darkText:'#94a3b8' },
     { key:'Ремонт',              icon:'🔧', bg:'#ffedd5', text:'#c2410c', bar:'#ea580c', darkBg:'rgba(234,88,12,0.2)',   darkText:'#fdba74' },
     { key:'Интернет',            icon:'🌐', bg:'#ccfbf1', text:'#0f766e', bar:'#0d9488', darkBg:'rgba(13,148,136,0.2)',  darkText:'#5eead4' },
     { key:'Реклама',             icon:'📣', bg:'#fce7f3', text:'#be185d', bar:'#db2777', darkBg:'rgba(219,39,119,0.2)',  darkText:'#f9a8d4' },
@@ -82,7 +82,7 @@ const ExpensesView = ({
     const [expDateFrom, setExpDateFrom] = useState('');
     const [expDateTo, setExpDateTo] = useState('');
 
-    const CATS = ['Аренда','Коммунальные услуги','Зарплата','Продукты','Канцелярия','Ремонт','Интернет','Реклама','Другое'];
+    const CATS = ['Аренда','Коммунальные услуги','Зарплата','Продукты','Налоги','Ремонт','Интернет','Реклама','Другое'];
 
     const handleAddForm = async (e) => {
         e.preventDefault();

@@ -3,7 +3,7 @@ import {
     BedDouble, Wallet, CheckCircle2, Clock, CalendarDays, LogOut,
     Plus, Edit, Trash2, Copy, Search, X, AlertTriangle,
     TrendingUp, Users, ArrowRight, Layers, RotateCcw,
-    Building2, User
+    Building2, User, Download
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -115,11 +115,16 @@ const KpiCard = ({ icon: Icon, label, value, sub, colorClass }) => (
 // ─────────────────────────────────────────────────────────────────────────────
 //  КАРТОЧКА КОЙКИ
 // ─────────────────────────────────────────────────────────────────────────────
-const BedCell = React.memo(({ bed, onBedClick, nowMs, lang = 'ru' }) => {
+const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' }) => {
     const { id, status, guest, debt, freeForDays, isTimeout, isBonus, incomingGuest, incomingDays } = bed;
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const flagCode = guest?.country ? CF[guest.country] : null;
     const timeInfo = buildTimeInfo(guest, status, nowMs, lang);
+
+    const kppDays = (guest?.kppDate && guest.country && guest.country !== 'Узбекистан')
+        ? Math.floor((nowMs - new Date(guest.kppDate).getTime()) / 86400000)
+        : -1;
+    const kppAlert = kppDays >= 8 && !guest?.kppRegistered;
 
     if (status === 'free') {
         return (
@@ -208,6 +213,13 @@ const BedCell = React.memo(({ bed, onBedClick, nowMs, lang = 'ru' }) => {
                 )}
                 {timeInfo && (
                     <span className={`text-[10px] font-bold mt-0.5 ${timeInfo.hot ? 'text-rose-500' : 'text-slate-400'}`}>{timeInfo.label}</span>
+                )}
+                {kppAlert && (
+                    <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1">
+                        <div className="flex items-center gap-1 text-[9px] font-black text-amber-700">
+                            <AlertTriangle size={9} />Регистрация! {kppDays}д
+                        </div>
+                    </div>
                 )}
                 {status === 'free_limited' && freeForDays != null && (
                     <span className="text-[10px] font-bold text-sky-600 mt-0.5">{t('free')} {freeForDays} {t('daysShort')}</span>
@@ -348,7 +360,8 @@ const buildBedsData = (room, guests) => {
         if (activeGuest) {
             const co      = parseDate(activeGuest.checkOutDate);
             const bonusCo = activeGuest.bonusCheckOutDate ? parseDate(activeGuest.bonusCheckOutDate) : null;
-            const effectiveCo = bonusCo || co;
+            // Use the later of the two dates (bonus may be outdated after an extension)
+            const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : (co || bonusCo);
             const expired = effectiveCo && now > effectiveCo;
             isBonus = !!(bonusCo && co && now > co && now <= bonusCo);
             if (expired && (now - effectiveCo) / 3_600_000 > 28) {
@@ -380,7 +393,7 @@ const buildBedsData = (room, guests) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  СТРОКА КОМНАТЫ
 // ─────────────────────────────────────────────────────────────────────────────
-const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, filter, guestSearch, lang = 'ru' }) => {
+const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, onKppConfirm, filter, guestSearch, lang = 'ru' }) => {
     const nowMs = useNow();
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const bedsData = useMemo(() => buildBedsData(room, guests), [room, guests]);
@@ -452,6 +465,24 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                 )}
             </div>
 
+            {/* Мобильная сетка коек */}
+            <div className="md:hidden px-3 py-3 bg-slate-50 overflow-x-auto scrollbar-hide">
+                <div className="flex gap-2 w-max">
+                {visibleBeds.map(bed => {
+                    if (filter === 'debt'     && bed.debt <= 0 && bed.status !== 'free') return null;
+                    if (filter === 'free'     && bed.status !== 'free' && bed.status !== 'free_limited') return null;
+                    if (filter === 'occupied' && bed.status !== 'occupied' && !bed.isTimeout && bed.status !== 'free') return null;
+                    if (filter === 'timeout'  && !bed.isTimeout && bed.status !== 'free') return null;
+                    if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
+                    return (
+                        <div key={bed.id} className="w-36 shrink-0">
+                            <BedCell bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} />
+                        </div>
+                    );
+                })}
+                </div>
+            </div>
+
             {/* md+ боковая панель */}
             <div className="hidden md:flex flex-row">
                 <div className="w-52 lg:w-60 shrink-0 flex flex-col p-5 border-r border-slate-100 bg-gradient-to-b from-slate-50/80 to-white">
@@ -507,11 +538,11 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             if (filter === 'timeout'  && !bed.isTimeout && bed.status !== 'free') return null;
                             if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
                             return (
-                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} nowMs={nowMs} lang={lang} />
+                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} />
                         );
                     })}
+                    </div>
                 </div>
-            </div>
         </div>
         </div>
     );
@@ -523,7 +554,7 @@ RoomRow.displayName = 'RoomRow';
 // ─────────────────────────────────────────────────────────────────────────────
 const RoomsView = ({
     filteredRooms, guestsByRoom, currentUser,
-    onBedClick, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom, lang = 'ru',
+    onBedClick, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom, onKppConfirm, onExportGuests, lang = 'ru',
 }) => {
     const [filter, setFilter]           = useState('all');
     const [guestSearch, setGuestSearch] = useState('');
@@ -603,6 +634,15 @@ const RoomsView = ({
                         )}
                     </div>
 
+                    <button
+                        onClick={onExportGuests}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all duration-200 shrink-0 shadow-sm active:scale-95"
+                        title="Экспорт проживающих"
+                    >
+                        <Download size={14} strokeWidth={3} />
+                        <span className="hidden sm:inline">Экспорт</span>
+                    </button>
+
                     {isAdmin && (
                         <button
                             onClick={onAddRoom}
@@ -665,6 +705,7 @@ const RoomsView = ({
                         onClone={() => onCloneRoom(room)}
                         onDelete={() => onDeleteRoom(room)}
                         onBedClick={onBedClick}
+                        onKppConfirm={onKppConfirm}
                         filter={filter}
                         guestSearch={guestSearch}
                         lang={lang}

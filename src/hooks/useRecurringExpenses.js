@@ -25,6 +25,9 @@ import { HOSTELS } from '../utils/helpers';
 const recurringCol = () => collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
 const expensesCol  = () => collection(db, ...PUBLIC_DATA_PATH, 'expenses');
 
+// Глобальный замок на уровне модуля — не сбрасывается при StrictMode двойном монтировании
+const _globalFired = new Set();
+
 export const useRecurringExpenses = ({
   currentUser,
   selectedHostelFilter,
@@ -56,8 +59,11 @@ export const useRecurringExpenses = ({
     return map;
   }, [recurringExpenses, getAdvancesSum]);
 
-  // Сессионный замок: предотвращает двойное начисление при нескольких срабатываниях useEffect
+  // Сессионный замок: резервный, на случай сброса модуля
   const firedInSession = useRef(new Set());
+  // Ref на текущие расходы — используем в эффекте без добавления в зависимости
+  const expensesRef = useRef(expenses);
+  useEffect(() => { expensesRef.current = expenses; }, [expenses]);
 
   /* ── Авто-начисление при старте ────────────────────────────────────── */
   useEffect(() => {
@@ -72,14 +78,15 @@ export const useRecurringExpenses = ({
         if (tmpl.lastFiredMonth === curMonthKey) continue;
         if (today.getDate() < (tmpl.dayOfMonth || 1)) continue;
 
-        // Проверяем сессионный замок СИНХРОННО до любого await
+        // Проверяем ОБА замка сразу, ДО любого await
         const sessionKey = `${tmpl.id}:${curMonthKey}`;
+        if (_globalFired.has(sessionKey)) continue;
         if (firedInSession.current.has(sessionKey)) continue;
-        firedInSession.current.add(sessionKey); // блокируем сразу
+        _globalFired.add(sessionKey);       // глобальный замок
+        firedInSession.current.add(sessionKey); // локальный замок
 
-        // Персистентная проверка: расход за этот месяц уже существует в коллекции?
-        // Защищает от гонки между несколькими вкладками/пользователями.
-        const alreadyExists = expenses.some(e =>
+        // Персистентная проверка по snapshot расходов (через ref — без re-рендера)
+        const alreadyExists = expensesRef.current.some(e =>
           e.recurringId === tmpl.id &&
           typeof e.date === 'string' &&
           e.date.startsWith(curMonthKey)
@@ -124,6 +131,7 @@ export const useRecurringExpenses = ({
 
         // Если ни одного расхода не добавилось — снимаем замок для повтора
         if (!fired) {
+          _globalFired.delete(sessionKey);      // снимаем глобальный замок
           firedInSession.current.delete(sessionKey);
           continue;
         }
@@ -143,8 +151,8 @@ export const useRecurringExpenses = ({
   }, [
     recurringExpenses.map(t => `${t.id}:${t.lastFiredMonth}:${t.active}`).join(','),
     currentUser?.id,
-    // Ключ по уже начисленным авто-расходам: пересчитываем, когда expenses загрузились
-    expenses.filter(e => e.recurringId).map(e => `${e.recurringId}:${e.date?.slice(0,7)}`).join(','),
+    // НЕ включаем expenses в зависимости — используем expensesRef чтобы
+    // избежать повторного запуска после того как сами же добавили расход
   ]);
 
   /* ── CRUD ──────────────────────────────────────────────────────────── */

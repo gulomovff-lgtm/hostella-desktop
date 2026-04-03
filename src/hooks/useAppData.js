@@ -30,6 +30,8 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [hostelConfig,   setHostelConfig  ] = useState(null);
   const [sessions,       setSessions      ] = useState([]);
+  const [cadastres,      setCadastres     ] = useState([]);
+  const [cadastreRegs,   setCadastreRegs  ] = useState([]);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
@@ -158,6 +160,26 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setRegistrations([])
     );
 
+    // Cadastres (private houses)
+    const cadastresCol = collection(db, ...PUBLIC_DATA_PATH, 'cadastres');
+    const uCad1 = onSnapshot(
+      cadastresCol,
+      (snap) => setCadastres(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => setCadastres([])
+    );
+
+    // Cadastre registrations
+    const cadastreRegsCol = collection(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations');
+    const uCad2 = onSnapshot(
+      cadastreRegsCol,
+      (snap) => setCadastreRegs(
+        snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      ),
+      () => setCadastreRegs([])
+    );
+
     // Recurring expenses (Fix 17: только для admin/super — кассирам не нужно)
     const recurringCol = collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
     let u12 = () => {};
@@ -177,7 +199,7 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setHostelConfig({})
     );
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); };
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -196,6 +218,8 @@ export const useAppData = (firebaseUser, currentUser) => {
     recurringExpenses,
     hostelConfig,
     sessions,
+    cadastres,
+    cadastreRegs,
     isOnline,
     permissionError,
     isDataReady,

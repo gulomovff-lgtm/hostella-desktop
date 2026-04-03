@@ -2,6 +2,7 @@
  * useExpenseActions — расходы, удаление платежей, экспорт.
  */
 import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
 import { enqueueTelegram } from '../utils/offlineQueue';
@@ -46,10 +47,9 @@ export function useExpenseActions({
       showNotification('Расход добавлен', 'success');
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
 
-      if (d.category !== 'Возврат') {
+      if (d.category !== 'Возврат' && currentUser.role !== 'admin' && currentUser.role !== 'super') {
         const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const roleLabel = (currentUser.role === 'admin' || currentUser.role === 'super') ? 'Админ' : 'Кассир';
-        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 ${roleLabel}: ${currentUser.name || currentUser.login}`;
+        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 Кассир: ${currentUser.name || currentUser.login}`;
         if (isOnline) {
           await sendTelegramMessage(tgMsg, 'expenseAdded');
         } else {
@@ -93,10 +93,12 @@ export function useExpenseActions({
       if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
     }
     msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
-    if (isOnline) {
-      sendTelegramMessage(msg, 'deleteRecord');
-    } else {
-      enqueueTelegram(msg, 'deleteRecord');
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') {
+      if (isOnline) {
+        sendTelegramMessage(msg, 'deleteRecord');
+      } else {
+        enqueueTelegram(msg, 'deleteRecord');
+      }
     }
     showNotification('Запись удалена');
   };
@@ -105,31 +107,124 @@ export function useExpenseActions({
     const filtered = currentUser?.role === 'super'
       ? expenses
       : expenses.filter(e => e.hostelId === (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId));
-    const exportData = filtered.map(e => ({
-      date: new Date(e.date).toLocaleString(),
-      hostel: (HOSTELS[e.hostelId]?.name || e.hostelId || '-'),
-      category: e.category,
-      amount: parseInt(e.amount),
-      staff: usersList.find(u => u.id === e.staffId || u.login === e.staffId)?.name || 'N/A',
-      comment: e.comment || '-',
-    }));
-    const totalExpenses = exportData.reduce((s, i) => s + i.amount, 0);
-    const rows = exportData.map(row =>
-      `<tr><td>${row.date}</td><td>${row.hostel}</td><td>${row.category}</td><td class="amount">${row.amount.toLocaleString()}</td><td>${row.staff}</td><td>${row.comment}</td></tr>`
-    ).join('');
-    const table = `<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-      <style>body{font-family:Arial,sans-serif}table{border-collapse:collapse;width:100%}th,td{border:1px solid #000;padding:8px;text-align:left}th{background:#dc2626;color:#fff;font-weight:bold}.amount{text-align:right;color:#991b1b;font-weight:bold}.total-row{background:#fee2e2;font-weight:bold;border-top:3px solid #991b1b}</style>
-      </head><body><h2 style="text-align:center;">Отчет по расходам</h2>
-      <table><thead><tr><th>Дата</th><th>Хостел</th><th>Категория</th><th>Сумма</th><th>Кассир</th><th>Комментарий</th></tr></thead>
-      <tbody>${rows}<tr class="total-row"><td colspan="3">ИТОГО РАСХОДОВ:</td><td class="amount">${totalExpenses.toLocaleString()}</td><td colspan="2"></td></tr></tbody></table></body></html>`;
-    const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `Expenses_Report_${new Date().toISOString().split('T')[0]}.xls`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+    const today = new Date().toLocaleDateString('ru-RU');
+    const reportDate = new Date().toISOString().split('T')[0];
+
+    // ─── Данные по расходам ───────────────────────────────────────────────
+    const rows = filtered.map(e => {
+      const d = new Date(e.date);
+      return {
+        'Дата':        d.toLocaleDateString('ru-RU'),
+        'Время':       d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+        'Хостел':      HOSTELS[e.hostelId]?.name || e.hostelId || '—',
+        'Категория':   e.category || '—',
+        'Сумма (сум)': Number(e.amount) || 0,
+        'Кассир':      usersList.find(u => u.id === e.staffId || u.login === e.staffId)?.name || e.staffId || '—',
+        'Комментарий': e.comment || '',
+      };
+    }).sort((a, b) => a['Дата'].localeCompare(b['Дата']));
+
+    const totalAmount = rows.reduce((s, r) => s + r['Сумма (сум)'], 0);
+
+    // Строка итого
+    rows.push({
+      'Дата':        'ИТОГО',
+      'Время':       '',
+      'Хостел':      '',
+      'Категория':   '',
+      'Сумма (сум)': totalAmount,
+      'Кассир':      '',
+      'Комментарий': '',
+    });
+
+    // ─── Сводка по категориям ─────────────────────────────────────────────
+    const byCategory = {};
+    filtered.forEach(e => {
+      const cat = e.category || 'Другое';
+      byCategory[cat] = (byCategory[cat] || 0) + (Number(e.amount) || 0);
+    });
+    const summaryRows = Object.entries(byCategory)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, sum]) => ({
+        'Категория':           cat,
+        'Сумма (сум)':         sum,
+        'Доля (%)': totalAmount > 0 ? +((sum / totalAmount) * 100).toFixed(1) : 0,
+      }));
+    summaryRows.push({ 'Категория': 'ИТОГО', 'Сумма (сум)': totalAmount, 'Доля (%)': 100 });
+
+    // ─── Сводка по хостелам ───────────────────────────────────────────────
+    const byHostel = {};
+    filtered.forEach(e => {
+      const h = HOSTELS[e.hostelId]?.name || e.hostelId || '—';
+      byHostel[h] = (byHostel[h] || 0) + (Number(e.amount) || 0);
+    });
+    const hostelRows = Object.entries(byHostel)
+      .sort((a, b) => b[1] - a[1])
+      .map(([h, sum]) => ({
+        'Хостел':      h,
+        'Сумма (сум)': sum,
+        'Доля (%)': totalAmount > 0 ? +((sum / totalAmount) * 100).toFixed(1) : 0,
+      }));
+    hostelRows.push({ 'Хостел': 'ИТОГО', 'Сумма (сум)': totalAmount, 'Доля (%)': 100 });
+
+    // ─── Создание книги ───────────────────────────────────────────────────
+    const wb = XLSX.utils.book_new();
+
+    // Лист 1: Все расходы
+    const ws1 = XLSX.utils.json_to_sheet(rows);
+    ws1['!cols'] = [
+      { wch: 12 }, // Дата
+      { wch: 7  }, // Время
+      { wch: 16 }, // Хостел
+      { wch: 18 }, // Категория
+      { wch: 16 }, // Сумма
+      { wch: 18 }, // Кассир
+      { wch: 35 }, // Комментарий
+    ];
+    ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws1['!autofilter'] = { ref: ws1['!ref'] };
+    XLSX.utils.book_append_sheet(wb, ws1, 'Расходы');
+
+    // Лист 2: По категориям
+    const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+    ws2['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 12 }];
+    ws2['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws2['!autofilter'] = { ref: ws2['!ref'] };
+    XLSX.utils.book_append_sheet(wb, ws2, 'По категориям');
+
+    // Лист 3: По хостелам
+    const ws3 = XLSX.utils.json_to_sheet(hostelRows);
+    ws3['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 12 }];
+    ws3['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws3['!autofilter'] = { ref: ws3['!ref'] };
+    XLSX.utils.book_append_sheet(wb, ws3, 'По хостелам');
+
+    XLSX.writeFile(wb, `Расходы_${reportDate}.xlsx`);
   };
 
-  return { handleAddExpense, handleDeletePayment, downloadExpensesCSV };
+  const handleCashToTerminal = async (amount, comment = '', dateOverride = null, receipt = null) => {
+    try {
+      const hostelId = (currentUser.role === 'admin' || currentUser.role === 'super')
+        ? selectedHostelFilter
+        : currentUser.hostelId;
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
+        type: 'cash_to_terminal',
+        amount: Number(amount),
+        method: 'cash',
+        comment: comment || 'Инкассация — перевод наличных в терминал',
+        staffId: currentUser.id || currentUser.login,
+        staffName: currentUser.name || currentUser.login,
+        hostelId,
+        date: dateOverride || new Date().toISOString(),
+        ...(receipt ? { receipt } : {}),
+      });
+      showNotification(`✅ Инкассация записана: ${Number(amount).toLocaleString()} сум`, 'success');
+      logAction(currentUser, 'cash_to_terminal', { amount, hostelId, comment });
+    } catch (err) {
+      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+    }
+  };
+
+  return { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal };
 }

@@ -21,7 +21,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser }) => {
         { key: 'Коммунальные услуги', icon: '💡', bg: '#e0f2fe', text: '#0369a1', darkBg: 'rgba(2,132,199,0.2)',    darkText: '#7dd3fc' },
         { key: 'Зарплата',            icon: '💼', bg: '#eef2ff', text: '#4338ca', darkBg: 'rgba(79,70,229,0.2)',    darkText: '#a5b4fc' },
         { key: 'Продукты',            icon: '🛒', bg: '#dcfce7', text: '#15803d', darkBg: 'rgba(22,163,74,0.2)',    darkText: '#86efac' },
-        { key: 'Канцелярия',          icon: '📎', bg: '#f1f5f9', text: '#475569', darkBg: 'rgba(100,116,139,0.2)',  darkText: '#94a3b8' },
+        { key: 'Налоги',                icon: '🏛️', bg: '#f1f5f9', text: '#475569', darkBg: 'rgba(100,116,139,0.2)',  darkText: '#94a3b8' },
         { key: 'Ремонт',              icon: '🔧', bg: '#ffedd5', text: '#c2410c', darkBg: 'rgba(234,88,12,0.2)',    darkText: '#fdba74' },
         { key: 'Интернет',            icon: '🌐', bg: '#ccfbf1', text: '#0f766e', darkBg: 'rgba(13,148,136,0.2)',   darkText: '#5eead4' },
         { key: 'Реклама',             icon: '📣', bg: '#fce7f3', text: '#be185d', darkBg: 'rgba(219,39,119,0.2)',   darkText: '#f9a8d4' },

@@ -5,37 +5,35 @@ import {
     QrCode, BarChart3, CalendarDays, CheckCircle2, User, Download
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import * as XLSX from 'xlsx';
 
 // -- Export helpers ----------------------------------------------------------
-const exportGuestsToExcel = (guests, hostelId) => {
-    let html = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-    <head><meta charset="UTF-8"><style>
-        body{font-family:Arial;}
-        table{border-collapse:collapse;width:100%;}
-        th,td{border:1px solid #000;padding:6px;}
-        th{background:#4f46e5;color:#fff;}
-    </style></head><body><table><thead><tr>
-        <th>№</th><th>ФИО</th><th>Страна</th><th>Паспорт</th><th>Комната</th><th>Место</th><th>Заезд</th><th>Выезд</th><th>Дней</th><th>Сумма</th><th>Долг</th>
-    </tr></thead><tbody>`;
-    guests.forEach((g, i) => {
+const exportGuestsToExcel = (guests) => {
+    const rows = guests.map((g, i) => {
         const paid = (parseInt(g.paidCash)||0) + (parseInt(g.paidCard)||0) + (parseInt(g.paidQR)||0) + (parseInt(g.amountPaid)||0);
         const debt = Math.max(0, (parseInt(g.totalPrice)||0) - paid);
-        const ci   = g.checkInDate  ? new Date(g.checkInDate).toLocaleDateString('ru')  : '—';
-        const co   = g.checkOutDate ? new Date(g.checkOutDate).toLocaleDateString('ru') : '—';
-        html += `<tr>
-            <td>${i+1}</td><td>${g.fullName||''}</td><td>${g.country||''}</td><td>${g.passport||''}</td>
-            <td>${g.roomNumber||''}</td><td>${g.bedId||''}</td><td>${ci}</td><td>${co}</td>
-            <td>${g.days||''}</td><td>${parseInt(g.totalPrice||0).toLocaleString()}</td>
-            <td style="color:${debt>0?'#dc2626':'#16a34a'}">${debt>0?debt.toLocaleString():'0'}</td>
-        </tr>`;
+        return {
+            '№':        i + 1,
+            'ФИО':      g.fullName || '',
+            'Страна':   g.country  || '',
+            'Паспорт':  g.passport || '',
+            'Комната':  g.roomNumber || '',
+            'Место':    g.bedId || '',
+            'Заезд':    g.checkInDate  ? new Date(g.checkInDate).toLocaleDateString('ru')  : '—',
+            'Выезд':    g.checkOutDate ? new Date(g.checkOutDate).toLocaleDateString('ru') : '—',
+            'Дней':     g.days || '',
+            'Сумма':    parseInt(g.totalPrice || 0),
+            'Долг':     debt,
+        };
     });
-    html += `</tbody></table></body></html>`;
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `Гости_${new Date().toISOString().slice(0,10)}.xls`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+        {wch:5},{wch:28},{wch:14},{wch:16},{wch:10},{wch:8},
+        {wch:12},{wch:12},{wch:6},{wch:12},{wch:10},
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Гости');
+    XLSX.writeFile(wb, `Гости_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
 
 const COUNTRY_FLAGS = {

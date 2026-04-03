@@ -16,7 +16,7 @@
   }
 
   var hostel = container.getAttribute('data-hostel') || '';
-  var src = 'https://hostella.uz/booking.html' + (hostel ? '?hostel=' + hostel : '');
+  var src = 'https://hostella-app-a1e07.web.app/booking.html' + (hostel ? '?hostel=' + hostel : '');
 
   var iframe = document.createElement('iframe');
   iframe.src = src;

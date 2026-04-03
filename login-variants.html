@@ -1,535 +1,415 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Hostella — Варианты дизайна входа</title>
+<title>Варианты прогресса загрузки — Hostella</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #080c12; color: #fff; }
-
-.page-header {
-  text-align: center; padding: 52px 24px 36px;
-  background: linear-gradient(180deg, #0d1220 0%, #080c12 100%);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  position: relative; overflow: hidden;
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0f0824;
+  color: #fff;
+  min-height: 100vh;
+  padding: 40px 20px 80px;
 }
-.page-header::before {
-  content: ""; position: absolute; inset: 0;
-  background: radial-gradient(ellipse 60% 100% at 50% 0%, rgba(232,140,64,0.08) 0%, transparent 70%);
-}
-.page-header h1 { font-size: 34px; font-weight: 900; color: #fff; letter-spacing: -0.5px; position: relative; }
-.page-header h1 span { color: #e88c40; }
-.page-header p { color: #5a6880; margin-top: 10px; font-size: 14px; position: relative; }
+h1 { text-align: center; font-size: 17px; font-weight: 700; color: rgba(255,255,255,0.35); margin-bottom: 6px; }
+.note { text-align: center; font-size: 11px; color: rgba(255,255,255,0.15); margin-bottom: 44px; }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(580px, 1fr));
-  gap: 28px; padding: 36px 28px;
-  max-width: 1440px; margin: 0 auto;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
 }
-.variant-card {
-  border-radius: 18px; overflow: hidden;
-  border: 1.5px solid rgba(255,255,255,0.07);
-  transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
+.card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
 }
-.variant-card:hover {
-  border-color: #e88c40; transform: translateY(-5px);
-  box-shadow: 0 24px 64px rgba(232,140,64,0.18);
+.card-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; color: rgba(255,255,255,0.22);
+  align-self: flex-start;
 }
-.variant-label {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px; background: #0d1220; border-top: 1px solid rgba(255,255,255,0.06);
+.desc { font-size: 11px; color: rgba(255,255,255,0.18); text-align: center; }
+
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 1 — Полоса прогресса под кнопкой
+═══════════════════════════════════════════════ */
+.v1-btn {
+  width: 100%; max-width: 260px;
+  background: linear-gradient(135deg,#2a5c90,#1a3c60);
+  border: none; border-radius: 12px 12px 0 0;
+  height: 52px; color: #fff;
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  cursor: default;
 }
-.variant-label .num { font-size: 10px; font-weight: 800; color: #e88c40; letter-spacing: 1.5px; text-transform: uppercase; }
-.variant-label .name { font-size: 14px; font-weight: 700; color: #c8d4e0; margin-top: 2px; }
-.pick-btn {
-  padding: 8px 20px; border-radius: 10px; font-size: 13px; font-weight: 700;
-  background: #e88c40; color: #fff; border: none; cursor: pointer;
-  transition: background 0.2s, transform 0.1s; white-space: nowrap;
+.v1-bar-wrap { width: 100%; max-width: 260px; height: 4px; background: rgba(255,255,255,0.08); border-radius: 0 0 12px 12px; overflow: hidden; }
+.v1-bar { height: 100%; background: linear-gradient(90deg,#38bdf8,#818cf8); border-radius: 0 4px 4px 0; width: 0%; transition: width 0.3s ease; }
+.spin {
+  width: 16px; height: 16px; flex-shrink: 0; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15); border-top-color: rgba(255,255,255,0.9);
+  animation: spin .75s linear infinite;
 }
-.pick-btn:hover { background: #d47a30; transform: scale(1.04); }
-.preview { height: 430px; position: relative; overflow: hidden; display: flex; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-/* KEYFRAMES */
-@keyframes bgShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
-@keyframes spinCW  { to { transform: rotate(360deg); } }
-@keyframes spinCCW { to { transform: rotate(-360deg); } }
-@keyframes floatUp { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-@keyframes pulseShadow { 0%,100%{box-shadow:0 0 20px rgba(232,140,64,0.3),0 0 60px rgba(232,140,64,0.1)} 50%{box-shadow:0 0 40px rgba(232,140,64,0.6),0 0 100px rgba(232,140,64,0.2)} }
-@keyframes shimmer { 0%{background-position:-200% center} 100%{background-position:200% center} }
-@keyframes blobDrift1 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(30px,-20px) scale(1.1)} }
-@keyframes blobDrift2 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(-20px,30px) scale(0.9)} }
-@keyframes blobDrift3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(20px,15px) scale(1.15)} }
-@keyframes fadeSlideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
-@keyframes scanline { 0%{top:-10%} 100%{top:110%} }
-@keyframes logoAppear { 0%{opacity:0;transform:scale(0.6) rotate(-10deg)} 60%{transform:scale(1.08) rotate(2deg)} 100%{opacity:1;transform:scale(1) rotate(0deg)} }
-@keyframes particleFly { 0%{transform:translate(0,0) scale(1);opacity:0.8} 100%{transform:translate(var(--dx),var(--dy)) scale(0);opacity:0} }
-@keyframes dash { to { stroke-dashoffset: -200; } }
-@keyframes orbit { 0%{transform:rotate(0deg) translateX(var(--r)) rotate(0deg)} 100%{transform:rotate(360deg) translateX(var(--r)) rotate(-360deg)} }
-@keyframes borderGlow { 0%,100%{border-color:rgba(232,140,64,0.3)} 50%{border-color:rgba(232,140,64,0.9)} }
-@keyframes countUp7 { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-@keyframes waveShift { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 2 — Процент внутри кнопки
+═══════════════════════════════════════════════ */
+.v2-btn {
+  width: 100%; max-width: 260px; height: 52px;
+  background: #0d1f38; border: 1px solid rgba(56,189,248,0.25);
+  border-radius: 12px; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; cursor: default; font-family: inherit;
+}
+.v2-fill {
+  position: absolute; inset: 0; border-radius: 12px;
+  background: linear-gradient(90deg,#1a4a80,#2a6098);
+  transform-origin: left center; width: 0%;
+  transition: width 0.35s ease;
+}
+.v2-content { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
+.v2-pct { font-size: 22px; font-weight: 900; color: #fff; min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+.v2-text { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.6); white-space: nowrap; }
 
-/* ═══ V1 — AURORA MINIMAL ═══ */
-.v1 { background: #f7f8fa; align-items: center; justify-content: center; }
-.v1 .aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.v1 .ab { position: absolute; border-radius: 50%; filter: blur(50px); opacity: 0.35; }
-.v1 .ab1 { width:300px;height:300px;top:-100px;left:-80px;background:radial-gradient(circle,#b2e0f5,#d4f5e0);animation:blobDrift1 8s ease-in-out infinite; }
-.v1 .ab2 { width:250px;height:250px;bottom:-80px;right:-60px;background:radial-gradient(circle,#fde8d0,#ffd5b0);animation:blobDrift2 10s ease-in-out infinite; }
-.v1 .v1c { position:relative;z-index:2;background:rgba(255,255,255,0.88);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.9);border-radius:24px;padding:34px 38px;width:326px;box-shadow:0 8px 48px rgba(0,0,0,0.08);animation:fadeSlideUp 0.6s ease both; }
-.v1 .lr { display:flex;align-items:center;gap:12px;margin-bottom:26px; }
-.v1 .li { width:46px;height:46px;object-fit:contain;border-radius:14px;animation:logoAppear 0.8s cubic-bezier(0.34,1.56,0.64,1) both; }
-.v1 .bn { font-size:22px;font-weight:900;background:linear-gradient(135deg,#1a3c40,#2a6060);-webkit-background-clip:text;-webkit-text-fill-color:transparent; }
-.v1 h2 { font-size:20px;font-weight:800;color:#1a1a1a;margin-bottom:4px; }
-.v1 .sub { font-size:13px;color:#888;margin-bottom:22px; }
-.v1 label { display:block;font-size:11px;font-weight:700;color:#aaa;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px; }
-.v1 input { width:100%;padding:10px 13px;border-radius:10px;border:1.5px solid #e8edf2;font-size:14px;color:#1a1a1a;background:#f5f7fa;margin-bottom:13px;outline:none;transition:border-color 0.2s; }
-.v1 input:focus { border-color:#1a3c40; }
-.v1 .vb { width:100%;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a3c40,#2a5c60);color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 6px 20px rgba(26,60,64,0.3);transition:transform 0.15s; }
-.v1 .vb:hover { transform:translateY(-1px); }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 3 — Круговой прогресс (кольцо)
+═══════════════════════════════════════════════ */
+.v3-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.v3-ring-wrap { position: relative; width: 80px; height: 80px; }
+.v3-ring-wrap svg { transform: rotate(-90deg); }
+.v3-ring-bg { fill: none; stroke: rgba(255,255,255,0.07); stroke-width: 5; }
+.v3-ring-fg { fill: none; stroke: url(#grad3); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 220; stroke-dashoffset: 220; transition: stroke-dashoffset 0.35s ease; }
+.v3-pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 900; color: #fff; }
+.v3-text { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.5); }
 
-/* ═══ V2 — GLASSMORPHISM ═══ */
-.v2 { background:linear-gradient(130deg,#071624,#0f2535,#071624);background-size:200% 200%;animation:bgShift 12s ease infinite;align-items:center;justify-content:center; }
-.v2 .blob { position:absolute;border-radius:50%;filter:blur(40px); }
-.v2 .b1 { width:280px;height:280px;top:-80px;right:-40px;background:radial-gradient(circle,rgba(232,140,64,0.35),transparent);animation:blobDrift1 9s ease-in-out infinite; }
-.v2 .b2 { width:240px;height:240px;bottom:-60px;left:-30px;background:radial-gradient(circle,rgba(26,92,96,0.5),transparent);animation:blobDrift2 12s ease-in-out infinite; }
-.v2 .b3 { width:180px;height:180px;top:40%;right:20%;background:radial-gradient(circle,rgba(99,170,200,0.15),transparent);animation:blobDrift3 7s ease-in-out infinite; }
-.v2 .glass { position:relative;z-index:2;background:rgba(255,255,255,0.06);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.14);border-radius:28px;padding:34px 38px;width:318px;box-shadow:0 20px 60px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.12);animation:fadeSlideUp 0.7s 0.1s ease both; }
-.v2 .v2i { width:52px;height:52px;object-fit:contain;border-radius:16px;margin-bottom:18px;padding:8px;background:rgba(232,140,64,0.15);border:1px solid rgba(232,140,64,0.35);animation:floatUp 4s ease-in-out infinite; }
-.v2 h2 { font-size:22px;font-weight:800;color:#fff;margin-bottom:4px; }
-.v2 .sub { font-size:13px;color:rgba(255,255,255,0.45);margin-bottom:22px; }
-.v2 label { display:block;font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:0.5px;text-transform:uppercase; }
-.v2 input { width:100%;padding:11px 13px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);font-size:14px;background:rgba(255,255,255,0.07);color:#fff;margin-bottom:13px;outline:none;transition:border-color 0.2s,background 0.2s; }
-.v2 input:focus { border-color:rgba(232,140,64,0.6);background:rgba(255,255,255,0.1); }
-.v2 input::placeholder { color:rgba(255,255,255,0.25); }
-.v2 .vb { width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#e88c40,#d47a30);color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 6px 24px rgba(232,140,64,0.45);animation:pulseShadow 3s ease-in-out infinite; }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 4 — Сегменты (блоки)
+═══════════════════════════════════════════════ */
+.v4-btn {
+  width: 100%; max-width: 260px; height: 52px;
+  background: linear-gradient(135deg,#1a3c60,#0d2240);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  cursor: default; padding: 0 16px;
+}
+.v4-top { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.v4-label { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.7); }
+.v4-pct  { font-size: 13px; font-weight: 900; color: #38bdf8; font-variant-numeric: tabular-nums; }
+.v4-segs { display: flex; gap: 3px; width: 100%; }
+.v4-seg  { flex: 1; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.08); transition: background 0.2s; }
+.v4-seg.done { background: #38bdf8; }
+.v4-seg.active { background: rgba(56,189,248,0.5); animation: segpulse 0.8s ease-in-out infinite; }
+@keyframes segpulse { 0%,100%{opacity:0.5} 50%{opacity:1} }
 
-/* ═══ V3 — PREMIUM SPLIT ═══ */
-.v3 { flex-direction:row; }
-.v3 .lft { width:46%;background:linear-gradient(145deg,#0d2b2e,#1a4547,#0f3335);background-size:200% 200%;animation:bgShift 14s ease infinite;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;position:relative;overflow:hidden; }
-.v3 .rsvg { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none; }
-.v3 .rsvg circle { fill:none;stroke:rgba(255,255,255,0.06);stroke-width:1;stroke-dasharray:8 6;animation:dash 12s linear infinite; }
-.v3 .rsvg circle:nth-child(2) { animation-duration:20s;animation-direction:reverse; }
-.v3 .rsvg circle:nth-child(3) { animation-duration:30s; }
-.v3 .li3 { position:relative;z-index:2;text-align:center; }
-.v3 .v3i { width:70px;height:70px;object-fit:contain;border-radius:20px;padding:10px;background:linear-gradient(135deg,rgba(232,140,64,0.2),rgba(232,140,64,0.05));border:1.5px solid rgba(232,140,64,0.4);margin:0 auto 12px;animation:floatUp 5s ease-in-out infinite,pulseShadow 4s ease-in-out infinite; }
-.v3 .bn3 { font-size:26px;font-weight:900;background:linear-gradient(90deg,#fff 20%,#e88c40 50%,#fff 80%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 4s linear infinite;margin-bottom:6px; }
-.v3 .tg { font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:16px;line-height:1.6; }
-.v3 .chips { display:flex;gap:6px;justify-content:center;flex-wrap:wrap; }
-.v3 .chip { padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.55);border:1px solid rgba(255,255,255,0.1); }
-.v3 .rgt { flex:1;background:#fff;display:flex;flex-direction:column;justify-content:center;padding:36px 30px; }
-.v3 .grt { font-size:11px;font-weight:800;color:#e88c40;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px; }
-.v3 h2 { font-size:21px;font-weight:900;color:#1a1a1a;margin-bottom:20px; }
-.v3 label { display:block;font-size:12px;font-weight:700;color:#aaa;margin-bottom:5px; }
-.v3 input { width:100%;padding:11px 13px;border-radius:10px;border:1.5px solid #e8ecf0;font-size:14px;color:#1a1a1a;background:#f9fafb;margin-bottom:13px;outline:none;transition:border-color 0.2s; }
-.v3 input:focus { border-color:#e88c40; }
-.v3 .vb { width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#e88c40,#d47a30);color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 6px 20px rgba(232,140,64,0.35); }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 5 — Процент + текст + тонкая полоса
+═══════════════════════════════════════════════ */
+.v5-wrap { width: 100%; max-width: 260px; }
+.v5-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.v5-title { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.65); }
+.v5-pct   { font-size: 20px; font-weight: 900; color: #fff; font-variant-numeric: tabular-nums; }
+.v5-sub   { font-size: 11px; color: rgba(255,255,255,0.3); margin-bottom: 10px; }
+.v5-bar   { height: 6px; background: rgba(255,255,255,0.07); border-radius: 6px; overflow: hidden; }
+.v5-fill  { height: 100%; border-radius: 6px; background: linear-gradient(90deg,#6366f1,#38bdf8); width: 0%; transition: width 0.35s ease; }
+.v5-btn {
+  width: 100%; margin-top: 10px; height: 52px;
+  background: linear-gradient(135deg,#2a5c90,#1a3c60);
+  border: none; border-radius: 12px; color: #fff;
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  cursor: default;
+}
 
-/* ═══ V4 — DARK CYBER ═══ */
-.v4 { background:#060810;align-items:center;justify-content:center; }
-.v4 .gbg { position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(232,140,64,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(232,140,64,0.04) 1px,transparent 1px);background-size:28px 28px; }
-.v4 .scl { position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(232,140,64,0.25),transparent);animation:scanline 4s linear infinite;pointer-events:none;z-index:1; }
-.v4 .gtop { position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:500px;height:200px;background:radial-gradient(ellipse,rgba(232,140,64,0.12),transparent 70%);filter:blur(20px);pointer-events:none; }
-.v4 .v4c { position:relative;z-index:2;width:346px;background:rgba(12,16,24,0.95);border-radius:20px;padding:34px 38px;border:1px solid rgba(232,140,64,0.2);box-shadow:0 0 60px rgba(232,140,64,0.06),0 20px 50px rgba(0,0,0,0.6);animation:borderGlow 4s ease-in-out infinite,fadeSlideUp 0.6s ease both; }
-.v4 .lr4 { display:flex;align-items:center;gap:12px;margin-bottom:22px; }
-.v4 .v4i { width:44px;height:44px;object-fit:contain;border-radius:12px;padding:6px;background:rgba(232,140,64,0.1);border:1px solid rgba(232,140,64,0.3); }
-.v4 .v4b { font-size:18px;font-weight:900;background:linear-gradient(90deg,#e88c40,#f0a040,#e88c40);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 3s linear infinite; }
-.v4 .ttl { font-size:11px;color:rgba(232,140,64,0.5);font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:5px; }
-.v4 h2 { font-size:20px;font-weight:800;color:#e2e8f0;margin-bottom:3px; }
-.v4 .sub4 { font-size:12px;color:#3a4a5e;margin-bottom:20px; }
-.v4 label { display:block;font-size:10px;font-weight:700;color:rgba(232,140,64,0.5);margin-bottom:5px;letter-spacing:1.5px;text-transform:uppercase; }
-.v4 input { width:100%;padding:11px 13px;border-radius:8px;border:1px solid rgba(232,140,64,0.15);font-size:14px;background:rgba(232,140,64,0.03);color:#e2e8f0;margin-bottom:13px;outline:none;transition:border-color 0.2s; }
-.v4 input:focus { border-color:rgba(232,140,64,0.5); }
-.v4 input::placeholder { color:#1e2a38; }
-.v4 .vb { width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(90deg,#e88c40,#f0a040,#e88c40);background-size:200% auto;color:#060810;font-size:14px;font-weight:900;cursor:pointer;letter-spacing:0.5px;animation:shimmer 3s linear infinite; }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 6 — Ступени загрузки с чекбоксами
+═══════════════════════════════════════════════ */
+.v6-wrap { width: 100%; max-width: 260px; }
+.v6-step { display: flex; align-items: center; gap: 10px; padding: 6px 0; position: relative; }
+.v6-step:not(:last-child)::after {
+  content: ''; position: absolute; left: 9px; top: 26px;
+  width: 1px; height: 12px; background: rgba(255,255,255,0.1);
+}
+.v6-dot {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+}
+.v6-dot.done    { background: rgba(56,189,248,0.25); border: 1.5px solid #38bdf8; color: #38bdf8; }
+.v6-dot.active  { background: rgba(56,189,248,0.1); border: 1.5px solid rgba(56,189,248,0.5); animation: actpulse 1s ease-in-out infinite; }
+.v6-dot.pending { background: rgba(255,255,255,0.04); border: 1.5px solid rgba(255,255,255,0.1); }
+@keyframes actpulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 8px rgba(56,189,248,0.5)} }
+.v6-name { font-size: 13px; font-weight: 600; }
+.v6-name.done    { color: rgba(56,189,248,0.7); }
+.v6-name.active  { color: #fff; }
+.v6-name.pending { color: rgba(255,255,255,0.2); }
 
-/* ═══ V5 — ORBITAL LOGO ═══ */
-.v5 { background:radial-gradient(ellipse at center,#0f1d30 0%,#07101c 100%);align-items:center;justify-content:center; }
-.v5 .osys { position:absolute;top:50%;left:28%;transform:translate(-50%,-50%);width:200px;height:200px;pointer-events:none; }
-.v5 .oring { position:absolute;border-radius:50%;border:1px dashed rgba(255,255,255,0.08);top:50%;left:50%; }
-.v5 .or1 { width:130px;height:130px;margin-left:-65px;margin-top:-65px;animation:spinCW 18s linear infinite;border-color:rgba(232,140,64,0.18); }
-.v5 .or2 { width:200px;height:200px;margin-left:-100px;margin-top:-100px;animation:spinCCW 28s linear infinite;border-color:rgba(100,180,220,0.12); }
-.v5 .or3 { width:270px;height:270px;margin-left:-135px;margin-top:-135px;animation:spinCW 40s linear infinite; }
-.v5 .odot { position:absolute;width:7px;height:7px;border-radius:50%;top:50%;left:50%;margin:-3.5px 0 0 -3.5px; }
-.v5 .d1 { background:#e88c40;--r:65px;animation:orbit 18s linear infinite; }
-.v5 .d2 { background:#64b4dc;--r:100px;animation:orbit 28s linear infinite reverse; }
-.v5 .d3 { background:rgba(255,255,255,0.4);--r:135px;animation:orbit 40s linear infinite; }
-.v5 .clw { position:absolute;top:50%;left:28%;transform:translate(-50%,-50%);z-index:2; }
-.v5 .v5i { width:66px;height:66px;object-fit:contain;border-radius:20px;padding:10px;background:rgba(232,140,64,0.12);border:1.5px solid rgba(232,140,64,0.35);display:block;animation:floatUp 5s ease-in-out infinite,pulseShadow 4s ease-in-out infinite; }
-.v5 .fw { position:absolute;right:0;top:0;bottom:0;width:56%;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:28px 28px 28px 0; }
-.v5 .v5b { font-size:24px;font-weight:900;background:linear-gradient(90deg,#fff 30%,#e88c40 60%,#fff 90%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 5s linear infinite;margin-bottom:3px; }
-.v5 .v5s { font-size:12px;color:rgba(255,255,255,0.35);margin-bottom:18px; }
-.v5 .vf { background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:22px;width:100%; }
-.v5 label { display:block;font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px; }
-.v5 input { width:100%;padding:10px 12px;border-radius:9px;border:1px solid rgba(255,255,255,0.08);font-size:13px;background:rgba(255,255,255,0.05);color:#fff;margin-bottom:12px;outline:none;transition:border-color 0.2s; }
-.v5 input:focus { border-color:rgba(232,140,64,0.5); }
-.v5 input::placeholder { color:rgba(255,255,255,0.15); }
-.v5 .vb { width:100%;padding:11px;border-radius:9px;border:none;background:linear-gradient(135deg,#e88c40,#d47a30);color:#fff;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(232,140,64,0.35); }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 7 — Большой процент по центру
+═══════════════════════════════════════════════ */
+.v7-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; max-width: 260px; }
+.v7-big  { font-size: 56px; font-weight: 900; color: #fff; line-height: 1; font-variant-numeric: tabular-nums; }
+.v7-sub  { font-size: 12px; color: rgba(255,255,255,0.3); letter-spacing: 2px; text-transform: uppercase; }
+.v7-bar  { width: 100%; height: 3px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.v7-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg,#818cf8,#38bdf8,#818cf8); background-size: 200% 100%; width: 0%; transition: width 0.35s ease; animation: gradmove 2s linear infinite; }
+@keyframes gradmove { to { background-position: -200% 0; } }
+.v7-text { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.45); margin-top: 4px; }
 
-/* ═══ V6 — BENTO DASHBOARD ═══ */
-.v6 { background:#f0f3f7;flex-direction:column; }
-.v6 .tb { background:#fff;border-bottom:1px solid #e2e8f0;padding:0 20px;height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between; }
-.v6 .tbl { display:flex;align-items:center;gap:10px; }
-.v6 .tbi { width:28px;height:28px;object-fit:contain;border-radius:7px;background:#1a3c40;padding:4px; }
-.v6 .tbn { font-size:14px;font-weight:900;color:#1a1a1a; }
-.v6 .tbv { font-size:10px;padding:2px 7px;border-radius:6px;background:#e3f2e8;color:#2e7d32;font-weight:700; }
-.v6 .bd { flex:1;display:flex;align-items:center;justify-content:center;padding:16px 20px;gap:16px; }
-.v6 .bc { display:flex;flex-direction:column;gap:10px; }
-.v6 .bto { background:#fff;border-radius:14px;padding:14px 16px;border:1px solid #e8ecf2;box-shadow:0 2px 8px rgba(0,0,0,0.04);min-width:110px;animation:fadeSlideUp 0.5s ease both; }
-.v6 .bto:nth-child(2){animation-delay:0.1s}.v6 .bto:nth-child(3){animation-delay:0.2s}
-.v6 .bl { font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px; }
-.v6 .bv { font-size:22px;font-weight:900;color:#1a3c40;line-height:1; }
-.v6 .bs { font-size:10px;color:#94a3b8;margin-top:3px; }
-.v6 .bsp { height:28px;display:flex;align-items:flex-end;gap:2px;margin-top:8px; }
-.v6 .bb { flex:1;border-radius:2px;background:linear-gradient(180deg,#1a3c40,#2a6060);animation:countUp7 0.4s ease both; }
-.v6 .fw6 { background:#fff;border-radius:18px;padding:26px;border:1px solid #e8ecf2;width:270px;box-shadow:0 6px 28px rgba(0,0,0,0.07);animation:fadeSlideUp 0.5s 0.15s ease both; }
-.v6 .lr6 { display:flex;align-items:center;gap:10px;margin-bottom:18px; }
-.v6 .li6 { width:34px;height:34px;object-fit:contain;border-radius:9px;background:#1a3c40;padding:4px; }
-.v6 .bn6 { font-size:16px;font-weight:900;color:#1a1a1a; }
-.v6 .pb { display:flex;gap:4px;margin-bottom:18px; }
-.v6 .pbs { flex:1;height:3px;border-radius:2px;background:#e2e8f0; }
-.v6 .pbs.done { background:#1a3c40; }
-.v6 .pbs.act { background:#e88c40; }
-.v6 h2 { font-size:17px;font-weight:800;color:#1a1a1a;margin-bottom:3px; }
-.v6 .sub6 { font-size:11px;color:#94a3b8;margin-bottom:16px; }
-.v6 label { display:block;font-size:11px;font-weight:700;color:#64748b;margin-bottom:4px; }
-.v6 input { width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid #e2e8f0;font-size:13px;color:#1a1a1a;background:#f8fafc;margin-bottom:11px;outline:none;transition:border-color 0.2s; }
-.v6 input:focus { border-color:#1a3c40; }
-.v6 .vb { width:100%;padding:11px;border-radius:9px;border:none;background:#1a3c40;color:#fff;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(26,60,64,0.25); }
+/* ═══════════════════════════════════════════════
+   ВАРИАНТ 8 — Таймер обратного отсчёта (антипаттерн, но выглядит круто)
+═══════════════════════════════════════════════ */
+.v8-btn {
+  width: 100%; max-width: 260px; height: 58px;
+  background: #090f1f; border: 1px solid rgba(99,102,241,0.3);
+  border-radius: 14px; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 20px;
+  cursor: default;
+}
+.v8-left  { display: flex; align-items: center; gap: 10px; }
+.v8-icon  { width: 32px; height: 32px; border-radius: 8px; background: rgba(99,102,241,0.2); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.v8-lines { display: flex; flex-direction: column; gap: 3px; }
+.v8-t1    { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.75); }
+.v8-t2    { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.3); }
+.v8-right { font-size: 28px; font-weight: 900; color: #818cf8; font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
 
-/* ═══ V7 — WAVE + STARS ═══ */
-.v7 { background:linear-gradient(160deg,#0a0e1a 0%,#12213a 50%,#0a0e1a 100%);align-items:center;justify-content:center; }
-.v7 .wbg { position:absolute;bottom:0;left:0;right:0;height:120px;pointer-events:none;overflow:hidden; }
-.v7 .wbg svg { width:100%;height:100%; }
-.v7 .wp1 { fill:rgba(26,60,64,0.4);animation:waveShift 8s linear infinite; }
-.v7 .wp2 { fill:rgba(26,60,64,0.2);animation:waveShift 12s linear infinite reverse; }
-.v7 .strs { position:absolute;inset:0;pointer-events:none; }
-.v7 .str { position:absolute;width:2px;height:2px;border-radius:50%;background:#fff; }
-.v7 .v7ctr { position:relative;z-index:2;width:100%;display:flex;align-items:center;justify-content:center;height:100%;gap:36px; }
-.v7 .v7lft { text-align:center; }
-.v7 .lw { position:relative;display:inline-block;animation:floatUp 5s ease-in-out infinite; }
-.v7 .v7i { width:80px;height:80px;object-fit:contain;border-radius:24px;padding:12px;background:linear-gradient(135deg,rgba(232,140,64,0.15),rgba(26,60,64,0.3));border:1.5px solid rgba(232,140,64,0.3);display:block; }
-.v7 .lgl { position:absolute;inset:-12px;border-radius:32px;background:radial-gradient(circle,rgba(232,140,64,0.2),transparent 70%);animation:pulseShadow 3s ease-in-out infinite;z-index:-1; }
-.v7 .v7b { font-size:28px;font-weight:900;letter-spacing:-0.5px;margin-top:10px;background:linear-gradient(90deg,#c8dfe2 20%,#ffffff 50%,#e88c40 70%,#ffffff 90%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 5s linear infinite; }
-.v7 .v7t { font-size:12px;color:rgba(255,255,255,0.3);margin-top:4px; }
-.v7 .v7f { background:rgba(255,255,255,0.05);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:22px;padding:26px;width:244px;box-shadow:0 16px 48px rgba(0,0,0,0.4);animation:fadeSlideUp 0.6s ease both; }
-.v7 .grt { font-size:11px;font-weight:800;color:#e88c40;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px; }
-.v7 h2 { font-size:19px;font-weight:800;color:#fff;margin-bottom:18px; }
-.v7 label { display:block;font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px; }
-.v7 input { width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);font-size:13px;background:rgba(255,255,255,0.06);color:#fff;margin-bottom:11px;outline:none;transition:border-color 0.2s; }
-.v7 input:focus { border-color:rgba(232,140,64,0.5); }
-.v7 input::placeholder { color:rgba(255,255,255,0.2); }
-.v7 .vb { width:100%;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#1a3c40,#2a5c60);color:#fff;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(26,60,64,0.5); }
-
-/* ═══ V8 — FROSTED CENTERED ═══ */
-.v8 { background:linear-gradient(135deg,#1a3c40 0%,#0d2b2e 40%,#122028 100%);align-items:center;justify-content:center; }
-.v8 .pts { position:absolute;inset:0;pointer-events:none; }
-.v8 .pt { position:absolute;border-radius:50%;background:rgba(255,255,255,0.12);filter:blur(1px);animation:particleFly 6s ease-in-out infinite; }
-.v8 .v8c { position:relative;z-index:2;width:344px;background:rgba(255,255,255,0.08);backdrop-filter:blur(32px);-webkit-backdrop-filter:blur(32px);border:1px solid rgba(255,255,255,0.18);border-radius:28px;padding:34px 38px;box-shadow:0 24px 80px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.15);animation:fadeSlideUp 0.6s ease both; }
-.v8 .hd { text-align:center;margin-bottom:26px; }
-.v8 .lring { width:80px;height:80px;border-radius:50%;background:rgba(232,140,64,0.1);border:2px solid rgba(232,140,64,0.35);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;animation:floatUp 5s ease-in-out infinite,borderGlow 3s ease-in-out infinite; }
-.v8 .v8i { width:50px;height:50px;object-fit:contain;border-radius:14px; }
-.v8 .v8b { font-size:24px;font-weight:900;background:linear-gradient(90deg,#fff 20%,#e88c40 50%,#fff 80%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 4s linear infinite; }
-.v8 .v8s { font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px; }
-.v8 label { display:block;font-size:11px;font-weight:700;color:rgba(255,255,255,0.4);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.4px; }
-.v8 input { width:100%;padding:11px 13px;border-radius:12px;border:1px solid rgba(255,255,255,0.12);font-size:14px;background:rgba(255,255,255,0.07);color:#fff;margin-bottom:13px;outline:none;transition:border-color 0.2s,background 0.2s; }
-.v8 input:focus { border-color:rgba(232,140,64,0.6);background:rgba(255,255,255,0.1); }
-.v8 input::placeholder { color:rgba(255,255,255,0.2); }
-.v8 .vb { width:100%;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#e88c40,#d47a30);color:#fff;font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 8px 32px rgba(232,140,64,0.4);animation:pulseShadow 3s ease-in-out infinite;letter-spacing:0.5px; }
-
-/* MODAL */
-.overlay { position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;z-index:1000; }
-.overlay.active { display:flex; }
-.modal { background:#111827;border-radius:24px;padding:44px;text-align:center;border:1px solid rgba(255,255,255,0.08);max-width:440px;width:90%;box-shadow:0 24px 80px rgba(0,0,0,0.6);animation:fadeSlideUp 0.3s ease both; }
-.modal .me { font-size:56px;margin-bottom:16px; }
-.modal h3 { font-size:22px;font-weight:900;color:#fff;margin-bottom:8px; }
-.modal p { color:#64748b;font-size:14px;line-height:1.6;margin-bottom:28px; }
-.modal .mb { display:flex;gap:10px;justify-content:center; }
-.modal .mc { padding:11px 24px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#64748b;font-size:14px;font-weight:700;cursor:pointer; }
-.modal .mf { padding:11px 32px;border-radius:12px;border:none;background:#e88c40;color:#fff;font-size:14px;font-weight:800;cursor:pointer; }
+footer { text-align: center; margin-top: 50px; font-size: 11px; color: rgba(255,255,255,0.12); }
 </style>
 </head>
 <body>
 
-<div class="page-header">
-  <h1>🏨 <span>Hostella</span> — Варианты дизайна входа</h1>
-  <p>8 вариантов · реальное лого · анимации · Нажмите «Выбрать» чтобы утвердить</p>
-</div>
+<h1>Варианты индикатора прогресса загрузки · Hostella</h1>
+<p class="note">Прогресс анимируется от 0 до 100% циклически</p>
 
 <div class="grid">
 
-<!-- ══════ V1 — AURORA MINIMAL ══════ -->
-<div class="variant-card">
-  <div class="preview v1">
-    <div class="aurora"><div class="ab ab1"></div><div class="ab ab2"></div></div>
-    <div class="v1c">
-      <div class="lr">
-        <img class="li" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-        <span class="bn">Hostella</span>
-      </div>
-      <h2>Добрый день 🌤</h2>
-      <p class="sub">Введите данные для входа</p>
-      <label>Логин</label><input value="admin"/>
-      <label>Пароль</label><input type="password" placeholder="••••••••"/>
-      <button class="vb">Войти в систему</button>
+  <!-- 1 — Полоса под кнопкой -->
+  <div class="card">
+    <div class="card-label">1 — Полоска под кнопкой</div>
+    <div style="width:100%;max-width:260px">
+      <div class="v1-btn"><div class="spin"></div><span id="txt1" style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.7)">Загрузка гостей...</span></div>
+      <div class="v1-bar-wrap"><div class="v1-bar" id="bar1"></div></div>
     </div>
+    <div class="desc">Тонкая полоска заполняется под кнопкой</div>
   </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 01</div><div class="name">Aurora Minimal — светлый, блики, плавный</div></div>
-    <button class="pick-btn" onclick="pick(1,'Aurora Minimal')">Выбрать</button>
-  </div>
-</div>
 
-<!-- ══════ V2 — GLASSMORPHISM ══════ -->
-<div class="variant-card">
-  <div class="preview v2">
-    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-    <div class="glass">
-      <img class="v2i" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-      <h2>Добрый день</h2>
-      <p class="sub">Система управления хостелом</p>
-      <label>Логин</label><input value="admin"/>
-      <label>Пароль</label><input type="password" placeholder="••••••••"/>
-      <button class="vb">Войти</button>
-    </div>
-  </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 02</div><div class="name">Glassmorphism — стекло, блобы, оранжевый свет</div></div>
-    <button class="pick-btn" onclick="pick(2,'Glassmorphism')">Выбрать</button>
-  </div>
-</div>
-
-<!-- ══════ V3 — PREMIUM SPLIT ══════ -->
-<div class="variant-card">
-  <div class="preview v3">
-    <div class="lft">
-      <svg class="rsvg" width="340" height="340">
-        <circle cx="170" cy="170" r="80" stroke-dasharray="8 6"/>
-        <circle cx="170" cy="170" r="130" stroke-dasharray="8 6"/>
-        <circle cx="170" cy="170" r="162" stroke-dasharray="8 6"/>
-      </svg>
-      <div class="li3">
-        <img class="v3i" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-        <div class="bn3">Hostella</div>
-        <div class="tg">Система управления хостелом<br>Версия 0.3.22</div>
-        <div class="chips"><span class="chip">🛏 Номера</span><span class="chip">👥 Гости</span><span class="chip">💰 Касса</span></div>
+  <!-- 2 — Процент + fill внутри кнопки -->
+  <div class="card">
+    <div class="card-label">2 — Процент внутри кнопки</div>
+    <div class="v2-btn">
+      <div class="v2-fill" id="fill2"></div>
+      <div class="v2-content">
+        <div class="v2-pct" id="pct2">0%</div>
+        <div class="v2-text" id="txt2">Загрузка гостей...</div>
       </div>
     </div>
-    <div class="rgt">
-      <div class="grt">Добро пожаловать</div>
-      <h2>С добрым днём! 🌤</h2>
-      <label>Логин</label><input value="admin"/>
-      <label>Пароль</label><input type="password" placeholder="••••••••"/>
-      <button class="vb">Войти в систему →</button>
-    </div>
+    <div class="desc">Кнопка заполняется + процент крупно</div>
   </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 03</div><div class="name">Premium Split — тёмная+кольца | светлая форма</div></div>
-    <button class="pick-btn" onclick="pick(3,'Premium Split')">Выбрать</button>
-  </div>
-</div>
 
-<!-- ══════ V4 — DARK CYBER ══════ -->
-<div class="variant-card">
-  <div class="preview v4">
-    <div class="gbg"></div><div class="scl"></div><div class="gtop"></div>
-    <div class="v4c">
-      <div class="lr4">
-        <img class="v4i" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-        <span class="v4b">Hostella</span>
+  <!-- 3 — Круговой прогресс -->
+  <div class="card">
+    <div class="card-label">3 — Круговой прогресс</div>
+    <div class="v3-wrap">
+      <div class="v3-ring-wrap">
+        <svg width="80" height="80" viewBox="0 0 80 80">
+          <defs>
+            <linearGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#6366f1"/>
+              <stop offset="100%" stop-color="#38bdf8"/>
+            </linearGradient>
+          </defs>
+          <circle class="v3-ring-bg" cx="40" cy="40" r="35"/>
+          <circle class="v3-ring-fg" id="ring3" cx="40" cy="40" r="35"/>
+        </svg>
+        <div class="v3-pct" id="pct3">0%</div>
       </div>
-      <div class="ttl">Система управления</div>
-      <h2>Авторизация</h2>
-      <p class="sub4">v0.3.22 · Безопасный вход</p>
-      <label>Логин</label><input value="admin"/>
-      <label>Пароль</label><input type="password" placeholder="••••••••"/>
-      <button class="vb">ВОЙТИ</button>
+      <div class="v3-text" id="txt3">Загрузка гостей...</div>
     </div>
+    <div class="desc">Кольцо заполняется + процент в центре</div>
   </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 04</div><div class="name">Dark Cyber — сетка, сканлиния, оранжевый акцент</div></div>
-    <button class="pick-btn" onclick="pick(4,'Dark Cyber')">Выбрать</button>
-  </div>
-</div>
 
-<!-- ══════ V5 — ORBITAL LOGO ══════ -->
-<div class="variant-card">
-  <div class="preview v5">
-    <div class="osys">
-      <div class="oring or1"></div><div class="oring or2"></div><div class="oring or3"></div>
-      <div class="odot d1"></div><div class="odot d2"></div><div class="odot d3"></div>
-    </div>
-    <div class="clw">
-      <img class="v5i" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-    </div>
-    <div class="fw">
-      <div class="v5b">Hostella</div>
-      <div class="v5s">Система управления · v0.3.22</div>
-      <div class="vf">
-        <label>Логин</label><input value="admin"/>
-        <label>Пароль</label><input type="password" placeholder="••••••••"/>
-        <button class="vb">Войти →</button>
+  <!-- 4 — Сегменты -->
+  <div class="card">
+    <div class="card-label">4 — Сегменты</div>
+    <div class="v4-btn" id="v4btn">
+      <div class="v4-top">
+        <span class="v4-label" id="txt4">Загрузка гостей...</span>
+        <span class="v4-pct" id="pct4">0%</span>
       </div>
+      <div class="v4-segs" id="segs4"></div>
     </div>
+    <div class="desc">7 сегментов заполняются по очереди</div>
   </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 05</div><div class="name">Orbital — лого в орбитах с точками, форма рядом</div></div>
-    <button class="pick-btn" onclick="pick(5,'Orbital Logo')">Выбрать</button>
-  </div>
-</div>
 
-<!-- ══════ V6 — BENTO DASHBOARD ══════ -->
-<div class="variant-card">
-  <div class="preview v6">
-    <div class="tb">
-      <div class="tbl">
-        <img class="tbi" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-        <span class="tbn">Hostella</span><span class="tbv">v0.3.22</span>
+  <!-- 5 — Полоска + процент сверху -->
+  <div class="card">
+    <div class="card-label">5 — Полоска + процент</div>
+    <div class="v5-wrap">
+      <div class="v5-head">
+        <span class="v5-title" id="txt5">Загрузка данных</span>
+        <span class="v5-pct" id="pct5">0%</span>
       </div>
-      <span style="font-size:11px;color:#94a3b8">Система управления</span>
+      <div class="v5-sub" id="sub5">Загрузка гостей...</div>
+      <div class="v5-bar"><div class="v5-fill" id="fill5"></div></div>
+      <button class="v5-btn"><div class="spin"></div><span style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.65)" id="txt5b">Пожалуйста подождите...</span></button>
     </div>
-    <div class="bd">
-      <div class="bc">
-        <div class="bto"><div class="bl">Гостей</div><div class="bv">48</div><div class="bs">в хостеле</div>
-          <div class="bsp"><div class="bb" style="height:60%"></div><div class="bb" style="height:80%"></div><div class="bb" style="height:50%"></div><div class="bb" style="height:90%"></div><div class="bb" style="height:70%"></div><div class="bb" style="height:100%"></div></div>
+    <div class="desc">Подробный статус + прогресс-бар + кнопка</div>
+  </div>
+
+  <!-- 6 — Шаги с иконками -->
+  <div class="card">
+    <div class="card-label">6 — Шаги с отметками</div>
+    <div class="v6-wrap" id="v6steps"></div>
+    <div class="desc">Каждый этап отмечается по завершении</div>
+  </div>
+
+  <!-- 7 — Огромный процент -->
+  <div class="card">
+    <div class="card-label">7 — Большой процент</div>
+    <div class="v7-wrap">
+      <div class="v7-big" id="pct7">0%</div>
+      <div class="v7-sub">загружено</div>
+      <div class="v7-bar"><div class="v7-fill" id="fill7"></div></div>
+      <div class="v7-text" id="txt7">Загрузка гостей...</div>
+    </div>
+    <div class="desc">Крупный процент + переливающаяся полоска</div>
+  </div>
+
+  <!-- 8 — Карточка с процентом справа -->
+  <div class="card">
+    <div class="card-label">8 — Карточка + цифра</div>
+    <div class="v8-btn">
+      <div class="v8-left">
+        <div class="v8-icon">🏨</div>
+        <div class="v8-lines">
+          <div class="v8-t1" id="txt8">Загрузка гостей...</div>
+          <div class="v8-t2">Hostella · подождите</div>
         </div>
-        <div class="bto"><div class="bl">Заполненность</div><div class="bv">92%</div><div class="bs">из 52 мест</div></div>
-        <div class="bto"><div class="bl">Выезд сегодня</div><div class="bv">7</div><div class="bs">гостей</div></div>
       </div>
-      <div class="fw6">
-        <div class="lr6">
-          <img class="li6" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-          <span class="bn6">Hostella</span>
-        </div>
-        <div class="pb"><div class="pbs done"></div><div class="pbs act"></div><div class="pbs"></div></div>
-        <h2>Авторизация</h2><p class="sub6">Введите учётные данные</p>
-        <label>Логин</label><input value="admin"/>
-        <label>Пароль</label><input type="password" placeholder="••••••••"/>
-        <button class="vb">Продолжить →</button>
-      </div>
+      <div class="v8-right" id="pct8">0%</div>
     </div>
+    <div class="desc">Текст слева, крупный процент справа</div>
   </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 06</div><div class="name">Bento Dashboard — статистика + форма</div></div>
-    <button class="pick-btn" onclick="pick(6,'Bento Dashboard')">Выбрать</button>
-  </div>
+
 </div>
 
-<!-- ══════ V7 — WAVE + STARS ══════ -->
-<div class="variant-card">
-  <div class="preview v7">
-    <div class="strs" id="stars7"></div>
-    <div class="wbg">
-      <svg viewBox="0 0 1440 120" preserveAspectRatio="none">
-        <path class="wp1" d="M0,60 C240,100 480,20 720,60 C960,100 1200,20 1440,60 L1440,120 L0,120 Z"/>
-        <path class="wp2" d="M0,70 C240,30 480,110 720,70 C960,30 1200,110 1440,70 L1440,120 L0,120 Z"/>
-      </svg>
-    </div>
-    <div class="v7ctr">
-      <div class="v7lft">
-        <div class="lw">
-          <div class="lgl"></div>
-          <img class="v7i" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-        </div>
-        <div class="v7b">Hostella</div>
-        <div class="v7t">Система управления хостелом</div>
-      </div>
-      <div class="v7f">
-        <div class="grt">Добро пожаловать</div>
-        <h2>Добрый вечер 🌙</h2>
-        <label>Логин</label><input value="admin"/>
-        <label>Пароль</label><input type="password" placeholder="••••••••"/>
-        <button class="vb">Войти в систему</button>
-      </div>
-    </div>
-  </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 07</div><div class="name">Wave + Stars — звёзды, волны, шиммер лого</div></div>
-    <button class="pick-btn" onclick="pick(7,'Wave + Stars')">Выбрать</button>
-  </div>
-</div>
-
-<!-- ══════ V8 — FROSTED CENTERED ══════ -->
-<div class="variant-card">
-  <div class="preview v8">
-    <div class="pts" id="pts8"></div>
-    <div class="v8c">
-      <div class="hd">
-        <div class="lring">
-          <img class="v8i" src="https://hostella.uz/logo.png" onerror="this.style.display='none'" alt="logo"/>
-        </div>
-        <div class="v8b">Hostella</div>
-        <div class="v8s">Система управления · v0.3.22</div>
-      </div>
-      <label>Логин</label><input value="admin"/>
-      <label>Пароль</label><input type="password" placeholder="••••••••"/>
-      <button class="vb">Войти</button>
-    </div>
-  </div>
-  <div class="variant-label">
-    <div><div class="num">Вариант 08</div><div class="name">Frosted Centered — лого в кольце, максимум стиля</div></div>
-    <button class="pick-btn" onclick="pick(8,'Frosted Centered')">Выбрать</button>
-  </div>
-</div>
-
-</div><!-- /grid -->
-
-<div class="overlay" id="overlay">
-  <div class="modal">
-    <div class="me">✅</div>
-    <h3 id="mt"></h3>
-    <p id="mp"></p>
-    <div class="mb">
-      <button class="mc" onclick="cls()">Назад</button>
-      <button class="mf" onclick="ok()">Подтвердить</button>
-    </div>
-  </div>
-</div>
+<footer>Назови номер — применю в LoginScreen.jsx</footer>
 
 <script>
-/* Stars */
-(function(){
-  var c=document.getElementById('stars7');
-  for(var i=0;i<60;i++){
-    var s=document.createElement('div');s.className='str';
-    var sz=Math.random()<0.2?3:2;
-    s.style.cssText='left:'+Math.random()*100+'%;top:'+Math.random()*100+'%;opacity:'+(Math.random()*0.6+0.1)+';width:'+sz+'px;height:'+sz+'px;animation:floatUp '+(4+Math.random()*6)+'s '+(Math.random()*4)+'s ease-in-out infinite';
-    c.appendChild(s);
-  }
-})();
+const STEPS_TEXTS = [
+  'Проверка пароля...',
+  'Загрузка гостей...',
+  'Загрузка комнат...',
+  'Загрузка базы...',
+  'Загрузка платежей...',
+  'Загрузка данных...',
+  'Почти готово...',
+];
+const STEPS_NAMES = ['Пароль','Гости','Комнаты','База','Платежи','Данные','Готово'];
 
-/* Particles */
-(function(){
-  var c=document.getElementById('pts8');
-  for(var i=0;i<18;i++){
-    var p=document.createElement('div');p.className='pt';
-    var sz=4+Math.random()*10;
-    p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;top:'+Math.random()*100+'%;--dx:'+((Math.random()-0.5)*120)+'px;--dy:'+(-(20+Math.random()*120))+'px;animation-delay:'+(Math.random()*6)+'s;animation-duration:'+(5+Math.random()*5)+'s';
-    c.appendChild(p);
-  }
-})();
-
-var chosen=null;
-var names={
-  1:'Aurora Minimal — светлый, блики, плавный',
-  2:'Glassmorphism — стекло, блобы, оранжевый свет',
-  3:'Premium Split — тёмная+кольца | светлая форма',
-  4:'Dark Cyber — сетка, сканлиния, оранжевый акцент',
-  5:'Orbital Logo — лого в орбитах с точками',
-  6:'Bento Dashboard — статистика + форма',
-  7:'Wave + Stars — звёзды, волны, шиммер лого',
-  8:'Frosted Centered — лого в кольце, максимум стиля'
-};
-function pick(n,name){
-  chosen=n;
-  document.getElementById('mt').textContent='Вариант '+n+': '+name;
-  document.getElementById('mp').textContent='Вы выбрали вариант №'+n+'. Сообщите разработчику — он реализует этот дизайн в приложении Hostella.';
-  document.getElementById('overlay').classList.add('active');
+// Инициализация сегментов v4
+const segs4 = document.getElementById('segs4');
+for (let i = 0; i < 7; i++) {
+  const d = document.createElement('div');
+  d.className = 'v4-seg';
+  d.id = 'seg4_' + i;
+  segs4.appendChild(d);
 }
-function cls(){ document.getElementById('overlay').classList.remove('active'); }
-function ok(){ alert('✅ Выбран Вариант '+chosen+':\n'+names[chosen]+'\n\nСкажите разработчику: "Делай вариант '+chosen+'"'); cls(); }
-document.getElementById('overlay').addEventListener('click',function(e){if(e.target.id==='overlay')cls();});
+
+// Инициализация шагов v6
+const v6steps = document.getElementById('v6steps');
+for (let i = 0; i < 7; i++) {
+  const row = document.createElement('div');
+  row.className = 'v6-step';
+  row.id = 'v6step_' + i;
+  row.innerHTML = `<div class="v6-dot pending" id="v6dot_${i}"></div><div class="v6-name pending" id="v6name_${i}">${STEPS_NAMES[i]}</div>`;
+  v6steps.appendChild(row);
+}
+
+// Прогресс — цикл 0→100 за 7 секунд
+let pct = 0;
+let stepIdx = 0;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+setInterval(() => {
+  pct = (pct + 1.4) % 101;
+  const p = Math.floor(pct);
+  const p01 = p / 100;
+  const si = Math.min(Math.floor(p01 * 7), 6);
+
+  // Обновить текст по шагам
+  if (si !== stepIdx) stepIdx = si;
+  const txt = STEPS_TEXTS[si];
+  const name = STEPS_NAMES[si];
+  const pctStr = p + '%';
+
+  // 1
+  document.getElementById('bar1').style.width = pctStr;
+  document.getElementById('txt1').textContent = txt;
+
+  // 2
+  document.getElementById('fill2').style.width = pctStr;
+  document.getElementById('pct2').textContent = pctStr;
+  document.getElementById('txt2').textContent = txt;
+
+  // 3
+  const circ = 220;
+  document.getElementById('ring3').style.strokeDashoffset = circ - (circ * p / 100);
+  document.getElementById('pct3').textContent = pctStr;
+  document.getElementById('txt3').textContent = txt;
+
+  // 4
+  document.getElementById('pct4').textContent = pctStr;
+  document.getElementById('txt4').textContent = txt;
+  for (let i = 0; i < 7; i++) {
+    const seg = document.getElementById('seg4_' + i);
+    const threshold = (i + 1) / 7 * 100;
+    if (p >= threshold) { seg.className = 'v4-seg done'; }
+    else if (p >= threshold - 100/7) { seg.className = 'v4-seg active'; }
+    else { seg.className = 'v4-seg'; }
+  }
+
+  // 5
+  document.getElementById('fill5').style.width = pctStr;
+  document.getElementById('pct5').textContent = pctStr;
+  document.getElementById('sub5').textContent = txt;
+
+  // 6
+  for (let i = 0; i < 7; i++) {
+    const dot  = document.getElementById('v6dot_' + i);
+    const name2 = document.getElementById('v6name_' + i);
+    if (i < si) {
+      dot.className  = 'v6-dot done';    dot.textContent  = '✓';
+      name2.className = 'v6-name done';
+    } else if (i === si) {
+      dot.className  = 'v6-dot active';  dot.textContent  = '';
+      name2.className = 'v6-name active';
+    } else {
+      dot.className  = 'v6-dot pending'; dot.textContent  = '';
+      name2.className = 'v6-name pending';
+    }
+  }
+
+  // 7
+  document.getElementById('fill7').style.width = pctStr;
+  document.getElementById('pct7').textContent = pctStr;
+  document.getElementById('txt7').textContent = txt;
+
+  // 8
+  document.getElementById('pct8').textContent = pctStr;
+  document.getElementById('txt8').textContent = txt;
+
+}, 70);
 </script>
 </body>
 </html>

@@ -1,12 +1,20 @@
 /**
  * useClientActions — операции с базой клиентов.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, deleteDoc, writeBatch, increment } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { getNormalizedCountry } from '../utils/helpers';
 
-export function useClientActions({ currentUser, clients, showNotification }) {
+export function useClientActions({ currentUser, clients, showNotification, setUndoStack }) {
+
+  const pushUndo = (item) => {
+    if (!setUndoStack) return;
+    setUndoStack(prev => [
+      { ...item, id: Date.now(), timestamp: new Date().toISOString() },
+      ...prev,
+    ].slice(0, 5));
+  };
 
   const handleUpdateClient = async (id, d) => {
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', id), d);
@@ -106,11 +114,15 @@ export function useClientActions({ currentUser, clients, showNotification }) {
       // Sync ALL guests (active + checked_out) that have at least a name
       const allGuests = guests.filter(g => (g.passport || g.fullName));
 
+      const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
       for (const g of allGuests) {
-        // Search by passport first, then by fullName
-        const ec = g.passport
-          ? clients.find(c => c.passport && c.passport === g.passport)
-          : clients.find(c => !c.passport && c.fullName === g.fullName);
+        const normPassport = norm(g.passport);
+        const normName = norm(g.fullName);
+        // Search by normalized passport first, then fallback to name (regardless of whether client has passport)
+        const ec = normPassport
+          ? (clients.find(c => c.passport && norm(c.passport) === normPassport)
+              || (normName && clients.find(c => norm(c.fullName) === normName)))
+          : (normName ? clients.find(c => norm(c.fullName) === normName) : null);
 
         if (ec) {
           const updates = {};
@@ -140,6 +152,7 @@ export function useClientActions({ currentUser, clients, showNotification }) {
             passportIssueDate: g.passportIssueDate || '',
             lastVisit: g.checkOutDate || g.checkInDate || new Date().toISOString(),
             visits: 1,
+            balance: 0,
           });
           created++;
         }
@@ -156,6 +169,60 @@ export function useClientActions({ currentUser, clients, showNotification }) {
     }
   };
 
+  const handleTopUpBalance = async (clientId, amount, method = 'cash', skipCashbox = false) => {
+    if (!clientId || !amount || isNaN(amount) || amount <= 0) return;
+    const amt = Number(amount);
+    const client = clients.find(c => c.id === clientId);
+
+    // 1. Обновляем баланс клиента
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { balance: increment(amt) });
+
+    let paymentId = null;
+    // 2. Создаём запись в кассе (payments) — только если не обход кассы
+    if (!skipCashbox) {
+      const payRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
+        type: 'balance_topup',
+        clientId,
+        clientName: client?.fullName || '',
+        staffId: currentUser?.uid || currentUser?.id || '',
+        staffName: currentUser?.name || currentUser?.displayName || '',
+        amount: amt,
+        method,
+        date: new Date().toISOString(),
+        hostelId: currentUser?.hostelId || '',
+        note: `Пополнение баланса: ${client?.fullName || clientId}`,
+      });
+      paymentId = payRef.id;
+    }
+
+    // 3. Добавляем в стек отмены
+    pushUndo({
+      type: 'balance_topup',
+      clientId,
+      amount: amt,
+      paymentId,
+      description: `Пополнение баланса ${client?.fullName || ''}: +${amt.toLocaleString()} сум`,
+    });
+
+    logAction(currentUser, 'balance_topup', { clientId, amount: amt, method, skipCashbox });
+    showNotification(`✅ Баланс пополнен: +${amt.toLocaleString()} сум`, 'success');
+  };
+
+  const handleAddClient = async (data) => {
+    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
+      fullName: data.fullName || '',
+      passport: data.passport || '',
+      birthDate: data.birthDate || '',
+      country: data.country || 'Узбекистан',
+      phone: data.phone || '',
+      clientStatus: data.clientStatus || 'normal',
+      visits: 0,
+      balance: 0,
+      lastVisit: new Date().toISOString(),
+    });
+    showNotification('✅ Клиент добавлен', 'success');
+  };
+
   return {
     handleUpdateClient,
     handleImportClients,
@@ -163,5 +230,7 @@ export function useClientActions({ currentUser, clients, showNotification }) {
     handleBulkDeleteClients,
     handleNormalizeCountries,
     handleSyncClientsFromGuests,
+    handleTopUpBalance,
+    handleAddClient,
   };
 }

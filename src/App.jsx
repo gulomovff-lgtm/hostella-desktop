@@ -114,7 +114,8 @@ import {
 } from 'lucide-react';
 
 // --- Вынесенные компоненты ---
-import LoginScreen from './components/UI/LoginScreen';
+import LoginScreen from './components/LoginScreen/LoginScreen';
+// import LoginScreenOld from './components/UI/LoginScreen'; // kept for reference
 import HostelPickerScreen from './components/UI/HostelPickerScreen';
 import Button from './components/UI/Button';
 import Notification from './components/UI/Notification';
@@ -146,18 +147,22 @@ import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
 import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction, logSystemError } from './utils/auditLog';
+import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, getLoginAt } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
 import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
+import { useCadastreActions }     from './hooks/useCadastreActions';
+import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { useExpenseActions }      from './hooks/useExpenseActions';
 import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
 import CheckInModal from './components/Modals/CheckInModal';
 import ClientHistoryModal from './components/Modals/ClientHistoryModal';
 import GuestRegistrationModal from './components/Modals/GuestRegistrationModal';
 import RegistrationsView from './components/Views/RegistrationsView';
+import CadastreView     from './components/Views/CadastreView';
 import ExpenseModal from './components/Modals/ExpenseModal';
 import ReportsView from './components/Views/ReportsView';
 import GuestDetailsModal from './components/Modals/GuestDetailsModal';
@@ -266,6 +271,11 @@ function OutdatedVersionScreen({ currentVersion, minVersion, latestVersion, down
 
 // ? ГЛАВНЫЙ КОМПОНЕНТ APP
 function App() {
+  // ── Dev preview: открой /?preview=login-new для просмотра нового компонента ──
+  if (new URLSearchParams(window.location.search).get('preview') === 'login-new') {
+    return <LoginScreen users={[]} onLogin={() => {}} lang="ru" setLang={() => {}} themeId="auto" setThemeId={() => {}} />;
+  }
+
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   useEffect(() => {
@@ -376,7 +386,7 @@ function App() {
   const {
     rooms, guests, expenses, clients, payments,
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
-    recurringExpenses, hostelConfig, sessions,
+    recurringExpenses, hostelConfig, sessions, cadastres, cadastreRegs,
     isOnline, permissionError, isDataReady,
   } = useAppData(firebaseUser, currentUser);
 
@@ -470,6 +480,10 @@ function App() {
         // GATE 1
         if (guest.status !== 'active') continue;
         if (!guest.checkOutDate) continue;
+
+        // GATE 1.5 — per-hostel auto-checkout enabled check
+        const guestHostelId = guest.hostelId || 'hostel1';
+        if (hostelConfig?.[guestHostelId]?.autoCheckoutEnabled === false) continue;
 
         // GATE 2 — effective checkout time
         const effectiveCo = getEffectiveCo(guest);
@@ -568,6 +582,31 @@ function App() {
     };
   }, [guests, rooms, payments, currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Авто-синхронизация клиентов из гостей по расписанию ───────────────────
+  const autoSyncGuestsRef = useRef(guests);
+  useEffect(() => { autoSyncGuestsRef.current = guests; }, [guests]);
+
+  useEffect(() => {
+    if (!isDataReady || !hostelConfig) return;
+    const FREQ_MS = { daily: 24 * 60 * 60 * 1000, weekly: 7 * 24 * 60 * 60 * 1000, monthly: 30 * 24 * 60 * 60 * 1000 };
+    const checkAndSync = () => {
+      ['hostel1', 'hostel2'].forEach(hostelKey => {
+        const cfg = hostelConfig?.[hostelKey]?.autoSync;
+        if (!cfg?.enabled) return;
+        const freq = FREQ_MS[cfg.frequency] || FREQ_MS.daily;
+        const lastSync = parseInt(localStorage.getItem(`autoSync_${hostelKey}`) || '0');
+        if (Date.now() - lastSync < freq) return;
+        const hostelGuests = autoSyncGuestsRef.current.filter(g => (g.hostelId || 'hostel1') === hostelKey);
+        if (!hostelGuests.length) return;
+        localStorage.setItem(`autoSync_${hostelKey}`, Date.now().toString());
+        handleSyncClientsFromGuests(hostelGuests);
+      });
+    };
+    const initial = setTimeout(checkAndSync, 5 * 60 * 1000);
+    const interval = setInterval(checkAndSync, 60 * 60 * 1000);
+    return () => { clearTimeout(initial); clearInterval(interval); };
+  }, [hostelConfig, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── Оффлайн очередь: загрузка файла Electron при старте, сохранение при закрытии ───
   useEffect(() => {
     loadFromElectron();
@@ -614,8 +653,13 @@ function App() {
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
+      // Для мульти-хостел кассиров используем selectedHostelFilter (выбранный хостел),
+      // а не currentUser.hostelId (который может быть просто первым хосетлом).
+      const effectiveHostel = (currentUser.allowedHostels?.length > 1)
+          ? selectedHostelFilter
+          : currentUser.hostelId;
       return shifts.find(s =>
-          s.hostelId === currentUser.hostelId &&
+          s.hostelId === effectiveHostel &&
           !s.endTime &&
           s.staffId !== currentUser.id &&
           (s.staffLogin ? s.staffLogin !== currentUser.login : true) &&
@@ -623,12 +667,24 @@ function App() {
           // иначе удаление кассира блокирует вход всем остальным.
           usersList.some(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin))
       );
-  }, [shifts, currentUser, usersList]);
+  }, [shifts, currentUser, usersList, selectedHostelFilter]);
 
   const activeUserForBlock = useMemo(() => {
       if (!activeShiftInMyHostel) return null;
       return usersList.find(u => u.id === activeShiftInMyHostel.staffId || (activeShiftInMyHostel.staffLogin && u.login === activeShiftInMyHostel.staffLogin));
   }, [activeShiftInMyHostel, usersList]);
+
+  // Есть ли у самого кассира активная смена в ДРУГОМ хостеле (не в том, куда его не пускают)
+  const myOtherActiveShiftHostelId = useMemo(() => {
+      if (!activeShiftInMyHostel || !currentUser) return null;
+      const blockedHostel = activeShiftInMyHostel.hostelId;
+      const mine = shifts.find(s =>
+          !s.endTime &&
+          s.hostelId !== blockedHostel &&
+          (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login))
+      );
+      return mine?.hostelId ?? null;
+  }, [activeShiftInMyHostel, shifts, currentUser]);
 
   useEffect(() => {
     const handleEsc = (event) => {
@@ -717,9 +773,18 @@ function App() {
     autoShiftStartedRef.current = false;
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Сброс флага когда мультихостел кассир выбрал хостел — чтобы авто-старт сработал
+  useEffect(() => {
+    if (!hostelPickerPending && currentUser?.role === 'cashier') {
+      autoShiftStartedRef.current = false;
+    }
+  }, [hostelPickerPending]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'cashier') return;
     if (shifts.length === 0) return;
+    // Не запускаем автостарт пока кассир не выбрал хостел (мультихостел)
+    if (hostelPickerPending) return;
     // Не запускаем автостарт повторно — только один раз за сессию
     if (autoShiftStartedRef.current) return;
 
@@ -731,8 +796,12 @@ function App() {
       return;
     }
 
+    const effectiveHostel = (currentUser.allowedHostels?.length > 1)
+      ? selectedHostelFilter
+      : currentUser.hostelId;
+
     const otherActiveShift = shifts.find(s =>
-      s.hostelId === currentUser.hostelId &&
+      s.hostelId === effectiveHostel &&
       !s.endTime &&
       s.staffId !== currentUser.id &&
       // Не учитываем смены удалённых пользователей при авто-старте
@@ -741,9 +810,9 @@ function App() {
 
     if (!otherActiveShift) {
       autoShiftStartedRef.current = true;
-      handleStartShift();
+      handleStartShift(effectiveHostel);
     }
-  }, [currentUser, shifts]);
+  }, [currentUser, shifts, hostelPickerPending]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Хартбит: обновляем lastSeen каждые 30с, чтобы сжигать сессию как активную
   useEffect(() => {
@@ -827,8 +896,33 @@ function App() {
     return () => clearTimeout(tid);
   }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Проверка занятости смены в хостеле (для LoginScreen)
+  const checkHostelShift = useCallback((hostelId, userId, userLogin) => {
+    const activeShift = shifts.find(s =>
+      s.hostelId === hostelId &&
+      !s.endTime &&
+      s.staffId !== userId &&
+      (userLogin ? s.staffLogin !== userLogin : true) &&
+      usersList.some(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin))
+    );
+    if (!activeShift) return null;
+    const owner = usersList.find(u => u.id === activeShift.staffId || (activeShift.staffLogin && u.login === activeShift.staffLogin));
+    return owner?.name || activeShift.staffLogin || 'другой сотрудник';
+  }, [shifts, usersList]);
+
+  const handleKppConfirm = useCallback(async (guestId) => {
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+        kppRegistered: true,
+        kppRegisteredAt: new Date().toISOString(),
+      });
+      showNotification('КПП регистрация подтверждена', 'success');
+    } catch (e) {
+      showNotification('Ошибка: ' + e.message, 'error');
+    }
+  }, []);
+
   const handleLogin = (user) => {
-    // Дополняем флагами из конфига DEFAULT_USERS, если в Firestore-документе их нет
     const defEntry = DEFAULT_USERS.find(d => d.login === user.login);
     const enrichedUser = (defEntry?.canViewHostel1 && !user.canViewHostel1)
       ? { ...user, canViewHostel1: true }
@@ -837,7 +931,21 @@ function App() {
     const { pass: _p, ...sessionUser } = enrichedUser;
     sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser)); 
 
-    // Кассир с несколькими хостелами → показываем экран выбора хостела
+    // Новый LoginScreen сам обрабатывает выбор хостела внутри карточки → selectedHostel уже задан
+    if (enrichedUser.role === 'cashier' && (enrichedUser.allowedHostels || []).length > 1 && enrichedUser.selectedHostel) {
+      const hostelId = enrichedUser.selectedHostel;
+      const updated = { ...enrichedUser, hostelId };
+      setCurrentUser(updated);
+      setSelectedHostelFilter(hostelId);
+      const { pass: _p2, ...sessionUser2 } = updated;
+      sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser2));
+      setActiveTab('rooms');
+      createSession(updated);
+      logAction(updated, 'login', { device: navigator.platform, role: updated.role, selectedHostel: hostelId });
+      return;
+    }
+
+    // Кассир с несколькими хостелами без выбора → показываем экран выбора хостела (fallback)
     if (enrichedUser.role === 'cashier' && (enrichedUser.allowedHostels || []).length > 1) {
       setHostelPickerPending(true);
       return; // сессия и лог — после выбора хостела
@@ -899,7 +1007,8 @@ function App() {
   const {
     handleUpdateClient, handleImportClients, handleDeduplicate,
     handleBulkDeleteClients, handleNormalizeCountries, handleSyncClientsFromGuests,
-  } = useClientActions({ currentUser, clients, showNotification });
+    handleTopUpBalance, handleAddClient,
+  } = useClientActions({ currentUser, clients, showNotification, setUndoStack });
 
   const {
     handleStartShift, handleEndShift,
@@ -921,7 +1030,16 @@ function App() {
     setRegistrationModal, showNotification,
   });
 
-  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV } = useExpenseActions({
+  const {
+    handleAddCadastre, handleUpdateCadastre, handleDeleteCadastre,
+    handleAddCadastreReg, handleExtendCadastreReg,
+    handleRemoveCadastreReg, handleDeleteCadastreReg,
+    handleAddRegToExpenses, handleAddAllToExpenses,
+  } = useCadastreActions({
+    currentUser, selectedHostelFilter, showNotification, tgSettings, isOnline,
+  });
+
+  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal } = useExpenseActions({
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
     setExpenseModal, setUndoStack,
@@ -932,6 +1050,9 @@ function App() {
     currentUser, selectedHostelFilter,
     recurringExpenses, expenses, showNotification,
   });
+
+  // Уведомления об истекающих кадастр-регистрациях
+  useCadastreAlerts({ cadastreRegs, tgSettings, isOnline });
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
     try {
@@ -1076,9 +1197,35 @@ const filterByHostel = (items) => {
 
   const filteredRooms = useMemo(() => filterByHostel(rooms), [rooms, currentUser, selectedHostelFilter]);
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
+
+  const handleExportGuests = useCallback(() => {
+    const active = filteredGuests.filter(g => g.status === 'active');
+    if (!active.length) { showNotification('Нет проживающих гостей', 'error'); return; }
+    const rows = active.map(g => ({
+      'ФИО': g.fullName || '',
+      'Паспорт': g.passport || '',
+      'Дата выдачи паспорта': g.passportIssueDate || '',
+      'Дата рождения': g.birthDate || '',
+      'Страна': g.country || '',
+      'Телефон': g.phone || '',
+      'Комната': g.roomNumber || g.roomId || '',
+      'Место': g.bedId || '',
+      'Дата заезда': g.checkInDate || '',
+      'Дата выезда': g.checkOutDate || '',
+      'Дата КПП': g.kppDate || '',
+      'КПП подтверждено': g.kppRegistered ? 'Да' : '',
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Гости');
+    XLSX.writeFile(wb, `Гости_${new Date().toISOString().split('T')[0]}.xlsx`);
+  }, [filteredGuests]);
+
   const filteredExpenses = useMemo(() => filterByHostel(expenses), [expenses, currentUser, selectedHostelFilter]);
   const filteredTasks = useMemo(() => filterByHostel(tasks), [tasks, currentUser, selectedHostelFilter]);
   const filteredRegistrations = useMemo(() => filterByHostel(registrations || []), [registrations, currentUser, selectedHostelFilter]);
+  const filteredCadastres     = useMemo(() => filterByHostel(cadastres || []),     [cadastres,     currentUser, selectedHostelFilter]);
+  const filteredCadastreRegs  = useMemo(() => filterByHostel(cadastreRegs || []),  [cadastreRegs,  currentUser, selectedHostelFilter]);
 
   const pendingTasksCount = useMemo(() => {
     return filteredTasks.filter(t => t.status !== 'done').length;
@@ -1115,6 +1262,15 @@ const filterByHostel = (items) => {
     }
     if (pendingBookingsCount > prevBookingsCountRef.current) {
       showNotification(`🔔 Новая заявка с сайта! (всего: ${pendingBookingsCount})`, 'success');
+      // Немедленное уведомление в Telegram при каждой новой заявке
+      if (isOnline) {
+        const newOnes = websiteBookings.slice(0, pendingBookingsCount - prevBookingsCountRef.current);
+        newOnes.forEach(b => {
+          const hostelName = b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
+          const msg = `📋 <b>Новая онлайн-бронь</b>\n👤 ${b.fullName || '—'}\n📞 ${b.phone || '—'}\n📅 ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'} → ${b.checkOutDate ? new Date(b.checkOutDate).toLocaleDateString('ru-RU') : '?'} (${b.days || 1} дн.)\n🏨 ${hostelName}`;
+          sendTelegramMessage(msg, 'newBooking');
+        });
+      }
     }
     prevBookingsCountRef.current = pendingBookingsCount;
   }, [pendingBookingsCount]);
@@ -1287,6 +1443,8 @@ if (!currentUser) return (
         setLang={setLang}
         themeId={loginThemeId}
         setThemeId={handleSetLoginTheme}
+        hostelNames={Object.fromEntries(Object.entries(HOSTELS).map(([k,v]) => [k, v.name]))}
+        checkHostelShift={checkHostelShift}
     />
 );
 
@@ -1307,6 +1465,8 @@ if (activeShiftInMyHostel) {
             activeUser={activeUserForBlock} 
             currentUser={currentUser} 
             onLogout={handleLogout}
+            onSwitchHostel={handleHostelPick}
+            myOtherActiveShiftHostelId={myOtherActiveShiftHostelId}
             lang={lang}
         />
     );
@@ -1360,6 +1520,9 @@ return (
             pendingTasksCount={pendingTasksCount}
             pendingBookingsCount={pendingBookingsCount}
             lang={lang}
+            setLang={setLang}
+            appTheme={appTheme}
+            setAppTheme={setAppTheme}
             selectedHostelFilter={selectedHostelFilter}
             hostels={HOSTELS}
             availableHostels={availableHostelsForUser}
@@ -1439,6 +1602,8 @@ return (
                         onCloneRoom={(room) => handleCloneRoom(room)}
                         onDeleteRoom={(room) => handleDeleteRoom(room)}
                         onAddRoom={() => setAddRoomModal(true)}
+                        onKppConfirm={handleKppConfirm}
+                        onExportGuests={handleExportGuests}
                         lang={lang}
                     />
                 )}
@@ -1491,7 +1656,8 @@ return (
                         users={filteredUsersForReports} 
                         guests={filteredGuests} 
                         currentUser={currentUser} 
-                        onDeletePayment={handleDeletePayment} 
+                        onDeletePayment={handleDeletePayment}
+                        onCashToTerminal={handleCashToTerminal}
                         lang={lang} 
                     />
                 )}
@@ -1547,7 +1713,8 @@ return (
                 {activeTab === 'clients' && currentUser.permissions?.viewClients !== false && (
                     <ClientsView 
                         clients={clients} 
-                        onUpdateClient={handleUpdateClient} 
+                        onUpdateClient={handleUpdateClient}
+                        onAddClient={handleAddClient}
                         onImportClients={handleImportClients} 
                         onDeduplicate={handleDeduplicate} 
                         onBulkDelete={handleBulkDeleteClients} 
@@ -1570,6 +1737,25 @@ return (
                         onRemove={handleRemoveFromEmehmon}
                         onExtend={handleExtendRegistration}
                         onDelete={handleDeleteRegistration}
+                    />
+                )}
+
+                {activeTab === 'cadastre' && (
+                    <CadastreView
+                        cadastreRegs={currentUser.role === 'admin' || currentUser.role === 'super' ? (cadastreRegs || []) : filteredCadastreRegs}
+                        cadastres={currentUser.role === 'admin' || currentUser.role === 'super' ? (cadastres || []) : filteredCadastres}
+                        clients={clients}
+                        currentUser={currentUser}
+                        selectedHostelFilter={selectedHostelFilter}
+                        onAddReg={handleAddCadastreReg}
+                        onExtendReg={handleExtendCadastreReg}
+                        onRemoveReg={handleRemoveCadastreReg}
+                        onDeleteReg={handleDeleteCadastreReg}
+                        onAddToExpenses={handleAddRegToExpenses}
+                        onAddAllToExpenses={handleAddAllToExpenses}
+                        onAddCadastre={handleAddCadastre}
+                        onUpdateCadastre={handleUpdateCadastre}
+                        onDeleteCadastre={handleDeleteCadastre}
                     />
                 )}
                 
@@ -1790,6 +1976,22 @@ return (
                 onExtend={handleExtendGuest}
                 onTrimDays={handleTrimDays}
                 isOnline={isOnline}
+                onTopUpBalance={handleTopUpBalance}
+                onKppConfirm={handleKppConfirm}
+                onOpenHistory={() => {
+                    const g = guestDetailsModal.guest;
+                    const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
+                    const clientRecord = clients.find(c =>
+                        (c.passport && g.passport && norm(c.passport) === norm(g.passport)) ||
+                        (g.fullName && norm(c.fullName) === norm(g.fullName))
+                    );
+                    if (clientRecord) {
+                        setGuestDetailsModal({ open: false, guest: null });
+                        setClientHistoryModal({ open: true, client: clientRecord });
+                    } else {
+                        showNotification('Карточка клиента не найдена. Сначала синхронизируйте клиентов.', 'warning');
+                    }
+                }}
             />
         )}
         
@@ -1860,7 +2062,7 @@ return (
         {/* --- МОДАЛКА ИСТОРИИ КЛИЕНТА (Оставляем как было) --- */}
             {clientHistoryModal.open && (
                 <ClientHistoryModal 
-                    client={clientHistoryModal.client}
+                    client={clients.find(c => c.id === clientHistoryModal.client?.id) || clientHistoryModal.client}
                     guests={guests}
                     users={usersList}
                     rooms={rooms}
@@ -1870,6 +2072,7 @@ return (
                     onCheckOut={handleCheckOut}
                     onActivateBooking={handleActivateBooking}
                     onDeleteGuest={handleDeleteGuest}
+                    onTopUpBalance={handleTopUpBalance}
                     lang={lang}
                 />
             )}

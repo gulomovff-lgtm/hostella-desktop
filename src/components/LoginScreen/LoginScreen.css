@@ -1,0 +1,93 @@
+﻿/* =========================================================
+   LoginScreen.css  —  Tashkent City  (fountain scene)
+   ========================================================= */
+
+.ls-layer {
+  position: absolute;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* ── Fountain jet rise ─────────────────────────────────── */
+@keyframes ls-jet-rise {
+  0%   { transform: scaleY(0.82); opacity: 0.80; }
+  35%  { transform: scaleY(1.05); opacity: 1.00; }
+  65%  { transform: scaleY(0.95); opacity: 0.90; }
+  100% { transform: scaleY(0.82); opacity: 0.80; }
+}
+
+/* ── Fountain spray shimmer ────────────────────────────── */
+@keyframes ls-spray {
+  0%,100% { opacity: 0.32; transform: scaleX(1.00); }
+  50%     { opacity: 0.55; transform: scaleX(1.08); }
+}
+
+/* ── Fountain color sweep (cyan <-> magenta) ───────────── */
+@keyframes ls-color-sweep {
+  0%,100% { stop-color: rgba(0,220,255,0.92); }
+  50%     { stop-color: rgba(0,200,240,0.70); }
+}
+@keyframes ls-color-sweep-m {
+  0%,100% { stop-color: rgba(220,0,255,0.88); }
+  50%     { stop-color: rgba(180,0,220,0.65); }
+}
+
+/* ── LED window pulse ──────────────────────────────────── */
+@keyframes ls-led-pulse {
+  0%,100% { opacity: 0.85; }
+  40%     { opacity: 0.55; }
+  70%     { opacity: 0.92; }
+}
+@keyframes ls-led-flicker {
+  0%,7%,9%,100% { opacity: 0.90; }
+  8%            { opacity: 0.30; }
+  50%           { opacity: 0.70; }
+  51%           { opacity: 0.10; }
+  52%           { opacity: 0.88; }
+}
+.ls-led         { animation: ls-led-pulse   ease-in-out infinite; }
+.ls-led-flicker { animation: ls-led-flicker ease-in-out infinite; }
+
+/* ── LED screen on left tower ──────────────────────────── */
+@keyframes ls-screen-pulse {
+  0%,100% { opacity: 0.90; }
+  30%     { opacity: 0.70; }
+  60%     { opacity: 1.00; }
+}
+.ls-screen { animation: ls-screen-pulse ease-in-out 3s infinite; }
+
+/* ── Lamp glow ─────────────────────────────────────────── */
+@keyframes ls-lamp {
+  0%,100% { opacity: 0.92; }
+  50%     { opacity: 0.68; }
+}
+.ls-lamp { animation: ls-lamp ease-in-out infinite; }
+
+/* ── Water shimmer ─────────────────────────────────────── */
+@keyframes ls-water {
+  0%,100% { opacity: 0.40; transform: scaleY(1.00); }
+  33%     { opacity: 0.60; transform: scaleY(1.06); }
+  66%     { opacity: 0.28; transform: scaleY(0.94); }
+}
+.ls-water { animation: ls-water ease-in-out infinite; transform-origin: top center; }
+
+/* ── Glassmorphism card glow ───────────────────────────── */
+@keyframes ls-card-glow {
+  0%,100% {
+    box-shadow:
+      0 48px 100px rgba(0,0,0,0.70),
+      0 0 0 1px rgba(0,180,255,0.10),
+      0 0  80px rgba(0,100,220,0.08),
+      inset 0  1px 0 rgba(255,255,255,0.07),
+      inset 0 -1px 0 rgba(0,0,0,0.30);
+  }
+  50% {
+    box-shadow:
+      0 48px 100px rgba(0,0,0,0.70),
+      0 0 0 1px rgba(0,180,255,0.18),
+      0 0 140px rgba(0,120,255,0.16),
+      inset 0  1px 0 rgba(255,255,255,0.10),
+      inset 0 -1px 0 rgba(0,0,0,0.30);
+  }
+}
+.ls-card { animation: ls-card-glow 7s ease-in-out infinite; }

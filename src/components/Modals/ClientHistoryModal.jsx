@@ -1,22 +1,134 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     ShieldCheck, ShieldAlert, DollarSign, CreditCard, QrCode, FileText, Calendar, Phone,
-    MapPin, Wallet, History, LogOut, CheckCircle2, Trash2, X
+    MapPin, Wallet, History, LogOut, CheckCircle2, Trash2, X, Plus, Banknote
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
 const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
 
-const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, lang }) => {
+// ─── Top-up modal ─────────────────────────────────────────────────────────────
+const METHODS = [
+    { id: 'cash',     label: 'Наличные',  icon: Banknote,   color: 'emerald' },
+    { id: 'terminal', label: 'Терминал',   icon: CreditCard, color: 'sky' },
+    { id: 'qr',       label: 'QR / Перевод', icon: QrCode,     color: 'violet' },
+];
+
+const TopUpModal = ({ client, currentUser, onClose, onTopUp }) => {
+    const [amount, setAmount] = useState('');
+    const [method, setMethod] = useState('cash');
+    const [skipCashbox, setSkipCashbox] = useState(false);
+    const isSuper = currentUser?.role === 'super';
+
+    const handleSubmit = () => {
+        const amt = parseInt(amount);
+        if (!amt || amt <= 0) return;
+        onTopUp(client.id, amt, method, skipCashbox);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                    <div>
+                        <div className="font-black text-slate-800">Пополнение баланса</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{client.fullName}</div>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18}/></button>
+                </div>
+
+                <div className="p-5 space-y-4">
+                    {/* Current balance */}
+                    <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-3">
+                        <span className="text-sm font-bold text-blue-600">💳 Текущий баланс</span>
+                        <span className="text-lg font-black text-blue-700">{(client.balance || 0).toLocaleString()} сум</span>
+                    </div>
+
+                    {/* Method */}
+                    <div>
+                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">Метод оплаты</div>
+                        <div className="grid grid-cols-3 gap-2">
+                            {METHODS.map(m => {
+                                const Icon = m.icon;
+                                const active = method === m.id;
+                                return (
+                                    <button key={m.id} onClick={() => setMethod(m.id)}
+                                        className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 font-bold text-xs transition-all ${
+                                            active
+                                                ? `border-${m.color}-400 bg-${m.color}-50 text-${m.color}-700`
+                                                : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300'
+                                        }`}>
+                                        <Icon size={20}/>
+                                        {m.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Amount */}
+                    <div>
+                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">Сумма пополнения</div>
+                        <input
+                            type="number"
+                            placeholder="0"
+                            value={amount}
+                            onChange={e => setAmount(e.target.value)}
+                            autoFocus
+                            className="w-full px-4 py-3 text-xl font-black text-center rounded-xl border-2 border-slate-200 focus:border-blue-400 focus:outline-none bg-slate-50"
+                        />
+                    </div>
+
+                    {/* Super: bypass cashbox */}
+                    {isSuper && (
+                        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                            <div
+                                onClick={() => setSkipCashbox(v => !v)}
+                                className={`w-10 h-6 rounded-full flex items-center transition-colors ${
+                                    skipCashbox ? 'bg-violet-600 justify-end' : 'bg-slate-200 justify-start'
+                                }`}
+                            >
+                                <div className="w-5 h-5 bg-white rounded-full shadow mx-0.5"/>
+                            </div>
+                            <span className="text-xs font-bold text-slate-500">Без записи в кассу</span>
+                        </label>
+                    )}
+
+                    {/* Buttons */}
+                    <div className="flex gap-3 pt-1">
+                        <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={!amount || parseInt(amount) <= 0}
+                            className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                            +{amount ? parseInt(amount).toLocaleString() : 0} сум
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, lang }) => {
     if (!client) return null;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+    const [topUpOpen, setTopUpOpen] = useState(false);
 
-    const history = useMemo(() =>
-        guests.filter(g =>
-            (g.passport && client.passport && g.passport === client.passport) ||
-            (g.fullName && g.fullName.toLowerCase() === client.fullName.toLowerCase())
-        ).sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate)),
-    [client, guests]);
+    const handleTopUp = (id, amt, method, skipCashbox) => {
+        onTopUpBalance(id, amt, method, skipCashbox);
+    };
+
+    const history = useMemo(() => {
+        const normP = p => (p || '').replace(/\s/g, '').toUpperCase();
+        const normN = n => (n || '').trim().toLowerCase();
+        return guests.filter(g =>
+            (g.passport && client.passport && normP(g.passport) === normP(client.passport)) ||
+            (g.fullName && normN(g.fullName) === normN(client.fullName))
+        ).sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate));
+    }, [client, guests]);
 
     const stats = useMemo(() => history.reduce((acc, s) => {
         const paid = getTotalPaid(s);
@@ -41,6 +153,7 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
     const country       = latestStay.country       || client.country       || '—';
 
     return (
+        <>
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
             <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row" style={{height:'88vh'}}>
 
@@ -96,6 +209,16 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                     </div>
 
                     <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 space-y-2">
+                        {/* Balance block */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-1">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-blue-600 uppercase">💳 Баланс счёта</span>
+                                <span className="text-base font-black text-blue-700">{(client.balance || 0).toLocaleString()} сум</span>
+                            </div>
+                            <button onClick={() => setTopUpOpen(true)} className="w-full mt-2 py-1.5 text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg flex items-center justify-center gap-1 transition-colors">
+                                <Plus size={12}/> Пополнить
+                            </button>
+                        </div>
                         <button onClick={() => { onRepeatStay(client); onClose(); }}
                             className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 flex items-center justify-center gap-2">
                             <History size={15}/> Повторить заезд
@@ -203,6 +326,15 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                 </div>
             </div>
         </div>
+
+        {topUpOpen && (
+            <TopUpModal
+                client={client}
+                onClose={() => setTopUpOpen(false)}
+                onTopUp={handleTopUp}
+            />
+        )}
+        </>
     );
 };
 

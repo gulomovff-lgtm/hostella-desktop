@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Award, Trophy, Medal } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 
@@ -17,121 +18,120 @@ const getLocalDatetimeString = (dateObj) => {
 const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '') => {
     const net = totalIncome - totalExpense - totalRefund;
     const loc = n => Number(n).toLocaleString('ru');
-    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const mLabel = m => ({ cash:'Наличные', card:'Терминал', qr:'QR' }[m] || m || '—');
+    const typeLabel = r => r.type === 'income' ? 'Приход' : r.category === 'Возврат' ? 'Возврат' : 'Расход';
 
-    // ── inline style helpers ──────────────────────────────────────────────
-    const TD  = 'border:1px solid #e2e8f0;padding:7px 10px;font-family:Arial,sans-serif;font-size:11px;vertical-align:middle;';
-    const TH  = 'border:1px solid #3730a3;padding:8px 10px;font-family:Arial,sans-serif;font-size:11px;font-weight:bold;color:#ffffff;background-color:#4338ca;text-align:center;';
-    const th  = t => `<th style="${TH}">${t}</th>`;
+    // ─── Лист 1: Все операции ────────────────────────────────────
+    const mainRows = data.map((r, i) => ({
+        '№':            i + 1,
+        'Дата и время':  r.date,
+        'Тип':          typeLabel(r),
+        'Хостел':       r.hostel,
+        'Кассир':      r.staff,
+        'Категория':   r.category || '—',
+        'Сумма (сум)':  r.type === 'expense' ? -Math.abs(r.amount) : r.amount,
+        'Метод':        mLabel(r.method),
+        'Комментарий':  r.comment,
+    }));
 
-    // summary card cell
-    const card = (bg, fg, label, value, sub) =>
-        `<td colspan="2" style="background-color:${bg};border:2px solid ${fg};border-radius:4px;padding:12px 16px;text-align:center;vertical-align:middle;">
-            <div style="font-family:Arial,sans-serif;font-size:10px;font-weight:bold;color:${fg};text-transform:uppercase;letter-spacing:1px;">${label}</div>
-            <div style="font-family:Arial,sans-serif;font-size:22px;font-weight:bold;color:${fg};margin:4px 0;">${value}</div>
-            <div style="font-family:Arial,sans-serif;font-size:9px;color:${fg};opacity:0.7;">${sub}</div>
-        </td>`;
+    // Итоговые строки
+    mainRows.push({});
+    mainRows.push({ '№': 'ИТОГО', 'Дата и время': 'Приход',    'Сумма (сум)': totalIncome });
+    mainRows.push({ '№': '',       'Дата и время': 'Расход',    'Сумма (сум)': -totalExpense });
+    if (totalRefund > 0)
+        mainRows.push({ '№': '', 'Дата и время': 'Возврат', 'Сумма (сум)': -totalRefund });
+    mainRows.push({ '№': '', 'Дата и время': 'БАЛАНС',    'Сумма (сум)': net });
 
-    const incCount = data.filter(r => r.type === 'income').length;
-    const expCount = data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length;
-    const refCount = data.filter(r => r.category === 'Возврат').length;
-    const netBg = net >= 0 ? '#dbeafe' : '#fee2e2';
-    const netFg = net >= 0 ? '#1e3a8a' : '#7f1d1d';
+    // ─── Лист 2: Сводка ────────────────────────────────────────────
+    const summaryRows = [
+        { 'Показатель': 'Период',    'Значение': periodStr },
+        { 'Показатель': 'Хостел',     'Значение': hostelLabel },
+        { 'Показатель': 'Сформировано', 'Значение': new Date().toLocaleString('ru') },
+        {},
+        { 'Показатель': 'ВСЕГО ПРИХОД',    'Значение': totalIncome,  'Операций': data.filter(r => r.type === 'income').length },
+        { 'Показатель': 'ВСЕГО РАСХОД',    'Значение': -totalExpense, 'Операций': data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length },
+        { 'Показатель': 'ВСЕГО ВОЗВРАТ',   'Значение': -totalRefund,  'Операций': data.filter(r => r.category === 'Возврат').length },
+        { 'Показатель': 'БАЛАНС',           'Значение': net,           'Операций': data.length },
+    ];
 
-    // ── row builder ────────────────────────────────────────────────────────
-    const rowHtml = data.map((row, i) => {
-        const isRef = row.category === 'Возврат';
-        const isInc = row.type === 'income';
-        const [rowBg, typeBg, typeFg, amtFg] = isInc
-            ? ['#f0fdf4','#dcfce7','#166534','#166534']
-            : isRef
-                ? ['#fffbeb','#fef3c7','#92400e','#92400e']
-                : ['#fff1f2','#ffe4e6','#9f1239','#9f1239'];
-        const typeLabel = isInc ? '▲ ПРИХОД' : isRef ? '↩ ВОЗВРАТ' : '▼ РАСХОД';
-        const sign = isInc ? '+' : '-';
-        const stripe = i % 2 === 0 ? rowBg : (isInc ? '#e8fef1' : isRef ? '#fef5d9' : '#ffe8ea');
-        return `<tr>
-            <td style="${TD}background-color:#f8fafc;color:#94a3b8;text-align:center;">${i+1}</td>
-            <td style="${TD}background-color:${stripe};color:#334155;">${esc(row.date)}</td>
-            <td style="${TD}background-color:${typeBg};color:${typeFg};font-weight:bold;text-align:center;">${typeLabel}</td>
-            <td style="${TD}background-color:${stripe};color:#334155;">${esc(row.hostel)}</td>
-            <td style="${TD}background-color:${stripe};color:#334155;">${esc(row.staff)}</td>
-            <td style="${TD}background-color:${stripe};color:${amtFg};font-weight:bold;text-align:right;font-size:12px;">${sign}${loc(row.amount)}</td>
-            <td style="${TD}background-color:${stripe};color:#475569;text-align:center;">${mLabel(row.method)}</td>
-            <td style="${TD}background-color:${stripe};color:#64748b;">${esc(row.comment)}</td>
-        </tr>`;
-    }).join('');
+    // ─── Лист 3: По кассирам ──────────────────────────────────────
+    const byStaff = {};
+    data.forEach(r => {
+        const s = r.staff || '—';
+        if (!byStaff[s]) byStaff[s] = { income: 0, expense: 0, refund: 0, count: 0 };
+        if (r.type === 'income') byStaff[s].income += r.amount;
+        else if (r.category === 'Возврат') byStaff[s].refund += r.amount;
+        else byStaff[s].expense += r.amount;
+        byStaff[s].count++;
+    });
+    const staffRows = Object.entries(byStaff)
+        .sort((a, b) => b[1].income - a[1].income)
+        .map(([name, v]) => ({
+            'Кассир':         name,
+            'Операций':      v.count,
+            'Приход (сум)':    v.income,
+            'Расход (сум)':   -v.expense,
+            'Возврат (сум)':  -v.refund,
+            'Баланс (сум)':   v.income - v.expense - v.refund,
+        }));
 
-    // ── totals ─────────────────────────────────────────────────────────────
-    const totRow = (label, value, bg, fg) =>
-        `<tr><td colspan="5" style="${TD}background-color:${bg};text-align:right;font-weight:bold;font-size:12px;color:${fg};border-top:2px solid ${fg};">${label}</td>
-         <td style="${TD}background-color:${bg};text-align:right;font-weight:bold;font-size:14px;color:${fg};border-top:2px solid ${fg};">${value}</td>
-         <td colspan="2" style="${TD}background-color:${bg};border-top:2px solid ${fg};"></td></tr>`;
+    // ─── Лист 4: По методам оплаты ────────────────────────────
+    const byMethod = {};
+    data.filter(r => r.type === 'income').forEach(r => {
+        const m = mLabel(r.method);
+        byMethod[m] = (byMethod[m] || 0) + r.amount;
+    });
+    const methodRows = Object.entries(byMethod)
+        .sort((a, b) => b[1] - a[1])
+        .map(([method, sum]) => ({
+            'Метод оплаты': method,
+            'Сумма (сум)': sum,
+            'Доля (%)': totalIncome > 0 ? +((sum / totalIncome) * 100).toFixed(1) : 0,
+        }));
 
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<style>table{mso-displayed-decimal-separator:".";mso-displayed-thousand-separator:" ";}</style>
-</head><body>
-<table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;">
-  <!-- ШАПКА -->
-  <tr>
-    <td colspan="8" style="background-color:#1e1b4b;padding:16px 20px;text-align:center;">
-      <div style="font-family:Arial,sans-serif;font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:2px;">HOSTELLA</div>
-      <div style="font-family:Arial,sans-serif;font-size:13px;color:#a5b4fc;margin-top:4px;">Финансовый отчёт</div>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="4" style="background-color:#312e81;padding:8px 20px;font-family:Arial,sans-serif;font-size:11px;color:#c7d2fe;">
-      <b style="color:#e0e7ff;">Хостел:</b> ${esc(hostelLabel)}
-    </td>
-    <td colspan="4" style="background-color:#312e81;padding:8px 20px;font-family:Arial,sans-serif;font-size:11px;color:#c7d2fe;text-align:right;">
-      <b style="color:#e0e7ff;">Период:</b> ${esc(periodStr)}
-    </td>
-  </tr>
-  <!-- ПУСТАЯ СТРОКА -->
-  <tr><td colspan="8" style="height:10px;background-color:#f8fafc;"></td></tr>
-  <!-- СВОДНЫЕ КАРТОЧКИ -->
-  <tr>
-    ${card('#dcfce7','#166534','▲ Приход','+'+loc(totalIncome), incCount+' операций')}
-    ${card('#ffe4e6','#9f1239','▼ Расход','-'+loc(totalExpense), expCount+' операций')}
-    ${card('#fef3c7','#92400e','↩ Возврат','-'+loc(totalRefund), refCount+' операций')}
-    ${card(netBg,netFg,'= Баланс',(net>=0?'+':'')+loc(net), data.length+' всего')}
-  </tr>
-  <!-- ПУСТАЯ СТРОКА -->
-  <tr><td colspan="8" style="height:12px;background-color:#f8fafc;"></td></tr>
-  <!-- ЗАГОЛОВКИ ТАБЛИЦЫ -->
-  <tr>${th('№')}${th('Дата и время')}${th('Тип')}${th('Хостел')}${th('Кассир')}${th('Сумма')}${th('Метод')}${th('Описание / Гость')}</tr>
-  <!-- СТРОКИ ДАННЫХ -->
-  ${rowHtml}
-  <!-- ПУСТАЯ СТРОКА -->
-  <tr><td colspan="8" style="height:8px;background-color:#f8fafc;"></td></tr>
-  <!-- ИТОГИ -->
-  ${totRow('ИТОГО ПРИХОД:', '+'+loc(totalIncome),'#dcfce7','#166534')}
-  ${totRow('ИТОГО РАСХОД:', '-'+loc(totalExpense),'#ffe4e6','#9f1239')}
-  ${totalRefund > 0 ? totRow('ИТОГО ВОЗВРАТ:', '-'+loc(totalRefund),'#fef3c7','#92400e') : ''}
-  <tr>
-    <td colspan="5" style="${TD}background-color:${netBg};text-align:right;font-weight:bold;font-size:14px;color:${netFg};border-top:3px solid ${netFg};">БАЛАНС:</td>
-    <td style="${TD}background-color:${netBg};text-align:right;font-weight:bold;font-size:18px;color:${netFg};border-top:3px solid ${netFg};">${(net>=0?'+':'')+loc(net)}</td>
-    <td colspan="2" style="${TD}background-color:${netBg};border-top:3px solid ${netFg};"></td>
-  </tr>
-  <!-- НИЖНИЙ КОЛОНТИТУЛ -->
-  <tr><td colspan="8" style="height:8px;background-color:#f8fafc;"></td></tr>
-  <tr>
-    <td colspan="8" style="background-color:#f1f5f9;padding:8px 20px;font-family:Arial,sans-serif;font-size:9px;color:#94a3b8;text-align:center;">
-      Сформировано: ${new Date().toLocaleString('ru')} · Hostella Management System
-    </td>
-  </tr>
-</table>
-</body></html>`;
+    // ─── Сборка книги ───────────────────────────────────────────
+    const wb = XLSX.utils.book_new();
 
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const ws1 = XLSX.utils.json_to_sheet(mainRows);
+    ws1['!cols'] = [
+        { wch: 5  }, // №
+        { wch: 20 }, // Дата
+        { wch: 10 }, // Тип
+        { wch: 14 }, // Хостел
+        { wch: 18 }, // Кассир
+        { wch: 16 }, // Категория
+        { wch: 16 }, // Сумма
+        { wch: 12 }, // Метод
+        { wch: 38 }, // Комментарий
+    ];
+    ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws1['!autofilter'] = { ref: ws1['!ref'] };
+    XLSX.utils.book_append_sheet(wb, ws1, 'Операции');
+
+    const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+    ws2['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 12 }];
+    ws2['!freeze'] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws2, 'Сводка');
+
+    if (staffRows.length > 0) {
+        const ws3 = XLSX.utils.json_to_sheet(staffRows);
+        ws3['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+        ws3['!freeze'] = { xSplit: 0, ySplit: 1 };
+        ws3['!autofilter'] = { ref: ws3['!ref'] };
+        XLSX.utils.book_append_sheet(wb, ws3, 'По кассирам');
+    }
+
+    if (methodRows.length > 0) {
+        const ws4 = XLSX.utils.json_to_sheet(methodRows);
+        ws4['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 12 }];
+        ws4['!freeze'] = { xSplit: 0, ySplit: 1 };
+        ws4['!autofilter'] = { ref: ws4['!ref'] };
+        XLSX.utils.book_append_sheet(wb, ws4, 'По методам');
+    }
+
+    // заменяем .xls на .xlsx в имени файла
+    const xlsxFilename = filename.replace(/\.xls$/, '.xlsx');
+    XLSX.writeFile(wb, xlsxFilename);
 };
 
 const printReport = (data, totalIncome, totalExpense, filters, users) => {
@@ -171,7 +171,7 @@ const printReport = (data, totalIncome, totalExpense, filters, users) => {
 };
 
 // --- ReportsView ---
-const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, lang }) => {
+const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const HOSTEL_LIST = [
         { id: 'hostel1', name: 'Хостел №1' },
@@ -194,6 +194,32 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         hostelId: currentUser.role === 'admin' && currentUser.hostelId !== 'all' ? currentUser.hostelId : ''
     });
     const handleApplyFilters = () => { setFilters(tempFilters); };
+
+    const [cashToTerminalOpen, setCashToTerminalOpen] = useState(false);
+    const [cttAmount, setCttAmount] = useState('');
+    const [cttComment, setCttComment] = useState('');
+    const [cttDate, setCttDate] = useState('');
+    const [cttReceipt, setCttReceipt] = useState(null); // base64 image
+    const [cttDragOver, setCttDragOver] = useState(false);
+    const openCTT = () => {
+        setCttDate(getLocalDatetimeString(new Date()));
+        setCashToTerminalOpen(true);
+    };
+    const closeCTT = () => { setCashToTerminalOpen(false); setCttAmount(''); setCttComment(''); setCttDate(''); setCttReceipt(null); };
+    const loadReceiptFile = (file) => {
+        if (!file || !file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (e) => setCttReceipt(e.target.result);
+        reader.readAsDataURL(file);
+    };
+    const handleSubmitCTT = async () => {
+        const amt = parseInt(cttAmount);
+        if (!amt || amt <= 0) return;
+        const dateOverride = cttDate ? new Date(cttDate).toISOString() : null;
+        await onCashToTerminal(amt, cttComment, dateOverride, cttReceipt);
+        closeCTT();
+    };
+
     const allTransactions = useMemo(() => {
         const incomes = payments.map(p => {
             let hId = p.hostelId;
@@ -201,6 +227,8 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 const staff = users.find(u => u.id === p.staffId || u.login === p.staffId);
                 if (staff) hId = staff.hostelId;
             }
+            // cash_to_terminal: keep original type so it renders separately
+            if (p.type === 'cash_to_terminal') return { ...p, id: p.id, hostelId: hId };
             return { ...p, type: 'income', id: p.id, hostelId: hId };
         });
         const outcomes = expenses.map(e => {
@@ -229,6 +257,8 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     ? t.type === 'income'
                     : true;
         const matchesHostel = filters.hostelId ? t.hostelId === filters.hostelId : true;
+        // cash_to_terminal: always show if not filtered by type (not income/expense/refund)
+        if (t.type === 'cash_to_terminal') return !filters.type && matchesDate && matchesStaff && matchesHostel;
         if (parseInt(t.amount) === 0) return false;
         return matchesDate && matchesStaff && matchesMethod && matchesType && matchesHostel;
     }), [allTransactions, filters, users]);
@@ -241,23 +271,32 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const totalIncome  = filteredData.filter(t => t.type === 'income').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
     const totalRefund  = filteredData.filter(t => t.type === 'expense' && t.category === 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
     const totalExpense = filteredData.filter(t => t.type === 'expense' && t.category !== 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
+    const totalCTT     = filteredData.filter(t => t.type === 'cash_to_terminal').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
 
     const handleExport = () => {
         const hostelLabel = filters.hostelId
             ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId)
             : 'Все хостелы';
         const periodStr = `${new Date(filters.start).toLocaleString('ru')} — ${new Date(filters.end).toLocaleString('ru')}`;
+        const CATEGORY_RU = { accommodation: 'Проживание' };
         const exportData = filteredData.map(item => ({
             date: new Date(item.date).toLocaleString('ru'),
             type: item.type,
-            category: item.category || (item.type === 'income' ? 'Оплата' : 'Расход'),
+            category: CATEGORY_RU[item.category] || item.category || (item.type === 'income' ? 'Оплата' : 'Расход'),
             staff: users.find(u => u.id === item.staffId || u.login === item.staffId)?.name || '—',
             hostel: HOSTEL_LIST.find(h => h.id === item.hostelId)?.name || item.hostelId || '—',
             amount: parseInt(item.amount) || 0,
             method: item.method || '-',
             comment: item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : null) || '—',
         }));
-        exportToExcel(exportData, `Hostella_Финансы_${new Date().toISOString().slice(0,10)}.xls`, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr);
+        const dateFrom = new Date(filters.start).toLocaleDateString('ru').replace(/\./g, '-');
+        const dateTo   = new Date(filters.end).toLocaleDateString('ru').replace(/\./g, '-');
+        const sortLabel = filters.type ? filters.type : 'все';
+        const hostelSlug = filters.hostelId
+            ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId).replace(/\s/g, '_')
+            : 'Все_хостелы';
+        const fname = `Hostella_${dateFrom}_${dateTo}_${sortLabel}_${hostelSlug}.xls`;
+        exportToExcel(exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr);
     };
 
     const applyPreset = (preset) => {
@@ -303,6 +342,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     };
 
     return (
+        <>
         <div className="space-y-4 animate-in fade-in">
             {/* -- SUMMARY CARDS -- */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -327,6 +367,16 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <div className="text-[10px] opacity-70 mt-0.5">{filteredData.length} всего</div>
                 </div>
             </div>
+
+            {totalCTT > 0 && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl px-5 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-blue-700">
+                        <span className="text-lg">🏦</span>
+                        <span className="font-bold text-sm">Инкассация за период</span>
+                    </div>
+                    <span className="font-black text-blue-800 text-lg">{totalCTT.toLocaleString()} сум</span>
+                </div>
+            )}
 
             {/* ── Top Cashiers ── */}
             {currentUser.role !== 'cashier' && topCashiers.length > 0 && (
@@ -410,6 +460,14 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <Button onClick={handleApplyFilters} icon={Check}>Применить</Button>
                     <Button icon={Printer} variant="secondary" onClick={() => printReport(filteredData, totalIncome, totalExpense, filters, users)}>{t('printReport')}</Button>
                     <Button icon={Download} variant="secondary" onClick={handleExport}>Excel</Button>
+                    {onCashToTerminal && (
+                        <button
+                            onClick={openCTT}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors"
+                        >
+                            🏦 Инкассация
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -422,6 +480,33 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     const detail = item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
                     const hostelName = HOSTEL_LIST.find(h=>h.id===item.hostelId)?.name||item.hostelId||'—';
                     const isIncome = item.type==='income';
+                    const isCTT = item.type === 'cash_to_terminal';
+                    if (isCTT) return (
+                        <div key={i} className="bg-blue-50 rounded-2xl border border-blue-200 p-3.5 shadow-sm">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-blue-100 text-blue-700 text-base">🏦</div>
+                                    <div>
+                                        <div className="font-bold text-sm text-blue-900 leading-tight">{detail}</div>
+                                        <div className="text-xs text-blue-500">{staffName} · {hostelName}</div>
+                                    </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <div className="font-black text-base text-blue-700">{parseInt(item.amount).toLocaleString()}</div>
+                                    <div className="text-[10px] text-blue-400">{new Date(item.date).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-blue-100">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800">ИНКАССАЦИЯ</span>
+                                {item.receipt && (
+                                    <a href={item.receipt} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1">🧾 Чек</a>
+                                )}
+                                {currentUser.role==='super' && (
+                                    <button onClick={()=>onDeletePayment(item.id,'income',item)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
+                                )}
+                            </div>
+                        </div>
+                    );
                     return (
                         <div key={i} className={`bg-white rounded-2xl border p-3.5 shadow-sm ${ isIncome ? 'border-emerald-100' : 'border-rose-100' }`}>
                             <div className="flex items-start justify-between gap-2">
@@ -479,6 +564,30 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 const detail = item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
                                 const hostelName = HOSTEL_LIST.find(h=>h.id===item.hostelId)?.name||'—';
                                 const isIncome = item.type==='income';
+                                const isCTT = item.type === 'cash_to_terminal';
+                                if (isCTT) return (
+                                    <tr key={i} className="bg-blue-50/60 hover:bg-blue-100/40 transition-colors">
+                                        <td className="px-4 py-3 text-blue-500 text-xs whitespace-nowrap">{new Date(item.date).toLocaleString('ru')}</td>
+                                        <td className="px-4 py-3 text-xs font-semibold text-blue-600">{hostelName}</td>
+                                        <td className="px-4 py-3">
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-blue-200 text-blue-800">🏦 ИНКАССАЦИЯ</span>
+                                        </td>
+                                        <td className="px-4 py-3 font-black text-sm text-blue-700">{parseInt(item.amount).toLocaleString()}</td>
+                                        <td className="px-4 py-3 uppercase text-[10px] font-bold text-blue-400">НАЛИ</td>
+                                        <td className="px-4 py-3 text-sm text-blue-700">{staffName}</td>
+                                        <td className="px-4 py-3 text-xs text-blue-500 max-w-[200px]">
+                                            <span className="truncate block">{detail}</span>
+                                            {item.receipt && (
+                                                <a href={item.receipt} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold hover:underline flex items-center gap-1 mt-0.5">🧾 Чек</a>
+                                            )}
+                                        </td>
+                                        {currentUser.role==='super' && (
+                                            <td className="px-4 py-3">
+                                                <button onClick={()=>onDeletePayment(item.id,'income',item)} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
                                 return (
                                     <tr key={i} className="hover:bg-slate-50/70 transition-colors">
                                         <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{new Date(item.date).toLocaleString('ru')}</td>
@@ -508,6 +617,86 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 </div>
             </div>
         </div>
+
+        {cashToTerminalOpen && (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                        <span className="text-2xl">🏦</span>
+                        <div>
+                            <h2 className="font-black text-slate-800 text-lg">Инкассация</h2>
+                            <p className="text-xs text-slate-400">Перевод наличных в терминал</p>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Сумма (сум)</label>
+                        <input
+                            type="number"
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-blue-500 outline-none text-lg"
+                            placeholder="0"
+                            value={cttAmount}
+                            onChange={e => setCttAmount(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Дата и время</label>
+                        <input
+                            type="datetime-local"
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl font-medium text-slate-700 focus:border-blue-500 outline-none"
+                            value={cttDate}
+                            onChange={e => setCttDate(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Комментарий (опц.)</label>
+                        <input
+                            type="text"
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl font-medium text-slate-700 focus:border-blue-500 outline-none"
+                            placeholder="Инкассация — перевод наличных в терминал"
+                            value={cttComment}
+                            onChange={e => setCttComment(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Чек (фото)</label>
+                        {cttReceipt ? (
+                            <div className="relative">
+                                <img src={cttReceipt} alt="Чек" className="w-full max-h-48 object-contain rounded-xl border border-slate-200"/>
+                                <button onClick={() => setCttReceipt(null)} className="absolute top-1 right-1 w-6 h-6 bg-rose-500 text-white rounded-full text-xs font-black flex items-center justify-center hover:bg-rose-600">×</button>
+                            </div>
+                        ) : (
+                            <label
+                                className={`flex flex-col items-center justify-center gap-2 w-full h-24 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${cttDragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'}`}
+                                onDragOver={e => { e.preventDefault(); setCttDragOver(true); }}
+                                onDragLeave={() => setCttDragOver(false)}
+                                onDrop={e => { e.preventDefault(); setCttDragOver(false); loadReceiptFile(e.dataTransfer.files[0]); }}
+                            >
+                                <span className="text-2xl">🧾</span>
+                                <span className="text-xs text-slate-400 font-semibold">Перетащите фото или нажмите</span>
+                                <input type="file" accept="image/*" className="hidden" onChange={e => loadReceiptFile(e.target.files[0])}/>
+                            </label>
+                        )}
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                        <button
+                            onClick={handleSubmitCTT}
+                            disabled={!(parseInt(cttAmount) > 0)}
+                            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-black text-sm transition-colors"
+                        >
+                            Записать
+                        </button>
+                        <button
+                            onClick={closeCTT}
+                            className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm"
+                        >
+                            Отмена
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 };
 
