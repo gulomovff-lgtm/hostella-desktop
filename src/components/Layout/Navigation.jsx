@@ -1,103 +1,78 @@
-import React from 'react';
+﻿import React, { useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import {
     LayoutDashboard, BedDouble, Calendar, FileText, AlertCircle,
     CheckSquare, Wallet, Users, UserCog, Clock, Lock, LogOut,
     UserPlus, Power, Globe, BellRing, Tag, ClipboardList,
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
+    Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
+    SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
+    FolderPlus, FolderMinus, Pencil, Check,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
 
-// ─── Menu groups definition ───────────────────────────────────────────────────
-// dropdown:true  → группа рендерится как одна кнопка-триггер, открывающая меню
-// dropdown:false → элементы группы rended напрямую в сайдбаре
-const NAV_GROUPS = (t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount, isAdmin) => {
-    if (isAdmin) {
-        return [
-            {
-                // Главные вкладки — всегда видны напрямую
-                id: 'main', label: null, dropdown: false,
-                items: [
-                    { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
-                    { id: 'rooms',     icon: BedDouble,        label: t('rooms') },
-                    { id: 'calendar',  icon: Calendar,          label: t('calendar') },
-                    { id: 'debts',     icon: AlertCircle,       label: t('debts'),  permKey: 'viewDebts' },
-                ],
-            },
-            {
-                // Финансы — дропдаун
-                id: 'finance', label: t('financeUpper'), dropdown: true, dropIcon: BarChart3, dropLabel: t('finance'),
-                items: [
-                    { id: 'reports',      icon: FileText,  label: t('reports'),        adminOnly: true, permKey: 'viewReports'  },
-                    { id: 'expenses',     icon: Wallet,    label: t('expenses'),       adminOnly: true, permKey: 'viewExpenses' },
-                    { id: 'analytics',    icon: BarChart3, label: t('analytics'),      adminOnly: true },
-                    { id: 'guesthistory', icon: History,   label: 'История гостей',    adminOnly: true },
-                ],
-            },
-            {
-                // Операции — дропдаун
-                id: 'ops', label: t('operationsUpper'), dropdown: true, dropIcon: Globe, dropLabel: t('operations'),
-                items: [
-                    { id: 'bookings',      icon: Globe,          label: t('bookings2'),   badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-                    { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),     badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-                    { id: 'cadastre',      icon: Home,           label: 'Кадастр' },
-                    { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),       badge: pendingTasksCount },
-                    { id: 'clients',       icon: Users,          label: t('clients'),     permKey: 'viewClients' },
-                ],
-            },
-            {
-                // Персонал — дропдаун
-                id: 'staff', label: t('personnelUpper'), dropdown: true, dropIcon: UserCog, dropLabel: t('personnel'),
-                items: [
-                    { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
-                    { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
-                ],
-            },
-            {
-                // Прочее — дропдаун
-                id: 'settings', label: t('other2Upper'), dropdown: true, dropIcon: Settings, dropLabel: t('other2'),
-                items: [
-                    { id: 'telegram',    icon: BellRing,     label: t('telegram2'),      adminOnly: true },
-                    { id: 'promos',      icon: Tag,           label: t('promos2'),        adminOnly: true },
-                    { id: 'referrals',   icon: Users2,        label: t('bonuses') },
-                    { id: 'hostelconfig',icon: Settings,      label: t('hostelSettings'), adminOnly: true },
-                    { id: 'auditlog',    icon: ClipboardList, label: t('auditHistory'),   superOnly: true },
-                    { id: 'sessions',    icon: Monitor,       label: t('sessions2'),      superOnly: true },
-                ],
-            },
-        ];
-    }
-    // ─── Кассир: номера/календарь/долги/клиенты напрямую, остальное в «Прочее» ───
-    return [
-        {
-            id: 'main', label: null, dropdown: false,
-            items: [
-                { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
-                { id: 'rooms',    icon: BedDouble, label: t('rooms') },
-                { id: 'calendar', icon: Calendar,  label: t('calendar') },
-                { id: 'debts',    icon: AlertCircle, label: t('debts'), permKey: 'viewDebts' },
-                { id: 'clients',  icon: Users,       label: t('clients'), permKey: 'viewClients' },
-            ],
-        },
-        {
-            id: 'settings', label: t('other2Upper'), dropdown: true, dropIcon: Settings, dropLabel: t('other2'),
-            items: [
-                { id: 'tasks',         icon: CheckSquare,    label: t('tasks'),      badge: pendingTasksCount },
-                { id: 'bookings',      icon: Globe,          label: t('bookings2'),  badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
-                { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),    badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
-                { id: 'cadastre',      icon: Home,           label: 'Кадастр' },
-                { id: 'referrals',     icon: Users2,         label: t('bonuses') },
-            ],
-        },
-    ];
-};
+// ─── Flat items list ──────────────────────────────────────────────────────────
+const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount) => [
+    { id: 'dashboard',      icon: LayoutDashboard, label: t('dashboard'),       adminOnly: true, permKey: 'viewStats'    },
+    { id: 'rooms',          icon: BedDouble,        label: t('rooms')                                                    },
+    { id: 'calendar',       icon: Calendar,          label: t('calendar')                                                 },
+    { id: 'debts',          icon: AlertCircle,       label: t('debts'),          permKey: 'viewDebts'                    },
+    { id: 'clients',        icon: Users,             label: t('clients'),        permKey: 'viewClients'                  },
+    { id: 'bookings',       icon: Globe,             label: t('bookings2'),      badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
+    { id: 'registrations',  icon: ClipboardCheck,    label: t('emehmon'),        badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0 },
+    { id: 'cadastre',       icon: Home,              label: 'Кадастр'                                                     },
+    { id: 'tasks',          icon: CheckSquare,       label: t('tasks'),          badge: pendingTasksCount                },
+    { id: 'reports',        icon: FileText,          label: t('reports'),        adminOnly: true, permKey: 'viewReports' },
+    { id: 'expenses',       icon: Wallet,            label: t('expenses'),       adminOnly: true, permKey: 'viewExpenses'},
+    { id: 'analytics',      icon: BarChart3,         label: t('analytics'),      adminOnly: true                        },
+    { id: 'guesthistory',   icon: History,           label: 'История гостей',    adminOnly: true                        },
+    { id: 'staff',          icon: UserCog,           label: t('staff'),          adminOnly: true                        },
+    { id: 'shifts',         icon: Clock,             label: t('shifts'),         adminOnly: true                        },
+    { id: 'telegram',       icon: BellRing,          label: t('telegram2'),      adminOnly: true                        },
+    { id: 'promos',         icon: Tag,               label: t('promos2'),        adminOnly: true                        },
+    { id: 'referrals',      icon: Users2,            label: t('bonuses')                                                 },
+    { id: 'hostelconfig',   icon: Settings,          label: t('hostelSettings'), adminOnly: true                        },
+    { id: 'auditlog',       icon: ClipboardList,     label: t('auditHistory'),   superOnly: true                        },
+    { id: 'sessions',       icon: Monitor,           label: t('sessions2'),      superOnly: true                        },
+];
 
-// ─── Component ────────────────────────────────────────────────────────────────
 const APP_THEMES = [
     { id: 'green', emoji: '🌿', label: 'Светлая' },
     { id: 'dark',  emoji: '🌙', label: 'Тёмная'  },
 ];
 
+const POSITIONS = [
+    { id: 'left',   Icon: PanelLeft,   label: 'Слева'  },
+    { id: 'right',  Icon: PanelRight,  label: 'Справа' },
+    { id: 'top',    Icon: PanelTop,    label: 'Сверху' },
+    { id: 'bottom', Icon: PanelBottom, label: 'Снизу'  },
+];
+
+const FOLDER_ICONS = [
+    { id: 'folder',    Icon: Folder        },
+    { id: 'beds',      Icon: BedDouble     },
+    { id: 'wallet',    Icon: Wallet        },
+    { id: 'users',     Icon: Users         },
+    { id: 'calendar',  Icon: Calendar      },
+    { id: 'reports',   Icon: FileText      },
+    { id: 'settings',  Icon: Settings      },
+    { id: 'clock',     Icon: Clock         },
+    { id: 'bell',      Icon: BellRing      },
+    { id: 'tag',       Icon: Tag           },
+    { id: 'home',      Icon: Home          },
+    { id: 'clipboard', Icon: ClipboardList },
+    { id: 'usercog',   Icon: UserCog       },
+    { id: 'chart',     Icon: BarChart3     },
+    { id: 'tasks',     Icon: CheckSquare   },
+    { id: 'globe',     Icon: Globe         },
+];
+
+const Grip = () => (
+    <GripVertical size={14} style={{ color: 'rgba(158,205,208,0.35)', flexShrink: 0 }}/>
+);
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const Navigation = ({
     currentUser, activeTab, setActiveTab, pendingTasksCount, pendingBookingsCount, lang,
     canPerformActions, onOpenExpense, onOpenCheckIn, onOpenShift,
@@ -105,24 +80,56 @@ const Navigation = ({
     onLogout, setLang, onOpenChangePassword,
     registrationsAlertCount = 0,
     appTheme = 'green', setAppTheme,
+    navPrefs, onNavPrefs,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
     const isSuper = currentUser.role === 'super';
 
-    const [profileOpen,  setProfileOpen]  = React.useState(false);
-    const [profilePos,    setProfilePos]    = React.useState({ bottom: 0 });
+    const position = navPrefs?.position ?? 'left';
+    const isHoriz  = position === 'top' || position === 'bottom';
+
+    // ── State ──
+    const [profileOpen,   setProfileOpen]   = React.useState(false);
+    const [profilePos,    setProfilePos]    = React.useState({});
     const [checkinOpen,   setCheckinOpen]   = React.useState(false);
-    const [checkinPos,    setCheckinPos]    = React.useState({ top: 0 });
-    // Unified dropdown state — один openGroup вместо settings-only состояния
-    const [openGroup,    setOpenGroup]    = React.useState(null);
-    const [groupMenuPos, setGroupMenuPos] = React.useState({ top: 0, left: 0 });
+    const [checkinPos,    setCheckinPos]    = React.useState({});
+    const [customizeOpen, setCustomizeOpen] = React.useState(false);
+    const [dragId,          setDragId]          = React.useState(null);  // item id being dragged in folder
+    const [dragOverId,      setDragOverId]      = React.useState(null);  // item id or 'folder:fid'
+    const [dragNavEntry,    setDragNavEntry]    = React.useState(null);  // 'folder:fid' or 'item:id' outer list
+    const [dragOverNavEntry,setDragOverNavEntry]= React.useState(null); // outer list hover target
+    const [editFolderId,  setEditFolderId]  = React.useState(null);
+    const [editFolderName, setEditFolderName] = React.useState('');
+    const [iconPickerFolderId, setIconPickerFolderId] = React.useState(null);
+
     const profileBtnRef  = React.useRef(null);
     const profileRef     = React.useRef(null);
     const checkinBtnRef  = React.useRef(null);
     const checkinMenuRef = React.useRef(null);
-    const groupBtnRefs   = React.useRef({});   // map groupId → HTMLElement
-    const groupMenuRef   = React.useRef(null); // ref на открытое меню
+    const scrollRef      = React.useRef(null);   // customize modal scroll container
+    const scrollRafRef   = React.useRef(null);   // rAF id for auto-scroll
+
+    // Auto-scroll while dragging near edges of the customize modal list
+    const handleModalDragOver = React.useCallback((e) => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const { top, bottom } = el.getBoundingClientRect();
+        const zone = 60; // px from edge
+        const speed = 8;
+        cancelAnimationFrame(scrollRafRef.current);
+        if (e.clientY < top + zone) {
+            const scroll = () => { el.scrollTop -= speed; scrollRafRef.current = requestAnimationFrame(scroll); };
+            scrollRafRef.current = requestAnimationFrame(scroll);
+        } else if (e.clientY > bottom - zone) {
+            const scroll = () => { el.scrollTop += speed; scrollRafRef.current = requestAnimationFrame(scroll); };
+            scrollRafRef.current = requestAnimationFrame(scroll);
+        }
+    }, []);
+
+    const handleModalDragEnd = React.useCallback(() => {
+        cancelAnimationFrame(scrollRafRef.current);
+    }, []);
 
     React.useEffect(() => {
         const handler = (e) => {
@@ -134,366 +141,492 @@ const Navigation = ({
                 checkinMenuRef.current && !checkinMenuRef.current.contains(e.target) &&
                 checkinBtnRef.current  && !checkinBtnRef.current.contains(e.target)
             ) setCheckinOpen(false);
-            if (openGroup) {
-                const menuEl = groupMenuRef.current;
-                const btnEl  = groupBtnRefs.current[openGroup];
-                if (menuEl && !menuEl.contains(e.target) && btnEl && !btnEl.contains(e.target))
-                    setOpenGroup(null);
-            }
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
-    }, [openGroup]);
+    }, []);
 
+    // ── Permission filter ──
+    const filterItem = (item) => {
+        if (item.superOnly) return isSuper;
+        if (item.adminOnly) {
+            if (isAdmin) {
+                if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
+                return true;
+            }
+            if (item.permKey) return currentUser.permissions?.[item.permKey] === true;
+            return false;
+        }
+        if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
+        return true;
+    };
+
+    const allItems = ALL_NAV_ITEMS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount);
+    const accessibleItems = allItems.filter(filterItem);
+    const accessibleIds   = new Set(accessibleItems.map(i => i.id));
+    const hiddenSet = useMemo(() => new Set(navPrefs?.hidden ?? []), [navPrefs?.hidden]); // eslint-disable-line
+
+    // ── Folders (use saved or defaults) ──
+    const folders = useMemo(() => {
+        const src = navPrefs?.folders ?? DEFAULT_FOLDERS;
+        return src.map(f => ({ ...f, items: (f.items || []).filter(id => accessibleIds.has(id)) }));
+    }, [navPrefs?.folders, accessibleIds]); // eslint-disable-line
+
+    const openFolders = navPrefs?.openFolders ?? {};
+
+    const folderItemIds = useMemo(() => new Set(folders.flatMap(f => f.items)), [folders]);
+
+    // Items not in any folder (standalone) — just membership, order handled by resolvedNavOrder
+    const standaloneItems = useMemo(() => {
+        return accessibleItems.filter(i => !folderItemIds.has(i.id) && i.id !== 'dashboard');
+    }, [accessibleItems, folderItemIds]); // eslint-disable-line
+
+    // Resolved render order for sidebar and customize modal
+    const resolvedNavOrder = React.useMemo(() => {
+        const savedOrder = navPrefs?.navOrder;
+        const folderEntries = folders.map(f => 'folder:' + f.id);
+        // Respect legacy navPrefs.order for standalone items
+        const legacyOrder = navPrefs?.order ?? [];
+        const standaloneArr = accessibleItems.filter(i => !folderItemIds.has(i.id) && i.id !== 'dashboard');
+        const standaloneEntries = [
+            ...legacyOrder.map(id => 'item:' + id).filter(e => standaloneArr.some(i => 'item:' + i.id === e)),
+            ...standaloneArr.filter(i => !legacyOrder.includes(i.id)).map(i => 'item:' + i.id),
+        ];
+        const allEntries = [...folderEntries, ...standaloneEntries];
+        if (!savedOrder || !savedOrder.length) return allEntries;
+        const result = [];
+        for (const entry of savedOrder) { if (allEntries.includes(entry)) result.push(entry); }
+        for (const entry of allEntries) { if (!result.includes(entry)) result.push(entry); }
+        return result;
+    }, [navPrefs?.navOrder, navPrefs?.order, folders, accessibleItems, folderItemIds]); // eslint-disable-line
+
+    const toggleFolder = (fid) => {
+        const cur = openFolders[fid] ?? (navPrefs?.folders ? false : (DEFAULT_FOLDERS.find(f => f.id === fid)?.open ?? false));
+        onNavPrefs?.({ openFolders: { ...openFolders, [fid]: !cur } });
+    };
+
+    const isFolderOpen = (fid) => {
+        if (fid in openFolders) return openFolders[fid];
+        const df = DEFAULT_FOLDERS.find(f => f.id === fid);
+        return df?.open ?? false;
+    };
+
+    // ── Drag (customize modal) ──
+    const clearDrag = () => { setDragId(null); setDragOverId(null); setDragNavEntry(null); setDragOverNavEntry(null); };
+
+    const handleDragStart = (id) => { setDragNavEntry(null); setDragId(id); };
+    const handleDragOver  = (id) => { if (id !== dragId) setDragOverId(id); };
+
+    // Drag item into folder
+    const handleDropOnFolder = (targetFolderId) => {
+        if (!dragId) return;
+        if (targetFolderId === 'standalone') {
+            const newFolders = folders.map(f => ({ ...f, items: f.items.filter(id => id !== dragId) }));
+            // Add to navOrder if not there yet
+            const entry = 'item:' + dragId;
+            const curOrder = navPrefs?.navOrder ?? resolvedNavOrder;
+            const newOrder = curOrder.includes(entry) ? curOrder : [...curOrder, entry];
+            onNavPrefs?.({ folders: newFolders, navOrder: newOrder });
+        } else {
+            const newFolders = folders.map(f => {
+                if (f.id === targetFolderId) {
+                    if (f.items.includes(dragId)) return f;
+                    return { ...f, items: [...f.items, dragId] };
+                }
+                return { ...f, items: f.items.filter(id => id !== dragId) };
+            });
+            onNavPrefs?.({ folders: newFolders });
+        }
+        clearDrag();
+    };
+
+    // Reorder items within a folder
+    const reorderItemInFolder = (folderId, fromItemId, toItemId) => {
+        const newFolders = folders.map(f => {
+            if (f.id !== folderId) return f;
+            const items = [...f.items];
+            const from  = items.indexOf(fromItemId);
+            const to    = items.indexOf(toItemId);
+            if (from === -1 || to === -1 || from === to) return f;
+            items.splice(from, 1);
+            items.splice(to, 0, fromItemId);
+            return { ...f, items };
+        });
+        onNavPrefs?.({ folders: newFolders });
+    };
+
+    const toggleHidden = (id) => {
+        const hidden = navPrefs?.hidden ?? [];
+        onNavPrefs?.(hiddenSet.has(id)
+            ? { hidden: hidden.filter(h => h !== id) }
+            : { hidden: [...hidden, id] });
+    };
+
+    // Folder management
+    const addFolder = () => {
+        const id = `folder_${Date.now()}`;
+        const newF = { id, label: 'Новая папка', items: [], open: false };
+        onNavPrefs?.({ folders: [...folders, newF] });
+        setEditFolderId(id);
+        setEditFolderName('Новая папка');
+    };
+
+    const renameFolder = (fid, name) => {
+        onNavPrefs?.({ folders: folders.map(f => f.id === fid ? { ...f, label: name } : f) });
+    };
+
+    const deleteFolder = (fid) => {
+        onNavPrefs?.({ folders: folders.filter(f => f.id !== fid) });
+    };
+
+    const setFolderIcon = (fid, iconId) => {
+        onNavPrefs?.({ folders: folders.map(f => f.id === fid ? { ...f, icon: iconId === 'folder' ? undefined : iconId } : f) });
+    };
+
+    const reorderFolders = (fromId, toId) => {
+        if (!fromId || !toId || fromId === toId) return;
+        reorderNav('folder:' + fromId, 'folder:' + toId);
+    };
+
+    // Reorder entries in the outer nav list (folders + standalone items interleaved)
+    const reorderNav = (fromEntry, toEntry) => {
+        if (!fromEntry || !toEntry || fromEntry === toEntry) return;
+        const arr  = [...resolvedNavOrder];
+        const from = arr.indexOf(fromEntry);
+        const to   = arr.indexOf(toEntry);
+        if (from === -1 || to === -1) return;
+        arr.splice(from, 1);
+        arr.splice(to, 0, fromEntry);
+        onNavPrefs?.({ navOrder: arr });
+    };
+
+    // ── Popup positioning ──
     const handleCheckinToggle = () => {
         if (!checkinOpen && checkinBtnRef.current) {
-            const rect = checkinBtnRef.current.getBoundingClientRect();
-            setCheckinPos({ top: rect.top, left: rect.right + 8 });
+            const r = checkinBtnRef.current.getBoundingClientRect();
+            if (position === 'bottom') setCheckinPos({ bottom: window.innerHeight - r.top + 6, left: r.left });
+            else if (position === 'top') setCheckinPos({ top: r.bottom + 6, left: r.left });
+            else setCheckinPos({ top: r.top, left: position === 'right' ? r.left - 178 : r.right + 8 });
         }
         setCheckinOpen(o => !o);
     };
 
     const handleProfileToggle = () => {
         if (!profileOpen && profileBtnRef.current) {
-            const rect = profileBtnRef.current.getBoundingClientRect();
-            setProfilePos({ bottom: window.innerHeight - rect.bottom });
+            const r = profileBtnRef.current.getBoundingClientRect();
+            if (position === 'bottom') setProfilePos({ bottom: window.innerHeight - r.top + 6, right: window.innerWidth - r.right });
+            else if (position === 'top') setProfilePos({ top: r.bottom + 6, right: window.innerWidth - r.right });
+            else if (position === 'right') setProfilePos({ bottom: window.innerHeight - r.bottom, right: window.innerWidth - r.left + 8 });
+            else setProfilePos({ bottom: window.innerHeight - r.bottom, left: r.right + 8 });
         }
         setProfileOpen(o => !o);
     };
 
-    const handleGroupToggle = (groupId) => {
-        if (openGroup === groupId) { setOpenGroup(null); return; }
-        const btn = groupBtnRefs.current[groupId];
-        if (btn) {
-            const rect  = btn.getBoundingClientRect();
-            const menuH = 300;
-            // если от верха кнопки до низа экрана хватает — открываем от верха кнопки,
-            // иначе прибиваем к нижнему краю экрана
-            const top = (window.innerHeight - rect.top >= menuH)
-                ? rect.top
-                : Math.max(8, window.innerHeight - menuH - 8);
-            setGroupMenuPos({ top, left: rect.right + 8 });
-        }
-        setOpenGroup(groupId);
-    };
-
-    const roleLabel   = isSuper ? t('superAdmin') : isAdmin ? t('admin') : t('cashier');
-    const filterItem  = (item) => {
-        if (item.superOnly) return isSuper;
-        // adminOnly items: visible to admins always, to cashiers only if explicit perm=true
-        if (item.adminOnly) {
-            if (isAdmin) {
-                // admin still respects permKey if set (e.g. viewReports/viewExpenses)
-                if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
-                return true;
-            }
-            // cashier: only if they have explicit permission granted
-            if (item.permKey) return currentUser.permissions?.[item.permKey] === true;
-            return false;
-        }
-        // Non-adminOnly items with permKey: visible unless explicitly blocked
-        if (item.permKey) return currentUser.permissions?.[item.permKey] !== false;
-        return true;
-    };
-    const visibleGroups = NAV_GROUPS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount, isAdmin)
-        .map(g => ({ ...g, items: g.items.filter(filterItem) }))
-        .filter(g => g.items.length > 0);
-
+    const roleLabel  = isSuper ? t('superAdmin') : isAdmin ? t('admin') : t('cashier');
     const canCheckin = currentUser.role !== 'admin' && currentUser.role !== 'super';
     const btnBase    = { transition: 'all 0.15s', cursor: 'pointer' };
 
+    // ── Active indicator ──
+    const ActiveBar = () => !isHoriz ? (
+        <span style={{
+            position: 'absolute',
+            [position === 'right' ? 'right' : 'left']: 0,
+            top: 0, bottom: 0, width: 3,
+            borderRadius: position === 'right' ? '3px 0 0 3px' : '0 3px 3px 0',
+            background: '#e88c40',
+        }}/>
+    ) : (
+        <span style={{
+            position: 'absolute',
+            [position === 'bottom' ? 'top' : 'bottom']: 0,
+            left: 0, right: 0, height: 3,
+            background: '#e88c40',
+            borderRadius: position === 'bottom' ? '0 0 3px 3px' : '3px 3px 0 0',
+        }}/>
+    );
+
+    // ── Render single nav item ──
+    const renderItem = (item, indent = false) => {
+        const Icon = item.icon;
+        const act  = activeTab === item.id;
+        if (hiddenSet.has(item.id)) return null;
+        return (
+            <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className="dsb nav-item relative flex flex-col items-center justify-center transition-all"
+                style={{
+                    ...(isHoriz
+                        ? { height: '100%', padding: '0 10px', minWidth: 64 }
+                        : { width: '100%', paddingLeft: indent && !isHoriz ? 4 : 0 }),
+                    background: act ? 'rgba(232,140,64,0.12)' : 'transparent',
+                    color: act ? '#f5b574' : 'var(--nav-muted)',
+                    outline: 'none', border: 'none', flexShrink: 0,
+                }}
+                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
+                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
+            >
+                {act && <ActiveBar/>}
+                <Icon size={isHoriz ? 20 : indent ? 20 : 24} strokeWidth={act ? 2.5 : 2}/>
+                <span className="nav-lbl" style={{ fontSize: indent ? 8 : 9 }}>{item.label}</span>
+                {(item.badge ?? 0) > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                        style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
+                            animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none' }}>
+                        {item.badge}
+                    </span>
+                )}
+            </button>
+        );
+    };
+
+    // ── Render folder (accordion) — vertical only ──
+    const renderFolder = (folder) => {
+        const open = isFolderOpen(folder.id);
+        const FolderIconComp = folder.icon
+            ? (FOLDER_ICONS.find(f => f.id === folder.icon)?.Icon || Folder)
+            : (open ? FolderOpen : Folder);
+        const visItems = folder.items
+            .map(id => accessibleItems.find(i => i.id === id))
+            .filter(Boolean)
+            .filter(i => !hiddenSet.has(i.id));
+
+        // Badge sum for folder when closed
+        const totalBadge = visItems.reduce((s, i) => s + (i.badge ?? 0), 0);
+        const hasGlow    = visItems.some(i => i.glow && (i.badge ?? 0) > 0);
+        const hasActive  = visItems.some(i => activeTab === i.id);
+
+        return (
+            <div key={folder.id}>
+                <button
+                    onClick={() => toggleFolder(folder.id)}
+                    className="dsb nav-item relative flex flex-col items-center justify-center w-full transition-all"
+                    style={{
+                        background: hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent',
+                        color: hasActive ? '#f5b574' : 'var(--nav-muted)',
+                        outline: 'none', border: 'none', flexShrink: 0,
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#c8d8da'; }}
+                    onMouseOut={e  => { e.currentTarget.style.background = hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent'; e.currentTarget.style.color = hasActive ? '#f5b574' : 'var(--nav-muted)'; }}
+                >
+                    <div style={{ position: 'relative', display: 'inline-flex' }}>
+                        <FolderIconComp size={22} strokeWidth={2}/>
+                        {!open && totalBadge > 0 && (
+                            <span style={{
+                                position: 'absolute', top: -4, right: -6,
+                                background: '#e88c40', color: '#fff',
+                                fontSize: 8, fontWeight: 900,
+                                width: 14, height: 14, borderRadius: '50%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                animation: hasGlow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none',
+                            }}>{totalBadge}</span>
+                        )}
+                    </div>
+                    <span className="nav-lbl" style={{ fontSize: 8 }}>{folder.label}</span>
+                    <span style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', opacity: 0.35 }}>
+                        {open ? <ChevronDown size={10}/> : <ChevronRight size={10}/>}
+                    </span>
+                </button>
+
+                {open && (
+                    <div style={{
+                        borderLeft: '2px solid rgba(232,140,64,0.25)',
+                        marginLeft: 8,
+                        marginBottom: 2,
+                    }}>
+                        {visItems.map(item => renderItem(item, true))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // ── Build nav content (folders + standalone items) ──
+    const renderNavContent = () => {
+        const dashboard = accessibleItems.find(i => i.id === 'dashboard');
+        if (isHoriz) {
+            const allVisible = accessibleItems.filter(i => !hiddenSet.has(i.id));
+            return allVisible.map(i => renderItem(i));
+        }
+        return (
+            <>
+                {dashboard && !hiddenSet.has('dashboard') && renderItem(dashboard)}
+                {resolvedNavOrder.map(entry => {
+                    if (entry.startsWith('folder:')) {
+                        const fid = entry.slice(7);
+                        const folder = folders.find(f => f.id === fid);
+                        return folder ? renderFolder(folder) : null;
+                    } else {
+                        const id = entry.slice(5);
+                        const item = standaloneItems.find(i => i.id === id);
+                        return item && !hiddenSet.has(id) ? renderItem(item) : null;
+                    }
+                })}
+            </>
+        );
+    };
+
+    // ── Outer container style ──
+    const outerStyle = isHoriz
+        ? { height: 56, width: '100%', background: 'var(--nav-bg)',
+            borderBottom: position === 'top'    ? '1px solid rgba(255,255,255,0.07)' : undefined,
+            borderTop:    position === 'bottom' ? '1px solid rgba(255,255,255,0.07)' : undefined }
+        : { width: 80, background: 'var(--nav-bg)',
+            borderRight: position === 'left'  ? '1px solid rgba(255,255,255,0.07)' : undefined,
+            borderLeft:  position === 'right' ? '1px solid rgba(255,255,255,0.07)' : undefined };
+
     return (
-        <div
-            className="hidden md:flex flex-col shrink-0 overflow-hidden"
-            style={{ width: 80, background: 'var(--nav-bg)', borderRight: '1px solid rgba(255,255,255,0.07)' }}
-        >
+        <div className={`hidden md:flex shrink-0 overflow-hidden ${isHoriz ? 'flex-row' : 'flex-col'}`} style={outerStyle}>
             <style>{`
                 .dsb:focus,.dsb-btn:focus{outline:none!important;box-shadow:none!important}
                 @keyframes booking-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,140,64,0.8)}50%{box-shadow:0 0 0 6px rgba(232,140,64,0)}}
-                @keyframes nav-bar-in{from{opacity:0;transform:scaleY(0)}to{opacity:1;transform:scaleY(1)}}
                 @keyframes checkin-border{0%,100%{box-shadow:0 0 0 0 rgba(20,184,166,0.55)}50%{box-shadow:0 0 0 4px rgba(20,184,166,0)}}
                 .nav-item{padding-top:9px;padding-bottom:9px;position:relative}
-                .nav-lbl{font-size:9px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s}
-                .nav-gl{font-size:7px;font-weight:800;letter-spacing:.10em;color:rgba(158,205,208,.3);text-align:center;padding:4px 4px 2px;text-transform:uppercase}
-                .nav-act-bar{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:0 3px 3px 0;background:#e88c40;animation:nav-bar-in .18s ease both}
-                @media(max-height:680px){
-                    .nav-item{padding-top:3px!important;padding-bottom:3px!important}
-                    .nav-gl{padding:2px 4px 1px!important}
-                }
-                @media(max-height:540px){
-                    .nav-lbl{display:none!important}
-                    .nav-gl{display:none!important}
-                    .nav-item{padding-top:2px!important;padding-bottom:2px!important}
-                }
+                .nav-lbl{font-size:9px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:72px}
+                @media(max-height:680px){.nav-item{padding-top:3px!important;padding-bottom:3px!important}}
+                @media(max-height:540px){.nav-lbl{display:none!important}.nav-item{padding-top:2px!important;padding-bottom:2px!important}}
             `}</style>
 
-            {/* ── Nav items ── */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'none' }}>
-                {visibleGroups.map((group, gi) => {
-                    if (group.dropdown) {
-                        /* ── Dropdown trigger button ── */
-                        const DropIcon   = group.dropIcon;
-                        const isActive   = group.items.some(i => i.id === activeTab);
-                        const isOpen     = openGroup === group.id;
-                        const totalBadge = group.items.reduce((s, i) => s + (i.badge || 0), 0);
-                        return (
-                            <div key={group.id}>
-                                {gi > 0 && (
-                                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
-                                        {group.label && <div className="nav-gl">{group.label}</div>}
-                                    </div>
-                                )}
-                                <button
-                                    ref={el => { groupBtnRefs.current[group.id] = el; }}
-                                    onClick={() => handleGroupToggle(group.id)}
-                                    className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
-                                    style={{
-                                        background: isActive || isOpen ? 'rgba(232,140,64,0.12)' : 'transparent',
-                                        color: isOpen || isActive ? '#f5b574' : 'var(--nav-muted)',
-                                        outline: 'none',
-                                    }}
-                                    onMouseOver={e => { if (!isOpen && !isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
-                                    onMouseOut={e  => { if (!isOpen && !isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
-                                >
-                                    {(isActive || isOpen) && <span className="nav-act-bar" />}
-                                    <DropIcon size={24} strokeWidth={isOpen || isActive ? 2.5 : 2} />
-                                    <span className="nav-lbl">{group.dropLabel}</span>
-                                    {totalBadge > 0 && (
-                                        <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
-                                            style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
-                                                animation: group.items.some(i => i.glow) ? 'booking-pulse 1.5s ease-in-out infinite' : 'none' }}>
-                                            {totalBadge}
-                                        </span>
-                                    )}
-                                </button>
-                            </div>
-                        );
-                    }
-                    /* ── Direct items ── */
-                    return (
-                        <div key={group.id}>
-                            {gi > 0 && (
-                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0 0' }}>
-                                    {group.label && <div className="nav-gl">{group.label}</div>}
-                                </div>
-                            )}
-                            {group.items.map(item => {
-                                const Icon = item.icon;
-                                const act  = activeTab === item.id;
-                                return (
-                                    <button
-                                        key={item.id}
-                                        onClick={() => setActiveTab(item.id)}
-                                        className="dsb nav-item relative w-full flex flex-col items-center justify-center transition-all"
-                                        style={{
-                                            background: act ? 'rgba(232,140,64,0.12)' : 'transparent',
-                                            color: act ? '#f5b574' : 'var(--nav-muted)',
-                                            outline: 'none',
-                                        }}
-                                        onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
-                                        onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
-                                    >
-                                        {act && <span className="nav-act-bar" />}
-                                        <Icon size={24} strokeWidth={act ? 2.5 : 2} />
-                                        <span className="nav-lbl">{item.label}</span>
-                                        {(item.badge ?? 0) > 0 && (
-                                            <span
-                                                className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
-                                                style={{
-                                                    background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
-                                                    animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none',
-                                                }}
-                                            >
-                                                {item.badge}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* ── Unified group dropdown portal ── */}
-            {openGroup && (() => {
-                const group = visibleGroups.find(g => g.id === openGroup);
-                if (!group) return null;
-                return ReactDOM.createPortal(
-                    <div ref={groupMenuRef} style={{
-                        position: 'fixed', left: groupMenuPos.left, top: groupMenuPos.top,
-                        width: 200, background: 'var(--nav-popup)',
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-                        zIndex: 180, overflow: 'hidden',
-                        maxHeight: `calc(100vh - ${groupMenuPos.top}px - 8px)`,
-                        overflowY: 'auto',
-                    }}>
-                        {group.label && (
-                            <div style={{
-                                padding: '8px 16px 6px',
-                                borderBottom: '1px solid rgba(255,255,255,0.08)',
-                                fontSize: 9, fontWeight: 800, letterSpacing: '0.1em',
-                                color: 'rgba(158,205,208,0.5)', textTransform: 'uppercase',
-                            }}>{group.label}</div>
-                        )}
-                        {group.items.map(item => {
-                            const Icon  = item.icon;
-                            const act   = activeTab === item.id;
-                            const badge = item.badge || 0;
-                            return (
-                                <button key={item.id}
-                                    onClick={() => { setOpenGroup(null); setActiveTab(item.id); }}
-                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
-                                    style={{
-                                        color: act ? '#e88c40' : 'var(--nav-muted)',
-                                        background: act ? 'rgba(232,140,64,0.18)' : 'transparent',
-                                        border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s',
-                                    }}
-                                    onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; } }}
-                                    onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
-                                >
-                                    <Icon size={15} strokeWidth={act ? 2.5 : 2} />
-                                    <span style={{ fontWeight: act ? 700 : 600, flex: 1 }}>{item.label}</span>
-                                    {badge > 0 && (
-                                        <span className="w-5 h-5 rounded-full flex items-center justify-center"
-                                            style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
-                                                animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none' }}>
-                                            {badge}
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>,
-                    document.body,
-                );
-            })()}
+            {/* ── Items ── */}
+            {isHoriz ? (
+                <div className="flex-1 flex flex-row overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
+                    {renderNavContent()}
+                </div>
+            ) : (
+                <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col" style={{ scrollbarWidth: 'none' }}>
+                    {renderNavContent()}
+                </div>
+            )}
 
             {/* ── Action buttons ── */}
             {canPerformActions && (
-                <div className="px-2 py-2.5 flex flex-col gap-1.5"
-                     style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }}>
-
-                    {/* Заселить — приоритетная */}
+                <div className="flex shrink-0" style={{
+                    ...(isHoriz
+                        ? { flexDirection: 'row', alignItems: 'center', gap: 6, padding: '0 8px',
+                            borderLeft: '1px solid rgba(255,255,255,0.09)' }
+                        : { flexDirection: 'column', gap: 6, padding: '8px 8px 10px',
+                            borderTop: '1px solid rgba(255,255,255,0.09)' }),
+                }}>
                     {canCheckin && (
-                        <button
-                            ref={checkinBtnRef}
-                            onClick={handleCheckinToggle}
-                            className="dsb-btn w-full flex flex-col items-center justify-center rounded-2xl"
+                        <button ref={checkinBtnRef} onClick={handleCheckinToggle}
+                            className="dsb-btn flex flex-col items-center justify-center rounded-2xl"
                             style={{ ...btnBase,
-                                padding: '9px 4px 7px',
-                                gap: 4,
-                                background: checkinOpen
-                                    ? 'linear-gradient(160deg,#0f9688,#0d7a6e)'
-                                    : 'rgba(20,184,166,0.18)',
+                                ...(isHoriz ? { padding: '5px 10px', height: 40 } : { padding: '9px 4px 7px', width: '100%' }),
+                                gap: 4, background: checkinOpen ? 'linear-gradient(160deg,#0f9688,#0d7a6e)' : 'rgba(20,184,166,0.18)',
                                 color: checkinOpen ? '#fff' : '#5eead4',
                                 border: `1.5px solid ${checkinOpen ? 'rgba(94,234,212,0.5)' : 'rgba(20,184,166,0.3)'}`,
-                                boxShadow: checkinOpen ? '0 4px 18px rgba(20,184,166,0.45)' : 'none',
                                 animation: !checkinOpen ? 'checkin-border 2.5s ease-in-out infinite' : 'none',
                             }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'linear-gradient(160deg,#0f9688,#0d7a6e)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.boxShadow = '0 4px 18px rgba(20,184,166,0.45)'; e.currentTarget.style.borderColor = 'rgba(94,234,212,0.5)'; }}
-                            onMouseOut={e  => { if (!checkinOpen) { e.currentTarget.style.background = 'rgba(20,184,166,0.18)'; e.currentTarget.style.color = '#5eead4'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'rgba(20,184,166,0.3)'; } }}
+                            onMouseOver={e => { e.currentTarget.style.background = 'linear-gradient(160deg,#0f9688,#0d7a6e)'; e.currentTarget.style.color = '#fff'; }}
+                            onMouseOut={e  => { if (!checkinOpen) { e.currentTarget.style.background = 'rgba(20,184,166,0.18)'; e.currentTarget.style.color = '#5eead4'; } }}
                         >
-                            <UserPlus size={18} strokeWidth={2.5} />
+                            <UserPlus size={isHoriz ? 16 : 18} strokeWidth={2.5}/>
                             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('checkin')}</span>
                         </button>
                     )}
-
-                    {/* Расход */}
-                    <button
-                        onClick={onOpenExpense} title={t('expense')}
-                        className="dsb-btn w-full flex flex-col items-center justify-center rounded-xl"
+                    <button onClick={onOpenExpense}
+                        className="dsb-btn flex flex-col items-center justify-center rounded-xl"
                         style={{ ...btnBase,
-                            padding: '7px 4px 5px',
-                            gap: 3,
-                            background: 'rgba(234,179,8,0.14)',
-                            color: '#fde047',
+                            ...(isHoriz ? { padding: '5px 10px', height: 40 } : { padding: '7px 4px 5px', width: '100%' }),
+                            gap: 3, background: 'rgba(234,179,8,0.14)', color: '#fde047',
                             border: '1px solid rgba(234,179,8,0.22)',
                         }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.32)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(234,179,8,0.5)'; }}
-                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(234,179,8,0.14)'; e.currentTarget.style.color = '#fde047'; e.currentTarget.style.borderColor = 'rgba(234,179,8,0.22)'; }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.32)'; e.currentTarget.style.color = '#fff'; }}
+                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(234,179,8,0.14)'; e.currentTarget.style.color = '#fde047'; }}
                     >
-                        <Wallet size={16} strokeWidth={2.5} />
+                        <Wallet size={isHoriz ? 14 : 16} strokeWidth={2.5}/>
                         <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('expense')}</span>
                     </button>
-
-                    {/* Смена */}
                     {canCheckin && (
-                        <button
-                            onClick={onOpenShift} title={t('shift')}
-                            className="dsb-btn w-full flex flex-col items-center justify-center rounded-xl"
+                        <button onClick={onOpenShift}
+                            className="dsb-btn flex flex-col items-center justify-center rounded-xl"
                             style={{ ...btnBase,
-                                padding: '7px 4px 5px',
-                                gap: 3,
-                                background: 'rgba(239,68,68,0.14)',
-                                color: '#fca5a5',
+                                ...(isHoriz ? { padding: '5px 10px', height: 40 } : { padding: '7px 4px 5px', width: '100%' }),
+                                gap: 3, background: 'rgba(239,68,68,0.14)', color: '#fca5a5',
                                 border: '1px solid rgba(239,68,68,0.22)',
                             }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.32)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.5)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.color = '#fca5a5'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.22)'; }}
+                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.32)'; e.currentTarget.style.color = '#fff'; }}
+                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.color = '#fca5a5'; }}
                         >
-                            <Power size={16} strokeWidth={2.5} />
+                            <Power size={isHoriz ? 14 : 16} strokeWidth={2.5}/>
                             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('shift')}</span>
                         </button>
                     )}
 
                     {checkinOpen && ReactDOM.createPortal(
-                            <div ref={checkinMenuRef} style={{
-                                position: 'fixed', left: checkinPos.left, top: checkinPos.top,
-                                width: 170, background: 'var(--nav-popup)',
-                                border: '1px solid rgba(255,255,255,0.12)',
-                                borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-                                zIndex: 180, overflow: 'hidden',
-                            }}>
-                                {[
-                                    { label: t('checkinOneGuest'), Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
-                                    { label: t('checkinGroup'),     Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
-                                    { label: t('checkinRental'),    Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
-                                ].map(({ label, Icon, color, action }) => (
-                                    <button key={label} onClick={action}
-                                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
-                                        style={{ color, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s' }}
-                                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                                        onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
-                                    >
-                                        <Icon size={15} strokeWidth={2} />
-                                        <span style={{ fontWeight: 600 }}>{label}</span>
-                                    </button>
-                                ))}
-                            </div>,
-                            document.body,
-                        )}
+                        <div ref={checkinMenuRef} style={{
+                            position: 'fixed',
+                            left: checkinPos.left,
+                            ...(checkinPos.bottom !== undefined
+                                ? { bottom: checkinPos.bottom }
+                                : { top: checkinPos.top }),
+                            width: 170, background: 'var(--nav-popup)',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+                            zIndex: 180, overflow: 'hidden',
+                        }}>
+                            {[
+                                { label: t('checkinOneGuest'), Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
+                                { label: t('checkinGroup'),     Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
+                                { label: t('checkinRental'),    Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
+                            ].map(({ label, Icon, color, action }) => (
+                                <button key={label} onClick={action}
+                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
+                                    style={{ color, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s' }}
+                                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                                    onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
+                                >
+                                    <Icon size={15} strokeWidth={2}/>
+                                    <span style={{ fontWeight: 600 }}>{label}</span>
+                                </button>
+                            ))}
+                        </div>,
+                        document.body,
+                    )}
                 </div>
             )}
 
             {/* ── Profile ── */}
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }}>
-                <button
-                    ref={profileBtnRef} onClick={handleProfileToggle}
-                    className="w-full flex flex-col items-center justify-center py-3 transition-all"
-                    style={{ ...btnBase, background: profileOpen ? 'rgba(255,255,255,0.12)' : 'transparent', gap: 3 }}
+            <div style={{
+                borderTop:  !isHoriz ? '1px solid rgba(255,255,255,0.09)' : 'none',
+                borderLeft: isHoriz  ? '1px solid rgba(255,255,255,0.09)' : 'none',
+                flexShrink: 0,
+            }}>
+                <button ref={profileBtnRef} onClick={handleProfileToggle}
+                    className="flex items-center justify-center transition-all"
+                    style={{ ...btnBase,
+                        ...(isHoriz ? { width: 54, height: 56, flexDirection: 'row' } : { width: '100%', flexDirection: 'column', padding: '10px 0', gap: 3 }),
+                        display: 'flex',
+                        background: profileOpen ? 'rgba(255,255,255,0.12)' : 'transparent',
+                    }}
                     onMouseOver={e => { if (!profileOpen) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
                     onMouseOut={e  => { if (!profileOpen) e.currentTarget.style.background = 'transparent'; }}
                 >
                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-black"
-                         style={{ background: '#e88c40', color: '#fff' }}>
+                         style={{ background: '#e88c40', color: '#fff', flexShrink: 0 }}>
                         {(currentUser.name || '?')[0].toUpperCase()}
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--nav-muted)', maxWidth: 68, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {(currentUser.name || '?').split(' ')[0]}
-                    </span>
+                    {!isHoriz && (
+                        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--nav-muted)', maxWidth: 68, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {(currentUser.name || '?').split(' ')[0]}
+                        </span>
+                    )}
                 </button>
 
                 {profileOpen && ReactDOM.createPortal(
-                    <div
-                        ref={profileRef}
-                        style={{
-                            position: 'fixed', left: 88, bottom: profilePos.bottom, width: 240,
-                            background: 'var(--nav-popup)', border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.45)', zIndex: 180, overflow: 'hidden',
-                        }}
-                    >
+                    <div ref={profileRef} style={{
+                        position: 'fixed',
+                        ...(position === 'bottom'
+                            ? { bottom: profilePos.bottom, right: profilePos.right }
+                            : position === 'top'
+                                ? { top: profilePos.top, right: profilePos.right }
+                                : position === 'right'
+                                    ? { bottom: profilePos.bottom, right: profilePos.right }
+                                    : { bottom: profilePos.bottom, left: profilePos.left }),
+                        width: 240, background: 'var(--nav-popup)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.45)', zIndex: 180, overflow: 'hidden',
+                    }}>
                         <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
                             <div className="text-sm font-black text-white">{currentUser.name}</div>
                             <div className="text-xs mt-0.5" style={{ color: 'var(--nav-muted)' }}>{roleLabel}</div>
@@ -515,13 +648,9 @@ const Navigation = ({
                                 <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>Тема</div>
                                 <div className="flex gap-2">
                                     {APP_THEMES.map(th => (
-                                        <button
-                                            key={th.id}
-                                            onClick={() => setAppTheme(th.id)}
+                                        <button key={th.id} onClick={() => setAppTheme(th.id)}
                                             className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1"
-                                            style={appTheme === th.id
-                                                ? { background: '#e88c40', color: '#fff' }
-                                                : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
+                                            style={appTheme === th.id ? { background: '#e88c40', color: '#fff' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
                                             <span>{th.emoji}</span><span>{th.label}</span>
                                         </button>
                                     ))}
@@ -529,13 +658,22 @@ const Navigation = ({
                             </div>
                         )}
                         <button
+                            onClick={() => { setProfileOpen(false); setCustomizeOpen(true); }}
+                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
+                            style={{ color: '#a5b4fc', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)', outline: 'none', transition: 'background .15s' }}
+                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(165,180,252,0.1)'; }}
+                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
+                        >
+                            <SlidersHorizontal size={15}/> Настроить меню
+                        </button>
+                        <button
                             onClick={() => { setProfileOpen(false); onOpenChangePassword(); }}
                             className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
                             style={{ color: '#c9e8ea', background: 'transparent', border: 'none', outline: 'none', transition: 'background .15s' }}
                             onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
                             onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
-                            <Lock size={15} /> {t('changePassword')}
+                            <Lock size={15}/> {t('changePassword')}
                         </button>
                         <button
                             onClick={() => { setProfileOpen(false); onLogout(); }}
@@ -544,12 +682,353 @@ const Navigation = ({
                             onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; }}
                             onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
-                            <LogOut size={15} /> {t('logout')}
+                            <LogOut size={15}/> {t('logout')}
                         </button>
                     </div>,
                     document.body,
                 )}
             </div>
+
+            {/* ── Customize modal ── */}
+            {customizeOpen && ReactDOM.createPortal(
+                <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={(e) => { if (e.target === e.currentTarget) setCustomizeOpen(false); }}
+                >
+                    <div style={{
+                        background: 'var(--nav-popup)', borderRadius: 18, width: 400,
+                        maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                        border: '1px solid rgba(255,255,255,0.13)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+                    }}>
+                        {/* Header */}
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <SlidersHorizontal size={17} style={{ color: '#a5b4fc' }}/>
+                            <span style={{ color: '#fff', fontWeight: 800, fontSize: 15, flex: 1 }}>Настройка меню</span>
+                            <button onClick={() => setCustomizeOpen(false)}
+                                style={{ color: 'var(--nav-muted)', cursor: 'pointer', background: 'none', border: 'none', padding: 4, fontSize: 16 }}>✕</button>
+                        </div>
+
+                        {/* Position picker */}
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ color: 'rgba(158,205,208,0.5)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
+                                Расположение меню
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                                {POSITIONS.map(({ id, Icon: PosIcon, label }) => (
+                                    <button key={id} onClick={() => onNavPrefs?.({ position: id })}
+                                        style={{
+                                            padding: '10px 4px', borderRadius: 10, cursor: 'pointer',
+                                            border: `1.5px solid ${position === id ? '#e88c40' : 'rgba(255,255,255,0.1)'}`,
+                                            background: position === id ? 'rgba(232,140,64,0.2)' : 'rgba(255,255,255,0.04)',
+                                            color: position === id ? '#f5b574' : 'rgba(158,205,208,0.6)',
+                                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                                            transition: 'all 0.15s',
+                                        }}>
+                                        <PosIcon size={18} strokeWidth={position === id ? 2.5 : 2}/>
+                                        <span style={{ fontSize: 10, fontWeight: 700 }}>{label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Unified nav structure */}
+                        <div
+                            ref={scrollRef}
+                            style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}
+                            onDragOver={handleModalDragOver}
+                            onDragEnd={handleModalDragEnd}
+                            onDrop={handleModalDragEnd}
+                        >
+                            {/* Header */}
+                            <div style={{ padding: '10px 20px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'rgba(158,205,208,0.45)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.09em' }}>
+                                    Структура меню
+                                </span>
+                                <button onClick={addFolder}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(165,180,252,0.12)', border: '1px solid rgba(165,180,252,0.25)', color: '#a5b4fc', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                                    <FolderPlus size={13}/> Добавить папку
+                                </button>
+                            </div>
+
+                            {resolvedNavOrder.map((entry) => {
+                                if (entry.startsWith('folder:')) {
+                                    const fid = entry.slice(7);
+                                    const folder = folders.find(f => f.id === fid);
+                                    if (!folder) return null;
+                                    return (
+                                <div key={folder.id}
+                                    onDragOver={(e) => {
+                                        e.preventDefault();
+                                        if (dragNavEntry && dragNavEntry !== entry) setDragOverNavEntry(entry);
+                                        else if (dragId) setDragOverId('folder:' + folder.id);
+                                    }}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        if (dragNavEntry?.startsWith('item:')) {
+                                            const itemId = dragNavEntry.slice(5);
+                                            const newFolders = folders.map(f => {
+                                                if (f.id === folder.id) {
+                                                    if (f.items.includes(itemId)) return f;
+                                                    return { ...f, items: [...f.items, itemId] };
+                                                }
+                                                return { ...f, items: f.items.filter(id => id !== itemId) };
+                                            });
+                                            onNavPrefs?.({ folders: newFolders });
+                                        } else if (dragNavEntry?.startsWith('folder:')) {
+                                            reorderNav(dragNavEntry, entry);
+                                        } else if (dragId) {
+                                            handleDropOnFolder(folder.id);
+                                        }
+                                        clearDrag();
+                                    }}
+                                    style={{
+                                        margin: '0 12px 6px', borderRadius: 12,
+                                        border: `1.5px solid ${
+                                            dragOverNavEntry === entry ? 'rgba(165,180,252,0.7)' :
+                                            dragOverId === 'folder:' + folder.id ? 'rgba(232,140,64,0.6)' :
+                                            'rgba(255,255,255,0.08)'
+                                        }`,
+                                        background: dragOverNavEntry === entry ? 'rgba(165,180,252,0.07)' :
+                                            dragOverId === 'folder:' + folder.id ? 'rgba(232,140,64,0.07)' : 'rgba(255,255,255,0.03)',
+                                        transition: 'all 0.15s',
+                                        transform: dragNavEntry === entry ? 'scale(0.97)' : 'none',
+                                        opacity: dragNavEntry === entry ? 0.4 : 1,
+                                    }}
+                                >
+                                    {/* Folder header */}
+                                    <div
+                                        draggable
+                                        onDragStart={(e) => { e.stopPropagation(); setDragId(null); setDragNavEntry(entry); }}
+                                        onDragEnd={() => clearDrag()}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'grab' }}>
+                                        {(() => {
+                                            const FIC = folder.icon ? (FOLDER_ICONS.find(f => f.id === folder.icon)?.Icon || Folder) : Folder;
+                                            return (
+                                                <button
+                                                    draggable={false}
+                                                    onClick={(e) => { e.stopPropagation(); setIconPickerFolderId(iconPickerFolderId === folder.id ? null : folder.id); }}
+                                                    style={{
+                                                        background: iconPickerFolderId === folder.id ? 'rgba(165,180,252,0.2)' : 'rgba(255,255,255,0.07)',
+                                                        border: `1px solid ${iconPickerFolderId === folder.id ? '#a5b4fc' : 'rgba(255,255,255,0.12)'}`,
+                                                        borderRadius: 7, width: 28, height: 28, display: 'flex', alignItems: 'center',
+                                                        justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+                                                        color: iconPickerFolderId === folder.id ? '#a5b4fc' : 'rgba(158,205,208,0.6)',
+                                                        transition: 'all 0.15s',
+                                                    }}
+                                                    title="Выбрать иконку"
+                                                >
+                                                    <FIC size={14}/>
+                                                </button>
+                                            );
+                                        })()}
+                                        {editFolderId === folder.id ? (
+                                            <input
+                                                autoFocus
+                                                value={editFolderName}
+                                                onChange={e => setEditFolderName(e.target.value)}
+                                                onKeyDown={e => { if (e.key === 'Enter') { renameFolder(folder.id, editFolderName); setEditFolderId(null); } if (e.key === 'Escape') setEditFolderId(null); }}
+                                                style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: '#fff', padding: '3px 8px', fontSize: 13, outline: 'none' }}
+                                            />
+                                        ) : (
+                                            <span style={{ flex: 1, color: '#c8d8da', fontSize: 13, fontWeight: 700 }}>{folder.label}</span>
+                                        )}
+                                        <div style={{ display: 'flex', gap: 4 }}>
+                                            {editFolderId === folder.id ? (
+                                                <button onClick={() => { renameFolder(folder.id, editFolderName); setEditFolderId(null); }}
+                                                    style={{ background: 'none', border: 'none', color: '#34d399', cursor: 'pointer', padding: 3 }}>
+                                                    <Check size={13}/>
+                                                </button>
+                                            ) : (
+                                                <button onClick={() => { setEditFolderId(folder.id); setEditFolderName(folder.label); }}
+                                                    style={{ background: 'none', border: 'none', color: 'rgba(158,205,208,0.4)', cursor: 'pointer', padding: 3 }}>
+                                                    <Pencil size={12}/>
+                                                </button>
+                                            )}
+                                            <button onClick={() => deleteFolder(folder.id)}
+                                                style={{ background: 'none', border: 'none', color: 'rgba(248,113,113,0.5)', cursor: 'pointer', padding: 3 }}>
+                                                <FolderMinus size={13}/>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Icon picker */}
+                                    {iconPickerFolderId === folder.id && (
+                                        <div style={{ padding: '2px 10px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                            {FOLDER_ICONS.map(({ id: iconId, Icon: IconOpt }) => {
+                                                const sel = (folder.icon || 'folder') === iconId;
+                                                return (
+                                                    <button key={iconId} onClick={() => { setFolderIcon(folder.id, iconId); setIconPickerFolderId(null); }}
+                                                        style={{
+                                                            width: 30, height: 30, borderRadius: 7, cursor: 'pointer', flexShrink: 0,
+                                                            border: `1.5px solid ${sel ? '#a5b4fc' : 'rgba(255,255,255,0.1)'}`,
+                                                            background: sel ? 'rgba(165,180,252,0.2)' : 'rgba(255,255,255,0.04)',
+                                                            color: sel ? '#a5b4fc' : 'rgba(158,205,208,0.5)',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            transition: 'all 0.1s',
+                                                        }}
+                                                    >
+                                                        <IconOpt size={13}/>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {/* Items inside folder */}
+                                    <div style={{ paddingBottom: 6 }}>
+                                        {folder.items.map(itemId => {
+                                            const item = allItems.find(i => i.id === itemId);
+                                            if (!item || !accessibleIds.has(itemId)) return null;
+                                            const hidden = hiddenSet.has(itemId);
+                                            const isItemOver = dragOverId === 'inFolder:' + folder.id + ':' + itemId;
+                                            return (
+                                                <div key={itemId}
+                                                    draggable
+                                                    onDragStart={(e) => { e.stopPropagation(); handleDragStart(itemId); }}
+                                                    onDragOver={(e) => {
+                                                        e.preventDefault(); e.stopPropagation();
+                                                        if (dragId && dragId !== itemId) setDragOverId('inFolder:' + folder.id + ':' + itemId);
+                                                    }}
+                                                    onDrop={(e) => {
+                                                        e.preventDefault(); e.stopPropagation();
+                                                        if (dragId && dragId !== itemId) {
+                                                            // Same folder — reorder
+                                                            if (folder.items.includes(dragId)) reorderItemInFolder(folder.id, dragId, itemId);
+                                                            // Different folder — move into this folder at this position
+                                                            else {
+                                                                const newFolders = folders.map(f => {
+                                                                    if (f.id === folder.id) {
+                                                                        const idx = f.items.indexOf(itemId);
+                                                                        const items = f.items.filter(id => id !== dragId);
+                                                                        items.splice(idx, 0, dragId);
+                                                                        return { ...f, items };
+                                                                    }
+                                                                    return { ...f, items: f.items.filter(id => id !== dragId) };
+                                                                });
+                                                                onNavPrefs?.({ folders: newFolders });
+                                                            }
+                                                        }
+                                                        clearDrag();
+                                                    }}
+                                                    onDragEnd={() => clearDrag()}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', gap: 8,
+                                                        padding: '6px 12px', cursor: 'grab',
+                                                        opacity: dragId === itemId ? 0.3 : hidden ? 0.4 : 1,
+                                                        borderTop: isItemOver ? '2px solid rgba(165,180,252,0.7)' : '2px solid transparent',
+                                                        background: isItemOver ? 'rgba(165,180,252,0.06)' : 'transparent',
+                                                        userSelect: 'none',
+                                                        transition: 'border-color 0.1s, background 0.1s',
+                                                    }}
+                                                >
+                                                    <Grip/>
+                                                    <item.icon size={13} style={{ color: 'var(--nav-muted)', flexShrink: 0 }}/>
+                                                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: hidden ? 'rgba(255,255,255,0.28)' : '#c8d8da', textDecoration: hidden ? 'line-through' : 'none' }}>
+                                                        {item.label}
+                                                    </span>
+                                                    {/* Eject from folder */}
+                                                    <button
+                                                        title="Вынести из папки"
+                                                        onClick={() => {
+                                                            const newFolders = folders.map(f => ({ ...f, items: f.id === folder.id ? f.items.filter(id => id !== itemId) : f.items }));
+                                                            const itemEntry = 'item:' + itemId;
+                                                            const curOrder = navPrefs?.navOrder?.length ? [...navPrefs.navOrder] : [...resolvedNavOrder];
+                                                            const newOrder = curOrder.includes(itemEntry) ? curOrder : [...curOrder, itemEntry];
+                                                            onNavPrefs?.({ folders: newFolders, navOrder: newOrder });
+                                                        }}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(158,205,208,0.35)', padding: 2, display: 'flex', fontSize: 10, fontWeight: 800 }}
+                                                    >↑</button>
+                                                    <button onClick={() => toggleHidden(itemId)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: hidden ? '#f87171' : '#34d399', padding: 2, display: 'flex' }}>
+                                                        {hidden ? <EyeOff size={12}/> : <Eye size={12}/>}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                        {folder.items.filter(id => accessibleIds.has(id)).length === 0 && (
+                                            <div style={{ padding: '4px 12px 6px', fontSize: 11, color: 'rgba(158,205,208,0.3)', fontStyle: 'italic' }}>
+                                                Перетащите пункты сюда
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                    );
+                                } else {
+                                    // Standalone item row
+                                    const id = entry.slice(5);
+                                    const item = allItems.find(i => i.id === id);
+                                    if (!item || !accessibleIds.has(id)) return null;
+                                    const hidden = hiddenSet.has(id);
+                                    const isNavOver = dragOverNavEntry === entry;
+                                    return (
+                                        <div key={entry}
+                                            draggable
+                                            onDragStart={(e) => { e.stopPropagation(); setDragId(null); setDragNavEntry(entry); }}
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                if (dragNavEntry && dragNavEntry !== entry) setDragOverNavEntry(entry);
+                                                else if (dragId) setDragOverNavEntry(entry);
+                                            }}
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                if (dragNavEntry) reorderNav(dragNavEntry, entry);
+                                                else if (dragId) handleDropOnFolder('standalone');
+                                                clearDrag();
+                                            }}
+                                            onDragEnd={() => clearDrag()}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                margin: '0 12px 4px', padding: '7px 12px', cursor: 'grab',
+                                                borderRadius: 10,
+                                                opacity: dragNavEntry === entry ? 0.3 : hidden ? 0.4 : 1,
+                                                background: isNavOver ? 'rgba(232,140,64,0.07)' : 'rgba(255,255,255,0.03)',
+                                                border: `1.5px solid ${isNavOver ? 'rgba(232,140,64,0.6)' : 'rgba(255,255,255,0.07)'}`,
+                                                userSelect: 'none',
+                                                transition: 'all 0.12s',
+                                            }}
+                                        >
+                                            <Grip/>
+                                            <item.icon size={13} style={{ color: 'var(--nav-muted)', flexShrink: 0 }}/>
+                                            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: hidden ? 'rgba(255,255,255,0.28)' : '#c8d8da', textDecoration: hidden ? 'line-through' : 'none' }}>
+                                                {item.label}
+                                            </span>
+                                            <button onClick={() => toggleHidden(id)}
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: hidden ? '#f87171' : '#34d399', padding: 2, display: 'flex' }}>
+                                                {hidden ? <EyeOff size={12}/> : <Eye size={12}/>}
+                                            </button>
+                                        </div>
+                                    );
+                                }
+                            })}
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8 }}>
+                            <button
+                                onClick={() => onNavPrefs?.({
+                                    order: [], hidden: [], position: 'left', openFolders: {},
+                                    folders: currentUser?.role === 'cashier' ? DEFAULT_CASHIER_FOLDERS : null,
+                                    navOrder: currentUser?.role === 'cashier' ? DEFAULT_CASHIER_ORDER : null,
+                                })}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'rgba(158,205,208,0.7)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+                                onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+                                onMouseOut={e  => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                            >
+                                <RotateCcw size={13}/> Сбросить
+                            </button>
+                            <button
+                                onClick={() => setCustomizeOpen(false)}
+                                style={{ flex: 1, padding: '9px', borderRadius: 10, background: '#e88c40', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
+                                onMouseOver={e => { e.currentTarget.style.background = '#d4773a'; }}
+                                onMouseOut={e  => { e.currentTarget.style.background = '#e88c40'; }}
+                            >
+                                Готово
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body,
+            )}
         </div>
     );
 };

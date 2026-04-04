@@ -158,6 +158,7 @@ import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { useExpenseActions }      from './hooks/useExpenseActions';
 import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
+import { useNavPrefs }            from './hooks/useNavPrefs';
 import CheckInModal from './components/Modals/CheckInModal';
 import ClientHistoryModal from './components/Modals/ClientHistoryModal';
 import GuestRegistrationModal from './components/Modals/GuestRegistrationModal';
@@ -1027,7 +1028,7 @@ function App() {
     handleRemoveFromEmehmon, handleDeleteRegistration,
   } = useRegistrationActions({
     currentUser, selectedHostelFilter, lang,
-    setRegistrationModal, showNotification,
+    setRegistrationModal, showNotification, guests,
   });
 
   const {
@@ -1053,6 +1054,39 @@ function App() {
 
   // Уведомления об истекающих кадастр-регистрациях
   useCadastreAlerts({ cadastreRegs, tgSettings, isOnline });
+
+  // 🔔 Уведомление Telegram при 9 и 10 днях с КПП (нужна регистрация)
+  useEffect(() => {
+    if (!isOnline || !guests?.length || !currentUser) return;
+    const disabledTypes = new Set(tgSettings?.disabledTypes || []);
+    if (disabledTypes.has('kppAlert')) return;
+    const today = new Date().toISOString().slice(0, 10);
+    guests.forEach(g => {
+      if (g.status !== 'active') return;
+      if (!g.kppDate || !g.country || g.country === 'Узбекистан') return;
+      if (g.kppRegistered) return;
+      const days = Math.floor((Date.now() - new Date(g.kppDate).getTime()) / 86400000);
+      if (days !== 9 && days !== 10) return;
+      const lsKey = `kpp_alert_${g.id}_day${days}_${today}`;
+      if (localStorage.getItem(lsKey)) return;
+      const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
+      const room = rooms.find(r => r.id === g.roomId);
+      const fmt = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+      const msg = [
+        `📍 <b>Нужна регистрация!</b>`,
+        `👤 ${g.fullName}`,
+        `🪪 ${g.passport || '—'}`,
+        `🎂 Д/р: ${fmt(g.birthDate)}`,
+        `📋 Паспорт выдан: ${fmt(g.passportIssueDate)}`,
+        `🌐 ${g.country}`,
+        `📅 Дата КПП: ${fmt(g.kppDate)}`,
+        `⏰ Прошло <b>${days} дн.</b> — требуется регистрация`,
+        `🏨 ${hostelName} · Комната ${room?.number || g.roomNumber || '?'}, место ${g.bedId}`,
+      ].join('\n');
+      sendTelegramMessage(msg, 'kppAlert');
+      localStorage.setItem(lsKey, '1');
+    });
+  }, [guests, isOnline, tgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
     try {
@@ -1308,6 +1342,9 @@ const filterByHostel = (items) => {
     return [];
   }, [currentUser]);
 
+  const [navPrefs, saveNavPrefs] = useNavPrefs(currentUser?.id, currentUser?.role);
+  const navPos = navPrefs?.position ?? 'left';
+
   const canPerformActions = useMemo(() => {
     if (!currentUser) return false;
     if (currentUser.role === 'admin' || currentUser.role === 'super') return true;
@@ -1551,7 +1588,12 @@ return (
         </div>
 
         {/* Below top nav: sidebar + content */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className={`flex flex-1 overflow-hidden ${
+            navPos === 'right'  ? 'flex-row-reverse' :
+            navPos === 'top'    ? 'flex-col' :
+            navPos === 'bottom' ? 'flex-col-reverse' :
+            'flex-row'
+        }`}>
 
             <Navigation
                 currentUser={currentUser}
@@ -1572,6 +1614,8 @@ return (
                 registrationsAlertCount={registrationsAlertCount}
                 appTheme={appTheme}
                 setAppTheme={setAppTheme}
+                navPrefs={navPrefs}
+                onNavPrefs={saveNavPrefs}
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -1951,9 +1995,12 @@ return (
             />
         )}
         
-        {guestDetailsModal.open && (
+        {guestDetailsModal.open && (() => {
+            // Берём живые данные гостя из Firebase-массива (kppRegistered обновляется сразу)
+            const liveGuest = guests.find(g => g.id === guestDetailsModal.guest?.id) || guestDetailsModal.guest;
+            return (
             <GuestDetailsModal 
-                guest={guestDetailsModal.guest} 
+                guest={liveGuest} 
                 room={filteredRooms.find(r => r.id === guestDetailsModal.guest.roomId)} 
                 currentUser={currentUser}
                 clients={clients}
@@ -1977,6 +2024,7 @@ return (
                 onTrimDays={handleTrimDays}
                 isOnline={isOnline}
                 onTopUpBalance={handleTopUpBalance}
+                cadastreRegs={cadastreRegs || []}
                 onKppConfirm={handleKppConfirm}
                 onOpenHistory={() => {
                     const g = guestDetailsModal.guest;
@@ -1993,7 +2041,8 @@ return (
                     }
                 }}
             />
-        )}
+            );
+        })()}
         
         {moveGuestModal.open && (
             <MoveGuestModal 
@@ -2097,7 +2146,7 @@ return (
                 <button
                     onClick={() => setUndoHistoryOpen(true)}
                     className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg font-black text-sm transition-all"
-                    style={{ WebkitAppRegion: 'no-drag' }}
+                    style={{ WebkitAppRegion: 'no-drag', ...(navPos === 'bottom' ? { bottom: 72 } : {}) }}
                 >
                     <span className="text-base">↩</span>
                     Отменить
