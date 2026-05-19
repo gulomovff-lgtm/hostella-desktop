@@ -18,6 +18,7 @@
  */
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField,
+  getDocs, query, where,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
@@ -28,6 +29,7 @@ import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
 export function useGuestActions(ctx) {
   const {
     currentUser, rooms, guests, clients,
+    cadastreRegs,
     selectedHostelFilter, lang,
     checkInModal, setCheckInModal,
     setGuestDetailsModal, setMoveGuestModal,
@@ -38,13 +40,14 @@ export function useGuestActions(ctx) {
   // ─── Internal helpers ────────────────────────────────────────────────────
 
   const logTransaction = async (guestId, amounts, staffId) => {
-    const { cash = 0, card = 0, qr = 0 } = amounts;
+    const { cash = 0, card = 0, qr = 0, transfer = 0 } = amounts;
     const date = new Date().toISOString();
     const items = [];
     const ids = [];
-    if (cash > 0) items.push({ guestId, staffId, amount: cash, method: 'cash', date, hostelId: currentUser.hostelId });
-    if (card > 0) items.push({ guestId, staffId, amount: card, method: 'card', date, hostelId: currentUser.hostelId });
-    if (qr   > 0) items.push({ guestId, staffId, amount: qr,   method: 'qr',   date, hostelId: currentUser.hostelId });
+    if (cash     > 0) items.push({ guestId, staffId, amount: cash,     method: 'cash',     date, hostelId: currentUser.hostelId });
+    if (card     > 0) items.push({ guestId, staffId, amount: card,     method: 'card',     date, hostelId: currentUser.hostelId });
+    if (qr       > 0) items.push({ guestId, staffId, amount: qr,       method: 'qr',       date, hostelId: currentUser.hostelId });
+    if (transfer > 0) items.push({ guestId, staffId, amount: transfer, method: 'transfer', date, hostelId: currentUser.hostelId });
     for (const item of items) {
       const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), item);
       ids.push(ref.id);
@@ -135,10 +138,40 @@ export function useGuestActions(ctx) {
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), trimRestore);
       } else if (item.type === 'expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
+      } else if (item.type === 'cadastre_expense') {
+        fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', item.regId), {
+          expenseAdded: false,
+          expenseId: null,
+        });
+      } else if (item.type === 'cadastre_remove') {
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', item.regId), {
+          status: 'active',
+          removedAt: deleteField(),
+          removedBy: deleteField(),
+        });
+        if (item.expenseId) {
+          fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', item.regId), {
+            expenseAdded: false,
+            expenseId: null,
+          });
+        }
       } else if (item.type === 'balance_topup') {
         // Откатываем пополнение баланса: уменьшаем balance клиента, удаляем запись в кассе
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.clientId), { balance: increment(-item.amount) });
         if (item.paymentId) fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', item.paymentId));
+      } else if (item.type === 'debtPayment') {
+        // Откатываем погашение долга: удаляем платёжные документы и уменьшаем amountPaid
+        (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
+        for (const t of (item.targets || [])) {
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', t.id), {
+            paidCash: increment(-t.cashPay),
+            paidCard: increment(-t.cardPay),
+            paidQR:   increment(-t.qrPay),
+            amountPaid: increment(-(t.cashPay + t.cardPay + t.qrPay)),
+          });
+        }
       }
       await fb.commit();
       setUndoStack(prev => prev.filter(u => u.id !== item.id));
@@ -173,9 +206,11 @@ export function useGuestActions(ctx) {
       const guestId = docRef.id;
 
       const paidBalance = Number(formData.paidBalance) || 0;
-      const totalPaid = (Number(formData.paidCash) || 0) + (Number(formData.paidCard) || 0) + (Number(formData.paidQR) || 0) + paidBalance;
+      const paidTransfer = Number(formData.paidTransfer) || 0;
+      const totalPaid = (Number(formData.paidCash) || 0) + (Number(formData.paidCard) || 0) + (Number(formData.paidQR) || 0) + paidTransfer + paidBalance;
       let checkinPaymentIds = [];
       if (totalPaid > 0) {
+        const methodParts = [Number(formData.paidCash)>0, Number(formData.paidCard)>0, Number(formData.paidQR)>0, paidTransfer>0].filter(Boolean).length;
         const payRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
           guestId, staffId: safeStaffId, guestName: formData.fullName,
           roomId: formData.roomId, roomNumber: formData.roomNumber,
@@ -183,11 +218,12 @@ export function useGuestActions(ctx) {
           cash: Number(formData.paidCash) || 0,
           card: Number(formData.paidCard) || 0,
           qr:   Number(formData.paidQR)   || 0,
+          transfer: paidTransfer,
           balance: paidBalance,
           date: new Date().toISOString(),
           type: 'income', category: 'accommodation', comment: formData.fullName,
           hostelId: targetHostelId, admin: currentUser.login || 'admin',
-          method: Number(formData.paidCash) > 0 ? 'cash' : (Number(formData.paidCard) > 0 ? 'card' : (Number(formData.paidQR) > 0 ? 'qr' : 'balance')),
+          method: methodParts > 1 ? 'split' : Number(formData.paidCash)>0 ? 'cash' : Number(formData.paidCard)>0 ? 'card' : Number(formData.paidQR)>0 ? 'qr' : paidTransfer>0 ? 'transfer' : 'balance',
         });
         checkinPaymentIds = [payRef.id];
       }
@@ -261,7 +297,22 @@ export function useGuestActions(ctx) {
   const handleCheckOut = async (guest, final) => {
     try {
       setGuestDetailsModal({ open: false, guest: null });
-      const actualRefund = final.refundAmount || 0;
+      const paidTotal = getTotalPaid(guest);
+      const rawOverpay = Math.max(0, paidTotal - (final.totalPrice || 0));
+      const alreadySettled = Math.max(0, Number(guest.refundSettledAmount || 0));
+      const pendingRefund = Math.max(0, rawOverpay - alreadySettled);
+
+      // Защита от двойного начисления: можно обработать только остаток непогашенной переплаты
+      const requestedRefund = Math.max(0, Number(final.refundAmount || 0));
+      const requestedMixBalance = Math.max(0, Number(final.mixBalanceAmount || 0));
+      const balancePart = final.leaveOnBalance
+        ? Math.min(requestedRefund, pendingRefund)
+        : Math.min(requestedMixBalance, pendingRefund);
+      const cashPart = final.leaveOnBalance
+        ? 0
+        : Math.min(requestedRefund, Math.max(0, pendingRefund - balancePart));
+      const settledNow = balancePart + cashPart;
+
       const today = new Date(); today.setHours(12, 0, 0, 0);
       const originalCheckOut = new Date(guest.checkOutDate); originalCheckOut.setHours(12, 0, 0, 0);
       const finalCheckOutDate = today < originalCheckOut ? today.toISOString() : guest.checkOutDate;
@@ -269,6 +320,10 @@ export function useGuestActions(ctx) {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
         totalPrice: final.totalPrice, status: 'checked_out', checkOutDate: finalCheckOutDate,
         bonusCheckOutDate: deleteField(),
+        ...(settledNow > 0 ? {
+          refundSettledAmount: increment(settledNow),
+          lastRefundSettledAt: new Date().toISOString(),
+        } : {}),
       });
 
       // Sync to clients collection on checkout (don't increment visits — already counted on check-in)
@@ -285,49 +340,56 @@ export function useGuestActions(ctx) {
         enqueueTelegram(checkoutMsg, 'checkout');
       }
 
-      if (actualRefund > 0) {
-        if (final.leaveOnBalance) {
-          // Зачисляем переплату на баланс клиента
-          const clientRec = clients.find(c => c.passport && guest.passport &&
-            c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
-          if (clientRec) {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
-              balance: increment(actualRefund),
-            });
-          }
-
-        } else {
-          await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
-            amount: actualRefund, category: 'Возврат',
-            comment: `Возврат: ${guest.fullName} (${guest.passport})`,
-            date: new Date().toISOString(),
-            staffId: currentUser.id || currentUser.login,
-            hostelId: currentUser.hostelId || guest.hostelId,
-          });
-          const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${actualRefund.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
-          if (isOnline) {
-            sendTelegramMessage(refundMsg, 'refund');
-          } else {
-            enqueueTelegram(refundMsg, 'refund');
-          }
-        }
-      }
-
-      // Микс: дополнительно зачисляем часть на баланс клиента
-      if ((final.mixBalanceAmount || 0) > 0) {
+      if (balancePart > 0) {
         const clientRec = clients.find(c => c.passport && guest.passport &&
           c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
         if (clientRec) {
           await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
-            balance: increment(final.mixBalanceAmount),
+            balance: increment(balancePart),
           });
         }
       }
+
+      if (cashPart > 0) {
+        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
+          amount: cashPart, category: 'Возврат',
+          comment: `Возврат: ${guest.fullName} (${guest.passport})`,
+          date: new Date().toISOString(),
+          staffId: currentUser.id || currentUser.login,
+          hostelId: currentUser.hostelId || guest.hostelId,
+        });
+        const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${cashPart.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+        if (isOnline) {
+          sendTelegramMessage(refundMsg, 'refund');
+        } else {
+          enqueueTelegram(refundMsg, 'refund');
+        }
+      }
+
       // Fix 10: логируем выселение в auditLog
       logAction(currentUser, 'checkout', {
         guestName: guest.fullName, roomNumber: guest.roomNumber,
-        totalPrice: final.totalPrice, refund: actualRefund,
+        totalPrice: final.totalPrice, refund: cashPart, balanceTopUp: balancePart,
       });
+
+      // Авто-снятие кадастр-регистраций при выселении гостя
+      if (guest.id) {
+        try {
+          const cadRegsSnap = await getDocs(
+            query(
+              collection(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations'),
+              where('guestId', '==', guest.id),
+              where('status', '==', 'active'),
+            )
+          );
+          const removedAt = new Date().toISOString();
+          for (const cadDoc of cadRegsSnap.docs) {
+            await updateDoc(cadDoc.ref, { status: 'removed', removedAt, removedBy: 'auto_checkout' });
+          }
+        } catch (cadErr) {
+          console.warn('[checkout] Не удалось снять кадастр-регистрации:', cadErr.message);
+        }
+      }
     } catch (e) {
       console.error('handleCheckOut error:', e);
       showNotification('Ошибка выселения: ' + e.message, 'error');
@@ -337,8 +399,8 @@ export function useGuestActions(ctx) {
   const handlePayment = async (guestId, amounts) => {
     try {
       const safeStaffId = currentUser.id || currentUser.login;
-      const { cash = 0, card = 0, qr = 0, balance: balanceUsed = 0 } = amounts;
-      const total = cash + card + qr + balanceUsed;
+      const { cash = 0, card = 0, qr = 0, transfer = 0, balance: balanceUsed = 0 } = amounts;
+      const total = cash + card + qr + transfer + balanceUsed;
       // Firestore offline persistence (persistentLocalCache) handles queuing automatically.
       // We also track in offlineQueue for Electron temp-file safety and UI badge.
       const g = guests.find(x => x.id === guestId);
@@ -350,6 +412,7 @@ export function useGuestActions(ctx) {
       const overpay = total > 0 ? Math.max(0, currentPaid + total - (g?.totalPrice || 0)) : 0;
       const guestUpdate = {
         paidCash: increment(cash), paidCard: increment(card), paidQR: increment(qr),
+        ...(transfer > 0 ? { paidTransfer: increment(transfer) } : {}),
         amountPaid: increment(total),
       };
       if (balanceUsed > 0) guestUpdate.paidBalance = increment(balanceUsed);
@@ -409,8 +472,12 @@ export function useGuestActions(ctx) {
       } else {
         bonusUpdate = { bonusCheckOutDate: deleteField() };
       }
+      const extensionAddedPrice = newTotalPrice - prevTotalPrice;
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, status: 'active',
+        lastExtendedBy: safeStaffId,
+        lastExtendedAt: new Date().toISOString(),
+        lastExtensionPrice: extensionAddedPrice,
         ...bonusUpdate,
       });
       let paymentIds = [];
@@ -534,6 +601,7 @@ export function useGuestActions(ctx) {
       secondStart.setDate(secondStart.getDate() + gap);
       secondStart.setHours(12, 0, 0, 0);
       const stay2 = getStayDetails(secondStart.toISOString(), remainingDays);
+      const nowForSplit = new Date();
       const newGuest = {
         ...orig, id: undefined,
         checkInDate: secondStart.toISOString(), checkOutDate: stay2.end.toISOString(),
@@ -542,7 +610,10 @@ export function useGuestActions(ctx) {
         paidCash: Math.floor((orig.paidCash || 0) * ratio2),
         paidCard: Math.floor((orig.paidCard || 0) * ratio2),
         paidQR:   Math.floor((orig.paidQR   || 0) * ratio2),
-        status: 'active', checkInDateTime: null, checkIn: null,
+        // Если вторая часть начинается в будущем — ставим 'booking', чтобы авто-выселение
+        // её не трогало и она не показывалась как просроченная.
+        status: secondStart > nowForSplit ? 'booking' : 'active',
+        checkInDateTime: null, checkIn: null,
       };
       delete newGuest.id;
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
@@ -687,7 +758,8 @@ export function useGuestActions(ctx) {
   };
 
   const handleGuestUpdate = async (id, d) => {
-    setGuestDetailsModal({ open: false, guest: null });
+    // Strip undefined values — Firestore rejects them
+    d = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== undefined));
     // Логируем изменение цены, если pricePerNight поменялась
     if (d.pricePerNight !== undefined) {
       const g = guests.find(x => x.id === id);
@@ -737,6 +809,8 @@ export function useGuestActions(ctx) {
       const safeStaffId = currentUser.id || currentUser.login;
       let remaining = amount;
       const totalMethods = (methods.cash || 0) + (methods.card || 0) + (methods.qr || 0);
+      const allPaymentIds = [];
+      const allTargetsWithPay = [];
       for (const target of targets) {
         if (remaining <= 0) break;
         const pay = Math.min(remaining, target.currentDebt);
@@ -747,9 +821,20 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), {
           paidCash: increment(cashPay), paidCard: increment(cardPay), paidQR: increment(qrPay), amountPaid: increment(pay),
         });
-        await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId);
+        const payIds = await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId);
+        allPaymentIds.push(...payIds);
+        allTargetsWithPay.push({ id: target.id, cashPay, cardPay, qrPay });
         remaining -= pay;
       }
+      // Имя первого должника для метки
+      const firstTarget = targets[0];
+      const g = guests.find(x => x.id === firstTarget?.id);
+      pushUndo({
+        type: 'debtPayment',
+        label: `Погашение долга — ${g?.fullName || firstTarget?.id || '?'} (${amount.toLocaleString()})`,
+        paymentIds: allPaymentIds,
+        targets: allTargetsWithPay,
+      });
       showNotification('Debt Paid!');
     } catch (e) {
       showNotification('Error paying debt', 'error');

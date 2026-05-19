@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
     ShieldCheck, ShieldAlert, DollarSign, CreditCard, QrCode, FileText, Calendar, Phone,
-    MapPin, Wallet, History, LogOut, CheckCircle2, Trash2, X, Plus, Banknote
+    MapPin, Wallet, History, LogOut, CheckCircle2, Trash2, X, Plus, Banknote, ArrowRightLeft
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -154,8 +154,8 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
 
     return (
         <>
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row" style={{height:'88vh'}}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 pb-[84px] sm:pb-4 animate-in fade-in duration-150">
+            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row" style={{height:'88vh', maxHeight:'calc(100dvh - 100px)'}}>
 
                 {/* LEFT: Profile */}
                 <div className="w-full md:w-72 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col shrink-0">
@@ -288,9 +288,10 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                     </div>
 
                                     <div className="flex items-center gap-3 flex-wrap text-xs mb-3">
-                                        {stay.paidCash > 0  && <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg font-semibold"><DollarSign size={11}/> {(+stay.paidCash).toLocaleString()}</span>}
-                                        {stay.paidCard > 0  && <span className="flex items-center gap-1 bg-sky-50 text-sky-700 px-2 py-1 rounded-lg font-semibold"><CreditCard size={11}/> {(+stay.paidCard).toLocaleString()}</span>}
-                                        {stay.paidQR > 0    && <span className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-1 rounded-lg font-semibold"><QrCode size={11}/> {(+stay.paidQR).toLocaleString()}</span>}
+                                        {stay.paidCash > 0     && <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg font-semibold"><DollarSign size={11}/> {(+stay.paidCash).toLocaleString()}</span>}
+                                        {stay.paidCard > 0     && <span className="flex items-center gap-1 bg-sky-50 text-sky-700 px-2 py-1 rounded-lg font-semibold"><CreditCard size={11}/> {(+stay.paidCard).toLocaleString()}</span>}
+                                        {stay.paidQR > 0       && <span className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-1 rounded-lg font-semibold"><QrCode size={11}/> {(+stay.paidQR).toLocaleString()}</span>}
+                                        {stay.paidTransfer > 0 && <span className="flex items-center gap-1 bg-orange-50 text-orange-700 px-2 py-1 rounded-lg font-semibold"><ArrowRightLeft size={11}/> {(+stay.paidTransfer).toLocaleString()}</span>}
                                         <span className={`ml-auto font-black ${debt > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                                             {debt > 0 ? `Долг: ${debt.toLocaleString()}` : `✓ Оплачено`}
                                         </span>

@@ -9,6 +9,9 @@ const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl
 const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
 
 // --- Utilities ---
+const METHOD_LABELS = { cash: 'Наличные', card: 'Терминал', qr: 'QR', transfer: 'Перечисление' };
+const methodLabel = m => METHOD_LABELS[m] || m || '—';
+
 const getLocalDatetimeString = (dateObj) => {
     if (!dateObj) return '';
     const offset = dateObj.getTimezoneOffset() * 60000;
@@ -18,7 +21,7 @@ const getLocalDatetimeString = (dateObj) => {
 const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '') => {
     const net = totalIncome - totalExpense - totalRefund;
     const loc = n => Number(n).toLocaleString('ru');
-    const mLabel = m => ({ cash:'Наличные', card:'Терминал', qr:'QR' }[m] || m || '—');
+    const mLabel = methodLabel;
     const typeLabel = r => r.type === 'income' ? 'Приход' : r.category === 'Возврат' ? 'Возврат' : 'Расход';
 
     // ─── Лист 1: Все операции ────────────────────────────────────
@@ -134,10 +137,14 @@ const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0, totalR
     XLSX.writeFile(wb, xlsxFilename);
 };
 
-const printReport = (data, totalIncome, totalExpense, filters, users) => {
+const printReport = (data, totalIncome, totalExpense, totalRefund, filters, users) => {
     const w = window.open('', '', 'width=800,height=600');
+    const esc = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
     const startStr = new Date(filters.start).toLocaleString();
     const endStr = new Date(filters.end).toLocaleString();
+    const netBalance = totalIncome - totalExpense - totalRefund;
     let html = `<html><head><title>Финансовый отчет</title>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
@@ -153,7 +160,8 @@ const printReport = (data, totalIncome, totalExpense, filters, users) => {
     <div class="summary">
         <div>Приход: <span class="income">+${totalIncome.toLocaleString()}</span></div>
         <div>Расход: <span class="expense">-${totalExpense.toLocaleString()}</span></div>
-        <div class="balance">Итого: ${(totalIncome - totalExpense).toLocaleString()}</div>
+        ${totalRefund > 0 ? `<div>Возврат: <span class="expense">-${totalRefund.toLocaleString()}</span></div>` : ''}
+        <div class="balance">Итого: ${netBalance.toLocaleString()}</div>
     </div>
     <table><thead><tr><th>Дата</th><th>Тип</th><th>Сумма</th><th>Метод</th><th>Кассир</th><th>Описание</th></tr></thead><tbody>`;
     data.forEach(row => {
@@ -161,8 +169,8 @@ const printReport = (data, totalIncome, totalExpense, filters, users) => {
         const typeLabel = row.type === 'income' ? 'Приход' : 'Расход';
         const typeClass = row.type === 'income' ? 'income' : 'expense';
         html += `<tr><td>${new Date(row.date).toLocaleString()}</td><td class="${typeClass}">${typeLabel}</td>
-            <td>${parseInt(row.amount).toLocaleString()}</td><td>${row.method || '-'}</td>
-            <td>${staffName}</td><td>${row.comment || '-'}</td></tr>`;
+            <td>${parseInt(row.amount).toLocaleString()}</td><td>${esc(row.method || '-')}</td>
+            <td>${esc(staffName)}</td><td>${esc(row.comment || '-')}</td></tr>`;
     });
     html += `</tbody></table></body></html>`;
     w.document.write(html);
@@ -193,7 +201,15 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         type: '',
         hostelId: currentUser.role === 'admin' && currentUser.hostelId !== 'all' ? currentUser.hostelId : ''
     });
-    const handleApplyFilters = () => { setFilters(tempFilters); };
+    const handleApplyFilters = () => {
+        if (tempFilters.start && tempFilters.end && tempFilters.start > tempFilters.end) {
+            // Автоматически меняем местами если «С» позже «По»
+            setFilters({ ...tempFilters, start: tempFilters.end, end: tempFilters.start });
+            setTempFilters(p => ({ ...p, start: p.end, end: p.start }));
+        } else {
+            setFilters(tempFilters);
+        }
+    };
 
     const [cashToTerminalOpen, setCashToTerminalOpen] = useState(false);
     const [cttAmount, setCttAmount] = useState('');
@@ -201,6 +217,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const [cttDate, setCttDate] = useState('');
     const [cttReceipt, setCttReceipt] = useState(null); // base64 image
     const [cttDragOver, setCttDragOver] = useState(false);
+    const [receiptViewer, setReceiptViewer] = useState(null); // lightbox
     const openCTT = () => {
         setCttDate(getLocalDatetimeString(new Date()));
         setCashToTerminalOpen(true);
@@ -257,8 +274,9 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     ? t.type === 'income'
                     : true;
         const matchesHostel = filters.hostelId ? t.hostelId === filters.hostelId : true;
-        // cash_to_terminal: always show if not filtered by type (not income/expense/refund)
-        if (t.type === 'cash_to_terminal') return !filters.type && matchesDate && matchesStaff && matchesHostel;
+        // cash_to_terminal: показываем только если тип «инкассация» или фильтр не задан
+        if (t.type === 'cash_to_terminal') return (filters.type === 'ctt' || !filters.type) && matchesDate && matchesStaff && matchesHostel;
+        if (filters.type === 'ctt') return false;
         if (parseInt(t.amount) === 0) return false;
         return matchesDate && matchesStaff && matchesMethod && matchesType && matchesHostel;
     }), [allTransactions, filters, users]);
@@ -437,6 +455,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             <option value="income">Приход</option>
                             <option value="expense">Расход</option>
                             <option value="refund">Возврат</option>
+                            <option value="ctt">Инкассация</option>
                         </select>
                     </div>
                     <div>
@@ -446,6 +465,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             <option value="cash">{t('cash')}</option>
                             <option value="card">{t('card')}</option>
                             <option value="qr">{t('qr')}</option>
+                            <option value="transfer">Перечисление</option>
                         </select>
                     </div>
                     <div>
@@ -458,7 +478,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 </div>
                 <div className="px-4 pb-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                     <Button onClick={handleApplyFilters} icon={Check}>Применить</Button>
-                    <Button icon={Printer} variant="secondary" onClick={() => printReport(filteredData, totalIncome, totalExpense, filters, users)}>{t('printReport')}</Button>
+                    <Button icon={Printer} variant="secondary" onClick={() => printReport(filteredData, totalIncome, totalExpense, totalRefund, filters, users)}>{t('printReport')}</Button>
                     <Button icon={Download} variant="secondary" onClick={handleExport}>Excel</Button>
                     {onCashToTerminal && (
                         <button
@@ -499,7 +519,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-blue-100">
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800">ИНКАССАЦИЯ</span>
                                 {item.receipt && (
-                                    <a href={item.receipt} target="_blank" rel="noopener noreferrer" className="ml-1 text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1">🧾 Чек</a>
+                                    <button onClick={() => setReceiptViewer(item.receipt)} className="ml-1 text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1">🧾 Чек</button>
                                 )}
                                 {currentUser.role==='super' && (
                                     <button onClick={()=>onDeletePayment(item.id,'income',item)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
@@ -530,7 +550,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : item.category === 'Возврат' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700' }`}>
                                     {isIncome ? 'ПРИХОД' : item.category === 'Возврат' ? 'ВОЗВРАТ' : 'РАСХОД'}
                                 </span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">{item.method||'—'}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{methodLabel(item.method)}</span>
                                 {currentUser.role==='super' && (
                                     <button onClick={()=>onDeletePayment(item.id,item.type,item)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
                                 )}
@@ -578,7 +598,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className="px-4 py-3 text-xs text-blue-500 max-w-[200px]">
                                             <span className="truncate block">{detail}</span>
                                             {item.receipt && (
-                                                <a href={item.receipt} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold hover:underline flex items-center gap-1 mt-0.5">🧾 Чек</a>
+                                                <button onClick={() => setReceiptViewer(item.receipt)} className="text-blue-600 font-bold hover:underline flex items-center gap-1 mt-0.5">🧾 Чек</button>
                                             )}
                                         </td>
                                         {currentUser.role==='super' && (
@@ -601,7 +621,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className={`px-4 py-3 font-black text-sm ${ isIncome ? 'text-emerald-600' : 'text-rose-600' }`}>
                                             {isIncome?'+':'-'}{parseInt(item.amount).toLocaleString()}
                                         </td>
-                                        <td className="px-4 py-3 uppercase text-[10px] font-bold text-slate-400">{item.method||'—'}</td>
+                                        <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{methodLabel(item.method)}</td>
                                         <td className="px-4 py-3 text-sm text-slate-700">{staffName}</td>
                                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{detail}</td>
                                         {currentUser.role==='super' && (
@@ -693,6 +713,20 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             Отмена
                         </button>
                     </div>
+                </div>
+            </div>
+        )}
+        {receiptViewer && (
+            <div
+                className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80"
+                onClick={() => setReceiptViewer(null)}
+            >
+                <div className="relative max-w-[90vw] max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                    <img src={receiptViewer} alt="Чек" className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl"/>
+                    <button
+                        onClick={() => setReceiptViewer(null)}
+                        className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full text-slate-700 font-black text-lg flex items-center justify-center shadow-lg hover:bg-rose-500 hover:text-white transition-colors"
+                    >×</button>
                 </div>
             </div>
         )}

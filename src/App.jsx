@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import {
   signInAnonymously,
@@ -14,7 +14,8 @@ import {
   deleteDoc,
   setDoc,
   increment,
-  writeBatch
+  writeBatch,
+  deleteField
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions, PUBLIC_DATA_PATH } from './firebase';
@@ -38,6 +39,7 @@ import {
   Flag
 } from './utils/helpers';
 import { sendTelegramMessage } from './utils/telegram';
+import { checkAndMarkAlert } from './utils/alertsLog';
 import { hashPassword } from './utils/hash';
 
 import { 
@@ -115,13 +117,11 @@ import {
 
 // --- Вынесенные компоненты ---
 import LoginScreen from './components/LoginScreen/LoginScreen';
-// import LoginScreenOld from './components/UI/LoginScreen'; // kept for reference
 import HostelPickerScreen from './components/UI/HostelPickerScreen';
 import Button from './components/UI/Button';
 import Notification from './components/UI/Notification';
+import ConfirmDialog from './components/UI/ConfirmDialog';
 import ShiftBlockScreen from './components/UI/ShiftBlockScreen';
-import SimpleInput from './components/UI/SimpleInput';
-import SimpleSelect from './components/UI/SimpleSelect';
 import TopBar from './components/Layout/TopBar';
 import Navigation from './components/Layout/Navigation';
 import MobileNavigation from './components/Layout/MobileNavigation';
@@ -145,10 +145,11 @@ import SessionsView from './components/Views/SessionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
+import ManualStayView from './components/Views/ManualStayView';
 import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction, logSystemError } from './utils/auditLog';
 import * as XLSX from 'xlsx';
-import { createSession, closeSession, heartbeatSession, getLoginAt } from './utils/session';
+import { createSession, closeSession, heartbeatSession, getLoginAt, LOGIN_AT_KEY } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
@@ -173,6 +174,7 @@ import ShiftClosingModal from './components/Modals/ShiftClosingModal';
 import BookingsView from './components/Views/BookingsView';
 import GroupCheckInModal from './components/Modals/GroupCheckInModal';
 import RoomRentalModal from './components/Modals/RoomRentalModal';
+import RentalExtendModal from './components/Modals/RentalExtendModal';
 import TemplateEditorModal from './components/Modals/TemplateEditorModal';
 import HostelSettingsView from './components/Views/HostelSettingsView';
 import OnboardingTour, { LS_KEY as ONBOARDING_KEY } from './components/UI/OnboardingTour';
@@ -184,6 +186,9 @@ import { DAILY_SALARY, DEFAULT_USERS, APP_VERSION, MIN_REQUIRED_VERSION } from '
 // --- STYLES ---
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
 const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
+
+// Constants outside component to avoid recreation on every render
+const SEEN_BOOKINGS_KEY = 'hostella_seen_booking_ids';
 
 
 
@@ -272,10 +277,8 @@ function OutdatedVersionScreen({ currentVersion, minVersion, latestVersion, down
 
 // ? ГЛАВНЫЙ КОМПОНЕНТ APP
 function App() {
-  // ── Dev preview: открой /?preview=login-new для просмотра нового компонента ──
-  if (new URLSearchParams(window.location.search).get('preview') === 'login-new') {
-    return <LoginScreen users={[]} onLogin={() => {}} lang="ru" setLang={() => {}} themeId="auto" setThemeId={() => {}} />;
-  }
+  // ── Dev preview: вычисляем ДО хуков, но не делаем ранний return — иначе нарушение Rules of Hooks
+  const isPreview = new URLSearchParams(window.location.search).get('preview') === 'login-new';
 
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -305,6 +308,7 @@ function App() {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
+  const [confirmEndRental, setConfirmEndRental] = useState(null);
   const [lang, setLang] = useState('ru');
   const [loginThemeId, setLoginThemeId] = useState(
     () => localStorage.getItem('hostella_login_theme') || 'auto'
@@ -326,10 +330,10 @@ function App() {
   const [versionBlocked, setVersionBlocked]       = useState(false);
   const [remoteVersionInfo, setRemoteVersionInfo] = useState(null);
 
-  const showNotification = (message, type = 'success') => {
+  const showNotification = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random();
     setNotifications(prev => [...prev.slice(-2), { id, message, type }]);
-  };
+  }, []);
 
   // ─── Тема навигации ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -394,6 +398,8 @@ function App() {
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
   const [groupCheckInModal,  setGroupCheckInModal ] = useState(false);
   const [roomRentalModal,    setRoomRentalModal   ] = useState(false);
+  const [rentalEditModal,    setRentalEditModal   ] = useState(null); // room object or null
+  const [rentalExtendModal,  setRentalExtendModal ] = useState(null); // room object or null
   const [templateEditorModal, setTemplateEditorModal] = useState(false);
   const [registrationModal,  setRegistrationModal ] = useState(false);
   const [showOnboarding,     setShowOnboarding    ] = useState(() => localStorage.getItem(ONBOARDING_KEY) !== 'done');
@@ -411,9 +417,23 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem('hostella_undo_v1', JSON.stringify(undoStack)); } catch {}
   }, [undoStack]);
+
+  // Purge expired undo items every 30 seconds
+  useEffect(() => {
+    const EXPIRY = 30 * 60 * 1000;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setUndoStack(prev => {
+        const fresh = prev.filter(i => (now - new Date(i.timestamp).getTime()) < EXPIRY);
+        return fresh.length === prev.length ? prev : fresh;
+      });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, []);
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
+  const [expenseModalCategory, setExpenseModalCategory] = useState('');
   const [expenseCatFilter, setExpenseCatFilter] = useState('Все');
   const [expSearch, setExpSearch] = useState('');
   const [shiftModal, setShiftModal] = useState(false);
@@ -428,43 +448,75 @@ function App() {
   //
   //  GATE 1 — только active-гости с валидным checkOutDate
   //  GATE 2 — вычисляем «эффективную дату выезда»:
-  //             • если checkOutDate содержит 'T' — берём время как есть
-  //             • иначе это dateonly (YYYY-MM-DD) — добавляем 12:00 (noon checkout)
-  //             • если есть bonusCheckOutDate и он позже — используем его
+  //             • ISO-строки сохранённые как midnight UTC (new Date(date).toISOString()
+  //               из <input type="date">) трактуются как дата без времени.
+  //             • date-only (YYYY-MM-DD) и midnight-UTC → используем checkOutHour хостела
+  //             • ISO с ненулевым временем → берём как есть
+  //             • если есть bonusCheckOutDate и он позже — используем его (та же логика)
   //  GATE 3 — льготный период зависит от состояния кровати:
   //             • 24 ч — если кровать свободна (никто новый не заехал)
   //             • 4 ч  — если тот же bed уже занят другим активным гостем
   //  GATE 4 — гость не имеет последнего платежа за последние 12 ч
   //            (защита: оплата = продление, должны были уже сдвинуть checkOutDate)
-  //  GATE 5 — не существует другой активный гость на ТОМ ЖЕ месте с более
-  //            ранним заездом, чем evictee (т.е. мы не выселяем «старшего» гостя)
+  //  GATE 5 — не выселяем «младшего» гостя если на кровати есть «старший» активный
+  //            (защита от гонки при двух записях на одной кровати)
   //  DECREMENT — счётчик occupied уменьшается ТОЛЬКО если на кровати нет
   //              другого активного гостя (не задваиваем -1)
   //  LOGGING — каждое авто-выселение пишется в auditLog
   //
+
+  // Refs для live-данных: таймер не перезапускается при каждом изменении данных
+  const autoCheckoutGuestsRef   = useRef(guests);
+  const autoCheckoutRoomsRef    = useRef(rooms);
+  const autoCheckoutPaymentsRef = useRef(payments);
+  const autoCheckoutConfigRef   = useRef(hostelConfig);
+  useEffect(() => { autoCheckoutGuestsRef.current   = guests;      }, [guests]);
+  useEffect(() => { autoCheckoutRoomsRef.current    = rooms;       }, [rooms]);
+  useEffect(() => { autoCheckoutPaymentsRef.current = payments;    }, [payments]);
+  useEffect(() => { autoCheckoutConfigRef.current   = hostelConfig; }, [hostelConfig]);
+
   useEffect(() => {
     if (!currentUser) return;
     if (!isDataReady) return; // ждём, пока все данные загружены
 
-    // Эффективная дата выезда с учётом бонусного дня
+    // Эффективная дата выезда с учётом бонусного дня и настроек хостела
     const getEffectiveCo = (guest) => {
-      let base;
-      if (typeof guest.checkOutDate === 'string' && guest.checkOutDate.includes('T')) {
-        base = new Date(guest.checkOutDate);
-      } else {
-        // dateonly → noon
-        base = new Date(guest.checkOutDate + 'T12:00:00');
-      }
-      if (isNaN(base.getTime())) return null;
+      const cfg = autoCheckoutConfigRef.current;
+      const guestHostelId = guest.hostelId || 'hostel1';
+      const coHour = cfg?.[guestHostelId]?.checkOutHour ?? 12;
+
+      // Парсит строку даты: midnight-UTC ISO или date-only → используем coHour локально;
+      // ISO с конкретным ненулевым временем → берём как есть
+      const parseDate = (dateStr) => {
+        if (!dateStr) return null;
+        if (typeof dateStr === 'string' && dateStr.includes('T')) {
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return null;
+          // Дата сохранена как midnight UTC (через new Date(dateStr).toISOString() из input[type=date])
+          // → трактуем как date-only с часом выезда хостела
+          if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
+            return new Date(`${dateStr.slice(0, 10)}T${String(coHour).padStart(2, '0')}:00:00`);
+          }
+          return d;
+        }
+        // date-only: YYYY-MM-DD
+        return new Date(`${String(dateStr).slice(0, 10)}T${String(coHour).padStart(2, '0')}:00:00`);
+      };
+
+      const base = parseDate(guest.checkOutDate);
+      if (!base || isNaN(base.getTime())) return null;
 
       if (guest.bonusCheckOutDate) {
-        const bonus = new Date(guest.bonusCheckOutDate);
-        if (!isNaN(bonus.getTime()) && bonus > base) return bonus;
+        const bonus = parseDate(guest.bonusCheckOutDate);
+        if (bonus && !isNaN(bonus.getTime()) && bonus > base) return bonus;
       }
       return base;
     };
 
     const runAutoCheckout = async () => {
+      const guests   = autoCheckoutGuestsRef.current;
+      const rooms    = autoCheckoutRoomsRef.current;
+      const payments = autoCheckoutPaymentsRef.current;
       if (!guests.length || !rooms.length) return;
       const now = new Date();
       // Льготные периоды:
@@ -581,7 +633,10 @@ function App() {
       clearTimeout(initial);
       clearInterval(interval);
     };
-  }, [guests, rooms, payments, currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Намеренно НЕ включаем guests/rooms/payments в deps — они читаются через refs,
+  // чтобы таймер не сбрасывался при каждом изменении Firestore-данных.
+  // Refs обновляются через отдельные useEffect выше.
+  }, [currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Авто-синхронизация клиентов из гостей по расписанию ───────────────────
   const autoSyncGuestsRef = useRef(guests);
@@ -690,19 +745,19 @@ function App() {
   useEffect(() => {
     const handleEsc = (event) => {
         if (event.key === 'Escape') {
-            if (checkInModal.open) setCheckInModal({open: false, room: null, bedId: null, date: null});
-            if (guestDetailsModal.open) setGuestDetailsModal({open: false, guest: null});
-            if (moveGuestModal.open) setMoveGuestModal({open: false, guest: null});
-            if (expenseModal) setExpenseModal(false);
-            if (shiftModal) setShiftModal(false);
-            if (addRoomModal) setAddRoomModal(false);
-            if (editRoomModal.open) setEditRoomModal({open: false, room: null});
-            if (clientHistoryModal.open) setClientHistoryModal({open: false, client: null});
+            setCheckInModal(m => m.open ? {open: false, room: null, bedId: null, date: null} : m);
+            setGuestDetailsModal(m => m.open ? {open: false, guest: null} : m);
+            setMoveGuestModal(m => m.open ? {open: false, guest: null} : m);
+            setExpenseModal(false);
+            setShiftModal(false);
+            setAddRoomModal(false);
+            setEditRoomModal(m => m.open ? {open: false, room: null} : m);
+            setClientHistoryModal(m => m.open ? {open: false, client: null} : m);
         }
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [checkInModal, guestDetailsModal, moveGuestModal, expenseModal, shiftModal, addRoomModal, editRoomModal, clientHistoryModal]);
+  }, []);
 
   // Авто-обновление через electron-updater (IPC)
   useEffect(() => {
@@ -746,21 +801,37 @@ function App() {
     if (savedUser) {
         const u = JSON.parse(savedUser);
         setCurrentUser(u);
+        // Если loginAt отсутствует (напр., Electron перезапустился, старый формат данных),
+        // устанавливаем текущее время — это предотвращает ложное срабатывание force-logout
+        // (любой прошлый forceLogoutAfter будет <= loginAtNow → не сработает)
+        if (!sessionStorage.getItem(LOGIN_AT_KEY)) {
+          sessionStorage.setItem(LOGIN_AT_KEY, new Date().toISOString());
+        }
         if (u.hostelId && u.hostelId !== 'all') setSelectedHostelFilter(u.hostelId);
         if (u.role === 'cashier') setActiveTab('rooms');
     }
+
+    // Закрываем сессию при закрытии вкладки/Electron-окна (best-effort)
+    const handlePageHide = () => closeSession();
+    window.addEventListener('pagehide', handlePageHide);
     
     return () => {
       unsubAuth();
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, []);
 
-  // Автосинхронизация сессии: если после загрузки usersList логин совпадает, но ID устарел —
-  // обновляем currentUser свежими данными из Firestore, но сохраняем hostelId сессии.
+  // Автосинхронизация сессии: синхронизируем currentUser со свежими данными из Firestore.
+  // Срабатывает при изменении id (смена document ID), роли или прав — защита от подмены
+  // данных через sessionStorage (DevTools).
   useEffect(() => {
     if (!currentUser || !usersList.length) return;
     const fresh = usersList.find(u => u.login === currentUser.login);
-    if (fresh && fresh.id !== currentUser.id) {
+    if (!fresh) return;
+    const roleChanged        = fresh.role        !== currentUser.role;
+    const idChanged          = fresh.id          !== currentUser.id;
+    const permissionsChanged = JSON.stringify(fresh.permissions || {}) !== JSON.stringify(currentUser.permissions || {});
+    if (idChanged || roleChanged || permissionsChanged) {
       // Сохраняем hostelId из сессии (кассир выбрал хостел при входе)
       const merged = { ...fresh, hostelId: currentUser.hostelId };
       const { pass: _p, ...sessionUser } = merged;
@@ -772,6 +843,10 @@ function App() {
   // Сброс флага при смене пользователя (логин/логаут)
   useEffect(() => {
     autoShiftStartedRef.current = false;
+    // БАГ-1 FIX: сбрасываем forceLogout-флаг при каждой смене currentUser.id
+    // Без этого: если предыдущий юзер был force-разлогинен (ref=true),
+    // следующий юзер на том же устройстве НИКОГДА не получит force-logout.
+    forceLogoutTriggeredRef.current = false;
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Сброс флага когда мультихостел кассир выбрал хостел — чтобы авто-старт сработал
@@ -852,7 +927,9 @@ function App() {
 
     if (forceLogoutTriggeredRef.current) return; // уже обработали
 
-    const loginAt = getLoginAt();
+    // Если loginAt не установлен (Electron restart, старый формат) — используем текущее время.
+    // forceLogoutAfter из прошлого будет <= nowMs → не сработает, что безопасно.
+    const loginAt = getLoginAt() || new Date().toISOString();
     if (!loginAt) return;
 
     // Ищем документ по login (стабильный), а не по id — защита от смены Firestore document ID
@@ -897,6 +974,19 @@ function App() {
     return () => clearTimeout(tid);
   }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // БАГ-4 FIX: авто-logout когда документ юзера удалён из Firestore.
+  // Если кассир/admin залогинен, но его doc исчез из usersList (команда удалила) —
+  // выходим автоматически. Проверяем только когда usersList загружен (> 0).
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'super') return;
+    if (usersList.length === 0) return; // ещё не загружен
+    const myDoc = usersList.find(u => u.login === currentUser.login);
+    if (!myDoc) {
+      showNotification('Ваш аккаунт был удалён. Выполняется выход...', 'warning');
+      setTimeout(() => handleLogout(), 1_500);
+    }
+  }, [usersList]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Проверка занятости смены в хостеле (для LoginScreen)
   const checkHostelShift = useCallback((hostelId, userId, userLogin) => {
     const activeShift = shifts.find(s =>
@@ -917,11 +1007,27 @@ function App() {
         kppRegistered: true,
         kppRegisteredAt: new Date().toISOString(),
       });
+      logAction(currentUser, 'kpp_confirm', { guestId });
       showNotification('КПП регистрация подтверждена', 'success');
     } catch (e) {
       showNotification('Ошибка: ' + e.message, 'error');
     }
-  }, []);
+  }, [currentUser]);
+
+  const handleKppReset = useCallback(async (guestId, newKppDate) => {
+    try {
+      const updates = {
+        kppRegistered: false,
+        kppRegisteredAt: deleteField(),
+      };
+      if (newKppDate) updates.kppDate = newKppDate;
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updates);
+      logAction(currentUser, 'kpp_reset', { guestId, newKppDate });
+      showNotification('Отсчёт КПП сброшен', 'success');
+    } catch (e) {
+      showNotification('Ошибка: ' + e.message, 'error');
+    }
+  }, [currentUser]);
 
   const handleLogin = (user) => {
     const defEntry = DEFAULT_USERS.find(d => d.login === user.login);
@@ -998,6 +1104,7 @@ function App() {
     handleRejectBooking, handleTrimDays,
   } = useGuestActions({
     currentUser, rooms, guests, clients,
+    cadastreRegs,
     selectedHostelFilter, lang,
     checkInModal, setCheckInModal,
     setGuestDetailsModal, setMoveGuestModal,
@@ -1008,7 +1115,7 @@ function App() {
   const {
     handleUpdateClient, handleImportClients, handleDeduplicate,
     handleBulkDeleteClients, handleNormalizeCountries, handleSyncClientsFromGuests,
-    handleTopUpBalance, handleAddClient,
+    handleTopUpBalance, handleAddClient, handleAdjustBalance,
   } = useClientActions({ currentUser, clients, showNotification, setUndoStack });
 
   const {
@@ -1033,14 +1140,15 @@ function App() {
 
   const {
     handleAddCadastre, handleUpdateCadastre, handleDeleteCadastre,
-    handleAddCadastreReg, handleExtendCadastreReg,
+    handleAddCadastreReg, handleExtendCadastreReg, handleUpdateCadastreReg,
     handleRemoveCadastreReg, handleDeleteCadastreReg,
     handleAddRegToExpenses, handleAddAllToExpenses,
   } = useCadastreActions({
     currentUser, selectedHostelFilter, showNotification, tgSettings, isOnline,
+    setUndoStack,
   });
 
-  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal } = useExpenseActions({
+  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
     setExpenseModal, setUndoStack,
@@ -1053,7 +1161,7 @@ function App() {
   });
 
   // Уведомления об истекающих кадастр-регистрациях
-  useCadastreAlerts({ cadastreRegs, tgSettings, isOnline });
+  useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline });
 
   // 🔔 Уведомление Telegram при 9 и 10 днях с КПП (нужна регистрация)
   useEffect(() => {
@@ -1067,8 +1175,7 @@ function App() {
       if (g.kppRegistered) return;
       const days = Math.floor((Date.now() - new Date(g.kppDate).getTime()) / 86400000);
       if (days !== 9 && days !== 10) return;
-      const lsKey = `kpp_alert_${g.id}_day${days}_${today}`;
-      if (localStorage.getItem(lsKey)) return;
+      const key = `kpp_${g.id}_day${days}_${today}`;
       const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
       const room = rooms.find(r => r.id === g.roomId);
       const fmt = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
@@ -1083,8 +1190,10 @@ function App() {
         `⏰ Прошло <b>${days} дн.</b> — требуется регистрация`,
         `🏨 ${hostelName} · Комната ${room?.number || g.roomNumber || '?'}, место ${g.bedId}`,
       ].join('\n');
-      sendTelegramMessage(msg, 'kppAlert');
-      localStorage.setItem(lsKey, '1');
+      // checkAndMarkAlert атомарно проверяет Firestore: один раз на все устройства
+      checkAndMarkAlert(key).then(shouldFire => {
+        if (shouldFire) sendTelegramMessage(msg, 'kppAlert');
+      });
     });
   }, [guests, isOnline, tgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1287,18 +1396,23 @@ const filterByHostel = (items) => {
   const pendingBookingsCount = websiteBookings.length;
 
   // 🔔 Уведомление при появлении новой брони с сайта
-  const prevBookingsCountRef = useRef(null);
+  // Храним уже замеченные ID в localStorage, чтобы не слать Telegram при Ctrl+R
+  // (SEEN_BOOKINGS_KEY объявлен выше за пределами компонента)
+  const bookingsInitialized = useRef(false);
   useEffect(() => {
-    if (prevBookingsCountRef.current === null) {
-      // первый рендер — просто запоминаем
-      prevBookingsCountRef.current = pendingBookingsCount;
-      return;
-    }
-    if (pendingBookingsCount > prevBookingsCountRef.current) {
+    if (!currentUser) return;
+    // Пока гости не загружены (пустой массив в начале) — ничего не делаем
+    if (!bookingsInitialized.current && pendingBookingsCount === 0) return;
+
+    const seenIds = new Set(JSON.parse(localStorage.getItem(SEEN_BOOKINGS_KEY) || '[]'));
+    const newOnes = websiteBookings.filter(b => b.id && !seenIds.has(b.id));
+
+    if (!bookingsInitialized.current) {
+      // Первая загрузка данных — просто запоминаем текущие ID, не шлём Telegram
+      bookingsInitialized.current = true;
+    } else if (newOnes.length > 0) {
       showNotification(`🔔 Новая заявка с сайта! (всего: ${pendingBookingsCount})`, 'success');
-      // Немедленное уведомление в Telegram при каждой новой заявке
       if (isOnline) {
-        const newOnes = websiteBookings.slice(0, pendingBookingsCount - prevBookingsCountRef.current);
         newOnes.forEach(b => {
           const hostelName = b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
           const msg = `📋 <b>Новая онлайн-бронь</b>\n👤 ${b.fullName || '—'}\n📞 ${b.phone || '—'}\n📅 ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'} → ${b.checkOutDate ? new Date(b.checkOutDate).toLocaleDateString('ru-RU') : '?'} (${b.days || 1} дн.)\n🏨 ${hostelName}`;
@@ -1306,27 +1420,30 @@ const filterByHostel = (items) => {
         });
       }
     }
-    prevBookingsCountRef.current = pendingBookingsCount;
+
+    // Сохраняем актуальные ID (только pending-брони, чтобы сет не раздувался)
+    localStorage.setItem(SEEN_BOOKINGS_KEY, JSON.stringify(websiteBookings.map(b => b.id)));
   }, [pendingBookingsCount]);
 
   // ⏰ Ежедневное напоминание в Telegram о необработанных бронях
   useEffect(() => {
     if (!currentUser) return;
     const REMINDER_KEY = 'hostella_booking_reminder_ts';
-    const sendReminder = () => {
+    const lastSent = parseInt(localStorage.getItem(REMINDER_KEY) || '0');
+    if (Date.now() - lastSent <= 24 * 60 * 60 * 1000) return; // не чаще 1 раза в сутки
+
+    // Откладываем на 5 сек — даём Firebase загрузить данные прежде чем решать слать ли
+    const timer = setTimeout(() => {
       if (pendingBookingsCount > 0 && isOnline) {
         const list = websiteBookings.slice(0, 5).map(b =>
           `• ${b.fullName || '—'} — ${b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2'}, заезд ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'}`
         ).join('\n');
         sendTelegramMessage(`🔔 <b>Необработанные брони с сайта: ${pendingBookingsCount}</b>\n${list}`, 'newBooking');
-        localStorage.setItem(REMINDER_KEY, String(Date.now()));
       }
-    };
-    // Отправляем при входе, если прошло > 12 часов с последнего напоминания
-    const lastSent = parseInt(localStorage.getItem(REMINDER_KEY) || '0');
-    if (Date.now() - lastSent > 12 * 60 * 60 * 1000) sendReminder();
-    const id = setInterval(sendReminder, 24 * 60 * 60 * 1000);
-    return () => clearInterval(id);
+      // Всегда обновляем метку, чтобы при следующем входе не отправлять снова
+      localStorage.setItem(REMINDER_KEY, String(Date.now()));
+    }, 5000);
+    return () => clearTimeout(timer);
   }, [currentUser?.id]);
 
   const availableHostelsForUser = useMemo(() => {
@@ -1372,6 +1489,10 @@ const filterByHostel = (items) => {
 
   // Стабильная функция клика по койке
   const handleBedClick = useCallback((room, bedId, guest, isGhost) => {
+      if (room?.rental?.active) {
+          showNotification('Комната сдана в аренду — заселение недоступно', 'error');
+          return;
+      }
       if (guest) {
           setGuestDetailsModal({ open: true, guest, initialView: isGhost === 'extend' ? 'extend' : 'dashboard' });
       } else { 
@@ -1422,7 +1543,98 @@ const filterByHostel = (items) => {
     });
     setEditRoomModal({ open: false, room: null });
   };
-  const handleDeleteRoom = async (r) => { showNotification('Удаление комнат недоступно — обратитесь к администратору', 'error'); };
+  const handleDeleteRoom = async (r) => {
+    if (currentUser?.role !== 'super') {
+      showNotification('Удаление комнат доступно только супер-администратору', 'error');
+      return;
+    }
+    const hasGuests = guests.some(g => g.roomId === r.id && g.status === 'active');
+    if (hasGuests) {
+      showNotification('Нельзя удалить комнату — в ней есть активные гости', 'error');
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id));
+      showNotification(`Комната №${r.number} удалена`, 'success');
+      logAction(currentUser, 'room_delete', { roomId: r.id, number: r.number });
+    } catch (e) {
+      showNotification('Ошибка удаления: ' + e.message, 'error');
+    }
+  };
+
+  const handleRentRoom = async (roomId, rentalData) => {
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), { rental: rentalData });
+      const room = filteredRooms.find(r => r.id === roomId);
+      showNotification(`Комната №${room?.number || ''} сдана в аренду`, 'success');
+      logAction(currentUser, 'room_rental', { roomId, tenantName: rentalData.tenantName });
+      setRoomRentalModal(false);
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  const handleEndRental = (room) => {
+    setConfirmEndRental(room);
+  };
+
+  const handleConfirmEndRental = async () => {
+    const room = confirmEndRental;
+    if (!room) return;
+    setConfirmEndRental(null);
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), { rental: { active: false } });
+      showNotification(`Аренда комнаты №${room.number} завершена`, 'success');
+      logAction(currentUser, 'room_rental_end', { roomId: room.id, roomNumber: room.number });
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  const handleEditRental = (room) => {
+    setRentalEditModal({ room, initialTab: 'info' });
+  };
+
+  const handleExtendRental = (room) => {
+    setRentalExtendModal(room);
+  };
+
+  const handleConfirmExtendRental = async (roomId, { extDays, paidCash, paidCard, paidQR, newCheckOut, newDays, newTotal }) => {
+    try {
+      const room = filteredRooms.find(r => r.id === roomId);
+      const rental = room?.rental;
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), {
+        rental: {
+          ...rental,
+          days:        newDays,
+          totalAmount: newTotal,
+          checkOutStr: newCheckOut,
+          checkOutDate: new Date(newCheckOut + 'T12:00:00').toISOString(),
+          paidCash:    (rental?.paidCash  || 0) + paidCash,
+          paidCard:    (rental?.paidCard  || 0) + paidCard,
+          paidQR:      (rental?.paidQR    || 0) + paidQR,
+          updatedAt:   new Date().toISOString(),
+        },
+      });
+      showNotification(`Продлено на ${extDays} дн. → ${newCheckOut}`, 'success');
+      logAction(currentUser, 'room_rental_extend', { roomId, extDays, newCheckOut });
+      setRentalExtendModal(null);
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  const handleUpdateRental = async (roomId, rentalData) => {
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), { rental: rentalData });
+      const room = filteredRooms.find(r => r.id === roomId);
+      showNotification(`\u0410\u0440\u0435\u043D\u0434\u0430 \u043A\u043E\u043C\u043D\u0430\u0442\u044B \u2116${room?.number || ''} \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0430`, 'success');
+      logAction(currentUser, 'room_rental_update', { roomId, tenantName: rentalData.tenantName });
+      setRentalEditModal(null);
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
 
   const handleAddTask = async (task) => { 
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), task); 
@@ -1470,6 +1682,11 @@ if (versionBlocked) return (
         downloadUrl={remoteVersionInfo?.downloadUrl}
     />
 );
+
+// ── Dev preview: показываем ПОСЛЕ хуков ──────────────────────────────────
+  if (isPreview) {
+    return <LoginScreen users={[]} onLogin={() => {}} lang="ru" setLang={() => {}} themeId="auto" setThemeId={() => {}} />;
+  }
 
 if (!currentUser) return (
     <LoginScreen 
@@ -1619,7 +1836,11 @@ return (
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-6 pt-2 pb-32 md:pb-6">
+                <div className={`flex-1 overflow-y-auto overflow-x-hidden ${
+                    activeTab === 'rooms' 
+                        ? 'py-3 md:py-6 pt-2 pb-32 md:pb-6' 
+                        : 'p-3 md:p-6 pt-2 pb-32 md:pb-6'
+                }`}>
                 {activeTab === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.permissions?.viewStats === true) && (
                     <DashboardView
                         rooms={filteredRooms}
@@ -1642,13 +1863,18 @@ return (
                         guestsByRoom={guestsByRoom}
                         currentUser={currentUser}
                         onBedClick={(room, bedId, guest, isGhost) => handleBedClick(room, bedId, guest, isGhost)}
+                        onAddExtraGuest={(room) => handleBedClick(room, 'extra', null, false)}
                         onEditRoom={(room) => setEditRoomModal({ open: true, room })}
                         onCloneRoom={(room) => handleCloneRoom(room)}
                         onDeleteRoom={(room) => handleDeleteRoom(room)}
                         onAddRoom={() => setAddRoomModal(true)}
                         onKppConfirm={handleKppConfirm}
-                        onExportGuests={handleExportGuests}
+                        onKppReset={handleKppReset}
+                        onEndRental={handleEndRental}
+                        onEditRental={handleEditRental}
+                        onExtendRental={handleExtendRental}
                         lang={lang}
+                        cadastreRegs={filteredCadastreRegs}
                     />
                 )}
                 
@@ -1716,9 +1942,7 @@ return (
         onAdminAdjustDebt={handleAdminAdjustDebt} 
         clients={clients} 
         onCreateDebt={handleCreateDebt}
-        
-        // ?? ДОБАВЛЕНО: Функция открытия карточки гостя
-        onOpenGuest={(guest) => setSelectedGuest(guest)} 
+        onOpenGuest={(guest) => setGuestDetailsModal({ open: true, guest })} 
     />
 )}
 
@@ -1768,6 +1992,7 @@ return (
                         currentUser={currentUser} 
                         onOpenClientHistory={handleOpenClientHistory}
                         activePassports={new Set(filteredGuests.filter(g => g.status === 'active' && g.passport).map(g => g.passport))}
+                        onAdjustBalance={handleAdjustBalance}
                     />
                 )}
 
@@ -1793,6 +2018,7 @@ return (
                         selectedHostelFilter={selectedHostelFilter}
                         onAddReg={handleAddCadastreReg}
                         onExtendReg={handleExtendCadastreReg}
+                        onUpdateReg={handleUpdateCadastreReg}
                         onRemoveReg={handleRemoveCadastreReg}
                         onDeleteReg={handleDeleteCadastreReg}
                         onAddToExpenses={handleAddRegToExpenses}
@@ -1827,7 +2053,8 @@ return (
                         setExpSearch={setExpSearch}
                         usersList={usersList}
                         onDownloadCSV={downloadExpensesCSV}
-                        onAddExpense={() => setExpenseModal(true)}
+                        onAddExpense={(cat) => { setExpenseModalCategory(cat || ''); setExpenseModal(true); }}
+                        onEditExpenseCategory={handleEditExpenseCategory}
                         onDeleteExpense={(id, rec) => handleDeletePayment(id, 'expense', rec)}
                         recurringExpenses={recurringExpenses.filter(t =>
                             !t.hostelId || t.hostelId === 'all' ||
@@ -1842,6 +2069,7 @@ return (
                         onAddAdvance={handleAddAdvance}
                         onAddRecurringAdvance={handleAddRecurringAdvance}
                         recurringAdvances={getRecurringAdvances()}
+                        onUpdateExpense={handleUpdateExpense}
                     />
                 )}
 
@@ -1879,6 +2107,16 @@ return (
                         users={usersList}
                         currentUser={currentUser}
                         auditLog={auditLog}
+                    />
+                )}
+
+                {activeTab === 'manualstay' && (
+                    <ManualStayView
+                        guests={guests}
+                        rooms={filteredRooms}
+                        currentUser={currentUser}
+                        payments={filteredPayments}
+                        hostelFilter={selectedHostelFilter}
                     />
                 )}
 
@@ -1953,9 +2191,35 @@ return (
                 allRooms={filteredRooms}
                 guests={guests}
                 onClose={() => setRoomRentalModal(false)}
-                onSubmitOne={handleCheckInSubmit}
+                onRent={handleRentRoom}
                 notify={showNotification}
                 lang={lang}
+                currentUser={currentUser}
+            />
+        )}
+
+        {rentalEditModal && (
+            <RoomRentalModal
+                allRooms={filteredRooms}
+                guests={guests}
+                mode="edit"
+                initialRoom={rentalEditModal.room}
+                initialTab={rentalEditModal.initialTab}
+                onClose={() => setRentalEditModal(null)}
+                onUpdate={handleUpdateRental}
+                notify={showNotification}
+                lang={lang}
+                currentUser={currentUser}
+            />
+        )}
+
+        {rentalExtendModal && (
+            <RentalExtendModal
+                room={rentalExtendModal}
+                onClose={() => setRentalExtendModal(null)}
+                onExtend={handleConfirmExtendRental}
+                onEndRental={handleEndRental}
+                notify={showNotification}
                 currentUser={currentUser}
             />
         )}
@@ -2026,6 +2290,7 @@ return (
                 onTopUpBalance={handleTopUpBalance}
                 cadastreRegs={cadastreRegs || []}
                 onKppConfirm={handleKppConfirm}
+                onKppReset={handleKppReset}
                 onOpenHistory={() => {
                     const g = guestDetailsModal.guest;
                     const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
@@ -2057,11 +2322,14 @@ return (
         )}
         
         {expenseModal && canPerformActions && (
-            <ExpenseModal 
-                onClose={() => setExpenseModal(false)} 
-                onSubmit={handleAddExpense} 
+            <ExpenseModal
+                key={expenseModalCategory}
+                onClose={() => { setExpenseModal(false); setExpenseModalCategory(''); }}
+                onSubmit={handleAddExpense}
                 lang={lang}
                 currentUser={currentUser}
+                initialCategory={expenseModalCategory}
+                usersList={usersList}
             />
         )}
         
@@ -2084,7 +2352,7 @@ return (
             />
         )}
         
-        {shiftModal && (
+        {shiftModal && currentUser?.role !== 'admin' && currentUser?.role !== 'super' && (
             <ShiftClosingModal 
                 user={activeUserDoc} 
                 payments={payments} 
@@ -2164,6 +2432,17 @@ return (
                     onUndo={handleUndo}
                 />
             )}
+
+            <ConfirmDialog
+                open={!!confirmEndRental}
+                title="Выселить арендатора?"
+                message={confirmEndRental ? `Комната №${confirmEndRental.number} · ${confirmEndRental.rental?.tenantName || ''}` : ''}
+                confirmText="Выселить"
+                onConfirm={handleConfirmEndRental}
+                onCancel={() => setConfirmEndRental(null)}
+                danger
+                lang={lang}
+            />
 
             {/* Confirm delete user modal */}
             {confirmDeleteUser && (

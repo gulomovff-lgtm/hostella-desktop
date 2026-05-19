@@ -11,6 +11,9 @@ const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : (
 const printDebts = (debts, totalDebt) => {
     const w = window.open('', '', 'width=800,height=600');
     const dateStr = new Date().toLocaleDateString();
+    const esc = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
     let html = `
     <html>
     <head>
@@ -44,9 +47,9 @@ const printDebts = (debts, totalDebt) => {
     debts.forEach(d => {
         html += `
             <tr>
-                <td>${d.fullName}</td>
-                <td>${d.passport || '-'}</td>
-                <td>${d.roomNumber ? `Комната ${d.roomNumber}` : '-'}</td>
+                <td>${esc(d.fullName)}</td>
+                <td>${esc(d.passport || '-')}</td>
+                <td>${d.roomNumber ? `Комната ${esc(d.roomNumber)}` : '-'}</td>
                 <td class="debt">${d.totalDebt.toLocaleString()}</td>
             </tr>
         `;
@@ -67,15 +70,21 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const t = (k) => TRANSLATIONS[lang][k];
     const [staffFilter, setStaffFilter] = useState('');
     const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
     const [expandedDebtId, setExpandedDebtId] = useState(null);
 
     const aggregatedDebts = useMemo(() => {
         const debtMap = {};
-        guests.forEach(g => {
+        const visibleGuests = (!currentUser || currentUser.role === 'super')
+            ? guests
+            : guests.filter(g => g.hostelId === currentUser.hostelId);
+        visibleGuests.forEach(g => {
             if (g.status === 'booking') return;
             const totalPaid = getTotalPaid(g);
             const debt = (g.totalPrice || 0) - totalPaid;
-            const dateMatch = startDate ? g.checkInDate >= startDate : true;
+            const dateMatch =
+                (!startDate || g.checkInDate >= startDate) &&
+                (!endDate   || g.checkInDate <= endDate + 'T23:59:59');
             if (debt > 0 && dateMatch) {
                 const key = g.passport || g.fullName;
                 if (!debtMap[key]) {
@@ -92,7 +101,11 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                 debtMap[key].records.push({
                     ...g,
                     currentDebt: debt,
-                    staffName: users.find(u => u.id === g.staffId || u.login === g.staffId)?.name || 'Неизвестно'
+                    staffName: users.find(u => u.id === g.staffId || u.login === g.staffId)?.name || 'Неизвестно',
+                    lastExtendedByName: g.lastExtendedBy
+                        ? (users.find(u => u.id === g.lastExtendedBy || u.login === g.lastExtendedBy)?.name || g.lastExtendedBy)
+                        : null,
+                    lastExtensionPrice: g.lastExtensionPrice || 0,
                 });
                 debtMap[key].totalDebt += debt;
             }
@@ -105,7 +118,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             );
         }
         return result;
-    }, [guests, startDate, staffFilter, users]);
+    }, [guests, startDate, endDate, staffFilter, users]);
 
     const totalDebt = aggregatedDebts.reduce((sum, item) => sum + item.totalDebt, 0);
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
@@ -123,7 +136,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const [isCreateDebtModalOpen, setIsCreateDebtModalOpen] = useState(false);
     const [isPayModalOpen, setIsPayModalOpen] = useState(false);
 
-    const handlePayClick = (debtor) => { 
+    const handlePayClick = (debtor) => {
+        if (!debtor || debtor.totalDebt <= 0) return;
         setSelectedDebtor(debtor); 
         setIsPayModalOpen(true); 
         setPayCash(''); setPayCard(''); setPayQR(''); 
@@ -187,9 +201,15 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                             {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
                     </div>
-                    <div className="min-w-0">
-                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">{t('date')}</label>
-                        <input type="date" className={inputClass + " max-w-full"} value={startDate} onChange={e => setStartDate(e.target.value)} />
+                    <div className="min-w-0 grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">От</label>
+                            <input type="date" className={inputClass + " max-w-full"} value={startDate} onChange={e => setStartDate(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">До</label>
+                            <input type="date" className={inputClass + " max-w-full"} value={endDate} onChange={e => setEndDate(e.target.value)} />
+                        </div>
                     </div>
                 </div>
                 <div className="w-full lg:w-auto flex flex-col sm:flex-row gap-3 items-stretch">
@@ -269,6 +289,44 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                 </div>
                                 {isExpanded && (
                                     <div className="bg-slate-50 border-t border-slate-100 p-3 text-sm animate-in slide-in-from-top-2 duration-200">
+                                        {/* Сводка по кассирам */}
+                                        {(() => {
+                                            const byStaff = {};
+                                            item.records.forEach(rec => {
+                                                const hasDifferentExtender = rec.lastExtendedByName && rec.lastExtendedByName !== rec.staffName;
+                                                if (hasDifferentExtender && rec.lastExtensionPrice > 0) {
+                                                    // Долг продлившего = min(текущий долг, сколько добавило продление)
+                                                    const extenderDebt = Math.min(rec.currentDebt, rec.lastExtensionPrice);
+                                                    // Долг заселившего = остаток
+                                                    const checkinDebt = rec.currentDebt - extenderDebt;
+                                                    if (extenderDebt > 0) {
+                                                        byStaff[rec.lastExtendedByName] = (byStaff[rec.lastExtendedByName] || 0) + extenderDebt;
+                                                    }
+                                                    if (checkinDebt > 0) {
+                                                        byStaff[rec.staffName] = (byStaff[rec.staffName] || 0) + checkinDebt;
+                                                    }
+                                                } else {
+                                                    // Продления не было или тот же кассир
+                                                    const key = rec.lastExtendedByName || rec.staffName;
+                                                    byStaff[key] = (byStaff[key] || 0) + rec.currentDebt;
+                                                }
+                                            });
+                                            const entries = Object.entries(byStaff);
+                                            if (entries.length === 0) return null;
+                                            return (
+                                                <div className="mb-3 px-2">
+                                                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">По кассирам</div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {entries.map(([name, sum]) => (
+                                                            <div key={name} className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
+                                                                <span className="font-semibold text-slate-700">{name}</span>
+                                                                <span className="text-rose-600 font-bold">{sum.toLocaleString()}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                         <div className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">История задолженностей</div>
                                         <div className="space-y-2">
                                             {item.records.map((rec, idx) => (
@@ -278,7 +336,13 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                                             {new Date(rec.checkInDate).toLocaleDateString()}
                                                         </div>
                                                         <div className="font-bold text-slate-700 flex flex-col">
-                                                            <span>Кассир: {rec.staffName}</span>
+                                                            <span>Заселил: {rec.staffName}</span>
+                                                            {rec.lastExtendedByName && (
+                                                                <span className="text-[11px] text-amber-600 font-semibold">
+                                                                    Продлил: {rec.lastExtendedByName}
+                                                                    {rec.lastExtendedAt ? ` · ${new Date(rec.lastExtendedAt).toLocaleDateString('ru-RU')}` : ''}
+                                                                </span>
+                                                            )}
                                                             <span className="text-[10px] text-slate-400 font-normal">
                                                                 Комната {rec.roomNumber} {rec.autoCheckedOut ? '(Авто-выселение)' : ''}
                                                             </span>
@@ -311,7 +375,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             {isCreateDebtModalOpen && <CreateDebtModal clients={clients} onClose={() => setIsCreateDebtModalOpen(false)} onCreate={onCreateDebt} lang={lang} />}
             
             {isPayModalOpen && (
-                <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
                     <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
                         {/* Header */}
                         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
@@ -357,7 +421,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             )}
             
             {isAdminAdjustModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
                     <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl p-6">
                         <h3 className="font-bold text-lg mb-4">Admin Adjust</h3>
                         <input className={inputClass} type="number" value={adminAdjustAmount} onChange={e => setAdminAdjustAmount(e.target.value)} placeholder="+/- Amount" />

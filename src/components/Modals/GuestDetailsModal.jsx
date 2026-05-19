@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
-    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History
+    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
@@ -29,6 +29,9 @@ const printDocument = (type, guest, hostel) => {
     const date = new Date().toLocaleDateString('ru-RU');
     const time = new Date().toLocaleTimeString('ru-RU');
     const totalPaid = getTotalPaid(guest);
+    const esc = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
     let html = `<html><head><meta charset="UTF-8">
     <title>${type === 'check' ? 'Чек' : type === 'regcard' ? 'Регистрационная карта' : 'Справка'}</title>
     <style>
@@ -49,9 +52,9 @@ const printDocument = (type, guest, hostel) => {
             <p style="margin: 2px 0; font-size: 12px;">${hostel.address}</p>
             <p style="margin: 2px 0; font-size: 12px;">Дата: ${date} ${time}</p></div>
             <div style="text-align: center; font-size: 16px; font-weight: bold; margin: 15px 0;">КАССОВЫЙ ЧЕК</div>
-            <div class="info-row"><span class="label">Гость:</span><span>${guest.fullName}</span></div>
-            <div class="info-row"><span class="label">Паспорт:</span><span>${guest.passport || '-'}</span></div>
-            <div class="info-row"><span class="label">Комната:</span><span>№${guest.roomNumber}, Место ${guest.bedId}</span></div>
+            <div class="info-row"><span class="label">Гость:</span><span>${esc(guest.fullName)}</span></div>
+            <div class="info-row"><span class="label">Паспорт:</span><span>${esc(guest.passport || '-')}</span></div>
+            <div class="info-row"><span class="label">Комната:</span><span>№${esc(guest.roomNumber)}, Место ${esc(guest.bedId)}</span></div>
             <div class="info-row"><span class="label">Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
             <div class="info-row"><span class="label">Дней:</span><span>${guest.days}</span></div>
             <div class="info-row"><span class="label">Цена за ночь:</span><span>${guest.pricePerNight.toLocaleString()} сум</span></div>
@@ -62,27 +65,27 @@ const printDocument = (type, guest, hostel) => {
             </div>
             <div class="footer">Спасибо за выбор ${hostel.name}!<br/>Приходите к нам еще!</div>`;
     } else if (type === 'regcard') {
-        html += `<div class="header"><h2>РЕГИСТРАЦИОННАЯ КАРТА ГОСТЯ</h2><p style="margin: 2px 0;">${hostel.name}</p></div>
-            <div class="info-row"><span class="label">ФИО:</span><span>${guest.fullName}</span></div>
-            <div class="info-row"><span class="label">Дата рождения:</span><span>${guest.birthDate || '-'}</span></div>
-            <div class="info-row"><span class="label">Паспорт:</span><span>${guest.passport || '-'}</span></div>
-            <div class="info-row"><span class="label">Гражданство:</span><span>${guest.country || '-'}</span></div>
+        html += `<div class="header"><h2>РЕГИСТРАЦИОННАЯ КАРТА ГОСТЯ</h2><p style="margin: 2px 0;">${esc(hostel.name)}</p></div>
+            <div class="info-row"><span class="label">ФИО:</span><span>${esc(guest.fullName)}</span></div>
+            <div class="info-row"><span class="label">Дата рождения:</span><span>${esc(guest.birthDate || '-')}</span></div>
+            <div class="info-row"><span class="label">Паспорт:</span><span>${esc(guest.passport || '-')}</span></div>
+            <div class="info-row"><span class="label">Гражданство:</span><span>${esc(guest.country || '-')}</span></div>
             <div class="info-row"><span class="label">Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
             <div class="info-row"><span class="label">Дата выезда:</span><span>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : '-'}</span></div>
-            <div class="info-row"><span class="label">Комната:</span><span>№${guest.roomNumber}</span></div>
-            <div class="info-row"><span class="label">Место:</span><span>№${guest.bedId}</span></div>
+            <div class="info-row"><span class="label">Комната:</span><span>№${esc(guest.roomNumber)}</span></div>
+            <div class="info-row"><span class="label">Место:</span><span>№${esc(guest.bedId)}</span></div>
             <div style="margin-top: 40px;"><p>Подпись гостя: <span class="signature"></span></p><p>Дата: ${date}</p></div>
             <div class="footer">Документ сформирован автоматически</div>`;
     } else if (type === 'ref') {
         html += `<div class="header"><h2>СПРАВКА О ПРОЖИВАНИИ</h2><p style="margin: 2px 0;">${hostel.name}</p>
             <p style="margin: 2px 0; font-size: 11px;">${hostel.address}</p></div>
             <p style="text-align: justify; line-height: 1.6; margin: 20px 0;">
-                Настоящая справка выдана <strong>${guest.fullName}</strong>, паспорт ${guest.passport || '-'}, 
-                в том, что он(а) действительно проживал(а) в ${hostel.name} 
+                Настоящая справка выдана <strong>${esc(guest.fullName)}</strong>, паспорт ${esc(guest.passport || '-')}, 
+                в том, что он(а) действительно проживал(а) в ${esc(hostel.name)} 
                 с <strong>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</strong> 
                 по <strong>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : 'настоящее время'}</strong>.
             </p>
-            <p style="margin: 20px 0;">Комната: №${guest.roomNumber}, Место: №${guest.bedId}</p>
+            <p style="margin: 20px 0;">Комната: №${esc(guest.roomNumber)}, Место: №${esc(guest.bedId)}</p>
             <p style="margin: 20px 0;">Справка выдана для предъявления по месту требования.</p>
             <div style="margin-top: 60px;"><p>Дата выдачи: ${date}</p>
             <p>Подпись администратора: _________________</p>
@@ -122,7 +125,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -133,6 +136,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const [payCash, setPayCash] = useState('');
     const [payCard, setPayCard] = useState('');
     const [payQR, setPayQR] = useState('');
+    const [payTransfer, setPayTransfer] = useState('');
     const [payBalance, setPayBalance] = useState(0);
     const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
     const [extendDays, setExtendDays] = useState(1);
@@ -149,19 +153,26 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
         notify('Фото паспорта сохранено', 'success');
     };
 
+    const toDateInput = (val) => {
+        if (!val) return '';
+        if (typeof val === 'string' && val.length >= 10) return val.slice(0, 10);
+        return '';
+    };
     const [editForm, setEditForm] = useState({ 
         fullName: guest.fullName || '', 
-        birthDate: guest.birthDate || '', 
+        birthDate: toDateInput(guest.birthDate), 
         passport: guest.passport || '', 
-        passportIssueDate: guest.passportIssueDate || '',
+        passportIssueDate: toDateInput(guest.passportIssueDate),
         phone: guest.phone || '',
         country: guest.country || 'Узбекистан',
-        kppDate: guest.kppDate || '',
+        kppDate: toDateInput(guest.kppDate),
         pricePerNight: guest.pricePerNight || 0
     });
     const [splitStartDate, setSplitStartDate] = useState(() => {
         const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0];
     });
+    const [kppResetModal, setKppResetModal] = useState(false);
+    const [kppResetDate, setKppResetDate] = useState('');
     const [splitReturnDate, setSplitReturnDate] = useState(() => {
         const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().split('T')[0];
     });
@@ -195,6 +206,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const daysStayed = Math.min(Math.max(1, Math.ceil((today - checkIn)/(1000*60*60*24))), parseInt(guest.days));
     const actualCost = daysStayed * parseInt(guest.pricePerNight);
     const balance    = totalPaid - actualCost;
+    const alreadySettledRefund = Math.max(0, Number(guest.refundSettledAmount || 0));
+    const refundableNow = balance > 0 ? Math.max(0, balance - alreadySettledRefund) : 0;
 
     // Bonus days: first check guest.bonusDaysAdded (already applied), then client remaining balance
     const normStr = s => (s || '').replace(/\s/g, '').toUpperCase();
@@ -242,23 +255,25 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const applyMagnet = field => {
         const extCost = currentView === 'extend' ? extendDays * parseInt(guest.pricePerNight) : 0;
         const total  = debt + extCost;
-        const others = (field !== 'payCash' ? (parseInt(payCash)||0) : 0)
-                     + (field !== 'payCard' ? (parseInt(payCard)||0) : 0)
-                     + (field !== 'payQR'   ? (parseInt(payQR)||0)   : 0)
+        const others = (field !== 'payCash'     ? (parseInt(payCash)||0)     : 0)
+                     + (field !== 'payCard'     ? (parseInt(payCard)||0)     : 0)
+                     + (field !== 'payQR'       ? (parseInt(payQR)||0)       : 0)
+                     + (field !== 'payTransfer' ? (parseInt(payTransfer)||0) : 0)
                      + payBalance;
         const rem = Math.max(0, total - others);
-        if (field === 'payCash') setPayCash(String(rem));
-        if (field === 'payCard') setPayCard(String(rem));
-        if (field === 'payQR')   setPayQR(String(rem));
+        if (field === 'payCash')     setPayCash(String(rem));
+        if (field === 'payCard')     setPayCard(String(rem));
+        if (field === 'payQR')       setPayQR(String(rem));
+        if (field === 'payTransfer') setPayTransfer(String(rem));
     };
 
     const handlePayDebt = async () => {
         if (isPaymentSubmitting) return;
-        const c=parseInt(payCash)||0, cd=parseInt(payCard)||0, q=parseInt(payQR)||0, b=payBalance||0;
-        if (c+cd+q+b<=0) return notify('Введите сумму','error');
+        const c=parseInt(payCash)||0, cd=parseInt(payCard)||0, q=parseInt(payQR)||0, tr=parseInt(payTransfer)||0, b=payBalance||0;
+        if (c+cd+q+tr+b<=0) return notify('Введите сумму','error');
         setIsPaymentSubmitting(true);
         try {
-            await onPayment(guest.id, {cash:c, card:cd, qr:q, balance:b});
+            await onPayment(guest.id, {cash:c, card:cd, qr:q, transfer:tr, balance:b});
         } catch(e) {
             notify(e.message || 'Ошибка оплаты', 'error');
         } finally {
@@ -334,13 +349,16 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
 
     const handleDoCheckout = () => {
         if (checkoutBalanceChoice === 'balance') {
-            onCheckOut(guest, { totalPrice: actualCost, refundAmount: Math.max(0, balance), leaveOnBalance: true });
+            onCheckOut(guest, { totalPrice: actualCost, refundAmount: refundableNow, leaveOnBalance: true });
         } else if (checkoutBalanceChoice === 'mix') {
-            const mb = parseInt(checkoutMixBalance) || 0;
-            const mr = parseInt(checkoutMixRefund)  || 0;
+            const mbRaw = parseInt(checkoutMixBalance) || 0;
+            const mrRaw = parseInt(checkoutMixRefund)  || 0;
+            const mb = Math.max(0, Math.min(mbRaw, refundableNow));
+            const mr = Math.max(0, Math.min(mrRaw, Math.max(0, refundableNow - mb)));
             onCheckOut(guest, { totalPrice: actualCost, refundAmount: mr, mixBalanceAmount: mb, leaveOnBalance: false });
         } else {
-            const refund = checkoutManualRefund ? parseInt(checkoutManualRefund) : Math.max(0, balance);
+            const refundRaw = checkoutManualRefund ? parseInt(checkoutManualRefund) : refundableNow;
+            const refund = Math.max(0, Math.min(refundRaw || 0, refundableNow));
             onCheckOut(guest, { totalPrice: actualCost, refundAmount: refund, leaveOnBalance: false });
         }
     };
@@ -371,7 +389,31 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
         goBack();
     };
 
-    const handleSaveInfo    = () => { onUpdate(guest.id, {...editForm, totalPrice: parseInt(editForm.pricePerNight)*parseInt(guest.days)}); goBack(); };
+    const handleSaveInfo    = () => {
+        const updates = { 
+            ...editForm, 
+            fullName: (editForm.fullName || '').toUpperCase(),
+            passport: (editForm.passport || '').toUpperCase(),
+            totalPrice: parseInt(editForm.pricePerNight) * parseInt(guest.days) 
+        };
+        // Если kppDate не заполнен — не затирать существующее значение
+        if (!updates.kppDate && guest.kppDate) updates.kppDate = guest.kppDate;
+        // kppRegistered не трогаем, если дата не изменилась
+        if (updates.kppDate === toDateInput(guest.kppDate)) updates.kppRegistered = guest.kppRegistered;
+        onUpdate(guest.id, updates);
+        goBack();
+    };
+
+    const copyRegistrationData = () => {
+        const birthDateFormatted = guest.birthDate ? new Date(guest.birthDate).toLocaleDateString('ru-RU') : '—';
+        const issueDateFormatted = guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString('ru-RU') : '—';
+        const text = `${guest.fullName || '—'}\nДата рожд.: ${birthDateFormatted}\nПаспорт: ${guest.passport || '—'}\nВыдан: ${issueDateFormatted}\nСтрана: ${guest.country || '—'}`;
+        navigator.clipboard.writeText(text).then(() => {
+            notify('Данные скопированы', 'success');
+        }).catch(() => {
+            notify('Ошибка копирования', 'error');
+        });
+    };
     const handleDelete      = () => { setConfirmDeleteOpen(true); };
     const handleReduceNR    = () => { onReduceDaysNoRefund(guest, parseInt(reduceDaysNoRefund)); onClose(); };
     const handleMoveBooking = () => {
@@ -406,13 +448,18 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
 
     const payFields = (
         <div className="space-y-3">
-            {[['payCash','Наличные',<DollarSign size={16}/>],['payCard','Карта',<CreditCard size={16}/>],['payQR','QR',<QrCode size={16}/>]].map(([f,pl,ic])=>(
+            {[
+                ['payCash','Наличные',<DollarSign size={16}/>, payCash, setPayCash],
+                ['payCard','Карта',<CreditCard size={16}/>, payCard, setPayCard],
+                ['payQR','QR',<QrCode size={16}/>, payQR, setPayQR],
+                ['payTransfer','Перечисление',<ArrowRightLeft size={16}/>, payTransfer, setPayTransfer],
+            ].map(([f,pl,ic,val,setter])=>(
                 <div key={f} className="relative">
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">{ic}</div>
                     <input type="number" className="w-full pl-9 pr-9 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-emerald-500 outline-none"
                         placeholder={pl}
-                        value={f==='payCash'?payCash:f==='payCard'?payCard:payQR}
-                        onChange={e=>{const v=e.target.value; f==='payCash'?setPayCash(v):f==='payCard'?setPayCard(v):setPayQR(v);}}
+                        value={val}
+                        onChange={e=>setter(e.target.value)}
                         onWheel={disableWheel}/>
                     <button onClick={()=>applyMagnet(f)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg"><Magnet size={15}/></button>
                 </div>
@@ -552,8 +599,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             <div className="bg-white rounded-xl border border-slate-200 p-3">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center justify-between">
                                     <span>{t('personalData')}</span>
-                                    <button onClick={()=>photoInputRef.current?.click()} className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-[10px] font-bold"><Camera size={12}/> Фото</button>
-                                    <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload}/>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={copyRegistrationData} className="flex items-center gap-1 text-emerald-500 hover:text-emerald-700 text-[10px] font-bold" title="Копировать данные для регистрации"><Copy size={12}/> Копировать</button>
+                                        <button onClick={()=>photoInputRef.current?.click()} className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-[10px] font-bold"><Camera size={12}/> Фото</button>
+                                        <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload}/>
+                                    </div>
                                 </div>
                                 {guest.passportPhoto && (
                                     <div className="mb-2 relative inline-block">
@@ -594,9 +644,51 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                 })()}
                             </div>
 
+                            {(() => {
+                                const normStr2 = s => (s || '').replace(/\s/g, '').toUpperCase();
+                                const cadReg = cadastreRegs.find(r =>
+                                    r.status !== 'removed' &&
+                                    (r.guestId === guest.id ||
+                                    (r.passport && guest.passport && normStr2(r.passport) === normStr2(guest.passport)))
+                                );
+                                if (!cadReg) return null;
+                                const daysLeft = Math.ceil((new Date(cadReg.endDate + 'T23:59:59') - Date.now()) / 86400000);
+                                const isExpired = daysLeft < 0;
+                                const isExpiring = !isExpired && daysLeft <= 3;
+                                return (
+                                    <div className={`rounded-xl p-3 border ${
+                                        isExpired  ? 'bg-rose-50 border-rose-300' :
+                                        isExpiring ? 'bg-amber-50 border-amber-300' :
+                                                     'bg-emerald-50 border-emerald-200'
+                                    }`}>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">🏠 Регистрация по кадастру</div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="space-y-0.5">
+                                                {cadReg.cadastreAddress && <div className="text-xs text-slate-500">📍 {cadReg.cadastreAddress}</div>}
+                                                <div className="text-xs font-semibold text-slate-700">
+                                                    {cadReg.startDate} → {cadReg.endDate} ({cadReg.days || '?'} дн.)
+                                                </div>
+                                                <div className={`text-xs font-bold mt-0.5 ${
+                                                    isExpired  ? 'text-rose-600' :
+                                                    isExpiring ? 'text-amber-700' :
+                                                                 'text-emerald-700'
+                                                }`}>
+                                                    {isExpired
+                                                        ? `❌ Истекла ${Math.abs(daysLeft)} дн. назад`
+                                                        : isExpiring
+                                                            ? `⚠️ Осталось ${daysLeft} дн.`
+                                                            : `✅ Активна, осталось ${daysLeft} дн.`}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
                             {guest.kppDate && guest.country && guest.country !== 'Узбекистан' && (() => {
                                 const days = Math.floor((Date.now() - new Date(guest.kppDate).getTime()) / 86400000);
                                 const needsReg = days >= 8 && !guest.kppRegistered;
+                                const isSuper = currentUser?.role === 'super' || currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
                                 return (
                                     <div className={`rounded-xl p-3 border ${needsReg ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200'}`}>
                                         <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">КПП / Регистрация</div>
@@ -605,18 +697,26 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                                 <div className="text-xs font-semibold text-slate-700">Дата КПП: {new Date(guest.kppDate).toLocaleDateString('ru-RU')}</div>
                                                 <div className={`text-xs font-bold mt-0.5 ${needsReg ? 'text-amber-700' : 'text-slate-500'}`}>
                                                     {guest.kppRegistered
-                                                        ? '✅ Регистрация подтверждена'
+                                                        ? '\u2705 Регистрация подтверждена'
                                                         : needsReg
-                                                            ? `⚠️ Прошло ${days} дн. — нужна регистрация!`
+                                                            ? `\u26a0\ufe0f Прошло ${days} дн. — нужна регистрация!`
                                                             : `Дней с КПП: ${days}`}
                                                 </div>
                                             </div>
-                                            {needsReg && onKppConfirm && (
-                                                <button
-                                                    onClick={() => { onKppConfirm(guest.id); notify('Регистрация подтверждена', 'success'); }}
-                                                    className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors shrink-0"
-                                                >Подтвердить</button>
-                                            )}
+                                            <div className="flex flex-col gap-1.5 shrink-0">
+                                                {needsReg && onKppConfirm && (
+                                                    <button
+                                                        onClick={() => { onKppConfirm(guest.id); notify('Регистрация подтверждена', 'success'); }}
+                                                        className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
+                                                    >Подтвердить</button>
+                                                )}
+                                                {isSuper && onKppReset && (
+                                                    <button
+                                                        onClick={() => { setKppResetDate(new Date().toISOString().slice(0,10)); setKppResetModal(true); }}
+                                                        className="px-3 py-1.5 bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 rounded-xl text-[10px] font-bold transition-colors border border-slate-200"
+                                                    >↺ Сбросить</button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -651,11 +751,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                     <button onClick={() => {
                                         setEditForm({
                                             fullName: guest.fullName || '',
-                                            birthDate: guest.birthDate || '',
+                                            birthDate: toDateInput(guest.birthDate),
                                             passport: guest.passport || '',
-                                            passportIssueDate: guest.passportIssueDate || '',
+                                            passportIssueDate: toDateInput(guest.passportIssueDate),
                                             phone: guest.phone || '',
                                             country: guest.country || 'Узбекистан',
+                                            kppDate: toDateInput(guest.kppDate),
                                             pricePerNight: guest.pricePerNight || 0,
                                         });
                                         setCurrentView('edit');
@@ -680,7 +781,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             )}
                             {isAdmin && <button onClick={handleDelete} className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title="Удалить"><Trash2 size={17}/></button>}
                             {isAdmin && !isCheckedOut && <button onClick={()=>setCurrentView('admin')} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title="Админ"><Lock size={17}/></button>}
-                            {(currentUser.role === 'super' || currentUser.canViewHostel1 || currentUser.canRestoreGuests) && isCheckedOut && <button onClick={()=>{ if(confirm('Восстановить гостя как активного?')) { onUpdate(guest.id, { status: 'active', autoCheckedOut: false, systemComment: '' }); notify('Гость восстановлен', 'success'); onClose(); }}} className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-violet-100 text-violet-700 hover:bg-violet-200 rounded-lg text-xs font-bold" title="Восстановить гостя"><RotateCcw size={14}/> {t('restoreGuest')}</button>}
+                            {isCheckedOut && <button onClick={()=>{ if(confirm('Восстановить гостя как активного?')) { const restoredCo = (() => { try { const ci = new Date(guest.checkInDate); const d = new Date(ci); d.setDate(d.getDate() + parseInt(guest.days || 0)); d.setHours(12, 0, 0, 0); return d.toISOString(); } catch { return guest.checkOutDate; } })(); onUpdate(guest.id, { status: 'active', autoCheckedOut: false, systemComment: '', checkOutDate: restoredCo }); notify('Гость восстановлен', 'success'); onClose(); }}} className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-violet-100 text-violet-700 hover:bg-violet-200 rounded-lg text-xs font-bold" title="Восстановить гостя"><RotateCcw size={14}/> {t('restoreGuest')}</button>}
                         </div>
                     </div>
                 )}
@@ -691,8 +792,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
                             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
                                 <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">{t('debt')}</span><span className="font-black text-rose-600 text-xl">{debt.toLocaleString()}</span></div>
-                                <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">{t('paying')}</span><span className="font-black text-emerald-600 text-xl">+{((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)+payBalance).toLocaleString()}</span></div>
-                                <div className="flex justify-between pt-2 border-t border-dashed border-slate-200"><span className="text-xs text-slate-400 uppercase font-bold">{t('willRemain')}</span><span className="font-bold text-slate-500">{Math.max(0,debt-((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)+payBalance)).toLocaleString()}</span></div>
+                                <div className="flex justify-between"><span className="text-xs text-slate-400 uppercase font-bold">{t('paying')}</span><span className="font-black text-emerald-600 text-xl">+{((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)+(parseInt(payTransfer)||0)+payBalance).toLocaleString()}</span></div>
+                                <div className="flex justify-between pt-2 border-t border-dashed border-slate-200"><span className="text-xs text-slate-400 uppercase font-bold">{t('willRemain')}</span><span className="font-bold text-slate-500">{Math.max(0,debt-((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)+(parseInt(payTransfer)||0)+payBalance)).toLocaleString()}</span></div>
                             </div>
                             {payFields}
                             {!isOnline && (
@@ -775,8 +876,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             ) : (
                                 <div className="p-4 bg-emerald-50 border-2 border-emerald-100 rounded-xl">
                                     <div className="text-emerald-500 font-bold text-xs uppercase mb-1 text-center">К возврату</div>
-                                    <div className="text-3xl font-black text-emerald-600 text-center mb-3">{balance.toLocaleString()} сум</div>
-                                    {balance > 0 && (
+                                    <div className="text-3xl font-black text-emerald-600 text-center mb-3">{refundableNow.toLocaleString()} сум</div>
+                                    {refundableNow <= 0 && alreadySettledRefund > 0 && (
+                                        <p className="text-xs text-slate-500 font-semibold text-center mb-2">
+                                            Переплата уже была обработана ранее: {alreadySettledRefund.toLocaleString()} сум
+                                        </p>
+                                    )}
+                                    {refundableNow > 0 && (
                                         <>
                                             <div className="grid grid-cols-3 gap-1.5 mb-3">
                                                 <button
@@ -795,9 +901,9 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                                     onClick={() => {
                                                         setCheckoutBalanceChoice('mix');
                                                         setCheckoutManualRefund('');
-                                                        const half = Math.floor(balance / 2);
+                                                        const half = Math.floor(refundableNow / 2);
                                                         setCheckoutMixBalance(String(half));
-                                                        setCheckoutMixRefund(String(balance - half));
+                                                        setCheckoutMixRefund(String(refundableNow - half));
                                                     }}
                                                     className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${checkoutBalanceChoice === 'mix' ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-violet-300'}`}
                                                 >
@@ -823,7 +929,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                                             onChange={e => {
                                                                 const v = e.target.value;
                                                                 setCheckoutMixBalance(v);
-                                                                setCheckoutMixRefund(String(Math.max(0, balance - (parseInt(v) || 0))));
+                                                                setCheckoutMixRefund(String(Math.max(0, refundableNow - (parseInt(v) || 0))));
                                                             }}
                                                         />
                                                     </div>
@@ -837,14 +943,14 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                                             onChange={e => {
                                                                 const v = e.target.value;
                                                                 setCheckoutMixRefund(v);
-                                                                setCheckoutMixBalance(String(Math.max(0, balance - (parseInt(v) || 0))));
+                                                                setCheckoutMixBalance(String(Math.max(0, refundableNow - (parseInt(v) || 0))));
                                                             }}
                                                         />
                                                     </div>
                                                     <div className="flex items-center justify-between px-1">
-                                                        <span className="text-xs text-slate-400">Итого: {((parseInt(checkoutMixBalance)||0) + (parseInt(checkoutMixRefund)||0)).toLocaleString()} / {balance.toLocaleString()}</span>
+                                                        <span className="text-xs text-slate-400">Итого: {((parseInt(checkoutMixBalance)||0) + (parseInt(checkoutMixRefund)||0)).toLocaleString()} / {refundableNow.toLocaleString()}</span>
                                                         <button
-                                                            onClick={() => { const h = Math.floor(balance/2); setCheckoutMixBalance(String(h)); setCheckoutMixRefund(String(balance-h)); }}
+                                                            onClick={() => { const h = Math.floor(refundableNow/2); setCheckoutMixBalance(String(h)); setCheckoutMixRefund(String(refundableNow-h)); }}
                                                             className="text-xs font-bold text-violet-600 hover:text-violet-800"
                                                         >50/50</button>
                                                     </div>
@@ -863,9 +969,9 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                     <div className="flex flex-col overflow-hidden h-full">
                         {hdr('Редактирование', true)}
                         <div className="p-5 flex-1 space-y-3 overflow-y-auto">
-                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">ФИО</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.fullName} onChange={e=>setEditForm({...editForm,fullName:e.target.value.toUpperCase()})}/></div>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">ФИО</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.fullName} onChange={e=>setEditForm({...editForm,fullName:e.target.value})} onBlur={e=>setEditForm({...editForm,fullName:e.target.value.toUpperCase()})}/></div>
                             <div className="grid grid-cols-2 gap-3">
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Паспорт</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passport} onChange={e=>setEditForm({...editForm,passport:e.target.value.toUpperCase()})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Паспорт</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passport} onChange={e=>setEditForm({...editForm,passport:e.target.value})} onBlur={e=>setEditForm({...editForm,passport:e.target.value.toUpperCase()})}/></div>
                                 <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Дата рожд.</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.birthDate} onChange={e=>setEditForm({...editForm,birthDate:e.target.value})}/></div>
                                 <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Выдан</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passportIssueDate} onChange={e=>setEditForm({...editForm,passportIssueDate:e.target.value})}/></div>
                                 <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Телефон</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></div>
@@ -1093,7 +1199,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                                                     : 'hover:bg-slate-50 border-l-4 border-transparent'
                                                             }`}>
                                                             {flagCode
-                                                                ? <img src={`https://flagcdn.com/w40/${flagCode.toLowerCase()}.png`} alt="" className="w-6 h-4 object-cover rounded shrink-0" />
+                                                                ? <span className={`fi fi-${flagCode.toLowerCase()}`} style={{ width: 24, height: 16, display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }} />
                                                                 : <div className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center shrink-0"><User size={12} className="text-slate-400" /></div>
                                                             }
                                                             <div className="flex-1 min-w-0">
@@ -1195,6 +1301,50 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
             onCancel={() => setConfirmDeleteOpen(false)}
             lang={lang}
         />
+
+        {kppResetModal && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                    <div className="h-1 bg-rose-500 w-full"/>
+                    <div className="p-5 space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                                <span className="text-lg">↺</span>
+                            </div>
+                            <div>
+                                <div className="font-black text-slate-800 text-sm">Сбросить отсчёт КПП</div>
+                                <div className="text-xs text-slate-500 mt-0.5">Подтверждение регистрации будет снято</div>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Новая дата пересечения КПП</label>
+                            <input
+                                type="date"
+                                value={kppResetDate}
+                                onChange={e => setKppResetDate(e.target.value)}
+                                className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold focus:border-rose-400 outline-none"
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">Оставьте поле пустым, чтобы сохранить текущую дату КПП</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setKppResetModal(false)}
+                                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50"
+                            >Отмена</button>
+                            <button
+                                onClick={() => {
+                                    onKppReset(guest.id, kppResetDate || null);
+                                    setKppResetModal(false);
+                                    notify('Отсчёт КПП сброшен', 'success');
+                                }}
+                                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"
+                            >Сбросить</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
         </>
     );
 };

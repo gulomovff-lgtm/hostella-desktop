@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera } from 'lucide-react';
+import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, ArrowRightLeft } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
@@ -35,6 +35,10 @@ const getRoomPrice = (room, bedId) => {
     if (!bedNum) return lower;
     return bedNum > Math.ceil(cap / 2) ? upper : lower;
 };
+
+const EXTRA_BED_ID = 'extra';
+
+const isExtraBed = (bedId) => String(bedId || '').toLowerCase() === EXTRA_BED_ID;
 
 // --- MRZ Parser (Machine Readable Zone) ---
 const parseMRZ = (raw) => {
@@ -81,11 +85,19 @@ const compressPhoto = (file) => new Promise(resolve => {
     img.src = URL.createObjectURL(file);
 });
 
+// --- Styles ---
+const MODAL_STYLE = `
+    @keyframes ci-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes ci-card-in { from { opacity: 0; transform: scale(0.97) translateY(14px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    .ci-backdrop { animation: ci-backdrop-in 0.2s ease forwards; }
+    .ci-card { animation: ci-card-in 0.28s cubic-bezier(0.34,1.3,0.64,1) forwards; will-change: transform, opacity; }
+`;
+
 // --- Sub-components ---
 const StepIndicator = ({ step, total }) => (
-    <div className="flex gap-2 mb-6">
+    <div className="flex gap-2 mb-5">
         {Array.from({ length: total }).map((_, i) => (
-            <div key={i} className={`h-1.5 rounded-full flex-1 transition-all duration-300 ${i + 1 <= step ? 'bg-blue-600' : 'bg-slate-200'}`}/>
+            <div key={i} className="h-1.5 rounded-full flex-1 transition-all duration-300" style={{ background: i + 1 <= step ? '#0f9688' : '#e2e8f0' }}/>
         ))}
     </div>
 );
@@ -100,7 +112,7 @@ const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon:
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
-                className={`w-full bg-white border rounded-lg py-2.5 ${Icon ? 'pl-10' : 'pl-3'} ${rightElement ? 'pr-10' : 'pr-3'} font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all shadow-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${error ? 'border-rose-400 ring-2 ring-rose-200 bg-rose-50 focus:ring-rose-300 focus:border-rose-500' : 'border-slate-300 focus:ring-blue-500/20 focus:border-blue-600'}`}
+                className={`w-full bg-white border rounded-xl py-2.5 ${Icon ? 'pl-10' : 'pl-3'} ${rightElement ? 'pr-10' : 'pr-3'} font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all shadow-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${error ? 'border-rose-400 ring-2 ring-rose-200 bg-rose-50 focus:ring-rose-300 focus:border-rose-500' : 'border-slate-200 focus:ring-teal-500/20 focus:border-teal-600'}`}
             />
             {rightElement && <div className="absolute right-3 top-1/2 -translate-y-1/2">{rightElement}</div>}
         </div>
@@ -127,6 +139,17 @@ const SimpleSelect = ({ label, value, onChange, options }) => (
         </div>
     </div>
 );
+
+// --- Keyboard layout transliteration (Cyrillic → Latin by QWERTY position) ---
+const CYR_TO_LAT = {
+    'й':'q','ц':'w','у':'e','к':'r','е':'t','н':'y','г':'u','ш':'i','щ':'o','з':'p',
+    'ф':'a','ы':'s','в':'d','а':'f','п':'g','р':'h','о':'j','л':'k','д':'l',
+    'я':'z','ч':'x','с':'c','м':'v','и':'b','т':'n','ь':'m',
+};
+const cyrToLat = (str) => str.toUpperCase().split('').map(ch => {
+    const lo = ch.toLowerCase();
+    return CYR_TO_LAT[lo] ? CYR_TO_LAT[lo].toUpperCase() : ch;
+}).join('');
 
 // --- Main Component ---
 const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
@@ -156,6 +179,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         paidCash: '',
         paidCard: '',
         paidQR: '',
+        paidTransfer: '',
         paidBalance: 0,
         passportPhoto: '',
         status: 'active'
@@ -168,6 +192,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitConflict, setSubmitConflict] = useState(null); // { maxDays, guestName, guestDate, alternatives }
     const [currencyMode, setCurrencyMode] = useState('UZS'); // 'UZS' | 'USD'
+    const [usdInputs, setUsdInputs] = useState({ paidCash: '', paidCard: '', paidQR: '' });
+    const [manualRate, setManualRate] = useState('');
     const [clientBalance, setClientBalance] = useState(0);
 
     // Подтягиваем баланс клиента при каждом изменении паспорта (включая initialClient, скан, ручной ввод)
@@ -220,9 +246,10 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         e.target.value = '';
         // Пробуем OCR (Tesseract.js)
         setOcrLoading(true);
+        let worker = null;
         try {
             const { createWorker } = await import('tesseract.js');
-            const worker = await createWorker('eng', 1, {
+            worker = await createWorker('eng', 1, {
                 logger: () => {},
                 errorHandler: () => {},
             });
@@ -231,7 +258,6 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 tessedit_pageseg_mode: '6',
             });
             const { data: { text } } = await worker.recognize(file);
-            await worker.terminate();
             const result = parseMRZ(text);
             if (result && (result.fullName || result.passport)) {
                 setFormData(p => ({
@@ -250,27 +276,44 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             console.warn('OCR error:', err);
             notify('\u{1F4F7} Фото сохранено', 'success');
         } finally {
+            if (worker) await worker.terminate().catch(() => {});
             setOcrLoading(false);
         }
     };
 
     const { rates } = useExchangeRate();
     const usdRate = rates?.USD?.rate || 0;
+    const effectiveRate = (parseInt(manualRate) > 0 ? parseInt(manualRate) : usdRate);
 
     const totalPrice = (parseInt(formData.days) || 0) * (parseInt(formData.pricePerNight) || 0);
     const appliedBalance = formData.paidBalance || 0;
-    const totalPaid = (parseInt(formData.paidCash) || 0) + (parseInt(formData.paidCard) || 0) + (parseInt(formData.paidQR) || 0);
+    const totalPaid = (parseInt(formData.paidCash) || 0) + (parseInt(formData.paidCard) || 0) + (parseInt(formData.paidQR) || 0) + (parseInt(formData.paidTransfer) || 0) + (parseInt(formData.paidBalance) || 0);
     const effectiveTotal = Math.max(0, totalPrice - appliedBalance);
     const balance = effectiveTotal - totalPaid;
 
     // Конвертация для USD-режима
-    const toDisplay = (uzs) => currencyMode === 'USD' && usdRate > 0 ? (uzs / usdRate).toFixed(2) : String(uzs || '');
     const fromDisplay = (val) => {
-        if (currencyMode === 'USD' && usdRate > 0) return String(Math.round((parseFloat(val) || 0) * usdRate));
+        if (currencyMode === 'USD' && effectiveRate > 0) return String(Math.round((parseFloat(val) || 0) * effectiveRate));
         return val;
     };
-    const displayTotal = currencyMode === 'USD' && usdRate > 0 ? `${(totalPrice / usdRate).toFixed(2)} USD` : `${totalPrice.toLocaleString()} сум`;
-    const displayBalance = currencyMode === 'USD' && usdRate > 0 ? `${(balance / usdRate).toFixed(2)} USD` : `${balance.toLocaleString()} сум`;
+    const handleUsdChange = (field, rawVal) => {
+        setUsdInputs(prev => ({ ...prev, [field]: rawVal }));
+        handleChange(field, fromDisplay(rawVal));
+    };
+    const handleModeSwitch = (mode) => {
+        setCurrencyMode(mode);
+        if (mode === 'USD' && effectiveRate > 0) {
+            setUsdInputs({
+                paidCash: (parseInt(formData.paidCash) || 0) > 0 ? ((parseInt(formData.paidCash) || 0) / effectiveRate).toFixed(2) : '',
+                paidCard: (parseInt(formData.paidCard) || 0) > 0 ? ((parseInt(formData.paidCard) || 0) / effectiveRate).toFixed(2) : '',
+                paidQR:   (parseInt(formData.paidQR)   || 0) > 0 ? ((parseInt(formData.paidQR)   || 0) / effectiveRate).toFixed(2) : '',
+            });
+        } else {
+            setUsdInputs({ paidCash: '', paidCard: '', paidQR: '' });
+        }
+    };
+    const displayTotal = currencyMode === 'USD' && effectiveRate > 0 ? `${(totalPrice / effectiveRate).toFixed(2)} USD` : `${totalPrice.toLocaleString()} сум`;
+    const displayBalance = currencyMode === 'USD' && effectiveRate > 0 ? `${(balance / effectiveRate).toFixed(2)} USD` : `${balance.toLocaleString()} сум`;
 
     const availableBeds = useMemo(() => {
         if (!formData.roomId) return [];
@@ -306,7 +349,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     }, [formData.roomId, formData.checkInDate, guests, allRooms]);
 
     const bedConflict = useMemo(() => {
-        if (!formData.bedId) return null;
+        if (!formData.bedId || isExtraBed(formData.bedId)) return null;
         const bed = availableBeds.find(b => b.id === formData.bedId);
         if (!bed || bed.maxFreeDays === null) return null;
         if ((parseInt(formData.days) || 1) > bed.maxFreeDays) {
@@ -315,6 +358,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         return null;
     }, [formData.bedId, formData.days, availableBeds]);
 
+    const canSelectExtraBed = useMemo(() => {
+        if (!formData.roomId) return false;
+        if (availableBeds.length === 0) return false;
+        return availableBeds.every(b => b.isOccupied);
+    }, [formData.roomId, availableBeds]);
+
     const handleChange = (field, value) => {
         const processed = (field === 'fullName' || field === 'passport') ? value.toUpperCase() : value;
         setFormData(prev => ({ ...prev, [field]: processed }));
@@ -322,10 +371,16 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         if (field === 'fullName') {
             if (processed.length > 1) {
                 const term = processed.toLowerCase();
+                // Если в тексте есть кирилица - пробуем перекладку по QWERTY
+                const hasCyrillic = /[а-яё]/i.test(term);
+                const termLat = hasCyrillic ? cyrToLat(term).toLowerCase() : null;
                 const seen = new Set();
                 const matches = clients.filter(c => {
                     if (seen.has(c.passport)) return false;
-                    const hit = (c.fullName && c.fullName.toLowerCase().includes(term)) || (c.passport && c.passport.toLowerCase().includes(term));
+                    const name = (c.fullName || '').toLowerCase();
+                    const pass = (c.passport || '').toLowerCase();
+                    const hit = name.includes(term) || pass.includes(term)
+                        || (termLat && (name.includes(termLat) || pass.includes(termLat)));
                     if (hit) seen.add(c.passport);
                     return hit;
                 }).slice(0, 5);
@@ -340,11 +395,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     const handleMagnet = (field) => {
         let others = 0;
-        if (field !== 'paidCash') others += (parseInt(formData.paidCash) || 0);
-        if (field !== 'paidCard') others += (parseInt(formData.paidCard) || 0);
-        if (field !== 'paidQR')   others += (parseInt(formData.paidQR)   || 0);
+        if (field !== 'paidCash')     others += (parseInt(formData.paidCash)     || 0);
+        if (field !== 'paidCard')     others += (parseInt(formData.paidCard)     || 0);
+        if (field !== 'paidQR')       others += (parseInt(formData.paidQR)       || 0);
+        if (field !== 'paidTransfer') others += (parseInt(formData.paidTransfer) || 0);
         const remainder = Math.max(0, effectiveTotal - others);
         handleChange(field, String(remainder));
+        if (currencyMode === 'USD' && effectiveRate > 0) {
+            setUsdInputs(prev => ({ ...prev, [field]: remainder > 0 ? (remainder / effectiveRate).toFixed(2) : '' }));
+        }
     };
 
     const handleSelectClient = (client) => {
@@ -416,12 +475,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     const handleSubmit = async (status) => {
         if (isSubmitting) return;
-        if (!formData.fullName || !formData.roomId || !formData.bedId) return notify(t('fillAllFields'), 'error');
+        if (!formData.fullName || !formData.roomId || !formData.bedId) {
+            notify(t('fillAllFields'), 'error');
+            return;
+        }
         if (blacklistWarning?.level === 'blacklist') {
             if (!window.confirm(t('blacklistConfirmMsg'))) return;
         }
         // Проверка конфликта занятости — показываем inline-плашку
-        const selBed = availableBeds.find(b => b.id === formData.bedId);
+        const selBed = isExtraBed(formData.bedId) ? null : availableBeds.find(b => b.id === formData.bedId);
         if (selBed?.maxFreeDays !== null && selBed.maxFreeDays !== undefined &&
             (parseInt(formData.days) || 1) > selBed.maxFreeDays) {
             setSubmitConflict({
@@ -430,6 +492,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 guestDate: selBed.nextGuestDate,
                 alternatives: freeBedSuggestions,
             });
+            notify(t('conflictBannerTitle'), 'error');
             return;
         }
         setSubmitConflict(null);
@@ -454,29 +517,46 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     };
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-800/50 backdrop-blur-none p-4 animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] relative">
+        <>
+        <style>{MODAL_STYLE}</style>
+        <div className="ci-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4" style={{ background: 'rgba(15,30,32,0.7)' }}>
+            <div className="ci-card w-full max-w-2xl overflow-hidden flex flex-col relative" style={{ borderRadius: 24, boxShadow: '0 32px 80px rgba(0,0,0,0.35)', maxHeight: '95vh', background: '#fff' }}>
 
-                <div className="px-6 py-4 bg-white border-b border-slate-200 flex justify-between items-center shrink-0">
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">{t('checkin')}</h2>
-                        <p className="text-slate-500 text-xs mt-0.5 font-medium">
-                        {formData.roomNumber ? `${t('room')} ${formData.roomNumber}` : t('newCheckin')}
-                        {formData.bedId && ` • ${t('bed2')} ${formData.bedId}`}
-                        </p>
+                <div style={{ background: '#1a3c40', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: -40, right: 60, width: 130, height: 130, borderRadius: '50%', background: 'rgba(94,234,212,0.06)', pointerEvents: 'none' }}/>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <BedDouble size={18} color="#5eead4"/>
+                        </div>
+                        <div>
+                            <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>{t('checkin')}</div>
+                            <div style={{ color: '#e2f7f8', fontSize: 14, fontWeight: 700, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span>{formData.roomNumber ? `${t('room')} ${formData.roomNumber}` : t('newCheckin')}</span>
+                                {formData.bedId && (
+                                    isExtraBed(formData.bedId) ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', background: 'rgba(251,146,60,0.25)', borderRadius: 6 }}>
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" style={{ flexShrink: 0 }} aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
+                                            <span style={{ fontSize: 12 }}>Доп. гость</span>
+                                        </span>
+                                    ) : (
+                                        <span style={{ opacity: 0.7, fontSize: 12 }}>· {t('bed2')} {formData.bedId}</span>
+                                    )
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
-                        <X size={20}/>
+                    <button onClick={onClose} style={{ background: 'rgba(94,234,212,0.1)', border: '1px solid rgba(94,234,212,0.15)', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#5eead4', display: 'flex' }}>
+                        <X size={16}/>
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 bg-slate-50">
+                <div className="flex-1 overflow-y-auto px-6 py-6 bg-white">
                     <StepIndicator step={step} total={3}/>
 
                     {/* Step 1: Choose room/bed */}
                     {step === 1 && (
                         <div className="space-y-6 animate-in slide-in-from-right duration-200">
-                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <div className="bg-white p-4 rounded-xl border" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
                                 <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">{t('bedSelection')}</h3>
                                 <div className="mb-4">
                                     <SimpleSelect
@@ -519,12 +599,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                             }
                                             className={`w-14 h-14 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all border-2
                                                 ${formData.bedId === bed.id
-                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-105'
+                                                    ? 'bg-teal-600 text-white border-teal-600 shadow-md scale-105'
                                                     : bed.isOccupied
                                                         ? 'bg-slate-100 text-slate-300 cursor-not-allowed border-slate-200'
                                                         : bed.maxFreeDays != null
                                                             ? 'bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-500 hover:bg-amber-100'
-                                                            : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-600'
                                                 }`}>
                                             <BedDouble size={15}/>
                                             <span>{bed.id}</span>
@@ -565,6 +645,34 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                     </div>
                                                 </div>
                                             )}
+                                            {canSelectExtraBed && (
+                                                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
+                                                    <div className="flex items-center gap-1.5 text-[11px] font-black text-orange-700 uppercase tracking-wider mb-2">
+                                                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
+                                                        Доп. гость
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const price = getRoomPrice(_room, '');
+                                                            setFormData(prev => ({ ...prev, bedId: EXTRA_BED_ID, pricePerNight: price }));
+                                                        }}
+                                                        className={`w-full rounded-xl border-2 px-3 py-2 text-left transition-all ${
+                                                            isExtraBed(formData.bedId)
+                                                                ? 'bg-orange-500 text-white border-orange-500 shadow-md'
+                                                                : 'bg-white text-orange-700 border-orange-300 hover:bg-orange-100 hover:border-orange-400'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-1.5 font-bold text-sm">
+                                                            <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
+                                                            На полу
+                                                        </div>
+                                                        <div className={`text-xs mt-0.5 ${isExtraBed(formData.bedId) ? 'text-orange-100' : 'text-orange-600'}`}>
+                                                            {t('extraBedHint') || 'Временное размещение без свободной койки'}
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })()}
@@ -603,7 +711,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             <div className="flex gap-2 flex-wrap">
                                 <button type="button"
                                     onClick={() => { setScanMode('usb'); setTimeout(() => scanInputRef.current?.focus(), 80); }}
-                                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-xs font-bold transition-colors">
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 rounded-lg text-xs font-bold transition-colors">
                                     <ScanLine size={14}/> {t('scanUsb')}
                                 </button>
                                 <button type="button"
@@ -628,8 +736,21 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 </div>
                             )}
                             <div className="relative z-50">
+                                <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-xs font-bold uppercase ml-1 text-slate-600">{t('guestName')}</label>
+                                    {/[а-яёА-ЯЁ]/.test(formData.fullName) && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleChange('fullName', cyrToLat(formData.fullName))}
+                                            className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg transition-colors"
+                                            style={{ color: '#0f9688', background: 'rgba(15,150,136,0.08)', border: '1px solid rgba(15,150,136,0.2)' }}
+                                            title="Перевести в латиницу">
+                                            АБВ → ABC
+                                        </button>
+                                    )}
+                                </div>
                                 <SimpleInput
-                                    label={t('guestName')} value={formData.fullName}
+                                    value={formData.fullName}
                                     onChange={val => handleChange('fullName', val)}
                                     placeholder={t('startTypingName')} icon={User} error={errors.fullName}
                                 />
@@ -696,7 +817,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 />
                             )}
 
-                            <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm mt-2">
+                            <div className="bg-white p-4 rounded-xl border mt-2" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-100 pb-2">{t('stayConditions')}</h3>
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
                                     <SimpleInput label={t('checkIn')} type="date" value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
@@ -725,15 +846,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             )}
                             {/* Balance block — visible for all roles if client has balance */}
                             {clientBalance > 0 && (
-                                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                                <div className="border rounded-xl p-4" style={{ background: '#f0fdfa', borderColor: 'rgba(15,150,136,0.25)' }}>
                                     <div className="flex justify-between items-center mb-3">
-                                        <span className="text-sm font-black text-blue-700">💳 Баланс клиента</span>
-                                        <span className="text-lg font-black text-blue-700">{clientBalance.toLocaleString()} сум</span>
+                                        <span className="text-sm font-black text-teal-700">💳 Баланс клиента</span>
+                                        <span className="text-lg font-black text-teal-700">{clientBalance.toLocaleString()} сум</span>
                                     </div>
                                     {appliedBalance === 0 ? (
                                         <button
                                             onClick={() => setFormData(p => ({ ...p, paidBalance: Math.min(clientBalance, totalPrice), paidCash: '', paidCard: '', paidQR: '' }))}
-                                            className="w-full py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors"
+                                            className="w-full py-2 text-white rounded-xl text-sm font-bold transition-opacity"
+                                            style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)' }}
+                                            onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
+                                            onMouseLeave={e => e.currentTarget.style.opacity='1'}
                                         >
                                             Применить к оплате
                                         </button>
@@ -751,7 +875,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 </div>
                             )}
                             {currentUser?.role !== 'admin' && (<>
-                                <div className="bg-slate-800 rounded-xl p-6 text-white shadow-lg">
+                                <div className="rounded-xl p-6 text-white shadow-lg" style={{ background: '#1a3c40', boxShadow: '0 8px 32px rgba(15,30,32,0.25)' }}>
                                     <div className="flex justify-between items-end mb-4">
                                         <div className="opacity-70 text-sm font-medium uppercase">{t('totalDue')}</div>
                                         <div className="text-3xl font-bold">{displayTotal}</div>
@@ -771,41 +895,65 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     </div>
                                 </div>
                                 {/* Currency toggle */}
-                                {usdRate > 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase">{t('currencyInput')}</span>
-                                        {[['UZS', t('sumCurrency')], ['USD', 'USD']].map(([mode, label]) => (
-                                            <button key={mode}
-                                                onClick={() => setCurrencyMode(mode)}
-                                                className={`px-3 py-1 rounded-lg text-xs font-black transition-colors ${
-                                                    currencyMode === mode
-                                                        ? 'bg-indigo-600 text-white'
-                                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                }`}>
-                                                {label}
-                                            </button>
-                                        ))}
-                                        {currencyMode === 'USD' && (
-                                            <span className="text-xs text-slate-400 ml-1">{t('exchangeRateLabel')} {Math.round(usdRate).toLocaleString()} сум</span>
-                                        )}
-                                    </div>
-                                )}
-                                <div className="bg-white p-4 rounded-lg border border-slate-200 space-y-4">
+                                <div className="flex items-center flex-wrap gap-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase">{t('currencyInput')}</span>
+                                    {[['UZS', t('sumCurrency')], ['USD', 'USD']].map(([mode, label]) => (
+                                        <button key={mode}
+                                            onClick={() => handleModeSwitch(mode)}
+                                            className={`px-3 py-1 rounded-lg text-xs font-black transition-colors ${
+                                                currencyMode === mode
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }`}>
+                                            {label}
+                                        </button>
+                                    ))}
+                                    {currencyMode === 'USD' && (
+                                        <div className="flex items-center gap-1 ml-1">
+                                            <span className="text-xs text-slate-400">{t('exchangeRateLabel')}</span>
+                                            <input
+                                                type="number"
+                                                value={manualRate}
+                                                onChange={e => {
+                                                    setManualRate(e.target.value);
+                                                    const rate = parseInt(e.target.value) > 0 ? parseInt(e.target.value) : usdRate;
+                                                    if (rate > 0) {
+                                                        setUsdInputs({
+                                                            paidCash: (parseInt(formData.paidCash) || 0) > 0 ? ((parseInt(formData.paidCash) || 0) / rate).toFixed(2) : '',
+                                                            paidCard: (parseInt(formData.paidCard) || 0) > 0 ? ((parseInt(formData.paidCard) || 0) / rate).toFixed(2) : '',
+                                                            paidQR:   (parseInt(formData.paidQR)   || 0) > 0 ? ((parseInt(formData.paidQR)   || 0) / rate).toFixed(2) : '',
+                                                        });
+                                                    }
+                                                }}
+                                                placeholder={usdRate > 0 ? Math.round(usdRate).toLocaleString() : ''}
+                                                className="w-24 px-2 py-0.5 text-xs border border-slate-300 rounded-lg text-slate-700 focus:outline-none focus:border-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            />
+                                            {effectiveRate > 0 && parseInt(manualRate) > 0 && usdRate > 0 && (
+                                                <button onClick={() => { setManualRate(''); handleModeSwitch('USD'); }} className="text-[10px] text-slate-400 hover:text-indigo-500 underline">авто</button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="bg-white p-4 rounded-xl border space-y-4" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
                                     <SimpleInput label={t('cash') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number"
-                                        value={currencyMode === 'USD' && usdRate > 0 ? String((parseInt(formData.paidCash)||0) > 0 ? ((parseInt(formData.paidCash)||0)/usdRate).toFixed(2) : '') : formData.paidCash}
-                                        onChange={val => handleChange('paidCash', fromDisplay(val))} icon={DollarSign}
-                                        rightElement={<button onClick={() => handleMagnet('paidCash')} className="p-1 text-blue-500 hover:bg-blue-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
+                                        value={currencyMode === 'USD' ? usdInputs.paidCash : formData.paidCash}
+                                        onChange={val => currencyMode === 'USD' ? handleUsdChange('paidCash', val) : handleChange('paidCash', val)} icon={DollarSign}
+                                        rightElement={<button onClick={() => handleMagnet('paidCash')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                     {currencyMode === 'USD' && formData.paidCash && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidCash).toLocaleString()} сум</p>}
                                     <SimpleInput label={t('card') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number"
-                                        value={currencyMode === 'USD' && usdRate > 0 ? String((parseInt(formData.paidCard)||0) > 0 ? ((parseInt(formData.paidCard)||0)/usdRate).toFixed(2) : '') : formData.paidCard}
-                                        onChange={val => handleChange('paidCard', fromDisplay(val))} icon={CreditCard}
-                                        rightElement={<button onClick={() => handleMagnet('paidCard')} className="p-1 text-blue-500 hover:bg-blue-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
+                                        value={currencyMode === 'USD' ? usdInputs.paidCard : formData.paidCard}
+                                        onChange={val => currencyMode === 'USD' ? handleUsdChange('paidCard', val) : handleChange('paidCard', val)} icon={CreditCard}
+                                        rightElement={<button onClick={() => handleMagnet('paidCard')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                     {currencyMode === 'USD' && formData.paidCard && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidCard).toLocaleString()} сум</p>}
                                     <SimpleInput label={t('qrTransfer') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number"
-                                        value={currencyMode === 'USD' && usdRate > 0 ? String((parseInt(formData.paidQR)||0) > 0 ? ((parseInt(formData.paidQR)||0)/usdRate).toFixed(2) : '') : formData.paidQR}
-                                        onChange={val => handleChange('paidQR', fromDisplay(val))} icon={QrCode}
-                                        rightElement={<button onClick={() => handleMagnet('paidQR')} className="p-1 text-blue-500 hover:bg-blue-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
+                                        value={currencyMode === 'USD' ? usdInputs.paidQR : formData.paidQR}
+                                        onChange={val => currencyMode === 'USD' ? handleUsdChange('paidQR', val) : handleChange('paidQR', val)} icon={QrCode}
+                                        rightElement={<button onClick={() => handleMagnet('paidQR')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                     {currencyMode === 'USD' && formData.paidQR && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidQR).toLocaleString()} сум</p>}
+                                    <SimpleInput label="Перечисление" type="number"
+                                        value={formData.paidTransfer}
+                                        onChange={val => handleChange('paidTransfer', val)} icon={ArrowRightLeft}
+                                        rightElement={<button onClick={() => handleMagnet('paidTransfer')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                 </div>
                             </>)}
                         </div>
@@ -868,7 +1016,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     </div>
                 )}
 
-                <div className="px-6 py-4 border-t border-slate-200 bg-white shrink-0 flex items-center gap-3">
+                <div className="px-6 py-4 shrink-0 flex items-center gap-3" style={{ borderTop: '1px solid #f1f5f9', background: '#fff' }}>
                     {step === 2 && (
                         <button onClick={() => handleSubmit('booking')}
                             disabled={isSubmitting}
@@ -910,18 +1058,24 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 }
                             }
                             setStep(step + 1);
-                        }} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-sm transition-colors flex items-center gap-2">
+                        }} className="px-8 py-2.5 text-white rounded-xl font-bold transition-opacity flex items-center gap-2"
+                            style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', boxShadow: '0 4px 14px rgba(15,150,136,0.3)' }}
+                            onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
+                            onMouseLeave={e => e.currentTarget.style.opacity='1'}>
                             {t('next')} <ChevronRight size={18}/>
                         </button>
                     ) : (
                         <>
-                            <button onClick={() => handleSubmit('active')}
+                            <button type="button" onClick={() => handleSubmit('active')}
                                 disabled={isSubmitting}
-                                className="px-10 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors flex items-center gap-2">
+                                className="px-10 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-opacity flex items-center gap-2"
+                                style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', boxShadow: '0 4px 14px rgba(15,150,136,0.3)' }}
+                                onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
+                                onMouseLeave={e => e.currentTarget.style.opacity='1'}>
                                 {isSubmitting ? <span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full inline-block"/> : <CheckCircle2 size={20}/>} {t('checkin').toUpperCase()}
                             </button>
                             {totalPaid === 0 && totalPrice > 0 && (
-                                <button onClick={() => handleSubmit('active')}
+                                <button type="button" onClick={() => handleSubmit('active')}
                                     disabled={isSubmitting}
                                     className="ml-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
                                     <Wallet size={14}/> {t('inDebt')}
@@ -936,14 +1090,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             {scanMode === 'usb' && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm rounded-xl">
                     <div className="bg-white rounded-2xl p-8 shadow-2xl w-72 text-center">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{background:'#eff6ff'}}>
-                            <ScanLine size={32} className="text-blue-500 animate-pulse"/>
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{background:'#f0fdfa'}}>
+                            <ScanLine size={32} className="text-teal-500 animate-pulse"/>
                         </div>
                         <h3 className="font-black text-slate-800 mb-1 text-base">{t('applyPassport')}</h3>
                         <p className="text-xs text-slate-400 mb-5">{t('scannerWaiting')}</p>
                         <div className="flex justify-center gap-1 mb-5">
                             {[0,1,2,3,4].map(i => (
-                                <div key={i} className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:`${i*100}ms`}}/>
+                                <div key={i} className="w-1.5 h-1.5 bg-teal-500 rounded-full animate-bounce" style={{animationDelay:`${i*100}ms`}}/>
                             ))}
                         </div>
                         <textarea
@@ -978,6 +1132,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 </div>
             )}
         </div>
+        </>
     );
 };
 
