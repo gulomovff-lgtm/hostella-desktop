@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none">
+  <!-- green mountains -->
+  <path d="M48 206 C108 200 122 196 152 188 L206 120 L250 180 C300 198 360 200 472 198"
+        stroke="#2ea24f" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- blue water wave -->
+  <path d="M330 180 C376 162 412 186 452 173 C486 162 506 170 540 198"
+        stroke="#123e74" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- red bird -->
+  <path d="M236 150 C252 120 292 112 322 126 C293 126 269 140 257 164 C250 161 242 157 236 150 Z" fill="#e23127"/>
+  <!-- orange mosque dome -->
+  <path d="M548 198 L548 122 C548 98 566 66 582 52 C598 66 616 98 616 122 L616 198 L598 198 L598 170 L566 170 L566 198 Z"
+        stroke="#ef8a1c" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- wordmark -->
+  <text x="320" y="322" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="76" fill="#123e74" letter-spacing="1.5">UZBEKISTAN</text>
+</svg>

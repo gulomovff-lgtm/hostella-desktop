@@ -172,6 +172,13 @@ export function useGuestActions(ctx) {
             amountPaid: increment(-(t.cashPay + t.cardPay + t.qrPay)),
           });
         }
+      } else if (item.type === 'rental') {
+        // Откат любого действия с арендой: восстанавливаем прошлое состояние комнаты
+        // (rental + rentalHistory) и удаляем платежи, созданные действием.
+        const restore = { rental: item.prevRental || { active: false } };
+        restore.rentalHistory = (item.prevRentalHistory == null) ? deleteField() : item.prevRentalHistory;
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', item.roomId), restore);
+        (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
       }
       await fb.commit();
       setUndoStack(prev => prev.filter(u => u.id !== item.id));

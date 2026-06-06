@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
+import { fmtSum, parseSum } from '../../utils/helpers';
 
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
 const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
@@ -12,8 +13,8 @@ const CreateDebtModal = ({ clients, onClose, onCreate, lang }) => {
     const [amount, setAmount] = useState('');
 
     const filteredClients = clients.filter(c =>
-        (c.fullName.toLowerCase().includes(search.toLowerCase()) ||
-        c.passport.toLowerCase().includes(search.toLowerCase()))
+        ((c.fullName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (c.passport || '').toLowerCase().includes(search.toLowerCase()))
     ).slice(0, 5);
 
     const handleSubmit = () => {
@@ -23,13 +24,13 @@ const CreateDebtModal = ({ clients, onClose, onCreate, lang }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
             <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
                 <h3 className="font-bold text-lg mb-4">{t('createDebt')}</h3>
                 <div className="space-y-4">
                     <div className="relative">
-                        <label className={labelClass}>Search Client</label>
-                        <input className={inputClass} value={search} onChange={e => { setSearch(e.target.value); setSelectedClient(null); }} placeholder="Name or Passport" />
+                        <label className={labelClass}>{t('searchClient')}</label>
+                        <input className={inputClass} value={search} onChange={e => { setSearch(e.target.value); setSelectedClient(null); }} placeholder={t('nameOrPassport')} />
                         {search.length > 1 && !selectedClient && (
                             <div className="absolute top-full left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl mt-1 z-50 max-h-40 overflow-y-auto">
                                 {filteredClients.map(c => (
@@ -43,12 +44,12 @@ const CreateDebtModal = ({ clients, onClose, onCreate, lang }) => {
                     </div>
                     {selectedClient && (
                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
-                            Selected: <b>{selectedClient.fullName}</b> ({selectedClient.passport})
+                            {t('selectedLabel')}: <b>{selectedClient.fullName}</b> ({selectedClient.passport})
                         </div>
                     )}
                     <div>
-                        <label className={labelClass}>Debt Amount</label>
-                        <input type="number" className={inputClass} value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" />
+                        <label className={labelClass}>{t('debtAmount')}</label>
+                        <input type="text" inputMode="numeric" className={inputClass} value={fmtSum(amount)} onChange={e => setAmount(parseSum(e.target.value))} placeholder="0" />
                     </div>
                     <Button onClick={handleSubmit} disabled={!selectedClient || !amount} className="w-full">{t('save')}</Button>
                     <Button variant="secondary" onClick={onClose} className="w-full">{t('cancel')}</Button>

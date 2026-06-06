@@ -8,7 +8,7 @@ import { logAction } from '../utils/auditLog';
 
 export function useRegistrationActions({
   currentUser, selectedHostelFilter, lang,
-  setRegistrationModal, showNotification,
+  setRegistrationModal, showNotification, guests,
 }) {
 
   const handleRegistrationSubmit = async (formData) => {
@@ -36,7 +36,7 @@ export function useRegistrationActions({
           date: new Date().toISOString(), type: 'income', category: 'registration',
           comment: `E-mehmon: ${formData.fullName} (${formData.startDate} – ${formData.endDate})`,
           hostelId: targetHostelId,
-          method: (formData.paidCash || 0) > 0 ? 'cash' : (formData.paidCard || 0) > 0 ? 'card' : 'qr',
+          method: [(formData.paidCash||0)>0,(formData.paidCard||0)>0,(formData.paidQR||0)>0].filter(Boolean).length>1 ? 'split' : (formData.paidCash||0)>0 ? 'cash' : (formData.paidCard||0)>0 ? 'card' : 'qr',
         });
       }
 
@@ -45,6 +45,28 @@ export function useRegistrationActions({
         lang === 'ru' ? 'Гость зарегистрирован в E-mehmon!' : "Mehmon E-mehmon'da ro'yxatga olindi!",
         'success'
       );
+
+      // Автоматически подтверждаем kppRegistered у совпадающего активного гостя
+      if (formData.passport) {
+        const norm = (s) => (s || '').replace(/\s/g, '').toUpperCase();
+        const normalizedPassport = norm(formData.passport);
+        const matchingGuests = (guests || []).filter(g =>
+          g.status === 'active' &&
+          g.passport &&
+          norm(g.passport) === normalizedPassport &&
+          !g.kppRegistered
+        );
+        for (const mg of matchingGuests) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', mg.id), {
+              kppRegistered: true,
+              kppRegisteredAt: new Date().toISOString(),
+            });
+          } catch (e) {
+            console.warn('[kppRegistered] auto-confirm failed:', e.message);
+          }
+        }
+      }
       logAction(currentUser, 'registration_add', { fullName: formData.fullName, passport: formData.passport, days: formData.days });
       sendTelegramMessage(
         `🪪 <b>Регистрация (E-mehmon)</b>\n👤 ${formData.fullName}\n🪪 ${formData.passport} · ${formData.country || ''}\n📅 ${formData.startDate} → ${formData.endDate} (${formData.days} дн.)\n💰 ${totalPaid.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
@@ -72,7 +94,7 @@ export function useRegistrationActions({
           date: new Date().toISOString(), type: 'income', category: 'registration',
           comment: `E-mehmon продление: ${reg.fullName} (+${extData.days} дн. → ${extData.newEndDate})`,
           hostelId: reg.hostelId,
-          method: (extData.paidCash || 0) > 0 ? 'cash' : (extData.paidCard || 0) > 0 ? 'card' : 'qr',
+          method: [(extData.paidCash||0)>0,(extData.paidCard||0)>0,(extData.paidQR||0)>0].filter(Boolean).length>1 ? 'split' : (extData.paidCash||0)>0 ? 'cash' : (extData.paidCard||0)>0 ? 'card' : 'qr',
         });
       }
       showNotification(

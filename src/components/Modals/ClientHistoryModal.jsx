@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import {
     ShieldCheck, ShieldAlert, DollarSign, CreditCard, QrCode, FileText, Calendar, Phone,
-    MapPin, Wallet, History, LogOut, CheckCircle2, Trash2, X, Plus, Banknote, ArrowRightLeft
+    MapPin, Wallet, History, LogOut, CheckCircle2, Trash2, X, Plus, Banknote, ArrowRightLeft, Pencil
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import ClientEditModal from './ClientEditModal';
 
 const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
 
@@ -14,16 +15,22 @@ const METHODS = [
     { id: 'qr',       label: 'QR / Перевод', icon: QrCode,     color: 'violet' },
 ];
 
-const TopUpModal = ({ client, currentUser, onClose, onTopUp }) => {
+const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'add' }) => {
     const [amount, setAmount] = useState('');
     const [method, setMethod] = useState('cash');
-    const [skipCashbox, setSkipCashbox] = useState(false);
     const isSuper = currentUser?.role === 'super';
+    const deduct = mode === 'deduct';
+    const bal = client.balance || 0;
+    const amt = parseInt(amount) || 0;
+    const tooMuch = deduct && amt > bal;
 
     const handleSubmit = () => {
-        const amt = parseInt(amount);
         if (!amt || amt <= 0) return;
-        onTopUp(client.id, amt, method, skipCashbox);
+        if (deduct) {
+            onDeduct?.(client.id, Math.min(amt, bal));   // не уводим баланс в минус
+        } else {
+            onTopUp?.(client.id, amt, method, isSuper);   // супер → без кассы
+        }
         onClose();
     };
 
@@ -33,7 +40,7 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp }) => {
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                     <div>
-                        <div className="font-black text-slate-800">Пополнение баланса</div>
+                        <div className="font-black text-slate-800">{deduct ? 'Списание с баланса' : 'Пополнение баланса'}</div>
                         <div className="text-xs text-slate-400 mt-0.5">{client.fullName}</div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18}/></button>
@@ -41,59 +48,51 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp }) => {
 
                 <div className="p-5 space-y-4">
                     {/* Current balance */}
-                    <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-3">
-                        <span className="text-sm font-bold text-blue-600">💳 Текущий баланс</span>
-                        <span className="text-lg font-black text-blue-700">{(client.balance || 0).toLocaleString()} сум</span>
+                    <div className={`flex items-center justify-between rounded-xl px-4 py-3 ${deduct ? 'bg-rose-50' : 'bg-blue-50'}`}>
+                        <span className={`text-sm font-bold ${deduct ? 'text-rose-600' : 'text-blue-600'}`}>💳 Текущий баланс</span>
+                        <span className={`text-lg font-black ${deduct ? 'text-rose-700' : 'text-blue-700'}`}>{bal.toLocaleString()} сум</span>
                     </div>
 
-                    {/* Method */}
-                    <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">Метод оплаты</div>
-                        <div className="grid grid-cols-3 gap-2">
-                            {METHODS.map(m => {
-                                const Icon = m.icon;
-                                const active = method === m.id;
-                                return (
-                                    <button key={m.id} onClick={() => setMethod(m.id)}
-                                        className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 font-bold text-xs transition-all ${
-                                            active
-                                                ? `border-${m.color}-400 bg-${m.color}-50 text-${m.color}-700`
-                                                : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300'
-                                        }`}>
-                                        <Icon size={20}/>
-                                        {m.label}
-                                    </button>
-                                );
-                            })}
+                    {/* Method — только при пополнении */}
+                    {!deduct && (
+                        <div>
+                            <div className="text-xs font-bold text-slate-400 uppercase mb-2">Метод оплаты</div>
+                            <div className="grid grid-cols-3 gap-2">
+                                {METHODS.map(m => {
+                                    const Icon = m.icon;
+                                    const active = method === m.id;
+                                    return (
+                                        <button key={m.id} onClick={() => setMethod(m.id)}
+                                            className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 font-bold text-xs transition-all ${
+                                                active
+                                                    ? `border-${m.color}-400 bg-${m.color}-50 text-${m.color}-700`
+                                                    : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300'
+                                            }`}>
+                                            <Icon size={20}/>
+                                            {m.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Amount */}
                     <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">Сумма пополнения</div>
+                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">{deduct ? 'Сумма списания' : 'Сумма пополнения'}</div>
                         <input
                             type="number"
                             placeholder="0"
                             value={amount}
                             onChange={e => setAmount(e.target.value)}
                             autoFocus
-                            className="w-full px-4 py-3 text-xl font-black text-center rounded-xl border-2 border-slate-200 focus:border-blue-400 focus:outline-none bg-slate-50"
+                            className={`w-full px-4 py-3 text-xl font-black text-center rounded-xl border-2 border-slate-200 focus:outline-none bg-slate-50 ${deduct ? 'focus:border-rose-400' : 'focus:border-blue-400'}`}
                         />
+                        {tooMuch && <div className="text-[11px] text-amber-600 font-semibold mt-1 text-center">Будет списано не больше текущего баланса ({bal.toLocaleString()})</div>}
                     </div>
 
-                    {/* Super: bypass cashbox */}
-                    {isSuper && (
-                        <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                            <div
-                                onClick={() => setSkipCashbox(v => !v)}
-                                className={`w-10 h-6 rounded-full flex items-center transition-colors ${
-                                    skipCashbox ? 'bg-violet-600 justify-end' : 'bg-slate-200 justify-start'
-                                }`}
-                            >
-                                <div className="w-5 h-5 bg-white rounded-full shadow mx-0.5"/>
-                            </div>
-                            <span className="text-xs font-bold text-slate-500">Без записи в кассу</span>
-                        </label>
+                    {isSuper && !deduct && (
+                        <div className="text-[11px] text-violet-600 font-semibold bg-violet-50 rounded-lg px-3 py-2 text-center">Пополнение супером не отражается в кассе</div>
                     )}
 
                     {/* Buttons */}
@@ -101,9 +100,9 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp }) => {
                         <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">Отмена</button>
                         <button
                             onClick={handleSubmit}
-                            disabled={!amount || parseInt(amount) <= 0}
-                            className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
-                            +{amount ? parseInt(amount).toLocaleString() : 0} сум
+                            disabled={!amt || amt <= 0 || (deduct && bal <= 0)}
+                            className={`flex-1 py-3 rounded-xl text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${deduct ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                            {deduct ? '−' : '+'}{amt ? amt.toLocaleString() : 0} сум
                         </button>
                     </div>
                 </div>
@@ -112,13 +111,19 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp }) => {
     );
 };
 
-const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, lang }) => {
+const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, onAdjustBalance, onEditClient, lang }) => {
     if (!client) return null;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+    // Админ и Fazliddin могут только СПИСЫВАТЬ с баланса (не пополнять)
+    const subtractOnly = currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
     const [topUpOpen, setTopUpOpen] = useState(false);
+    const [editOpen, setEditOpen] = useState(false);
 
     const handleTopUp = (id, amt, method, skipCashbox) => {
-        onTopUpBalance(id, amt, method, skipCashbox);
+        onTopUpBalance?.(id, amt, method, skipCashbox);
+    };
+    const handleDeduct = (id, amt) => {
+        if (onAdjustBalance) onAdjustBalance(id, -Math.abs(amt));
     };
 
     const history = useMemo(() => {
@@ -155,7 +160,12 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
     return (
         <>
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 pb-[84px] sm:pb-4 animate-in fade-in duration-150">
-            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row" style={{height:'88vh', maxHeight:'calc(100dvh - 100px)'}}>
+            <div className="relative bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row" style={{height:'88vh', maxHeight:'calc(100dvh - 100px)'}}>
+
+                {/* Always-visible close (mobile) */}
+                <button onClick={onClose} className="md:hidden absolute top-3 right-3 z-20 w-9 h-9 flex items-center justify-center bg-white/95 border border-slate-200 rounded-full text-slate-500 shadow-md active:scale-95">
+                    <X size={18}/>
+                </button>
 
                 {/* LEFT: Profile */}
                 <div className="w-full md:w-72 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col shrink-0">
@@ -215,10 +225,17 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                 <span className="text-xs font-bold text-blue-600 uppercase">💳 Баланс счёта</span>
                                 <span className="text-base font-black text-blue-700">{(client.balance || 0).toLocaleString()} сум</span>
                             </div>
-                            <button onClick={() => setTopUpOpen(true)} className="w-full mt-2 py-1.5 text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg flex items-center justify-center gap-1 transition-colors">
-                                <Plus size={12}/> Пополнить
+                            <button onClick={() => setTopUpOpen(true)}
+                                className={`w-full mt-2 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors ${subtractOnly ? 'text-rose-700 bg-rose-100 hover:bg-rose-200' : 'text-blue-700 bg-blue-100 hover:bg-blue-200'}`}>
+                                {subtractOnly ? <><Trash2 size={12}/> Списать с баланса</> : <><Plus size={12}/> Пополнить</>}
                             </button>
                         </div>
+                        {isAdmin && onEditClient && (
+                            <button onClick={() => setEditOpen(true)}
+                                className="w-full py-2.5 bg-white text-slate-600 border border-slate-200 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-2 transition-colors">
+                                <Pencil size={14}/> Изменить данные
+                            </button>
+                        )}
                         <button onClick={() => { onRepeatStay(client); onClose(); }}
                             className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 flex items-center justify-center gap-2">
                             <History size={15}/> Повторить заезд
@@ -331,8 +348,20 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
         {topUpOpen && (
             <TopUpModal
                 client={client}
+                currentUser={currentUser}
+                mode={subtractOnly ? 'deduct' : 'add'}
                 onClose={() => setTopUpOpen(false)}
                 onTopUp={handleTopUp}
+                onDeduct={handleDeduct}
+            />
+        )}
+
+        {editOpen && (
+            <ClientEditModal
+                client={client}
+                lang={lang}
+                onClose={() => setEditOpen(false)}
+                onSave={(form) => { onEditClient?.(form); setEditOpen(false); }}
             />
         )}
         </>

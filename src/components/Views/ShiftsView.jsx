@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { Power, LogOut, LayoutDashboard, FileText, Plus, Edit, FileSpreadsheet, X, Calendar, Magnet } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { Power, LogOut, LayoutDashboard, FileText, Plus, Edit, FileSpreadsheet, X, Calendar, Magnet, Trash2, Wallet } from 'lucide-react';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
 
 // --- Constants ---
-const DAILY_SALARY = 266666;
+const DAILY_SALARY = 266666; // дефолт; реальная ставка берётся из settings/salaryConfig
 
 const HOSTELS = {
     hostel1: { name: 'Хостел №1', address: 'Ташкент, улица Ниёзбек Йули, 43', currency: 'UZS' },
@@ -15,6 +17,25 @@ const getLocalDatetimeString = (dateObj) => {
     if (!dateObj) return '';
     const offset = dateObj.getTimezoneOffset() * 60000;
     return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16);
+};
+
+// Локальная дата YYYY-MM-DD (без UTC-сдвига) — единый ключ для колонок и смен.
+const ymdLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Активная смена старше этого порога уже засчитывается как полные отработанные сутки.
+const ACTIVE_COUNT_AFTER_H = 3;
+
+// Эффективный диапазон смены для подсчёта отработанного и начисления ЗП:
+//  • закрытая смена — её реальные времена (как в БД, уже нормализованы при закрытии);
+//  • активная старше 3ч — виртуальные сутки 9:00 дня старта → +24ч (как при закрытии);
+//  • активная младше 3ч — null (ещё не засчитывается).
+const effShiftRange = (s) => {
+    if (s.endTime) return { start: s.startTime, end: s.endTime };
+    const ageH = (Date.now() - new Date(s.startTime).getTime()) / 3600000;
+    if (!(ageH > ACTIVE_COUNT_AFTER_H)) return null;
+    const st = new Date(s.startTime); st.setHours(9, 0, 0, 0);
+    const en = new Date(st); en.setDate(en.getDate() + 1);
+    return { start: st.toISOString(), end: en.toISOString() };
 };
 
 const calculateSalary = (startTime, endTime) => {
@@ -32,7 +53,7 @@ const FillButton = ({ onClick, disabled }) => (
 );
 
 // --- ShiftsView ---
-const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, onTransferShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, payments = [] }) => {
+const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, onTransferShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, payments = [], expenses = [], onPaySalary }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
@@ -40,17 +61,44 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     const allCashiers = users.filter(u => u.role === 'cashier' && u.id !== currentUser.id);
     const [transferTarget, setTransferTarget] = useState('');
     const [view, setView] = useState('grid');
-    const [dateRange, setDateRange] = useState({
-        start: new Date(new Date().setDate(new Date().getDate() - 27)).toISOString().split('T')[0],
-        end: new Date().toISOString().split('T')[0]
+    // По умолчанию — текущий месяц: с 1 числа по сегодня
+    const [dateRange, setDateRange] = useState(() => {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        return { start: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), end: ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
     });
     const [filterCashierId, setFilterCashierId] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingShift, setEditingShift] = useState(null);
     const [shiftForm, setShiftForm] = useState({ staffId: '', startTime: '', endTime: '', hostelId: 'hostel1' });
     const [hoveredCell, setHoveredCell] = useState(null);
+    const gridScrollRef = useRef(null);
 
     const cashierIds = useMemo(() => new Set((allUsers || users).filter(u => u.role === 'cashier').map(u => u.id)), [users, allUsers]);
+
+    // Ставка ЗП за сутки (общая, редактируется админом) — из settings/salaryConfig
+    const [dailyRate, setDailyRate] = useState(DAILY_SALARY);
+    const [rateDraft, setRateDraft] = useState('');
+    const [editingRate, setEditingRate] = useState(false);
+    useEffect(() => {
+        const ref = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'salaryConfig');
+        return onSnapshot(ref, snap => {
+            const r = snap.exists() ? parseInt(snap.data().dailyRate) : 0;
+            if (r > 0) setDailyRate(r);
+        });
+    }, []);
+    const saveDailyRate = async () => {
+        const v = parseInt(rateDraft) || 0;
+        if (v > 0) await setDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'salaryConfig'), { dailyRate: v }, { merge: true });
+        setEditingRate(false);
+    };
+    // Расчёт ЗП по сутки-ставке: длительность в сутках × ставка
+    const calcSalary = useCallback((startTime, endTime) => {
+        if (!startTime || !endTime) return 0;
+        const d = (new Date(endTime) - new Date(startTime)) / 86400000;
+        return Math.round(d * dailyRate);
+    }, [dailyRate]);
 
     const displayedShifts = useMemo(() => {
         // Смены только кассиров — admin не учитывается
@@ -72,11 +120,13 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     }, [shifts, cashierIds, hostelId, isAdmin, currentUser.id, dateRange, filterCashierId]);
 
     const kpi = useMemo(() => {
-        const finished = displayedShifts.filter(s => s.endTime);
-        const totalH   = finished.reduce((s,x) => s + (new Date(x.endTime)-new Date(x.startTime))/3600000, 0);
-        const totalSal = finished.reduce((s,x) => s + calculateSalary(x.startTime, x.endTime), 0);
+        // Считаем закрытые + активные старше 3ч (как полные отработанные сутки)
+        const counted  = displayedShifts.map(s => effShiftRange(s)).filter(Boolean);
+        const totalH   = counted.reduce((s,r) => s + (new Date(r.end)-new Date(r.start))/3600000, 0);
+        const totalSal = counted.reduce((s,r) => s + calcSalary(r.start, r.end), 0);
+        const sutki    = counted.reduce((s,r) => s + Math.round((new Date(r.end)-new Date(r.start))/86400000), 0);
         const active   = displayedShifts.filter(s => !s.endTime).length;
-        const avgH     = finished.length ? totalH / finished.length : 0;
+        const avgH     = counted.length ? totalH / counted.length : 0;
 
         // Финансовые итоги за период
         // Для admin — используем dateRange напрямую (надёжно)
@@ -89,13 +139,28 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             payEnd   = e.getTime();
         } else {
             if (!displayedShifts.length) {
-                return { totalH: totalH.toFixed(1), totalSal, active, avgH: avgH.toFixed(1), count: 0, totalCash: 0, totalCard: 0, totalQR: 0, totalInc: 0 };
+                return { totalH: totalH.toFixed(1), totalSal, sutki, salaryPaid: 0, salaryDue: totalSal, active, avgH: avgH.toFixed(1), count: 0, totalCash: 0, totalCard: 0, totalQR: 0, totalTransfer: 0, totalInc: 0 };
             }
             payStart = Math.min(...displayedShifts.map(s => new Date(s.startTime).getTime()));
             payEnd   = Math.max(...displayedShifts.map(s => new Date(s.endTime || Date.now()).getTime()));
         }
 
+        // Выплачено кассирам за период: расходы «Зарплата» (targetStaffId) + «Аванс» (staffId)
+        const matchCashier = (val) => {
+            if (!val) return false;
+            if (!isAdmin) return val === currentUser.id || val === currentUser.login;
+            if (filterCashierId) { const u = users.find(u => u.id === filterCashierId); return val === filterCashierId || (u && val === u.login); }
+            const list = allUsers || users;
+            return list.some(u => u.role === 'cashier' && (u.id === val || u.login === val));
+        };
+        const salaryPaid = expenses.filter(e => {
+            const t = new Date(e.date).getTime();
+            if (t < payStart || t > payEnd) return false;
+            return (e.category === 'Зарплата' && matchCashier(e.targetStaffId)) || (e.category === 'Аванс' && matchCashier(e.staffId));
+        }).reduce((s, e) => s + (parseInt(e.amount) || 0), 0);
+
         const relPay = payments.filter(p => {
+            if (p.type === 'cash_to_terminal') return false;
             const pt = new Date(p.date).getTime();
             if (pt < payStart || pt > payEnd) return false;
             // если выбран конкретный сотрудник — фильтруем строго по его staffId
@@ -109,12 +174,58 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             return true;
         });
 
-        const totalCash = relPay.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
-        const totalCard = relPay.filter(p=>p.method==='card').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
-        const totalQR   = relPay.filter(p=>p.method==='qr').reduce((s,p)=>s+(parseInt(p.amount)||0),0);
-        const totalInc  = totalCash + totalCard + totalQR;
-        return { totalH: totalH.toFixed(1), totalSal, active, avgH: avgH.toFixed(1), count: displayedShifts.length, totalCash, totalCard, totalQR, totalInc };
-    }, [displayedShifts, payments, filterCashierId, users, isAdmin, currentUser, dateRange]);
+        const totalCash = relPay.reduce((s,p)=>s+(p.cash!==undefined?parseInt(p.cash)||0:p.method==='cash'?parseInt(p.amount)||0:0),0);
+        const totalCard = relPay.reduce((s,p)=>s+(p.card!==undefined?parseInt(p.card)||0:p.method==='card'?parseInt(p.amount)||0:0),0);
+        const totalQR   = relPay.reduce((s,p)=>s+(p.qr!==undefined?parseInt(p.qr)||0:p.method==='qr'?parseInt(p.amount)||0:0),0);
+        const totalTransfer = relPay.reduce((s,p)=>s+(p.transfer!==undefined?parseInt(p.transfer)||0:p.method==='transfer'?parseInt(p.amount)||0:0),0);
+        const totalInc  = totalCash + totalCard + totalQR + totalTransfer;
+        return { totalH: totalH.toFixed(1), totalSal, sutki, salaryPaid, salaryDue: totalSal - salaryPaid, active, avgH: avgH.toFixed(1), count: displayedShifts.length, totalCash, totalCard, totalQR, totalTransfer, totalInc };
+    }, [displayedShifts, payments, expenses, filterCashierId, users, allUsers, isAdmin, currentUser, dateRange, calcSalary]);
+
+    // ── Помесячная зарплата: начислено / взято с расходов (Зарплата+Аванс) / остаток ──
+    const monthlySalary = useMemo(() => {
+        const pad = n => String(n).padStart(2, '0');
+        const ymOf = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+        const cashiers = (allUsers || users).filter(u => u.role === 'cashier');
+        // Закрытые + активные старше 3ч (как полные сутки), с привязкой к месяцу старта
+        const counted = displayedShifts.map(s => ({ s, r: effShiftRange(s) })).filter(x => x.r);
+        const months = [...new Set(counted.map(({ s }) => ymOf(s.startTime)).filter(Boolean))].sort().reverse();
+        const matchStaff = (val, c) => val && (val === c.id || val === c.login);
+        return months.map(ym => {
+            const rows = cashiers.map(c => {
+                const cShifts = counted.filter(({ s }) => ymOf(s.startTime) === ym && (s.staffId === c.id || (s.staffLogin && s.staffLogin === c.login)));
+                const days = cShifts.reduce((a, { r }) => a + Math.round((new Date(r.end) - new Date(r.start)) / 86400000), 0);
+                const earned = cShifts.reduce((a, { r }) => a + calcSalary(r.start, r.end), 0);
+                const taken = expenses.filter(e => ymOf(e.date) === ym && (
+                    (e.category === 'Зарплата' && matchStaff(e.targetStaffId, c)) ||
+                    (e.category === 'Аванс' && matchStaff(e.staffId, c))
+                )).reduce((a, e) => a + (parseInt(e.amount) || 0), 0);
+                return { id: c.id, name: c.name || c.login, days, earned, taken, remaining: earned - taken };
+            }).filter(r => r.days > 0 || r.taken > 0);
+            const tot = rows.reduce((t, r) => ({ days: t.days + r.days, earned: t.earned + r.earned, taken: t.taken + r.taken, remaining: t.remaining + r.remaining }), { days: 0, earned: 0, taken: 0, remaining: 0 });
+            return { ym, rows, tot };
+        }).filter(m => m.rows.length > 0);
+    }, [displayedShifts, expenses, allUsers, users, calcSalary]);
+
+    // Выплачено по каждому кассиру за выбранный период (Зарплата + Аванс) — для «остатка»
+    const paidByStaff = useMemo(() => {
+        const map = {};
+        const s = new Date(dateRange.start); s.setHours(0, 0, 0, 0);
+        const e = new Date(dateRange.end);   e.setHours(23, 59, 59, 999);
+        const list = allUsers || users;
+        expenses.forEach(exp => {
+            const t = new Date(exp.date).getTime();
+            if (t < s.getTime() || t > e.getTime()) return;
+            let val = null;
+            if (exp.category === 'Зарплата') val = exp.targetStaffId;
+            else if (exp.category === 'Аванс') val = exp.staffId;
+            if (!val) return;
+            const u = list.find(x => x.id === val || x.login === val);
+            const key = u?.id || val;
+            map[key] = (map[key] || 0) + (parseInt(exp.amount) || 0);
+        });
+        return map;
+    }, [expenses, dateRange, allUsers, users]);
 
     const gridDays = useMemo(() => {
         const days = [];
@@ -128,24 +239,39 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         isAdmin ? users.filter(u => u.role === 'cashier') : [currentUser],
     [users, isAdmin, currentUser]);
 
+    // Автопрокрутка шахматки к сегодня (последняя смена) — всегда справа
+    useEffect(() => {
+        if (view !== 'grid') return;
+        const el = gridScrollRef.current;
+        if (!el) return;
+        const ts = ymdLocal(new Date());
+        const idx = gridDays.findIndex(d => ymdLocal(d) === ts);
+        const DAY_W = 42, LABEL_W = 140;
+        requestAnimationFrame(() => {
+            if (idx < 0) { el.scrollLeft = el.scrollWidth; return; }
+            el.scrollLeft = Math.max(0, LABEL_W + (idx + 1) * DAY_W - el.clientWidth + 24);
+        });
+    }, [view, gridDays]);
+
     const getShiftSlots = (shift) => {
         const start = new Date(shift.startTime);
-        const end   = shift.endTime ? new Date(shift.endTime) : new Date();
+        // Сутки 9→9 занимают обе половинки своего дня старта (☀ 9-21 + 🌙 21-9 след.).
         const slots = [];
         const cursor = new Date(start);
         const h = cursor.getHours();
-        if (h >= 9 && h < 21) { cursor.setHours(9, 0, 0, 0); }
-        else if (h >= 21)     { cursor.setHours(21, 0, 0, 0); }
-        else                  { cursor.setDate(cursor.getDate()-1); cursor.setHours(21,0,0,0); }
+        // Привязка к дню старта: до 21:00 — с 9:00 этого дня; после 21:00 — с 21:00 этого дня.
+        if (h >= 21) { cursor.setHours(21, 0, 0, 0); }
+        else         { cursor.setHours(9, 0, 0, 0); }
+        // Активная смена считается полными сутками (квадратный блок на 2 ячейки).
+        const end = shift.endTime ? new Date(shift.endTime) : new Date(cursor.getTime() + 24 * 3600 * 1000);
         const MS_12H = 12 * 3600 * 1000;
         let safety = 0;
-        while (cursor < end && safety++ < 60) {
-            const dayStr = cursor.toISOString().split('T')[0];
-            const half   = cursor.getHours() === 9 ? 0 : 1;
-            slots.push(`${dayStr}_${half}`);
-            cursor.setTime(cursor.getTime() + MS_12H);
+        const c = new Date(cursor);
+        while (c < end && safety++ < 60) {
+            slots.push(`${ymdLocal(c)}_${c.getHours() === 9 ? 0 : 1}`);
+            c.setTime(c.getTime() + MS_12H);
         }
-        return slots;
+        return slots.length ? slots : [`${ymdLocal(cursor)}_${cursor.getHours() === 9 ? 0 : 1}`];
     };
 
     const shiftMap = useMemo(() => {
@@ -165,7 +291,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     const fmt = n => Number(n).toLocaleString('ru');
     const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}) : '—';
     const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('ru',{day:'2-digit',month:'2-digit'}) : '—';
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = ymdLocal(new Date());
 
     const handleSaveShift = () => {
         const payload = {
@@ -188,12 +314,46 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         setIsAddModalOpen(true);
     };
 
+    const handleDeleteShift = (s) => {
+        const staff = (users.find(u => u.id === s.staffId))?.name || s.staffName || '?';
+        const dur = s.endTime ? `${((new Date(s.endTime) - new Date(s.startTime)) / 60000).toFixed(0)} мин` : 'открыта';
+        if (!window.confirm(`Удалить смену ${staff} (${fmtDate(s.startTime)} ${fmtTime(s.startTime)}, ${dur})? Это действие необратимо.`)) return;
+        onAdminDeleteShift?.(s.id);
+        if (editingShift?.id === s.id) { setIsAddModalOpen(false); setEditingShift(null); }
+    };
+
+    // «Призрачные» смены — завершённые короче 10 минут (случайно открыли/закрыли)
+    const GHOST_MAX_MIN = 10;
+    const ghostShifts = useMemo(
+        () => displayedShifts.filter(s => s.endTime && (new Date(s.endTime) - new Date(s.startTime)) < GHOST_MAX_MIN * 60000),
+        [displayedShifts]
+    );
+    const handleCleanGhosts = () => {
+        if (!ghostShifts.length) return;
+        if (!window.confirm(`Удалить ${ghostShifts.length} коротких смен (< ${GHOST_MAX_MIN} мин)? Это действие необратимо.`)) return;
+        ghostShifts.forEach(s => onAdminDeleteShift?.(s.id));
+    };
+
+    // Выровнять все смены к формату 9:00→9:00 (нормализуются те, что > 6ч и ещё не 9→9)
+    const shiftsToAlign = useMemo(() => displayedShifts.filter(s => {
+        if (!s.endTime) return false;
+        const durH = (new Date(s.endTime) - new Date(s.startTime)) / 3600000;
+        if (durH <= 6) return false;
+        const st = new Date(s.startTime);
+        return !(st.getHours() === 9 && st.getMinutes() === 0 && Math.abs(durH - 24) < 0.02);
+    }), [displayedShifts]);
+    const handleAlignShifts = () => {
+        if (!shiftsToAlign.length) return;
+        if (!window.confirm(`Выровнять ${shiftsToAlign.length} смен к формату 9:00 → 9:00 (полные сутки)?`)) return;
+        shiftsToAlign.forEach(s => onAdminUpdateShift(s.id, { startTime: s.startTime, endTime: s.endTime }));
+    };
+
     const handleExportExcel = () => {
         const rows = displayedShifts.map(s => {
             const staff = (users.find(u=>u.id===s.staffId || (s.staffLogin && u.login===s.staffLogin)))?.name || s.staffName || '?';
             const start = new Date(s.startTime), end = s.endTime ? new Date(s.endTime) : null;
             const hours = end ? ((end-start)/3600000).toFixed(1) : '—';
-            const salary = end ? calculateSalary(s.startTime, s.endTime) : 0;
+            const salary = end ? calcSalary(s.startTime, s.endTime) : 0;
             return `<tr><td>${staff}</td><td>${HOSTELS[s.hostelId]?.name||s.hostelId}</td><td>${start.toLocaleDateString('ru')}</td><td>${start.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})}</td><td>${end?end.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}):'—'}</td><td>${hours}</td><td>${salary.toLocaleString()}</td></tr>`;
         }).join('');
         const html = `<html><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse"><thead><tr><th>Сотрудник</th><th>Хостел</th><th>Дата</th><th>Начало</th><th>Конец</th><th>Часы</th><th>Зарплата</th></tr></thead><tbody>${rows}<tr><td colspan="6" style="text-align:right;font-weight:bold">Итого:</td><td><b>${fmt(kpi.totalSal)}</b></td></tr></tbody></table></body></html>`;
@@ -240,57 +400,14 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                 </div>
             )}
 
-            {/* Активные смены — только для админа */}
-            {isAdmin && (() => {
-                // Показываем ВСЕ открытые смены — включая «осиротевшие» (удалённый пользователь).
-                // Это позволяет администратору закрыть такую смену и разблокировать вход.
-                const activeShifts = shifts.filter(s => !s.endTime);
-                if (!activeShifts.length) return null;
-                return (
-                    <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0"/>
-                            <span className="text-rose-700 font-black text-sm uppercase tracking-wide">Активные смены сейчас</span>
-                            <span className="ml-1 px-2 py-0.5 rounded-full bg-rose-200 text-rose-700 text-xs font-black">{activeShifts.length}</span>
-                        </div>
-                        <div className="space-y-2">
-                            {activeShifts.map(s => {
-                                const resolveList = allUsers || users;
-                                const staff = resolveList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
-                                const hoursGone = ((Date.now() - new Date(s.startTime)) / 3600000).toFixed(1);
-                                const isOrphaned = !staff;
-                                const displayName = staff?.name || s.staffName || (isOrphaned ? '⚠ Удалённый пользователь' : '?');
-                                return (
-                                    <div key={s.id} className={`flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 border ${isOrphaned ? 'border-amber-200 bg-amber-50' : 'border-rose-100'}`}>
-                                        <div className={`w-2 h-2 rounded-full ${isOrphaned ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'} shrink-0`}/>
-                                        <div className="flex-1 min-w-0">
-                                            <span className={`font-bold ${isOrphaned ? 'text-amber-700' : 'text-slate-800'}`}>
-                                                {displayName}
-                                            </span>
-                                            <span className="text-slate-400 text-sm ml-2">{HOSTELS[s.hostelId]?.name}</span>
-                                            <span className="text-slate-400 text-xs ml-2">с {fmtTime(s.startTime)} {fmtDate(s.startTime)} · {hoursGone}ч</span>
-                                            {isOrphaned && <span className="ml-2 text-xs text-amber-600 font-bold">— смена блокирует вход кассирам</span>}
-                                        </div>
-                                        <button
-                                            onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}
-                                            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors">
-                                            <Power size={12}/> Закрыть смену
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                );
-            })()}
 
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { icon:'⏱',  label:'Часов отработано', value: kpi.totalH + 'ч', sub: `${kpi.count} смен`,     color:'#4f46e5', bg:'#eef2ff' },
-                    { icon:'💰',  label:'Зарплата итого',   value: fmt(kpi.totalSal),sub: 'за период',              color:'#15803d', bg:'#dcfce7' },
-                    { icon:'📊',  label:'Ср. длина смены',  value: kpi.avgH + 'ч',   sub: 'на сотрудника',          color:'#b45309', bg:'#fef9c3' },
-                    { icon:'🟢',  label:'Активных смен',    value: kpi.active,        sub: kpi.active ? 'прямо сейчас' : 'нет активных', color:'#065f46', bg:'#d1fae5' },
+                    { icon:'🌙',  label:'Сутки',          value: kpi.sutki,            sub: `${kpi.count} смен за период`, color:'#4f46e5', bg:'#eef2ff' },
+                    { icon:'💰',  label:'Начислено ЗП',   value: fmt(kpi.totalSal),    sub: 'за период',                  color:'#0f766e', bg:'#ccfbf1' },
+                    { icon:'✅',  label:'Выплачено',      value: fmt(kpi.salaryPaid),  sub: 'зарплата + аванс',           color:'#15803d', bg:'#dcfce7' },
+                    { icon:'⚖️',  label:'Остаток к выплате', value: fmt(kpi.salaryDue), sub: kpi.salaryDue > 0 ? 'нужно доплатить' : 'закрыто', color: kpi.salaryDue > 0 ? '#b91c1c' : '#64748b', bg: kpi.salaryDue > 0 ? '#fee2e2' : '#f1f5f9' },
                 ].map(c => (
                     <div key={c.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                         <div className="flex items-center gap-2 mb-2">
@@ -314,46 +431,81 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         {kpi.totalCash > 0 && <div><span className="text-xs text-slate-400 font-semibold">Наличные: </span><span className="font-black text-slate-800">{fmt(kpi.totalCash)}</span></div>}
                         {kpi.totalCard > 0 && <div><span className="text-xs text-slate-400 font-semibold">Карта: </span><span className="font-black text-slate-800">{fmt(kpi.totalCard)}</span></div>}
                         {kpi.totalQR > 0 && <div><span className="text-xs text-slate-400 font-semibold">QR: </span><span className="font-black text-slate-800">{fmt(kpi.totalQR)}</span></div>}
+                        {kpi.totalTransfer > 0 && <div><span className="text-xs text-slate-400 font-semibold">🏦 Перечисление: </span><span className="font-black text-slate-800">{fmt(kpi.totalTransfer)}</span></div>}
                         <div className="ml-auto"><span className="text-xs text-slate-400 font-semibold">Итого: </span><span className="font-black text-emerald-600 text-base">{fmt(kpi.totalInc)}</span></div>
                     </div>
                 </div>
             )}
 
             {/* Toolbar */}
-            <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 flex items-center gap-3 flex-wrap shadow-sm">
-                {isAdmin && <>
-                    <input type="date" className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                        value={dateRange.start} onChange={e => setDateRange(r=>({...r, start:e.target.value}))}/>
-                    <span className="text-slate-400 text-sm">—</span>
-                    <input type="date" className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                        value={dateRange.end} onChange={e => setDateRange(r=>({...r, end:e.target.value}))}/>
-                    <select className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                        value={filterCashierId} onChange={e => setFilterCashierId(e.target.value)}>
-                        <option value="">Все сотрудники</option>
-                        {users.filter(u=>u.role==='cashier').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
-                </>}
+            <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 shadow-sm">
+                {isAdmin && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <input type="date" className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 flex-1 sm:flex-none min-w-[130px]"
+                            value={dateRange.start} onChange={e => setDateRange(r=>({...r, start:e.target.value}))}/>
+                        <span className="text-slate-400 text-sm">—</span>
+                        <input type="date" className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 flex-1 sm:flex-none min-w-[130px]"
+                            value={dateRange.end} onChange={e => setDateRange(r=>({...r, end:e.target.value}))}/>
+                        <select className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 flex-1 sm:flex-none"
+                            value={filterCashierId} onChange={e => setFilterCashierId(e.target.value)}>
+                            <option value="">Все сотрудники</option>
+                            {users.filter(u=>u.role==='cashier').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                    </div>
+                )}
 
-                <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center gap-2 sm:ml-auto flex-wrap">
                     <div className="flex rounded-xl overflow-hidden border border-slate-200">
                         <button onClick={()=>setView('grid')} className="px-3 py-2 text-sm font-bold transition-colors flex items-center gap-1.5"
-                            style={view==='grid' ? {background:'#4f46e5',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
+                            style={view==='grid' ? {background:'#16a34a',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
                             <LayoutDashboard size={14}/> Шахматка
                         </button>
                         <button onClick={()=>setView('list')} className="px-3 py-2 text-sm font-bold transition-colors flex items-center gap-1.5 border-l border-slate-200"
-                            style={view==='list' ? {background:'#4f46e5',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
+                            style={view==='list' ? {background:'#16a34a',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
                             <FileText size={14}/> Список
                         </button>
+                        <button onClick={()=>setView('salary')} className="px-3 py-2 text-sm font-bold transition-colors flex items-center gap-1.5 border-l border-slate-200"
+                            style={view==='salary' ? {background:'#16a34a',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
+                            <Wallet size={14}/> ЗП
+                        </button>
                     </div>
+                    {isAdmin && (
+                        editingRate ? (
+                            <div className="flex items-center gap-1 px-2 py-1 rounded-xl border border-indigo-200 bg-indigo-50">
+                                <span className="text-[10px] font-bold text-indigo-500">Ставка/сутки</span>
+                                <input type="number" autoFocus value={rateDraft} onChange={e=>setRateDraft(e.target.value.replace(/[^0-9]/g,''))}
+                                    onKeyDown={e=>{ if(e.key==='Enter') saveDailyRate(); if(e.key==='Escape') setEditingRate(false); }}
+                                    className="w-24 px-2 py-1 text-sm rounded-lg border border-indigo-200 focus:outline-none" />
+                                <button onClick={saveDailyRate} className="px-2 py-1 rounded-lg bg-indigo-500 text-white text-xs font-bold">OK</button>
+                            </div>
+                        ) : (
+                            <button onClick={()=>{ setRateDraft(String(dailyRate)); setEditingRate(true); }} title="Ставка ЗП за сутки"
+                                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                                <Wallet size={14}/> {dailyRate.toLocaleString('ru-RU')}/сут
+                            </button>
+                        )
+                    )}
                     {isAdmin && <>
                         <button onClick={() => { setEditingShift(null); setShiftForm({staffId:users.filter(u=>u.role==='cashier')[0]?.id||'',startTime:'',endTime:'',hostelId:'hostel1'}); setIsAddModalOpen(true); }}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-bold transition-colors">
+                            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-colors">
                             <Plus size={15}/> Добавить
                         </button>
                         <button onClick={handleExportExcel}
                             className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                             <FileSpreadsheet size={15}/> Excel
                         </button>
+                        {shiftsToAlign.length > 0 && (
+                            <button onClick={handleAlignShifts} title="Привести все смены к 9:00 → 9:00"
+                                className="flex items-center gap-1.5 px-3 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors">
+                                🕘 Выровнять 9→9 ({shiftsToAlign.length})
+                            </button>
+                        )}
+                        {ghostShifts.length > 0 && (
+                            <button onClick={handleCleanGhosts} title={`Завершённые смены короче ${GHOST_MAX_MIN} мин`}
+                                className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold hover:bg-amber-100 transition-colors">
+                                <Trash2 size={14}/> Короткие ({ghostShifts.length})
+                            </button>
+                        )}
                     </>}
                 </div>
             </div>
@@ -364,7 +516,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                 const currentHalf = nowH >= 9 && nowH < 21 ? 0 : 1;
                 return (
                     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto" ref={gridScrollRef}>
                             <table className="w-full border-collapse" style={{minWidth: 140 + gridDays.length*42}}>
                                 <thead>
                                     <tr>
@@ -373,7 +525,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                             Сотрудник
                                         </th>
                                         {gridDays.map(d => {
-                                            const str = d.toISOString().split('T')[0];
+                                            const str = ymdLocal(d);
                                             const isToday = str === todayStr;
                                             const isSun = d.getDay()===0, isSat = d.getDay()===6;
                                             return (
@@ -386,12 +538,13 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                 </th>
                                             );
                                         })}
-                                        <th className="border-b-2 border-slate-200 bg-slate-50 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{minWidth:52}} rowSpan={2}>Смен</th>
-                                        <th className="border-b-2 border-slate-200 bg-slate-50 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{minWidth:80}} rowSpan={2}>Итого</th>
+                                        <th className="border-b-2 border-l-2 border-slate-200 px-2 text-center text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', position:'sticky', right:260, zIndex:25, background:'#f8fafc'}} rowSpan={2}>Сутки</th>
+                                        <th className="border-b-2 border-slate-200 px-2 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', position:'sticky', right:110, zIndex:25, background:'#f8fafc'}} rowSpan={2}>Начислено</th>
+                                        <th className="border-b-2 border-slate-200 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:110, minWidth:110, maxWidth:110, boxSizing:'border-box', position:'sticky', right:0, zIndex:25, background:'#f8fafc'}} rowSpan={2}>Остаток</th>
                                     </tr>
                                     <tr>
                                         {gridDays.map(d => {
-                                            const str = d.toISOString().split('T')[0];
+                                            const str = ymdLocal(d);
                                             const isToday = str === todayStr;
                                             return [
                                                 <th key={`${str}_0`} style={{width:21, minWidth:21}}
@@ -411,9 +564,12 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                 <tbody>
                                     {staffList.map((staff, si) => {
                                         const staffShifts = shiftMap[staff.id] || {};
-                                        const totalH = displayedShifts.filter(s=>s.staffId===staff.id&&s.endTime).reduce((sum,s)=>sum+(new Date(s.endTime)-new Date(s.startTime))/3600000,0);
-                                        const totalS = displayedShifts.filter(s=>s.staffId===staff.id&&s.endTime).reduce((sum,s)=>sum+calculateSalary(s.startTime,s.endTime),0);
-                                        const fullShifts = displayedShifts.filter(s=>s.staffId===staff.id&&s.endTime&&(new Date(s.endTime)-new Date(s.startTime))/3600000>=6).length;
+                                        const staffCounted = displayedShifts.filter(s=>s.staffId===staff.id).map(s=>effShiftRange(s)).filter(Boolean);
+                                        const totalH = staffCounted.reduce((sum,r)=>sum+(new Date(r.end)-new Date(r.start))/3600000,0);
+                                        const totalS = staffCounted.reduce((sum,r)=>sum+calcSalary(r.start,r.end),0);
+                                        const fullShifts = staffCounted.filter(r=>(new Date(r.end)-new Date(r.start))/3600000>=6).length;
+                                        const paidS = paidByStaff[staff.id] || 0;
+                                        const dueS = totalS - paidS;
                                         const hasActive = displayedShifts.some(s=>s.staffId===staff.id&&!s.endTime);
                                         return (
                                             <tr key={staff.id} className={si%2===0?'bg-white':'bg-slate-50/50'}>
@@ -427,16 +583,15 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                     </div>
                                                 </td>
                                                 {(() => {
-                                                    const allKeys = gridDays.flatMap(d => [0,1].map(h => `${d.toISOString().split('T')[0]}_${h}`));
+                                                    const allKeys = gridDays.flatMap(d => [0,1].map(h => `${ymdLocal(d)}_${h}`));
                                                     const CELL_W = 21;
                                                     return gridDays.flatMap(d => {
-                                                        const dayStr  = d.toISOString().split('T')[0];
+                                                        const dayStr  = ymdLocal(d);
                                                         const isToday = dayStr===todayStr;
                                                         return [0,1].map(half => {
                                                             const cellKey  = `${dayStr}_${half}`;
                                                             const cellInfo = staffShifts[cellKey];
                                                             const isCurrentSlot = isToday && currentHalf===half;
-                                                            const isHov = hoveredCell?.staffId===staff.id && hoveredCell?.dayStr===cellKey;
                                                             const cellBg = isCurrentSlot?'#e0e7ff':isToday?'#eef2ff':'transparent';
 
                                                             if (cellInfo && !cellInfo.isStart) return (
@@ -454,41 +609,36 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                             const colspan = Math.min(rawColspan, allKeys.length - startIdx);
                                                             const active = !s.endTime;
                                                             const shiftH = s.endTime ? (new Date(s.endTime)-new Date(s.startTime))/3600000 : (new Date()-new Date(s.startTime))/3600000;
-                                                            const bg = active ? '#22c55e' : shiftH>=10 ? '#4f46e5' : shiftH>=6 ? '#818cf8' : shiftH>=2 ? '#a5b4fc' : '#c7d2fe';
-                                                            const fg = active||shiftH>=6 ? '#fff' : '#4338ca';
+                                                            const effR = effShiftRange(s);
+                                                            const effSal = effR ? calcSalary(effR.start, effR.end) : 0;
+                                                            const bg = active ? 'linear-gradient(135deg,#22c55e,#15803d)' : shiftH>=6 ? 'linear-gradient(135deg,#10b981,#059669)' : '#a7f3d0';
+                                                            const fg = (active||shiftH>=6) ? '#fff' : '#065f46';
                                                             const barW = colspan * CELL_W - 4;
                                                             return (
                                                                 <td key={cellKey}
-                                                                    onMouseEnter={()=>setHoveredCell({staffId:staff.id,dayStr:cellKey})}
-                                                                    onMouseLeave={()=>setHoveredCell(null)}
                                                                     className={`relative ${half===0?'border-r border-dashed border-slate-200':'border-r border-slate-200'}`}
                                                                     style={{height:44, width:CELL_W, overflow:'visible', background:cellBg}}>
-                                                                    <div onClick={() => openEdit(s)} title={`${fmtTime(s.startTime)} – ${s.endTime ? fmtTime(s.endTime) : 'сейчас'} (${shiftH.toFixed(1)}ч)`}
-                                                                        style={{ position:'absolute', top:8, bottom:8, left:2, width:barW, zIndex:3, background: bg, color: fg, borderRadius: 6, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', userSelect:'none', fontSize: 9, fontWeight: 800, whiteSpace:'nowrap', overflow:'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}>
-                                                                        {colspan >= 2 ? `${fmtTime(s.startTime)}–${s.endTime?fmtTime(s.endTime):'…'}` : `${shiftH.toFixed(0)}ч`}
+                                                                    <div onClick={() => openEdit(s)}
+                                                                        onMouseEnter={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoveredCell({ x:r.left+r.width/2, y:r.top, name: (users.find(u=>u.id===s.staffId)?.name)||staff.name, line1: `${fmtTime(s.startTime)} – ${s.endTime?fmtTime(s.endTime):'сейчас'}`, line2: `${shiftH.toFixed(1)}ч · ${fmt(effSal)} сум${active && effR ? ' (идёт)' : ''}` }); }}
+                                                                        onMouseLeave={()=>setHoveredCell(null)}
+                                                                        className="hover:brightness-110"
+                                                                        style={{ position:'absolute', top:7, bottom:7, left:2, width:barW, zIndex:3, background: bg, color: fg, borderRadius: 9, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', userSelect:'none', fontSize: shiftH>=6 ? 15 : 9, fontWeight: 800, whiteSpace:'nowrap', overflow:'hidden', transition:'filter .15s' }}>
+                                                                        {active ? '💼' : shiftH >= 6 ? '✓' : `${shiftH.toFixed(0)}ч`}
                                                                     </div>
-                                                                    {isHov && (
-                                                                        <div className="absolute z-50 left-1/2 -translate-x-1/2 -top-1 -translate-y-full pointer-events-none" style={{minWidth:160}}>
-                                                                            <div className="bg-slate-800 text-white text-[11px] rounded-lg px-3 py-2 whitespace-nowrap shadow-xl font-semibold">
-                                                                                <div>{users.find(u=>u.id===s.staffId)?.name}</div>
-                                                                                <div>{fmtTime(s.startTime)} – {s.endTime ? fmtTime(s.endTime) : 'сейчас'}</div>
-                                                                                <div>{shiftH.toFixed(1)}ч · {fmt(s.endTime?calculateSalary(s.startTime,s.endTime):0)} сум</div>
-                                                                            </div>
-                                                                            <div className="w-2 h-2 bg-slate-800 mx-auto rotate-45 -mt-1"/>
-                                                                        </div>
-                                                                    )}
                                                                 </td>
                                                             );
                                                         });
                                                     });
                                                 })()}
-                                                <td className="px-3 text-center border-l border-slate-100">
-                                                    <div className="text-base font-black text-indigo-700">{fullShifts}</div>
-                                                    <div className="text-[9px] text-slate-400">&gt;6ч</div>
+                                                <td className="px-2 text-center border-l-2 border-slate-200" style={{position:'sticky', right:260, zIndex:9, width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
+                                                    <div className="text-base font-black text-slate-700">{fullShifts}</div>
                                                 </td>
-                                                <td className="px-3 text-right">
-                                                    <div className="text-sm font-black text-indigo-600">{totalH.toFixed(1)}ч</div>
-                                                    <div className="text-[10px] text-slate-400">{fmt(totalS)}</div>
+                                                <td className="px-2 text-right" style={{position:'sticky', right:110, zIndex:9, width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
+                                                    <div className="text-sm font-black text-slate-800">{fmt(totalS)}</div>
+                                                    {paidS > 0 && <div className="text-[10px] text-emerald-600 font-semibold">выпл. {fmt(paidS)}</div>}
+                                                </td>
+                                                <td className="px-3 text-right" style={{position:'sticky', right:0, zIndex:9, width:110, minWidth:110, maxWidth:110, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
+                                                    <div className={`text-sm font-black ${dueS > 0 ? 'text-rose-600' : 'text-slate-300'}`}>{dueS > 0 ? fmt(dueS) : '✓'}</div>
                                                 </td>
                                             </tr>
                                         );
@@ -496,7 +646,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                     <tr className="bg-slate-100 border-t-2 border-slate-200">
                                         <td className="sticky left-0 bg-slate-100 px-4 py-2 text-xs font-black text-slate-500 uppercase tracking-wide border-r-2 border-slate-200">Итого</td>
                                         {gridDays.map(d => {
-                                            const dayStr = d.toISOString().split('T')[0];
+                                            const dayStr = ymdLocal(d);
                                             return [0,1].map(half => {
                                                 const cellKey = `${dayStr}_${half}`;
                                                 const cnt = staffList.filter(st => !!(shiftMap[st.id]||{})[cellKey]).length;
@@ -507,27 +657,35 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                 );
                                             });
                                         })}
-                                        <td className="px-3 text-center border-l border-slate-200">
-                                            <div className="text-base font-black text-indigo-700">{displayedShifts.filter(s=>s.endTime&&(new Date(s.endTime)-new Date(s.startTime))/3600000>=6).length}</div>
-                                            <div className="text-[9px] text-slate-400">&gt;6ч</div>
+                                        <td className="px-2 text-center border-l-2 border-slate-200" style={{position:'sticky', right:260, zIndex:9, width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', background:'#f1f5f9'}}>
+                                            <div className="text-base font-black text-slate-700">{kpi.sutki}</div>
                                         </td>
-                                        <td className="px-3 text-right">
-                                            <div className="text-sm font-black text-indigo-600">{kpi.totalH}ч</div>
-                                            <div className="text-[10px] text-slate-400">{fmt(kpi.totalSal)}</div>
+                                        <td className="px-2 text-right" style={{position:'sticky', right:110, zIndex:9, width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', background:'#f1f5f9'}}>
+                                            <div className="text-sm font-black text-slate-800">{fmt(kpi.totalSal)}</div>
+                                        </td>
+                                        <td className="px-3 text-right" style={{position:'sticky', right:0, zIndex:9, width:110, minWidth:110, maxWidth:110, boxSizing:'border-box', background:'#f1f5f9'}}>
+                                            <div className={`text-sm font-black ${kpi.salaryDue > 0 ? 'text-rose-600' : 'text-slate-300'}`}>{kpi.salaryDue > 0 ? fmt(kpi.salaryDue) : '✓'}</div>
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
                         <div className="flex items-center gap-4 px-5 py-3 border-t border-slate-100 text-[11px] font-semibold text-slate-500 flex-wrap">
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-emerald-400 inline-block"/>Активная</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-indigo-500 inline-block"/>10+ ч</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-indigo-300 inline-block"/>6–10 ч</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-indigo-200 inline-block"/>2–6 ч</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-indigo-100 inline-block"/>&lt;2 ч</div>
-                            <div className="flex items-center gap-1.5 text-slate-400">☀ = 09:00–21:00 · 🌙 = 21:00–09:00</div>
-                            <div className="flex items-center gap-1.5 ml-auto text-slate-400 italic">Клик по ячейке = редактировать</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-[10px]" style={{background:'linear-gradient(135deg,#22c55e,#15803d)'}}>💼</span>Активная</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px]" style={{background:'linear-gradient(135deg,#10b981,#059669)'}}>✓</span>Сутки (смена)</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-emerald-200 inline-flex items-center justify-center text-emerald-800 text-[8px] font-black">ч</span>Короткая (&lt;6ч)</div>
+                            <div className="flex items-center gap-1.5 ml-auto text-slate-400 italic">Клик по смене = редактировать</div>
                         </div>
+                        {hoveredCell && (
+                            <div style={{ position:'fixed', left:hoveredCell.x, top:hoveredCell.y-10, transform:'translate(-50%,-100%)', zIndex:9999, pointerEvents:'none' }}>
+                                <div className="bg-slate-800 text-white text-[11px] rounded-lg px-3 py-2 whitespace-nowrap shadow-2xl font-semibold">
+                                    <div>{hoveredCell.name}</div>
+                                    <div>{hoveredCell.line1}</div>
+                                    <div className="text-emerald-300">{hoveredCell.line2}</div>
+                                </div>
+                                <div className="w-2.5 h-2.5 bg-slate-800 mx-auto rotate-45 -mt-1.5"/>
+                            </div>
+                        )}
                     </div>
                 );
             })()}
@@ -543,84 +701,180 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                 const staff = users.find(u=>u.id===s.staffId);
                                 const active = !s.endTime;
                                 const hours  = s.endTime ? (new Date(s.endTime)-new Date(s.startTime))/3600000 : null;
-                                const salary = s.endTime ? calculateSalary(s.startTime, s.endTime) : null;
+                                const effR   = effShiftRange(s);
+                                const salary = effR ? calcSalary(effR.start, effR.end) : null;
                                         const shiftPay = payments.filter(p => {
+                                                if (p.type === 'cash_to_terminal') return false;
                                                 const t = new Date(p.date).getTime();
                                                 const st = new Date(s.startTime).getTime();
                                                 const en = s.endTime ? new Date(s.endTime).getTime() : Date.now();
                                                 return (p.staffId === s.staffId) && t >= st && t <= en;
                                             });
-                                            const sCash = shiftPay.filter(p=>p.method==='cash').reduce((a,p)=>a+(parseInt(p.amount)||0),0);
-                                            const sCard = shiftPay.filter(p=>p.method==='card').reduce((a,p)=>a+(parseInt(p.amount)||0),0);
-                                            const sQR   = shiftPay.filter(p=>p.method==='qr').reduce((a,p)=>a+(parseInt(p.amount)||0),0);
+                                            const sCash = shiftPay.reduce((a,p)=>a+(p.cash!==undefined?parseInt(p.cash)||0:p.method==='cash'?parseInt(p.amount)||0:0),0);
+                                            const sCard = shiftPay.reduce((a,p)=>a+(p.card!==undefined?parseInt(p.card)||0:p.method==='card'?parseInt(p.amount)||0:0),0);
+                                            const sQR   = shiftPay.reduce((a,p)=>a+(p.qr!==undefined?parseInt(p.qr)||0:p.method==='qr'?parseInt(p.amount)||0:0),0);
                                             const sTotal = sCash + sCard + sQR;
                                         return (
-                                            <div key={s.id} className="group flex flex-col px-5 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`}/>
-                                                    <div className="w-28 shrink-0">
-                                                        <div className="text-sm font-bold text-slate-800 truncate">{staff?.name||'—'}</div>
-                                                        <div className="text-[10px] text-slate-400">{HOSTELS[s.hostelId]?.name}</div>
+                                            <div key={s.id} className="group flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                                                <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`}/>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-sm font-bold text-slate-800 truncate">
+                                                        {staff?.name || '—'}<span className="text-[10px] font-normal text-slate-400"> · {HOSTELS[s.hostelId]?.name}</span>
                                                     </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 text-sm">
-                                                            <span className="font-semibold text-slate-700">{fmtDate(s.startTime)}</span>
-                                                            <span className="text-slate-300">·</span>
-                                                            <span className="font-mono text-slate-700">{fmtTime(s.startTime)}</span>
-                                                            <span className="text-slate-300">→</span>
-                                                            {active ? <span className="text-emerald-600 font-bold">в процессе</span> : <span className="font-mono text-slate-700">{fmtTime(s.endTime)}</span>}
-                                                        </div>
+                                                    <div className="text-[11px] text-slate-500 flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+                                                        <span className="font-semibold">{fmtDate(s.startTime)}</span>
+                                                        <span className="font-mono">{fmtTime(s.startTime)}–{active ? '…' : fmtTime(s.endTime)}</span>
+                                                        {hours !== null && <span className="text-slate-400">{hours.toFixed(1)}ч</span>}
+                                                        {sTotal > 0 && <span className="text-emerald-600 font-semibold">касса {fmt(sTotal)}</span>}
                                                     </div>
-                                                    {hours !== null ? (
-                                                        <div className="shrink-0 text-center w-16">
-                                                            <div className="text-sm font-black" style={{color: hours>=8?'#4f46e5':hours>=4?'#818cf8':'#94a3b8'}}>{hours.toFixed(1)}ч</div>
-                                                        </div>
-                                                    ) : <div className="w-16"/>}
-                                                    <div className="shrink-0 w-24 text-right">
-                                                        {salary !== null ? <span className="text-sm font-black text-emerald-600">{fmt(salary)}</span> : <span className="text-xs text-slate-400">…</span>}
-                                                    </div>
-                                                    {isAdmin && active && (
-                                                        <button
-                                                            onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}
-                                                            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors"
-                                                            title="Принудительно закрыть смену">
-                                                            <Power size={12}/> Закрыть
-                                                        </button>
-                                                    )}
-                                                    {isAdmin && (
-                                                        <button onClick={() => openEdit(s)}
-                                                            className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all shrink-0">
-                                                            <Edit size={15}/>
-                                                        </button>
-                                                    )}
                                                 </div>
-                                                {sTotal > 0 && (
-                                                    <div className="ml-[52px] mt-1.5 flex gap-3 text-[11px] font-semibold text-slate-500">
-                                                        {sCash > 0 && <span className="bg-slate-100 px-2 py-0.5 rounded-full">💵 {fmt(sCash)}</span>}
-                                                        {sCard > 0 && <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">💳 {fmt(sCard)}</span>}
-                                                        {sQR > 0   && <span className="bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">QR {fmt(sQR)}</span>}
-                                                        <span className="bg-emerald-50 text-emerald-700 font-black px-2 py-0.5 rounded-full">∑ {fmt(sTotal)}</span>
+                                                {active && <span className="text-[10px] font-black text-emerald-600 shrink-0 hidden sm:block">● сейчас</span>}
+                                                <div className="text-right shrink-0 w-20">
+                                                    <div className="text-sm font-black text-slate-800">{salary !== null ? fmt(salary) : '…'}</div>
+                                                    <div className="text-[9px] text-slate-400 uppercase tracking-wide">ЗП</div>
+                                                </div>
+                                                {isAdmin && (
+                                                    <div className="flex items-center gap-0.5 shrink-0">
+                                                        {active && (
+                                                            <button onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })} title="Закрыть смену"
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-rose-500 hover:bg-rose-50 transition-all"><Power size={15}/></button>
+                                                        )}
+                                                        <button onClick={() => openEdit(s)} title="Изменить"
+                                                            className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"><Edit size={15}/></button>
+                                                        <button onClick={() => handleDeleteShift(s)} title="Удалить смену"
+                                                            className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"><Trash2 size={15}/></button>
                                                     </div>
                                                 )}
                                             </div>
                                         );
                             })}
-                            <div className="flex items-center justify-end gap-6 px-5 py-3 bg-slate-50 border-t border-slate-200">
-                                <span className="text-xs text-slate-500 font-semibold">{displayedShifts.length} записей</span>
-                                <span className="text-sm font-black text-indigo-600">{kpi.totalH}ч</span>
-                                <span className="text-sm font-black text-emerald-600">{fmt(kpi.totalSal)} сум</span>
+                            <div className="flex items-center justify-end gap-5 px-5 py-3 bg-slate-50 border-t border-slate-200 flex-wrap">
+                                <span className="text-xs text-slate-500 font-semibold mr-auto">{displayedShifts.length} записей · {kpi.sutki} сут</span>
+                                <span className="text-xs text-slate-500">Начислено: <b className="text-slate-800">{fmt(kpi.totalSal)}</b></span>
+                                <span className="text-xs text-slate-500">Выплачено: <b className="text-emerald-600">{fmt(kpi.salaryPaid)}</b></span>
+                                <span className="text-xs text-slate-500">Остаток: <b className={kpi.salaryDue > 0 ? 'text-rose-600' : 'text-slate-400'}>{kpi.salaryDue > 0 ? fmt(kpi.salaryDue) : '✓'}</b></span>
                             </div>
                         </div>
                     )}
                 </div>
             )}
 
+            {/* Salary view — помесячно */}
+            {view === 'salary' && (
+                <div className="space-y-4">
+                    {monthlySalary.length === 0 ? (
+                        <div className="py-16 text-center text-slate-400">
+                            <Wallet size={36} className="mx-auto mb-3 opacity-30" />
+                            <p className="font-semibold">Нет завершённых смен в выбранном периоде</p>
+                            <p className="text-xs mt-1">Расширьте диапазон дат выше</p>
+                        </div>
+                    ) : monthlySalary.map(({ ym, rows, tot }) => {
+                        const [y, m] = ym.split('-');
+                        const monthName = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][parseInt(m) - 1];
+                        return (
+                            <div key={ym} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                                <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                    <span className="font-black text-slate-800">{monthName} {y}</span>
+                                    <span className="text-xs font-semibold text-slate-500">Ставка: {dailyRate.toLocaleString('ru-RU')}/сут</span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="text-[10px] uppercase text-slate-400 font-bold">
+                                                <th className="text-left px-5 py-2">Кассир</th>
+                                                <th className="text-right px-3 py-2">Сутки</th>
+                                                <th className="text-right px-3 py-2">Начислено</th>
+                                                <th className="text-right px-3 py-2">Выплачено</th>
+                                                <th className="text-right px-5 py-2">Остаток</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {rows.map(r => (
+                                                <tr key={r.id} className="border-t border-slate-100">
+                                                    <td className="text-left px-5 py-2.5 font-bold text-slate-700">{r.name}</td>
+                                                    <td className="text-right px-3 py-2.5 text-slate-500">{r.days}</td>
+                                                    <td className="text-right px-3 py-2.5 font-semibold text-slate-800">{fmt(r.earned)}</td>
+                                                    <td className="text-right px-3 py-2.5 text-emerald-600 font-semibold">{fmt(r.taken)}</td>
+                                                    <td className="text-right px-5 py-2.5">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <span className={`font-black ${r.remaining > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{r.remaining > 0 ? fmt(r.remaining) : '✓'}</span>
+                                                            {r.remaining > 0 && isAdmin && onPaySalary && (
+                                                                <button onClick={() => { if (window.confirm(`Выдать ${fmt(r.remaining)} сум кассиру ${r.name}? Создастся расход «Зарплата».`)) onPaySalary({ staffId: r.id, amount: r.remaining, comment: `ЗП ${r.name} (${monthName} ${y})` }); }}
+                                                                    className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black transition-colors">Выдать</button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="border-t-2 border-slate-200 bg-slate-50/60">
+                                                <td className="text-left px-5 py-2.5 font-black text-slate-800">ИТОГО</td>
+                                                <td className="text-right px-3 py-2.5 font-black text-slate-600">{tot.days}</td>
+                                                <td className="text-right px-3 py-2.5 font-black text-slate-800">{fmt(tot.earned)}</td>
+                                                <td className="text-right px-3 py-2.5 font-black text-emerald-600">{fmt(tot.taken)}</td>
+                                                <td className={`text-right px-5 py-2.5 font-black ${tot.remaining > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{tot.remaining > 0 ? fmt(tot.remaining) : '✓'}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        );
+                    })}
+                    <p className="text-[11px] text-slate-400 text-center">
+                        Начислено = сутки × ставка. Выплачено = расходы «Зарплата» + «Аванс» кассира за месяц. Остаток = начислено − выплачено.
+                    </p>
+                </div>
+            )}
+
+            {/* Активные смены — внизу, для админа */}
+            {isAdmin && (() => {
+                const activeShifts = shifts.filter(s => !s.endTime);
+                if (!activeShifts.length) return null;
+                const resolveList = allUsers || users;
+                return (
+                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>
+                            <span className="font-black text-slate-700 text-sm">Сейчас на смене</span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black">{activeShifts.length}</span>
+                        </div>
+                        <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {activeShifts.map(s => {
+                                const staff = resolveList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
+                                const hoursGone = ((Date.now() - new Date(s.startTime)) / 3600000).toFixed(1);
+                                const isOrphaned = !staff;
+                                const displayName = staff?.name || s.staffName || 'Удалённый пользователь';
+                                const initial = (displayName || '?').trim().charAt(0).toUpperCase();
+                                return (
+                                    <div key={s.id} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${isOrphaned ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-slate-50/60'}`}>
+                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-white shrink-0 ${isOrphaned ? 'bg-amber-400' : 'bg-emerald-500'}`}>{isOrphaned ? '⚠' : initial}</div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className={`text-sm font-bold truncate ${isOrphaned ? 'text-amber-700' : 'text-slate-800'}`}>{displayName}</div>
+                                            <div className="text-[11px] text-slate-400 truncate">
+                                                {HOSTELS[s.hostelId]?.name} · с {fmtTime(s.startTime)} {fmtDate(s.startTime)} · <b className="text-emerald-600">{hoursGone}ч</b>
+                                            </div>
+                                            {isOrphaned && <div className="text-[10px] text-amber-600 font-bold">блокирует вход кассирам</div>}
+                                        </div>
+                                        <button
+                                            onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}
+                                            className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors">
+                                            <Power size={12}/> Закрыть
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Add/Edit modal */}
             {isAddModalOpen && (() => {
                 const previewH = shiftForm.startTime && shiftForm.endTime
                     ? ((new Date(shiftForm.endTime)-new Date(shiftForm.startTime))/3600000) : null;
                 const previewSal = previewH && previewH > 0
-                    ? calculateSalary(new Date(shiftForm.startTime).toISOString(), new Date(shiftForm.endTime).toISOString()) : null;
+                    ? calcSalary(new Date(shiftForm.startTime).toISOString(), new Date(shiftForm.endTime).toISOString()) : null;
                 const setTimeOnDate = (dtLocalStr, hh, mm) => {
                     if (!dtLocalStr) { const now = new Date(); now.setHours(hh, mm, 0, 0); return getLocalDatetimeString(now); }
                     const d = new Date(dtLocalStr); d.setHours(hh, mm, 0, 0); return getLocalDatetimeString(d);
@@ -712,10 +966,15 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
 
                                 <div className="flex gap-3 pt-1">
                                     <button onClick={()=>setIsAddModalOpen(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">Отмена</button>
-                                    <button onClick={handleSaveShift} className="flex-2 flex-grow-[2] py-3 rounded-xl text-white text-sm font-bold transition-colors shadow-sm" style={{background:'#4f46e5'}}>
+                                    <button onClick={handleSaveShift} className="flex-2 flex-grow-[2] py-3 rounded-xl text-white text-sm font-bold transition-colors shadow-sm" style={{background:'#16a34a'}}>
                                         {editingShift ? '✏️ Сохранить изменения' : '➕ Добавить смену'}
                                     </button>
                                 </div>
+                                {editingShift && isAdmin && (
+                                    <button onClick={()=>handleDeleteShift(editingShift)} className="w-full py-2.5 rounded-xl border border-rose-200 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors">
+                                        🗑 Удалить смену
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>

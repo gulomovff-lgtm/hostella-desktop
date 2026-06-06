@@ -4,8 +4,8 @@
  * Администратор может принудительно завершить сессию ("Выгнать").
  */
 import React, { useState, useMemo } from 'react';
-import { Monitor, Smartphone, Globe, Clock, UserX, RefreshCw, Wifi, WifiOff } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { Monitor, Smartphone, Globe, Clock, UserX, RefreshCw, Wifi, WifiOff, Trash2, MapPin } from 'lucide-react';
+import { doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 
 const HOSTELS = { hostel1: 'Хостел №1', hostel2: 'Хостел №2', all: 'Оба' };
@@ -29,10 +29,17 @@ const isStale = (lastSeen) => {
   return Date.now() - new Date(lastSeen).getTime() > 2 * 60 * 1000;
 };
 
+/** Сессия считается "зависшей" (устаревшей) если lastSeen > 10 минут или нет активности */
+const isAbandoned = (lastSeen) => {
+  if (!lastSeen) return true;
+  return Date.now() - new Date(lastSeen).getTime() > 10 * 60 * 1000;
+};
+
 const SessionsView = ({ sessions = [], users = [] }) => {
   const [forcingOut, setForcingOut] = useState(null);
   const [filterActive, setFilterActive] = useState(true);
   const [filterHostel, setFilterHostel] = useState('');
+  const [closingStale, setClosingStale] = useState(false);
 
   const displayed = useMemo(() => {
     let list = [...sessions];
@@ -47,8 +54,14 @@ const SessionsView = ({ sessions = [], users = [] }) => {
   );
   const activeCount = useMemo(() => sessions.filter(s => s.active).length, [sessions]);
 
+  /** Количество зависших сессий (активных, но без хартбита > 10 мин) */
+  const staleCount = useMemo(
+    () => sessions.filter(s => s.active && isAbandoned(s.lastSeen)).length,
+    [sessions]
+  );
+
   const handleForceLogout = async (session) => {
-    const user = users.find(u => u.id === session.userId);
+    const user = users.find(u => u.id === session.userId || u.login === session.userId);
     if (!user?.id) return;
     setForcingOut(session.id);
     try {
@@ -59,6 +72,32 @@ const SessionsView = ({ sessions = [], users = [] }) => {
       console.error('[sessions] force logout failed:', e);
     }
     setForcingOut(null);
+  };
+
+  /** Закрыть все зависшие сессии (active=true, lastSeen > 10 мин) */
+  const handleCloseStale = async () => {
+    const toClose = sessions.filter(s => s.active && isAbandoned(s.lastSeen));
+    if (!toClose.length) return;
+    setClosingStale(true);
+    try {
+      // Firestore batch: макс 500 операций за batch
+      const chunks = [];
+      for (let i = 0; i < toClose.length; i += 490) chunks.push(toClose.slice(i, i + 490));
+      const now = new Date().toISOString();
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        for (const s of chunk) {
+          batch.update(doc(db, ...PUBLIC_DATA_PATH, 'sessions', s.id), {
+            active: false,
+            logoutAt: now,
+          });
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      console.error('[sessions] close stale failed:', e);
+    }
+    setClosingStale(false);
   };
 
   return (
@@ -78,6 +117,19 @@ const SessionsView = ({ sessions = [], users = [] }) => {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          {staleCount > 0 && (
+            <button
+              onClick={handleCloseStale}
+              disabled={closingStale}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+              title="Закрыть все сессии без активности более 10 минут"
+            >
+              {closingStale
+                ? <RefreshCw size={12} className="animate-spin" />
+                : <Trash2 size={12} />}
+              Закрыть зависшие ({staleCount})
+            </button>
+          )}
           <select
             value={filterHostel}
             onChange={e => setFilterHostel(e.target.value)}
@@ -156,6 +208,16 @@ const SessionsView = ({ sessions = [], users = [] }) => {
                       )}
                       {s.deviceInfo?.os && (
                         <span>💻 {s.deviceInfo.os}</span>
+                      )}
+                      {s.networkInfo?.ip && (
+                        <span className="font-mono">{s.networkInfo.ip}</span>
+                      )}
+                      {(s.networkInfo?.city || s.networkInfo?.country) && (
+                        <span className="flex items-center gap-1">
+                          <MapPin size={10} />
+                          {[s.networkInfo.city, s.networkInfo.region, s.networkInfo.country]
+                            .filter(Boolean).join(', ')}
+                        </span>
                       )}
                       <span className="flex items-center gap-1">
                         <Clock size={11} /> Вход: {formatTime(s.loginAt)}

@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
     ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Search,
-    BedDouble, Building2, Check, Clock, Wallet, AlertCircle, User
+    BedDouble, Building2, Check, Clock, Wallet, AlertCircle, User,
+    X, FileText, Phone, Edit2
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, PUBLIC_DATA_PATH } from '../../firebase';
+import { computeContractFinancials } from '../../utils/contractFinancials';
 
 // --- Utilities ---
 const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
@@ -30,20 +34,173 @@ const COUNTRY_FLAGS = {
   "Франция":"FR","Италия":"IT","Испания":"ES","Польша":"PL","Украина":"UA","Пакистан":"PK"
 };
 
-const FLAG_SIZES = [20, 40, 80, 160, 320];
-const snapFlagSize = (s) => FLAG_SIZES.find(f => f >= s) || 320;
 const Flag = ({ code, size = 20 }) => {
     if (!code) return null;
-    const w = snapFlagSize(size);
-    const w2 = snapFlagSize(size * 2);
-    const h = Math.round(size * 0.75);
+    return <span className={`fi fi-${code.toLowerCase()}`} style={{ width: size, height: Math.round(size * 0.75), display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }} />;
+};
+
+// --- RentalInfoPopup ---
+const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], payments = [], onClose, onEdit, onPayRental, canEdit }) => {
+    const r = rental || room?.rental;
+    const [group, setGroup] = useState(null);
+    const [loadingContract, setLoadingContract] = useState(false);
+
+    useEffect(() => {
+        if (!pos) return;
+        const handler = (e) => { if (!e.target.closest('[data-rental-popup]')) onClose(); };
+        setTimeout(() => document.addEventListener('mousedown', handler), 0);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [pos, onClose]);
+
+    useEffect(() => {
+        if (!r?.contractGroupId) { setGroup(null); return; }
+        setLoadingContract(true);
+        (async () => {
+            try {
+                const snap = await getDoc(doc(db, ...PUBLIC_DATA_PATH, 'manualStayGroups', r.contractGroupId));
+                setGroup(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+            } catch (e) { console.error('[RentalPopup]', e); setGroup(null); }
+            setLoadingContract(false);
+        })();
+    }, [r?.contractGroupId]);
+
+    // Единый источник цифр договора — та же формула, что и в карточке ManualStay.
+    const fin = useMemo(() => (group ? computeContractFinancials(group, guests, payments) : null), [group, guests, payments]);
+
+    if (!r || !pos) return null;
+    const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU');
+    const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('ru', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+
+    const rentalPaid = (r.paidCash||0)+(r.paidCard||0)+(r.paidQR||0);
+    const hasContract = !!group && !!fin;
+    const charged = hasContract ? fin.contractTotal : (r.totalAmount || 0);
+    const paid    = hasContract ? fin.amountPaid    : rentalPaid;
+    const debt    = hasContract ? fin.debt          : Math.max(0, (r.totalAmount||0) - rentalPaid);
+    const fullyPaid = charged > 0 && debt <= 0;
+
+    const W = 320;
+    const left = Math.min(pos.x + 10, window.innerWidth - W - 12);
+    const top  = Math.min(pos.y + 10, window.innerHeight - 470);
+    const TEAL = historical
+        ? { bg: 'linear-gradient(135deg,#64748b,#475569)', border: '#94a3b8' }
+        : { bg: 'linear-gradient(135deg,#0f9688,#0d7a6e)', border: '#0f9688' };
+
+    const Row = ({ label, children }) => (
+        <div className="flex justify-between gap-3 text-xs">
+            <span className="text-slate-400 shrink-0">{label}</span>
+            <span className="text-right font-semibold text-slate-700">{children}</span>
+        </div>
+    );
+
     return (
-        <img
-            src={`https://flagcdn.com/w${w}/${code.toLowerCase()}.png`}
-            srcSet={`https://flagcdn.com/w${w2}/${code.toLowerCase()}.png 2x`}
-            width={size} height={h} alt={code}
-            style={{ display:'inline-block', objectFit:'cover', borderRadius:2, verticalAlign:'middle', flexShrink:0 }}
-        />
+        <div data-rental-popup className="fixed z-[300] bg-white rounded-2xl shadow-2xl overflow-hidden" style={{ left, top, width: W, border: `1.5px solid ${TEAL.border}` }}>
+            {/* Header */}
+            <div className="px-4 py-3 flex items-start justify-between gap-2" style={{ background: TEAL.bg }}>
+                <div className="min-w-0">
+                    <div className="text-white font-black text-sm leading-tight flex items-center gap-1.5">
+                        Комната №{room.number} · Аренда
+                        {historical && <span className="text-[9px] font-black bg-white/25 px-1.5 py-0.5 rounded-full">ЗАВЕРШЕНО</span>}
+                    </div>
+                    <div className="text-white/80 text-xs mt-0.5 font-semibold truncate">{r.tenantName || '—'}</div>
+                </div>
+                <button onClick={onClose} className="shrink-0 w-5 h-5 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full text-white mt-0.5"><X size={11}/></button>
+            </div>
+
+            <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
+                {/* Период + арендатор */}
+                <div className="space-y-1.5">
+                    <Row label="Период">{fmtDate(r.checkInDate)} — {fmtDate(r.checkOutDate)} <span className="text-slate-400 font-normal">({r.days||'?'} дн.)</span></Row>
+                    {r.passport && <Row label="Паспорт"><span className="font-mono">{r.passport}</span></Row>}
+                    {r.phone && <Row label="Телефон"><span className="inline-flex items-center gap-1"><Phone size={10}/>{r.phone}</span></Row>}
+                    {r.comment && <Row label="Комментарий"><span className="italic">{r.comment}</span></Row>}
+                    {r.contractNote && !hasContract && <Row label="Договор">{r.contractNote}</Row>}
+                </div>
+
+                {/* Финансы — крупно и заметно */}
+                {loadingContract ? (
+                    <div className="text-[11px] text-slate-400 text-center py-3">Загрузка договора…</div>
+                ) : (charged > 0 || paid > 0) ? (
+                    <div className="rounded-xl border overflow-hidden" style={{ borderColor: debt > 0 ? '#fecaca' : '#bbf7d0' }}>
+                        <div className="px-3 py-2 flex items-center justify-between gap-2" style={{ background: debt > 0 ? '#fef2f2' : '#f0fdf4' }}>
+                            {hasContract ? (
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-black truncate" style={{ color: '#0f9688' }}>
+                                    <FileText size={11} className="shrink-0"/> {group.name || r.contractGroupName || 'Договор'}
+                                </span>
+                            ) : <span className="text-[11px] font-bold text-slate-500">Финансы аренды</span>}
+                            {debt > 0
+                                ? <span className="text-[11px] font-black text-rose-600 shrink-0">Есть долг</span>
+                                : fullyPaid ? <span className="text-[11px] font-black text-emerald-600 shrink-0">✓ Оплачено</span> : null}
+                        </div>
+                        <div className="px-3 py-2.5 space-y-1.5">
+                            {hasContract && fin.contractRate > 0 ? (
+                                <div className="text-[10px] text-slate-400">{fmtMoney(fin.contractRate)} сум/чел-ночь × {fin.totalPersonNights} чел-ночей</div>
+                            ) : (!hasContract && r.pricePerDay > 0 ? (
+                                <div className="text-[10px] text-slate-400">{fmtMoney(r.pricePerDay)} сум/день × {r.days || '?'} дн.</div>
+                            ) : null)}
+                            <div className="flex justify-between text-xs">
+                                <span className="text-slate-500 font-semibold">Начислено</span>
+                                <span className="font-black text-slate-800">{fmtMoney(charged)} сум</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                                <span className="text-slate-500 font-semibold">Оплачено</span>
+                                <span className="font-black text-emerald-600">{fmtMoney(paid)} сум</span>
+                            </div>
+                            {hasContract ? (
+                                <div className="pl-2 space-y-0.5">
+                                    {fin.paidCash > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">наличные</span><span className="text-slate-500">{fmtMoney(fin.paidCash)}</span></div>}
+                                    {fin.paidTransfer > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">перечисление</span><span className="text-slate-500">{fmtMoney(fin.paidTransfer)}</span></div>}
+                                    {fin.paidCard > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">карта</span><span className="text-slate-500">{fmtMoney(fin.paidCard)}</span></div>}
+                                    {fin.paidQR > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">QR</span><span className="text-slate-500">{fmtMoney(fin.paidQR)}</span></div>}
+                                </div>
+                            ) : (
+                                <div className="pl-2 space-y-0.5">
+                                    {r.paidCash > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">наличные</span><span className="text-slate-500">{fmtMoney(r.paidCash)}</span></div>}
+                                    {r.paidCard > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">карта</span><span className="text-slate-500">{fmtMoney(r.paidCard)}</span></div>}
+                                    {r.paidQR > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">QR</span><span className="text-slate-500">{fmtMoney(r.paidQR)}</span></div>}
+                                </div>
+                            )}
+                            {debt > 0 && (
+                                <div className="flex justify-between items-center pt-2 mt-1 border-t border-rose-100">
+                                    <span className="text-xs font-black text-rose-600">Долг</span>
+                                    <span className="text-base font-black text-rose-600">{fmtMoney(debt)} сум</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : null}
+
+                {/* Оформил */}
+                {(r.staffName || r.createdAt) && (
+                    <div className="flex justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                        <span>Оформил: {r.staffName || '—'}</span>
+                        {r.createdAt && <span>{fmtDate(r.createdAt)}</span>}
+                    </div>
+                )}
+            </div>
+
+            {canEdit && !historical && (
+                <div className="px-4 pb-4 pt-1 space-y-2">
+                    {debt > 0 && onPayRental && (
+                        <button onClick={() => { onClose(); onPayRental(room); }}
+                            className="w-full py-2.5 flex items-center justify-center gap-1.5 text-white rounded-xl font-black text-xs transition-colors"
+                            style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)' }}>
+                            <Wallet size={13}/> Оплатить долг · {fmtMoney(debt)}
+                        </button>
+                    )}
+                    <button onClick={() => { onClose(); onEdit(room); }}
+                        className="w-full py-2 flex items-center justify-center gap-1.5 rounded-xl font-bold text-xs transition-colors border border-slate-200 text-slate-600 hover:bg-slate-50">
+                        <Edit2 size={12}/> Редактировать аренду
+                    </button>
+                </div>
+            )}
+            {historical && (
+                <div className="px-4 pb-4 pt-1">
+                    <div className="w-full py-2 flex items-center justify-center gap-1.5 text-slate-400 bg-slate-50 rounded-xl font-bold text-[11px] border border-slate-200">
+                        Завершённая аренда (из архива)
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -151,7 +308,7 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
 };
 
 // --- CalendarView ---
-const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [] }) => {
+const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [], onRentalClick, onPayRental, payments = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
@@ -168,6 +325,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
     const [dragData, setDragData]     = useState(null);
     const [resizeData, setResizeData]  = useState(null); // { guestId, origCheckInISO, origDays, startX }
+    const [rentalPopup, setRentalPopup] = useState(null); // { room, pos: {x,y} }
     const ttRef = useRef(null);
     const rafRef = useRef(null);
     const calRef = useRef(null);
@@ -297,7 +455,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             if (!co) { co = new Date(ci); co.setDate(co.getDate() + parseInt(g.days || 1)); }
             ci = new Date(ci); ci.setHours(12,0,0,0);
             co = new Date(co); co.setHours(12,0,0,0);
-            const startPx = Math.max(0, (ci.getTime() - rangeStartMs) / 86400000 * DAY_W);
+            const startPxRaw = (ci.getTime() - rangeStartMs) / 86400000 * DAY_W; // без обрезки
+            const startPx = Math.max(0, startPxRaw);
             const endPx   = (co.getTime() - rangeStartMs) / 86400000 * DAY_W;
             const widthPx = Math.max(DAY_W, endPx - startPx);
             if (endPx <= 0 || startPx >= zoom * DAY_W) { result[g.id] = null; return; }
@@ -322,7 +481,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     bonusPct2 = Math.max(bonusPct1 + 1, Math.min(99, p2));
                 }
             }
-            result[g.id] = { left: startPx, width: visWidth, bonusColorPct, bonusPct1, bonusPct2 };
+            result[g.id] = { left: startPx, width: visWidth, startPxRaw, endPx, bonusColorPct, bonusPct1, bonusPct2 };
         });
         return result;
     }, [filteredGuests, days, DAY_W, zoom]);
@@ -346,7 +505,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     }, [filteredGuests, days, rooms]);
 
     const getBarStyle = useCallback((g, barData) => {
-        const { bonusColorPct, bonusPct1, bonusPct2 } = barData || {};
+        const { bonusColorPct, bonusPct1, bonusPct2, startPxRaw, endPx, width: visWidth } = barData || {};
         const paid  = getTotalPaid(g);
         const debt  = (g.totalPrice || 0) - paid;
         const isOut = g.status === 'checked_out';
@@ -355,7 +514,19 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         const bonusCo = g.bonusCheckOutDate ? parseDate(g.bonusCheckOutDate) : null;
         const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : co;
         const isExp = effectiveCo && new Date() > effectiveCo && !isOut;
-        const pct   = g.totalPrice ? Math.min(100, Math.round((paid / g.totalPrice) * 100)) : 100;
+
+        // Позиция перехода green→red: процент от ВИДИМОЙ части полоски с учётом обрезки слева
+        const rawPct = g.totalPrice > 0 ? Math.min(1, paid / g.totalPrice) : 1;
+        let gradPct = Math.round(rawPct * 100);
+        if (startPxRaw != null && endPx != null && visWidth > 0) {
+            const fullBarWidth = endPx - startPxRaw;
+            if (fullBarWidth > 0) {
+                const leftEdge = Math.max(0, startPxRaw);
+                const transitionAbsPx = startPxRaw + rawPct * fullBarWidth;
+                gradPct = Math.min(100, Math.max(0, Math.round((transitionAbsPx - leftEdge) / visWidth * 100)));
+            }
+        }
+
         if (isBk)  return { cls: 'border-yellow-500 text-yellow-900', bg: '#fef08a' };
         if (isExp) return { cls: 'border-red-700 text-white', bg: '#dc2626' };
         if (isOut && debt > 0) return { cls: 'border-rose-300 text-rose-700', bg: '#fecdd3' };
@@ -369,7 +540,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             const pp = bonusColorPct ?? 70;
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
         }
-        if (debt > 0 && paid > 0) return { cls: 'border-red-600 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pct}%,#ef4444 ${pct}%,#dc2626 100%)` };
+        if (debt > 0 && paid > 0) return { cls: 'border-red-600 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${gradPct}%,#ef4444 ${gradPct}%,#dc2626 100%)` };
         if (debt > 0) return { cls: 'border-red-600 text-white', bg: '#ef4444' };
         return { cls: 'border-green-700 text-white', bg: '#22c55e' };
     }, []);
@@ -425,11 +596,11 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     <button onClick={() => setColScale(s => Math.max(0.4, parseFloat((s-0.1).toFixed(2))))} className="w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 text-slate-500 text-sm font-bold">-</button>
                     <span className="text-[11px] font-bold text-slate-600 w-9 text-center select-none">{Math.round(colScale*100)}%</span>
                     <button onClick={() => setColScale(s => Math.min(4, parseFloat((s+0.1).toFixed(2))))} className="w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 text-slate-500 text-sm font-bold">+</button>
-                    {colScale !== 1.0 && <button onClick={() => setColScale(1.0)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 ml-0.5">0</button>}
+                    {colScale !== 1.0 && <button onClick={() => setColScale(1.0)} className="text-[10px] font-bold text-teal-500 hover:text-teal-700 ml-0.5">0</button>}
                 </div>
                 <div className="relative">
                     <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('calSearchPlaceholder')} className="pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-36"/>
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('calSearchPlaceholder')} className="pl-7 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-300 w-36"/>
                 </div>
                 <div className="hidden lg:flex items-center gap-3 text-[10px] font-bold text-slate-500 border-l border-slate-200 pl-3 ml-1">
                     {[{bg:'#22c55e',label:t('paid')},{bg:'#fef08a',label:t('booking'),border:'#ca8a04'},{bg:'#ef4444',label:t('debt')},{bg:'#dc2626',label:t('calOverdueLabel')},{bg:'#e2e8f0',label:t('calCheckedOutLabel'),border:'#94a3b8'}].map(l => (
@@ -477,11 +648,11 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                             const isSun = d.wd === 0, isSat = d.wd === 6, isNew = d.day === 1 || i === 0;
                             return (
                                 <div key={d.str} className={`shrink-0 relative flex flex-col items-center justify-center border-r select-none
-                                    ${isToday ? 'bg-indigo-600 text-white' : isSun || isSat ? 'bg-amber-50 text-amber-700' : 'bg-white text-slate-600'}
+                                    ${isToday ? 'bg-gradient-to-b from-teal-500 to-teal-600 text-white shadow-sm' : isSun || isSat ? 'bg-amber-50 text-amber-700' : 'bg-white text-slate-600'}
                                     border-slate-200`} style={{ width: DAY_W }}>
-                                    {isNew && <span className={`absolute -left-px top-0 h-full w-0.5 ${isToday ? 'bg-indigo-400' : 'bg-slate-300'}`}/>}
-                                    {isNew && <span className={`absolute top-0 left-1 text-[8px] font-black uppercase ${isToday ? 'text-indigo-200' : 'text-slate-400'}`}>{d.date.toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru',{month:'short'})}</span>}
-                                    <span className={`text-[9px] font-bold uppercase leading-none mt-1 ${isToday ? 'text-indigo-200' : isSun||isSat ? 'text-amber-500' : 'text-slate-400'}`}>{WDAY[d.wd]}</span>
+                                    {isNew && <span className={`absolute -left-px top-0 h-full w-0.5 ${isToday ? 'bg-teal-400' : 'bg-slate-300'}`}/>}
+                                    {isNew && <span className={`absolute top-0 left-1 text-[8px] font-black uppercase ${isToday ? 'text-teal-200' : 'text-slate-400'}`}>{d.date.toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru',{month:'short'})}</span>}
+                                    <span className={`text-[9px] font-bold uppercase leading-none mt-1 ${isToday ? 'text-teal-200' : isSun||isSat ? 'text-amber-500' : 'text-slate-400'}`}>{WDAY[d.wd]}</span>
                                     <span className={`text-sm font-black leading-tight ${isToday ? 'text-white' : ''}`}>{d.day}</span>
                                 </div>
                             );
@@ -493,9 +664,9 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                         <div className="shrink-0 flex items-center justify-center bg-slate-50 border-r-2 border-slate-300 text-[9px] font-black text-slate-400 uppercase sticky left-0 z-40" style={{ width: LABEL_W }}>{t('occupancy')}</div>
                         {dailyOcc.map((o, i) => {
                             const isToday = days[i].str === todayStr;
-                            const color = o.pct >= 90 ? '#10b981' : o.pct >= 60 ? '#f59e0b' : o.pct >= 30 ? '#6366f1' : '#94a3b8';
+                            const color = o.pct >= 90 ? '#10b981' : o.pct >= 60 ? '#f59e0b' : o.pct >= 30 ? '#0f9688' : '#94a3b8';
                             return (
-                                <div key={i} className={`shrink-0 flex flex-col items-center justify-center border-r border-slate-100 ${isToday ? 'bg-indigo-50' : ''}`} style={{ width: DAY_W }}>
+                                <div key={i} className={`shrink-0 flex flex-col items-center justify-center border-r border-slate-100 ${isToday ? 'bg-teal-50' : ''}`} style={{ width: DAY_W }}>
                                     <div className="w-full px-0.5" style={{ height: 4 }}><div style={{ width:`${o.pct}%`, height:'100%', background:color, borderRadius:2 }}/></div>
                                     <span className="text-[8px] font-black leading-none" style={{ color }}>{o.count || ''}</span>
                                 </div>
@@ -505,21 +676,60 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
 
                     {/* Room rows */}
                     {sortedRooms.map(room => {
+                        const isRented = !!room.rental?.active;
+                        // Все периоды аренды: активная (если есть) + архив из rentalHistory
+                        const rentalPeriods = [
+                            ...(isRented ? [{ data: room.rental, active: true }] : []),
+                            ...((Array.isArray(room.rentalHistory) ? room.rentalHistory : [])
+                                .filter(h => h && (h.checkInDate || h.checkOutStr || h.checkOutDate))
+                                .map(h => ({ data: h, active: false }))),
+                        ].map(p => ({
+                            ...p,
+                            startStr: (p.data.checkInDate || '').slice(0, 10),
+                            endStr:   (p.data.checkOutStr || (p.data.checkOutDate || '').slice(0, 10)),
+                        })).filter(p => p.startStr && p.endStr && p.endStr > p.startStr);
+                        // Аренда идёт 12:00→12:00, как у гостей: в день заезда занята вторая
+                        // половина дня (после 12:00), в день выезда — первая (до 12:00),
+                        // промежуточные дни — целиком. Возвращаем перекрывающий период (или null).
+                        const periodRightHalf = (dayStr) => rentalPeriods.find(p => dayStr >= p.startStr && dayStr < p.endStr) || null;
+                        const periodLeftHalf  = (dayStr) => rentalPeriods.find(p => dayStr >  p.startStr && dayStr <= p.endStr) || null;
+                        const rentalStartStr = isRented ? (room.rental.checkInDate || '').slice(0, 10) : null;
+                        const rentalEndStr   = isRented ? (room.rental.checkOutStr || (room.rental.checkOutDate || '').slice(0, 10)) : null;
+                        const rentedRightHalf = (dayStr) => !!rentalStartStr && !!rentalEndStr && dayStr >= rentalStartStr && dayStr < rentalEndStr;
+                        const rentedLeftHalf  = (dayStr) => !!rentalStartStr && !!rentalEndStr && dayStr > rentalStartStr && dayStr <= rentalEndStr;
+                        const isDayRented = (dayStr) => rentedRightHalf(dayStr) || rentedLeftHalf(dayStr);
+                        const RENTAL_STRIPE = 'repeating-linear-gradient(45deg, rgba(234,88,12,0.18) 0px, rgba(234,88,12,0.18) 3px, rgba(255,237,213,0.4) 3px, rgba(255,237,213,0.4) 9px)';
+                        const RENTAL_STRIPE_PAST = 'repeating-linear-gradient(45deg, rgba(100,116,139,0.16) 0px, rgba(100,116,139,0.16) 3px, rgba(226,232,240,0.45) 3px, rgba(226,232,240,0.45) 9px)';
+                        const stripeFor = (p) => p ? (p.active ? RENTAL_STRIPE : RENTAL_STRIPE_PAST) : undefined;
+                        const openPeriod = (p, e) => { e.stopPropagation(); setRentalPopup({ room, rental: p.data, historical: !p.active, pos: { x: e.clientX, y: e.clientY } }); };
+                        const todayRented = isDayRented(todayStr);
                         const roomGuests = filteredGuests.filter(g => g.roomId === room.id && g.status !== 'checked_out');
                         const occupied = roomGuests.length;
                         const capNum = parseInt(room.capacity || 0);
                         const occPct = capNum ? Math.round((occupied / capNum) * 100) : 0;
-                        const occColor = occPct >= 90 ? 'text-emerald-600 bg-emerald-50' : occPct >= 50 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-100';
+                        const isPopupOpen = rentalPopup?.room.id === room.id;
+                        const occColor = isRented
+                            ? (isPopupOpen ? 'text-white' : 'text-teal-700 bg-teal-100')
+                            : occPct >= 90 ? 'text-emerald-600 bg-emerald-50' : occPct >= 50 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-100';
                         return (
                             <div key={room.id} className="border-b-2 border-slate-300">
-                                <div className="flex items-center border-b border-slate-200 bg-slate-100" style={{ height: 28 }}>
-                                    <div className="shrink-0 flex items-center justify-between px-3 border-r-2 border-slate-300 sticky left-0 z-[35] bg-slate-100" style={{ width: LABEL_W }}>
+                                <div className={`flex items-center border-b border-slate-200 ${isRented ? 'bg-teal-50/40' : 'bg-slate-100'}`} style={{ height: 28 }}>
+                                    <div className={`shrink-0 flex items-center justify-between px-3 border-r-2 border-slate-300 sticky left-0 z-[35] ${isRented ? 'bg-teal-50/40' : 'bg-slate-100'}`} style={{ width: LABEL_W }}>
                                         <span className="flex items-center gap-1.5 font-black text-xs text-slate-700 whitespace-nowrap"><Building2 size={11} className="text-slate-500"/>№{room.number}</span>
-                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${occColor}`}>{occupied}/{capNum}</span>
+                                        <span
+                                            className={`text-[9px] font-black px-1.5 py-0.5 rounded-md transition-colors ${isRented ? 'cursor-pointer' : ''} ${occColor}`}
+                                            style={isRented && isPopupOpen ? { background: '#0f9688' } : {}}
+                                            onClick={isRented ? (e) => { e.stopPropagation(); setRentalPopup(p => p?.room.id === room.id ? null : { room, pos: { x: e.clientX, y: e.clientY } }); } : undefined}
+                                        >{isRented ? '🏢 Аренда' : `${occupied}/${capNum}`}</span>
                                     </div>
                                     {days.map((d) => {
                                         const isToday = d.str === todayStr;
-                                        return <div key={d.str} className={`shrink-0 border-r border-slate-200 ${isToday ? 'bg-indigo-100' : ''}`} style={{ width: DAY_W, height:'100%' }}/>;
+                                        const lP = periodLeftHalf(d.str), rP = periodRightHalf(d.str);
+                                        return <div key={d.str} className={`shrink-0 border-r flex ${isToday ? 'bg-teal-100 border-teal-200' : (lP || rP) ? 'border-orange-200' : 'border-slate-200'}`}
+                                            style={{ width: DAY_W, height:'100%' }}>
+                                            <div className={`w-1/2 h-full ${lP ? 'cursor-pointer' : ''}`} style={lP ? { background: stripeFor(lP) } : {}} onClick={lP ? (e) => openPeriod(lP, e) : undefined}/>
+                                            <div className={`w-1/2 h-full ${rP ? 'cursor-pointer' : ''}`} style={rP ? { background: stripeFor(rP) } : {}} onClick={rP ? (e) => openPeriod(rP, e) : undefined}/>
+                                        </div>;
                                     })}
                                 </div>
                                 {Array.from({ length: capNum }, (_, i) => i + 1).map(bedId => {
@@ -527,19 +737,23 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                     const hasCurrent = bedGuests.some(g => g.status === 'active');
                                     return (
                                         <div key={bedId} className={`flex relative border-b border-slate-100 group/row ${hasCurrent ? '' : 'bg-white'}`} style={{ height: ROW_H }}>
-                                            <div className={`shrink-0 flex items-center border-r-2 border-slate-200 sticky left-0 z-[35] text-xs font-bold text-slate-500 ${hasCurrent ? 'bg-emerald-50' : 'bg-white'} ${isMobile ? 'gap-1 px-2' : 'gap-2 px-3'}`} style={{ width: LABEL_W }}>
-                                                <BedDouble size={isMobile ? 11 : 13} className={hasCurrent ? 'text-emerald-500' : 'text-slate-300'}/>
+                                            <div className={`shrink-0 flex items-center border-r-2 border-slate-200 sticky left-0 z-[35] text-xs font-bold text-slate-500 ${todayRented ? 'bg-teal-50/50' : hasCurrent ? 'bg-emerald-50' : 'bg-white'} ${isMobile ? 'gap-1 px-2' : 'gap-2 px-3'}`} style={{ width: LABEL_W }}>
+                                                <BedDouble size={isMobile ? 11 : 13} className={todayRented ? 'text-teal-500' : hasCurrent ? 'text-emerald-500' : 'text-slate-300'}/>
                                                 <span className="truncate">{isMobile ? `М.${bedId}` : `Место ${bedId}`}</span>
-                                                {!hasCurrent && !isMobile && <span className="ml-auto text-[9px] text-emerald-500 font-black">свободно</span>}
-                                                {!hasCurrent && isMobile && <span className="ml-auto text-[8px] text-emerald-500 font-black">✓</span>}
+                                                {todayRented && !isMobile && <span className="ml-auto text-[9px] text-teal-600 font-black">аренда</span>}
+                                                {todayRented && isMobile && <span className="ml-auto text-[8px] text-teal-600 font-black">🏢</span>}
+                                                {!todayRented && !hasCurrent && !isMobile && <span className="ml-auto text-[9px] text-emerald-500 font-black">свободно</span>}
+                                                {!todayRented && !hasCurrent && isMobile && <span className="ml-auto text-[8px] text-emerald-500 font-black">✓</span>}
                                             </div>
                                             <div className="relative flex-1 overflow-hidden" style={{ width: zoom * DAY_W }}>
                                                 <div className="absolute inset-0 flex pointer-events-none">
                                                     {days.map((d, i) => {
                                                         const isToday = d.str === todayStr;
                                                         const isSat = d.wd === 6, isSun = d.wd === 0;
+                                                        const lP = periodLeftHalf(d.str), rP = periodRightHalf(d.str);
+                                                        const dayRented = !!(lP || rP);
                                                         return (
-                                                            <div key={d.str} className={`shrink-0 h-full border-r flex ${isToday?'bg-indigo-50/70 border-indigo-200':isSat||isSun?'bg-amber-50/40 border-amber-100':'border-slate-100'}`}
+                                                            <div key={d.str} className={`shrink-0 h-full border-r flex ${dayRented ? 'border-orange-200' : isToday?'bg-teal-50/70 border-teal-200':isSat||isSun?'bg-amber-50/40 border-amber-100':'border-slate-100'}`}
                                                                 style={{ width: DAY_W }}
                                                                 onDragOver={dragData ? (e) => e.preventDefault() : undefined}
                                                                 onDrop={dragData ? (e) => {
@@ -553,8 +767,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                     } catch {}
                                                                     setDragData(null);
                                                                 } : undefined}>
-                                                                <div className="w-1/2 h-full pointer-events-auto hover:bg-indigo-100/50 cursor-pointer border-r border-dashed border-slate-100/60" onClick={() => handleEmptyClick(room, bedId, d.str, false)}/>
-                                                                <div className="w-1/2 h-full pointer-events-auto hover:bg-indigo-100/50 cursor-pointer" onClick={() => handleEmptyClick(room, bedId, d.str, true)}/>
+                                                                <div className={`w-1/2 h-full border-r border-dashed border-slate-100/60 ${lP ? 'cursor-pointer pointer-events-auto' : 'pointer-events-auto hover:bg-teal-100/50 cursor-pointer'}`} style={lP ? { background: stripeFor(lP) } : {}} onClick={lP ? (e) => openPeriod(lP, e) : () => handleEmptyClick(room, bedId, d.str, false)}/>
+                                                                <div className={`w-1/2 h-full ${rP ? 'cursor-pointer pointer-events-auto' : 'pointer-events-auto hover:bg-teal-100/50 cursor-pointer'}`} style={rP ? { background: stripeFor(rP) } : {}} onClick={rP ? (e) => openPeriod(rP, e) : () => handleEmptyClick(room, bedId, d.str, true)}/>
                                                             </div>
                                                         );
                                                     })}
@@ -619,7 +833,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                 {(() => {
                                                     const todayIdx = days.findIndex(d => d.str === todayStr);
                                                     if (todayIdx < 0) return null;
-                                                    return <div className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-30 pointer-events-none" style={{ left: todayIdx * DAY_W + DAY_W / 2 }}/>;
+                                                    return <div className="absolute top-0 bottom-0 w-0.5 bg-teal-500 z-30 pointer-events-none" style={{ left: todayIdx * DAY_W + DAY_W / 2 }}/>;
                                                 })()}
                                             </div>
                                         </div>
@@ -631,6 +845,20 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                 </div>
             </div>
             {hoveredGuest && <GuestTooltip guest={hoveredGuest} room={hoveredGuest.room} mousePos={mousePos} lang={lang} clients={clients}/>}
+            {rentalPopup && (
+                <RentalInfoPopup
+                    room={rentalPopup.room}
+                    rental={rentalPopup.rental}
+                    historical={rentalPopup.historical}
+                    pos={rentalPopup.pos}
+                    guests={guests}
+                    payments={payments}
+                    onClose={() => setRentalPopup(null)}
+                    onEdit={(room) => { onRentalClick?.(room); }}
+                    onPayRental={onPayRental}
+                    canEdit={canEditBars}
+                />
+            )}
         </div>
     );
 };

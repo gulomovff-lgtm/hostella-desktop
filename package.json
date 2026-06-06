@@ -1,7 +1,7 @@
 {
   "name": "hostella-desktop",
   "private": true,
-  "version": "0.5.2",
+  "version": "0.8.4",
   "description": "Hostella Management System",
   "author": "Fazliddin Gulomov",
   "main": "electron/main.js",
@@ -49,8 +49,10 @@
     }
   },
   "dependencies": {
+    "@sentry/react": "^10.54.0",
     "electron-log": "^5.0.0",
     "electron-updater": "^6.1.7",
+    "exceljs": "^4.4.0",
     "firebase": "^11.0.0",
     "flag-icons": "^7.5.0",
     "framer-motion": "^12.38.0",

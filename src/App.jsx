@@ -15,7 +15,8 @@ import {
   setDoc,
   increment,
   writeBatch,
-  deleteField
+  deleteField,
+  arrayUnion
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions, PUBLIC_DATA_PATH } from './firebase';
@@ -112,7 +113,8 @@ import {
   TrendingUp,
   TrendingDown,
   Phone,
-  Minus
+  Minus,
+  ArrowUp
 } from 'lucide-react';
 
 // --- Вынесенные компоненты ---
@@ -142,12 +144,15 @@ import ShiftsView from './components/Views/ShiftsView';
 import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import SessionsView from './components/Views/SessionsView';
+import ClientVersionsView from './components/Views/ClientVersionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
 import ManualStayView from './components/Views/ManualStayView';
 import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction, logSystemError } from './utils/auditLog';
+import { reportClientVersion } from './utils/clientTelemetry';
+import { loadAppConfig, getConfig } from './utils/appConfig';
 import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, getLoginAt, LOGIN_AT_KEY } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
@@ -175,7 +180,9 @@ import BookingsView from './components/Views/BookingsView';
 import GroupCheckInModal from './components/Modals/GroupCheckInModal';
 import RoomRentalModal from './components/Modals/RoomRentalModal';
 import RentalExtendModal from './components/Modals/RentalExtendModal';
+import RentalPayModal from './components/Modals/RentalPayModal';
 import TemplateEditorModal from './components/Modals/TemplateEditorModal';
+import GroupReceiptModal from './components/Modals/GroupReceiptModal';
 import HostelSettingsView from './components/Views/HostelSettingsView';
 import OnboardingTour, { LS_KEY as ONBOARDING_KEY } from './components/UI/OnboardingTour';
 import UndoHistoryModal from './components/Modals/UndoHistoryModal';
@@ -309,7 +316,7 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
   const [confirmEndRental, setConfirmEndRental] = useState(null);
-  const [lang, setLang] = useState('ru');
+  const [lang, setLang] = useState(() => getConfig().defaultLang || 'ru');
   const [loginThemeId, setLoginThemeId] = useState(
     () => localStorage.getItem('hostella_login_theme') || 'auto'
   );
@@ -318,7 +325,7 @@ function App() {
     localStorage.setItem('hostella_login_theme', id);
   };
   const [appTheme, setAppTheme] = useState(() => {
-    const saved = localStorage.getItem('hostella_app_theme') || 'green';
+    const saved = localStorage.getItem('hostella_app_theme') || getConfig().defaultTheme || 'green';
     const valid  = saved === 'dark' ? 'dark' : 'green'; // сброс старых тем
     if (valid === 'dark') document.documentElement.dataset.theme = 'dark';
     else delete document.documentElement.dataset.theme;
@@ -365,6 +372,16 @@ function App() {
     check();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Телеметрия версии клиента ────────────────────────────────────────────
+  // Пишем версию запущенного клиента в Firestore при входе и раз в 30 мин,
+  // чтобы видеть удалённо, кто на какой версии и когда последний раз заходил.
+  useEffect(() => {
+    if (!currentUser?.login) return;
+    reportClientVersion(currentUser);
+    const id = setInterval(() => reportClientVersion(currentUser), 30 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [currentUser?.login, currentUser?.hostelId, currentUser?.role]);
+
   // ─── Глобальное логирование системных ошибок JS ───────────────────────────
   useEffect(() => {
     const onError = (e) => {
@@ -392,6 +409,8 @@ function App() {
     rooms, guests, expenses, clients, payments,
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
     recurringExpenses, hostelConfig, sessions, cadastres, cadastreRegs,
+    manualStayGroups,
+    clientVersions,
     isOnline, permissionError, isDataReady,
   } = useAppData(firebaseUser, currentUser);
 
@@ -400,7 +419,9 @@ function App() {
   const [roomRentalModal,    setRoomRentalModal   ] = useState(false);
   const [rentalEditModal,    setRentalEditModal   ] = useState(null); // room object or null
   const [rentalExtendModal,  setRentalExtendModal ] = useState(null); // room object or null
+  const [rentalPayModal,     setRentalPayModal    ] = useState(null); // room object or null
   const [templateEditorModal, setTemplateEditorModal] = useState(false);
+  const [groupReceiptOpen, setGroupReceiptOpen] = useState(false);
   const [registrationModal,  setRegistrationModal ] = useState(false);
   const [showOnboarding,     setShowOnboarding    ] = useState(() => localStorage.getItem(ONBOARDING_KEY) !== 'done');
   const [undoStack,         setUndoStack         ] = useState(() => {
@@ -434,6 +455,8 @@ function App() {
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenseModalCategory, setExpenseModalCategory] = useState('');
+  const contentScrollRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [expenseCatFilter, setExpenseCatFilter] = useState('Все');
   const [expSearch, setExpSearch] = useState('');
   const [shiftModal, setShiftModal] = useState(false);
@@ -536,7 +559,7 @@ function App() {
 
         // GATE 1.5 — per-hostel auto-checkout enabled check
         const guestHostelId = guest.hostelId || 'hostel1';
-        if (hostelConfig?.[guestHostelId]?.autoCheckoutEnabled === false) continue;
+        if (autoCheckoutConfigRef.current?.[guestHostelId]?.autoCheckoutEnabled === false) continue;
 
         // GATE 2 — effective checkout time
         const effectiveCo = getEffectiveCo(guest);
@@ -789,10 +812,18 @@ function App() {
     }
   }, []);
 
+  // Загружаем глобальный конфиг приложения (настройки без кода)
+  useEffect(() => {
+    loadAppConfig().then(cfg => {
+      try { if (cfg?.appName) document.title = cfg.appName; } catch { /* ignore */ }
+      try { if (cfg?.brandColor) document.documentElement.style.setProperty('--brand', cfg.brandColor); } catch { /* ignore */ }
+    });
+  }, []);
+
   useEffect(() => {
     signInAnonymously(auth).catch(err => console.error(err));
-    const unsubAuth = onAuthStateChanged(auth, (user) => { 
-      setFirebaseUser(user); 
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
       setIsLoadingAuth(false); 
     });
     
@@ -1121,12 +1152,12 @@ function App() {
   const {
     handleStartShift, handleEndShift,
     handleTransferShift, handleTransferToMe,
-    handleAdminAddShift, handleAdminUpdateShift,
+    handleAdminAddShift, handleAdminUpdateShift, handleAdminDeleteShift,
     handleAddUser, handleUpdateUser, handleDeleteUser: deleteUserById,
     handleChangePassword,
   } = useShiftActions({
     currentUser, setCurrentUser,
-    usersList, shifts,
+    usersList, shifts, payments,
     showNotification, onLogout: handleLogout,
   });
 
@@ -1411,14 +1442,10 @@ const filterByHostel = (items) => {
       // Первая загрузка данных — просто запоминаем текущие ID, не шлём Telegram
       bookingsInitialized.current = true;
     } else if (newOnes.length > 0) {
+      // Только всплывающее уведомление в приложении. В Telegram уведомляет
+      // Cloud Function createWebBooking (один раз на сервере при создании брони),
+      // поэтому клиент НЕ шлёт — иначе дубли с каждого онлайн-устройства.
       showNotification(`🔔 Новая заявка с сайта! (всего: ${pendingBookingsCount})`, 'success');
-      if (isOnline) {
-        newOnes.forEach(b => {
-          const hostelName = b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-          const msg = `📋 <b>Новая онлайн-бронь</b>\n👤 ${b.fullName || '—'}\n📞 ${b.phone || '—'}\n📅 ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'} → ${b.checkOutDate ? new Date(b.checkOutDate).toLocaleDateString('ru-RU') : '?'} (${b.days || 1} дн.)\n🏨 ${hostelName}`;
-          sendTelegramMessage(msg, 'newBooking');
-        });
-      }
     }
 
     // Сохраняем актуальные ID (только pending-брони, чтобы сет не раздувался)
@@ -1562,10 +1589,44 @@ const filterByHostel = (items) => {
     }
   };
 
+  // Записываем оплату аренды в кассу (коллекция payments) — иначе она не попадает в смену/отчёты
+  const logRentalPayments = async (room, { cash = 0, card = 0, qr = 0 } = {}, tenantName = '') => {
+    const date = new Date().toISOString();
+    const hostelId = room?.hostelId || currentUser?.hostelId || null;
+    const staffId = currentUser?.id || currentUser?.login || '';
+    const comment = `Аренда №${room?.number || ''}${tenantName ? ' · ' + tenantName : ''}`;
+    const mk = (amount, method) => ({ staffId, amount: Number(amount) || 0, method, date, hostelId, comment, rentalRoomId: room?.id || null });
+    const items = [];
+    if (Number(cash) > 0) items.push(mk(cash, 'cash'));
+    if (Number(card) > 0) items.push(mk(card, 'card'));
+    if (Number(qr)   > 0) items.push(mk(qr,   'qr'));
+    const ids = [];
+    for (const it of items) {
+      try { const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), it); ids.push(ref.id); }
+      catch (e) { console.error('[rental payment]', e.message); }
+    }
+    return ids;
+  };
+
+  // Снимок состояния комнаты для отмены действий с арендой
+  const rentalUndoSnapshot = (room) => ({
+    roomId: room?.id,
+    prevRental: room?.rental || null,
+    prevRentalHistory: room?.rentalHistory ?? null,
+  });
+
   const handleRentRoom = async (roomId, rentalData) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), { rental: rentalData });
       const room = filteredRooms.find(r => r.id === roomId);
+      const snap = rentalUndoSnapshot(room);
+      const updates = { rental: rentalData };
+      if (room?.rental?.active && room.rental.tenantName) {
+        updates.rentalHistory = arrayUnion({ ...room.rental, closedAt: new Date().toISOString() });
+      }
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), updates);
+      // Засчитываем оплату аренды в кассу/смену
+      const paymentIds = await logRentalPayments(room, { cash: rentalData.paidCash, card: rentalData.paidCard, qr: rentalData.paidQR }, rentalData.tenantName);
+      pushUndo({ type: 'rental', ...snap, paymentIds, label: `Сдача в аренду · Комната №${room?.number || ''}` });
       showNotification(`Комната №${room?.number || ''} сдана в аренду`, 'success');
       logAction(currentUser, 'room_rental', { roomId, tenantName: rentalData.tenantName });
       setRoomRentalModal(false);
@@ -1583,7 +1644,13 @@ const filterByHostel = (items) => {
     if (!room) return;
     setConfirmEndRental(null);
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), { rental: { active: false } });
+      const snap = rentalUndoSnapshot(room);
+      const updates = { rental: { active: false } };
+      if (room.rental?.tenantName) {
+        updates.rentalHistory = arrayUnion({ ...room.rental, closedAt: new Date().toISOString(), active: false });
+      }
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), updates);
+      pushUndo({ type: 'rental', ...snap, paymentIds: [], label: `Выселение · Комната №${room.number} · ${room.rental?.tenantName || ''}` });
       showNotification(`Аренда комнаты №${room.number} завершена`, 'success');
       logAction(currentUser, 'room_rental_end', { roomId: room.id, roomNumber: room.number });
     } catch (e) {
@@ -1603,6 +1670,7 @@ const filterByHostel = (items) => {
     try {
       const room = filteredRooms.find(r => r.id === roomId);
       const rental = room?.rental;
+      const snap = rentalUndoSnapshot(room);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), {
         rental: {
           ...rental,
@@ -1616,7 +1684,10 @@ const filterByHostel = (items) => {
           updatedAt:   new Date().toISOString(),
         },
       });
-      showNotification(`Продлено на ${extDays} дн. → ${newCheckOut}`, 'success');
+      // Доплата за продление — в кассу/смену
+      const paymentIds = await logRentalPayments(room, { cash: paidCash, card: paidCard, qr: paidQR }, rental?.tenantName);
+      pushUndo({ type: 'rental', ...snap, paymentIds, label: extDays > 0 ? `Продление +${extDays} дн. · Комната №${room?.number || ''}` : `Оплата при выселении · Комната №${room?.number || ''}` });
+      showNotification(extDays > 0 ? `Продлено на ${extDays} дн. → ${newCheckOut}` : 'Оплата принята', 'success');
       logAction(currentUser, 'room_rental_extend', { roomId, extDays, newCheckOut });
       setRentalExtendModal(null);
     } catch (e) {
@@ -1626,8 +1697,16 @@ const filterByHostel = (items) => {
 
   const handleUpdateRental = async (roomId, rentalData) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), { rental: rentalData });
       const room = filteredRooms.find(r => r.id === roomId);
+      const old = room?.rental || {};
+      const snap = rentalUndoSnapshot(room);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), { rental: rentalData });
+      // Доплата при редактировании — в кассу разницу (если оплат стало больше)
+      const dCash = Math.max(0, (Number(rentalData.paidCash) || 0) - (Number(old.paidCash) || 0));
+      const dCard = Math.max(0, (Number(rentalData.paidCard) || 0) - (Number(old.paidCard) || 0));
+      const dQR   = Math.max(0, (Number(rentalData.paidQR)   || 0) - (Number(old.paidQR)   || 0));
+      const paymentIds = (dCash + dCard + dQR > 0) ? await logRentalPayments(room, { cash: dCash, card: dCard, qr: dQR }, rentalData.tenantName) : [];
+      pushUndo({ type: 'rental', ...snap, paymentIds, label: `\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u0430\u0440\u0435\u043D\u0434\u044B \u00B7 \u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u2116${room?.number || ''}` });
       showNotification(`\u0410\u0440\u0435\u043D\u0434\u0430 \u043A\u043E\u043C\u043D\u0430\u0442\u044B \u2116${room?.number || ''} \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0430`, 'success');
       logAction(currentUser, 'room_rental_update', { roomId, tenantName: rentalData.tenantName });
       setRentalEditModal(null);
@@ -1636,7 +1715,29 @@ const filterByHostel = (items) => {
     }
   };
 
-  const handleAddTask = async (task) => { 
+  // \u041E\u043F\u043B\u0430\u0442\u0430 \u0437\u0430\u0434\u043E\u043B\u0436\u0435\u043D\u043D\u043E\u0441\u0442\u0438 \u043F\u043E \u0430\u0440\u0435\u043D\u0434\u0435 \u0438\u0437 \u00AB\u041E\u0431\u0449\u0435\u0439 \u0431\u0430\u0437\u044B\u00BB (\u0414\u043E\u043B\u0433\u0438)
+  const handlePayRentalDebt = async (room, { cash = 0, card = 0, qr = 0 } = {}) => {
+    if (!room?.id) return;
+    const c = Number(cash) || 0, k = Number(card) || 0, q = Number(qr) || 0;
+    if (c + k + q <= 0) return;
+    try {
+      const snap = rentalUndoSnapshot(room);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), {
+        'rental.paidCash': increment(c),
+        'rental.paidCard': increment(k),
+        'rental.paidQR':   increment(q),
+        'rental.updatedAt': new Date().toISOString(),
+      });
+      const paymentIds = await logRentalPayments(room, { cash: c, card: k, qr: q }, room.rental?.tenantName);
+      pushUndo({ type: 'rental', ...snap, paymentIds, label: `Оплата аренды · Комната №${room.number || ''}` });
+      logAction(currentUser, 'room_rental_pay_debt', { roomId: room.id, roomNumber: room.number, amount: c + k + q });
+      showNotification(`\u2705 \u041E\u043F\u043B\u0430\u0442\u0430 \u0430\u0440\u0435\u043D\u0434\u044B \u2116${room.number || ''}: ${(c + k + q).toLocaleString()} \u0441\u0443\u043C`, 'success');
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  const handleAddTask = async (task) => {
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), task); 
     showNotification("Task Added"); 
   };
@@ -1788,6 +1889,7 @@ return (
             onOpenRoomRental={() => setRoomRentalModal(true)}
             onOpenShiftClosing={() => setShiftModal(true)}
             onOpenExpense={() => setExpenseModal(true)}
+            onOpenGroupReceipt={() => setGroupReceiptOpen(true)}
             anyModalOpen={
                 checkInModal.open || guestDetailsModal.open || moveGuestModal.open ||
                 expenseModal || shiftModal || addRoomModal || editRoomModal.open ||
@@ -1825,6 +1927,7 @@ return (
                 onOpenShift={() => { if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') setShiftModal(true); }}
                 onOpenGroupCheckIn={() => setGroupCheckInModal(true)}
                 onOpenRoomRental={() => setRoomRentalModal(true)}
+                onOpenGroupReceipt={() => setGroupReceiptOpen(true)}
                 onLogout={handleLogout}
                 setLang={setLang}
                 onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
@@ -1836,9 +1939,11 @@ return (
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
-                <div className={`flex-1 overflow-y-auto overflow-x-hidden ${
-                    activeTab === 'rooms' 
-                        ? 'py-3 md:py-6 pt-2 pb-32 md:pb-6' 
+                <div ref={contentScrollRef}
+                    onScroll={(e) => setShowScrollTop(e.currentTarget.scrollTop > 400)}
+                    className={`app-content-scroll flex-1 overflow-y-auto overflow-x-hidden ${
+                    activeTab === 'rooms'
+                        ? 'py-3 md:py-6 pt-2 pb-32 md:pb-6'
                         : 'p-3 md:p-6 pt-2 pb-32 md:pb-6'
                 }`}>
                 {activeTab === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.permissions?.viewStats === true) && (
@@ -1873,17 +1978,23 @@ return (
                         onEndRental={handleEndRental}
                         onEditRental={handleEditRental}
                         onExtendRental={handleExtendRental}
+                        onPayRental={(room) => setRentalPayModal(room)}
+                        onOpenGroupReceipt={() => setGroupReceiptOpen(true)}
                         lang={lang}
                         cadastreRegs={filteredCadastreRegs}
+                        contractGroups={manualStayGroups}
+                        payments={filteredPayments}
+                        allGuests={filteredGuests}
                     />
                 )}
                 
                 {activeTab === 'calendar' && (
                     <div className="h-full flex flex-col bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-                        <CalendarView 
-                            rooms={filteredRooms} 
-                            guests={filteredGuests} 
+                        <CalendarView
+                            rooms={filteredRooms}
+                            guests={filteredGuests}
                             clients={clients}
+                            payments={filteredPayments}
                             onSlotClick={(room, bedId, guest, dateISO) => { 
                                 if (guest) setGuestDetailsModal({ open: true, guest }); 
                                 else { 
@@ -1900,6 +2011,8 @@ return (
                             currentUser={currentUser} 
                             onDeleteGuest={handleDeleteGuest}
                             onRescheduleGuest={handleRescheduleGuest}
+                            onRentalClick={(room) => setRentalEditModal({ room, initialTab: 'info' })}
+                            onPayRental={(room) => setRentalPayModal(room)}
                         />
                     </div>
                 )}
@@ -1920,15 +2033,17 @@ return (
                         ? currentUser.permissions?.viewReports !== false
                         : currentUser.permissions?.viewReports === true
                 ) && (
-                    <ReportsView 
-                        payments={filteredPayments} 
-                        expenses={filteredExpenses} 
-                        users={filteredUsersForReports} 
-                        guests={filteredGuests} 
-                        currentUser={currentUser} 
+                    <ReportsView
+                        payments={filteredPayments}
+                        expenses={filteredExpenses}
+                        users={filteredUsersForReports}
+                        guests={filteredGuests}
+                        currentUser={currentUser}
                         onDeletePayment={handleDeletePayment}
                         onCashToTerminal={handleCashToTerminal}
-                        lang={lang} 
+                        selectedHostelFilter={selectedHostelFilter}
+                        hostels={HOSTELS}
+                        lang={lang}
                     />
                 )}
                 
@@ -1942,7 +2057,9 @@ return (
         onAdminAdjustDebt={handleAdminAdjustDebt} 
         clients={clients} 
         onCreateDebt={handleCreateDebt}
-        onOpenGuest={(guest) => setGuestDetailsModal({ open: true, guest })} 
+        onOpenGuest={(guest) => setGuestDetailsModal({ open: true, guest })}
+        rooms={filteredRooms}
+        onPayRentalDebt={handlePayRentalDebt}
     />
 )}
 
@@ -1972,9 +2089,12 @@ return (
                         onTransferShift={handleTransferShift} 
                         lang={lang} 
                         hostelId={currentUser.role === 'super' ? 'all' : selectedHostelFilter} 
-                        onAdminAddShift={handleAdminAddShift} 
+                        onAdminAddShift={handleAdminAddShift}
                         onAdminUpdateShift={handleAdminUpdateShift}
+                        onAdminDeleteShift={handleAdminDeleteShift}
                         payments={filteredPayments}
+                        expenses={filteredExpenses}
+                        onPaySalary={(d) => handleAddExpense({ category: 'Зарплата', amount: d.amount, targetStaffId: d.staffId, comment: d.comment })}
                     />
                 )}
 
@@ -2030,12 +2150,13 @@ return (
                 )}
                 
                 {activeTab === 'staff' && currentUser.role === 'admin' && (
-                    <StaffView 
-                        users={usersList} 
-                        onAdd={handleAddUser} 
+                    <StaffView
+                        users={usersList}
+                        onAdd={handleAddUser}
                         onDelete={handleDeleteUser}
                         onUpdate={handleUpdateUser}
-                        lang={lang} 
+                        currentUser={currentUser}
+                        lang={lang}
                     />
                 )}
                 
@@ -2070,6 +2191,7 @@ return (
                         onAddRecurringAdvance={handleAddRecurringAdvance}
                         recurringAdvances={getRecurringAdvances()}
                         onUpdateExpense={handleUpdateExpense}
+                        selectedHostelFilter={selectedHostelFilter}
                     />
                 )}
 
@@ -2097,6 +2219,10 @@ return (
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (
                     <SessionsView sessions={sessions} users={usersList} />
+                )}
+
+                {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <ClientVersionsView clientVersions={clientVersions} />
                 )}
 
                 {activeTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
@@ -2160,6 +2286,18 @@ return (
                     </div>
                 )}
             </div>
+
+            {/* Кнопка «Наверх» — появляется при прокрутке вниз */}
+            {showScrollTop && (
+                <button
+                    onClick={() => contentScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                    title="Наверх"
+                    className="fixed z-40 right-4 w-11 h-11 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+                    style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', background: 'var(--nav-bg)', color: '#fff', border: '1px solid rgba(255,255,255,0.18)' }}
+                >
+                    <ArrowUp size={20} />
+                </button>
+            )}
         </main>
         </div>{/* end flex flex-1 overflow-hidden (sidebar+content) */}
 
@@ -2183,6 +2321,8 @@ return (
                 notify={showNotification}
                 lang={lang}
                 currentUser={currentUser}
+                checkInHour={currentCheckInHour}
+                checkOutHour={currentCheckOutHour}
             />
         )}
 
@@ -2221,6 +2361,15 @@ return (
                 onEndRental={handleEndRental}
                 notify={showNotification}
                 currentUser={currentUser}
+                guests={guests}
+            />
+        )}
+
+        {rentalPayModal && (
+            <RentalPayModal
+                room={rentalPayModal}
+                onClose={() => setRentalPayModal(null)}
+                onSubmit={handlePayRentalDebt}
             />
         )}
 
@@ -2321,7 +2470,7 @@ return (
             />
         )}
         
-        {expenseModal && canPerformActions && (
+        {expenseModal && (canPerformActions || currentUser?.login === 'fazliddin') && (
             <ExpenseModal
                 key={expenseModalCategory}
                 onClose={() => { setExpenseModal(false); setExpenseModalCategory(''); }}
@@ -2377,9 +2526,19 @@ return (
         )}
         
         {/* --- МОДАЛКА ИСТОРИИ КЛИЕНТА (Оставляем как было) --- */}
-            {clientHistoryModal.open && (
-                <ClientHistoryModal 
-                    client={clients.find(c => c.id === clientHistoryModal.client?.id) || clientHistoryModal.client}
+            {clientHistoryModal.open && (() => {
+                const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
+                const orig = clientHistoryModal.client;
+                // Каноническая запись клиента (база): по id → по паспорту → по имени.
+                // Нужна, чтобы при правке через карточку обновлялась ОСНОВА, а не создавался дубликат.
+                const resolvedClient =
+                    clients.find(c => orig?.id && c.id === orig.id) ||
+                    (orig?.passport ? clients.find(c => c.passport && norm(c.passport) === norm(orig.passport)) : null) ||
+                    (orig?.fullName ? clients.find(c => norm(c.fullName) === norm(orig.fullName)) : null) ||
+                    orig;
+                return (
+                <ClientHistoryModal
+                    client={resolvedClient}
                     guests={guests}
                     users={usersList}
                     rooms={rooms}
@@ -2390,12 +2549,33 @@ return (
                     onActivateBooking={handleActivateBooking}
                     onDeleteGuest={handleDeleteGuest}
                     onTopUpBalance={handleTopUpBalance}
+                    onAdjustBalance={handleAdjustBalance}
+                    onEditClient={(form) => {
+                        const { id: _omit, ...data } = form || {};
+                        const found =
+                            clients.find(c => resolvedClient?.id && c.id === resolvedClient.id) ||
+                            (data.passport ? clients.find(c => c.passport && norm(c.passport) === norm(data.passport)) : null) ||
+                            (data.fullName ? clients.find(c => norm(c.fullName) === norm(data.fullName)) : null);
+                        if (found) handleUpdateClient(found.id, data);
+                        else handleAddClient(data);
+                    }}
                     lang={lang}
                 />
-            )}
+                );
+            })()}
+
+            {/* Лист в бухгалтерию (доступен всем, включая кассиров) */}
+            <GroupReceiptModal
+                open={groupReceiptOpen}
+                onClose={() => setGroupReceiptOpen(false)}
+                defaultHostelId={(currentUser.role === 'admin' || currentUser.role === 'super')
+                    ? (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')
+                    : (currentUser.hostelId || 'hostel1')}
+                activeGuests={(filteredGuests || []).filter(g => g.status === 'active')}
+            />
 
             {/* Компонент глобального поиска */}
-            <GlobalSearch 
+            <GlobalSearch
                 isOpen={isSearchOpen}
                 onClose={() => setIsSearchOpen(false)}
                 guests={guests}

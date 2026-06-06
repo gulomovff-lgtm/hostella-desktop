@@ -1,5 +1,7 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
 import { X, Camera, ImageIcon, Trash2 } from 'lucide-react';
+import { fmtSum } from '../../utils/helpers';
+import { getConfig } from '../../utils/appConfig';
 import TRANSLATIONS from '../../constants/translations';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
@@ -25,6 +27,22 @@ const MODAL_STYLE = `
     .exp-cat-btn:hover { transform: translateY(-1px); }
 `;
 
+// ── Калькулятор поля суммы: "73000+33000" → 106000 ──
+// Разрешены только цифры и операторы + - * / ( ) . — безопасно вычисляем.
+const evalExpr = (raw) => {
+    if (raw == null) return NaN;
+    const s = String(raw).replace(/\s+/g, '').replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '.');
+    if (!s || !/[0-9]/.test(s)) return NaN;
+    if (!/^[0-9+\-*/().]+$/.test(s)) return NaN;
+    try {
+        // eslint-disable-next-line no-new-func
+        const val = Function(`"use strict"; return (${s});`)();
+        return (typeof val === 'number' && isFinite(val)) ? val : NaN;
+    } catch { return NaN; }
+};
+// есть ли в строке арифметический оператор (игнорируем ведущий минус)
+const hasOperator = (s) => /[+\-*/×÷]/.test(String(s || '').slice(1));
+
 const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = '', usersList = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
@@ -45,7 +63,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
     const [expenseDate, setExpenseDate] = useState(() => getLocalDateTimeValue());
     const [currency, setCurrency] = useState('uzs'); // 'uzs' | 'usd'
     const [usdAmount, setUsdAmount] = useState('');
-    const [usdRate, setUsdRate] = useState('');
+    const [usdRate, setUsdRate] = useState(() => getConfig().defaultUsdRate || '');
     const [skipCashbox, setSkipCashbox] = useState(false);
     const [loading, setLoading] = useState(false);
     const [photoFile, setPhotoFile] = useState(null);
@@ -67,7 +85,8 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
             if (d > 0 && r > 0) return Math.round(d * r);
             return 0;
         }
-        return parseFloat(amount) || 0;
+        const v = evalExpr(amount);
+        return isFinite(v) && v > 0 ? Math.round(v) : 0;
     }, [currency, usdAmount, usdRate, amount]);
 
     const handleDrop = useCallback((e) => {
@@ -97,9 +116,15 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
         }
     };
 
+    // Вычислить выражение в поле суммы и подставить результат (по Enter)
+    const evaluateAmount = () => {
+        const v = evalExpr(amount);
+        if (isFinite(v) && v > 0) setAmount(String(Math.round(v)));
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const finalAmount = currency === 'usd' ? computedUzs : parseFloat(amount);
+        const finalAmount = currency === 'usd' ? computedUzs : Math.round(evalExpr(amount) || 0);
         if (!category || !finalAmount || finalAmount <= 0) { alert('Заполните все обязательные поля (сумма должна быть больше 0)'); return; }
         if (currency === 'usd' && (!parseFloat(usdAmount) || !parseFloat(usdRate))) {
             alert('Укажите сумму в USD и курс обмена');
@@ -199,7 +224,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                 <div>
                                     <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Сотрудник</label>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
-                                        {usersList.filter(u => u.role !== 'super').map(u => {
+                                        {[...usersList.filter(u => u.role !== 'super'), { id: '__cleaning__', name: '🧹 Уборка' }].map(u => {
                                             const sel = targetStaffId === (u.id || u.login);
                                             return (
                                                 <button key={u.id || u.login} type="button"
@@ -225,7 +250,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                             {/* Amount */}
                             <div>
                                 {/* Currency toggle */}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                     <label style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                                         {currency === 'uzs' ? 'Сумма (сум) *' : 'Сумма (USD) *'}
                                     </label>
@@ -241,13 +266,23 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                     </div>
                                 </div>
 
+                                <div style={{ borderTop: `1.5px dashed ${isDark ? 'rgba(94,234,212,0.18)' : '#e2e8f0'}`, paddingTop: 12 }}>
                                 {currency === 'uzs' ? (
+                                    <>
                                     <input
-                                        type="text" inputMode="decimal" className="exp-input"
-                                        value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                                        placeholder="0" required
-                                        style={{ width: '100%', padding: '12px 16px', border: `2px solid ${isDark ? 'rgba(94,234,212,0.2)' : '#e2e8f0'}`, borderRadius: 12, outline: 'none', fontSize: 22, fontWeight: 900, color: isDark ? '#e2f7f8' : '#0f172a', background: isDark ? '#1e3a3e' : '#fff', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums', transition: 'border-color 0.15s, box-shadow 0.15s' }}
+                                        type="text" inputMode="text" autoCapitalize="off" autoCorrect="off" spellCheck={false} className="exp-input"
+                                        value={hasOperator(amount) ? amount : fmtSum(amount)}
+                                        onChange={e => setAmount(e.target.value.replace(/[^0-9+\-*/.×÷]/g, ''))}
+                                        onKeyDown={e => { if (e.key === 'Enter' && hasOperator(amount)) { e.preventDefault(); evaluateAmount(); } }}
+                                        placeholder="0 (можно 73000+33000)" required
+                                        style={{ width: '100%', padding: '12px 16px', border: `2px solid ${isDark ? 'rgba(94,234,212,0.2)' : '#e2e8f0'}`, borderRadius: 12, outline: 'none', fontSize: 22, fontWeight: 900, letterSpacing: '0.03em', color: isDark ? '#e2f7f8' : '#0f172a', background: isDark ? '#1e3a3e' : '#fff', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums', transition: 'border-color 0.15s, box-shadow 0.15s' }}
                                     />
+                                    {hasOperator(amount) && isFinite(evalExpr(amount)) && evalExpr(amount) > 0 && (
+                                        <div style={{ marginTop: 6, textAlign: 'right', fontSize: 13, fontWeight: 800, color: '#0f9688', fontVariantNumeric: 'tabular-nums' }}>
+                                            = {fmtSum(String(Math.round(evalExpr(amount))))} сум · Enter
+                                        </div>
+                                    )}
+                                    </>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -276,6 +311,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                         )}
                                     </div>
                                 )}
+                                </div>
                             </div>
 
                             {/* Expense date */}

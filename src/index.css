@@ -349,6 +349,17 @@ input[type="number"]::-webkit-inner-spin-button {
     width: 100vw !important;
     overflow: hidden;
   }
+
+  /* ── Верхний отступ контента ──
+     Обычный мобильный браузер: небольшой отступ (+ safe-area для чёлки/PWA).
+     В Telegram шапка (Закрыть / ⌄ / …) плавает поверх веб-вью — там нужен
+     отступ побольше, поэтому он включается только при классе .tg на <html>. */
+  .app-content-scroll {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+  }
+  html.tg .app-content-scroll {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+  }
 }
 
 /* ── Mobile touch improvements ── */
@@ -379,7 +390,9 @@ input[type="number"]::-webkit-inner-spin-button {
     align-items: flex-end !important;
   }
 
-  /* All modal panels: round top only, full-width, max height */
+  /* All modal panels: round top only, full-width, max height.
+     padding-bottom учитывает домашний индикатор (safe-area), чтобы
+     кнопки действий внизу bottom-sheet не уходили под край экрана. */
   .fixed.inset-0.backdrop-blur-sm:not(.modal-centered) > div,
   .fixed.inset-0.backdrop-blur-none:not(.modal-centered) > div {
     max-width: 100vw !important;
@@ -387,6 +400,7 @@ input[type="number"]::-webkit-inner-spin-button {
     border-radius: 20px 20px 0 0 !important;
     max-height: 95dvh !important;
     min-height: 30dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 ::-webkit-scrollbar-thumb:hover {

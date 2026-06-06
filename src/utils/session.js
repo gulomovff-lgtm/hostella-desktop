@@ -3,12 +3,42 @@
  * Каждая сессия — документ в коллекции `sessions`.
  * При логине создаётся сессия, при logout — закрывается.
  * Хартбит каждые 30с обновляет lastSeen.
+ *
+ * Механизм борьбы с "зависшими" сессиями (закрытая вкладка/Electron без logout):
+ *  - При каждом createSession в localStorage сохраняется { sessionId, userId }
+ *  - При следующем createSession для того же юзера — предыдущая сессия закрывается
+ *  - При closeSession localStorage-запись удаляется (нормальный logout)
  */
 import { addDoc, updateDoc, doc, collection } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 
 const SESSION_KEY  = 'hostella_session_id';
 export const LOGIN_AT_KEY = 'hostella_login_at';
+
+/** localStorage-ключ для восстановления sessionId после перезапуска вкладки/приложения */
+const PREV_SESSION_LS_KEY = 'hostella_prev_session';
+
+/**
+ * Получает IP и геолокацию через ipwho.is (бесплатный API, без ключа, HTTPS).
+ * Возвращает null при ошибке/офлайн — не блокирует создание сессии.
+ */
+export const getNetworkInfo = async () => {
+  try {
+    const res = await fetch('https://ipwho.is/', { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.success) return null;
+    return {
+      ip:      data.ip      || null,
+      city:    data.city    || null,
+      region:  data.region  || null,
+      country: data.country || null,
+      countryCode: data.country_code || null,
+    };
+  } catch {
+    return null;
+  }
+};
 
 /** Определяет браузер и ОС из userAgent */
 export const getDeviceInfo = () => {
@@ -32,30 +62,54 @@ export const getDeviceInfo = () => {
 
 /**
  * Создаёт документ сессии в Firestore и сохраняет sessionId в sessionStorage.
+ * Перед созданием закрывает предыдущую "зависшую" сессию этого же юзера (если есть).
  * @param {object} user — текущий пользователь приложения
  */
 export const createSession = async (user) => {
   const loginAt = new Date().toISOString();
   sessionStorage.setItem(LOGIN_AT_KEY, loginAt);
+
+  const userId = user.id || user.login || 'unknown';
+
+  // Закрываем предыдущую сессию этого юзера (если вкладка закрылась без logout)
+  try {
+    const prevRaw = localStorage.getItem(PREV_SESSION_LS_KEY);
+    if (prevRaw) {
+      const { sessionId: prevId, userId: prevUserId } = JSON.parse(prevRaw);
+      if (prevId && prevUserId === userId) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'sessions', prevId), {
+          active:   false,
+          logoutAt: loginAt,
+        });
+      }
+    }
+  } catch { /* silent — предыдущий документ может уже не существовать */ }
+
+  // Запрашиваем IP/геолокацию параллельно — не блокируем создание сессии
+  const networkInfo = await getNetworkInfo();
+
   try {
     const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'sessions'), {
-      userId:     user.id || user.login || 'unknown',
-      userName:   user.name  || user.login || 'unknown',
-      hostelId:   user.hostelId || null,
-      role:       user.role  || 'unknown',
-      deviceInfo: getDeviceInfo(),
+      userId,
+      userName:    user.name  || user.login || 'unknown',
+      hostelId:    user.hostelId || null,
+      role:        user.role  || 'unknown',
+      deviceInfo:  getDeviceInfo(),
+      networkInfo: networkInfo || null,
       loginAt,
-      lastSeen:   loginAt,
-      active:     true,
+      lastSeen:    loginAt,
+      active:      true,
     });
     sessionStorage.setItem(SESSION_KEY, ref.id);
+    // Сохраняем в localStorage для очистки при следующем логине
+    localStorage.setItem(PREV_SESSION_LS_KEY, JSON.stringify({ sessionId: ref.id, userId }));
   } catch (e) {
     console.warn('[session] createSession failed:', e.message);
   }
 };
 
 /**
- * Закрывает текущую сессию в Firestore и удаляет ключи из sessionStorage.
+ * Закрывает текущую сессию в Firestore и удаляет ключи из sessionStorage/localStorage.
  */
 export const closeSession = async () => {
   const sessionId = sessionStorage.getItem(SESSION_KEY);
@@ -67,6 +121,8 @@ export const closeSession = async () => {
       });
     } catch { /* silent */ }
     sessionStorage.removeItem(SESSION_KEY);
+    // Нормальный logout — убираем localStorage-запись (сессия корректно закрыта)
+    localStorage.removeItem(PREV_SESSION_LS_KEY);
   }
   sessionStorage.removeItem(LOGIN_AT_KEY);
 };

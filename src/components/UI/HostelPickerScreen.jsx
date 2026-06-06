@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LogOut } from 'lucide-react';
-import { THEMES, getAutoThemeId } from './LoginScreen';
+import { THEMES, getAutoThemeId } from '../LoginScreen/LoginScreen';
 
 const HOSTEL_OPTIONS = [
     { id: 'hostel1', label: 'Хостел №1', emoji: '🏨', accent: '#7c3aed', glow: 'rgba(124,58,237,0.45)' },

@@ -2,6 +2,7 @@
  * useExpenseActions — расходы, удаление платежей, экспорт.
  */
 import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
@@ -9,6 +10,23 @@ import { enqueueTelegram } from '../utils/offlineQueue';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
+
+/**
+ * Генерирует автоописание расхода для отчётов.
+ * - Нет комментария → просто "Категория" (напр. "Вода")
+ * - Есть комментарий → "Категория: комментарий" (напр. "Такси: Фазлиддин оплатил")
+ */
+export function buildExpenseComment(expense) {
+  const category = (expense.category || '').trim();
+  const comment  = (expense.comment  || '').trim();
+
+  if (!comment) return category;
+
+  // Если уже начинается с "Категория: " — не дублировать
+  if (comment.startsWith(category + ': ')) return comment;
+
+  return `${category}: ${comment}`;
+}
 
 export function useExpenseActions({
   currentUser, selectedHostelFilter,
@@ -26,20 +44,30 @@ export function useExpenseActions({
 
   const handleAddExpense = async (d) => {
     try {
+      const isFazliddin = currentUser.login === 'fazliddin';
+      // fazliddin (кассир hostel2) может вести расходы по выбранному хостелу,
+      // включая hostel1 — как админ/super, по selectedHostelFilter.
       const hostelId = (currentUser.role === 'admin' || currentUser.role === 'super')
         ? selectedHostelFilter
-        : currentUser.hostelId;
+        : isFazliddin
+          ? ((selectedHostelFilter && selectedHostelFilter !== 'all') ? selectedHostelFilter : currentUser.hostelId)
+          : currentUser.hostelId;
+
+      // Расходы fazliddin по первому хостелу не вычитаются из его кассы
+      const skipCashbox = !!d.skipCashbox || (isFazliddin && hostelId === 'hostel1');
 
       const expRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
         ...d,
+        comment: buildExpenseComment(d),
         hostelId,
         staffId: currentUser.id || currentUser.login,
-        date: new Date().toISOString(),
+        date: d.date || new Date().toISOString(),
+        skipCashbox,
       });
 
       pushUndo({
         type: 'expense',
-        label: `${d.category}: ${(+d.amount).toLocaleString()} сум${d.comment ? ' — ' + d.comment : ''}`,
+        label: `${d.category}: ${(+d.amount).toLocaleString()} сум${skipCashbox ? ' (без вычета с кассы)' : ''}${d.comment ? ' — ' + d.comment : ''}`,
         expenseId: expRef.id,
       });
 
@@ -47,7 +75,7 @@ export function useExpenseActions({
       showNotification('Расход добавлен', 'success');
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
 
-      if (d.category !== 'Возврат' && currentUser.role !== 'admin' && currentUser.role !== 'super') {
+      if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
         const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
         const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 Кассир: ${currentUser.name || currentUser.login}`;
         if (isOnline) {
@@ -63,8 +91,8 @@ export function useExpenseActions({
   };
 
   const handleDeletePayment = async (id, type, record = {}) => {
-    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
-
+    // Сначала корректируем баланс гостя, потом удаляем запись —
+    // чтобы при сбое платёж остался и его можно было попробовать снова
     if (type === 'income' && record.guestId && record.category !== 'registration') {
       try {
         const cash  = Number(record.cash)   || 0;
@@ -80,6 +108,8 @@ export function useExpenseActions({
       }
     }
 
+    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
+
     let msg = `🗑 <b>Удалена запись</b>\nТип: ${type === 'income' ? 'Платёж' : record.category === 'Возврат' ? 'Возврат' : 'Расход'}`;
     if (type === 'income') {
       if (record.guestName || record.guest) msg += `\n👤 Гость: ${record.guestName || record.guest}`;
@@ -93,13 +123,6 @@ export function useExpenseActions({
       if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
     }
     msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
-    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') {
-      if (isOnline) {
-        sendTelegramMessage(msg, 'deleteRecord');
-      } else {
-        enqueueTelegram(msg, 'deleteRecord');
-      }
-    }
     showNotification('Запись удалена');
   };
 
@@ -110,6 +133,8 @@ export function useExpenseActions({
 
     const today = new Date().toLocaleDateString('ru-RU');
     const reportDate = new Date().toISOString().split('T')[0];
+    const hostelKey = currentUser?.role === 'super' ? 'all' : (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId);
+    const hostelSlug = hostelKey === 'hostel1' ? 'Хостел1' : hostelKey === 'hostel2' ? 'Хостел2' : 'Все';
 
     // ─── Данные по расходам ───────────────────────────────────────────────
     const rows = filtered.map(e => {
@@ -200,7 +225,7 @@ export function useExpenseActions({
     ws3['!autofilter'] = { ref: ws3['!ref'] };
     XLSX.utils.book_append_sheet(wb, ws3, 'По хостелам');
 
-    XLSX.writeFile(wb, `Расходы_${reportDate}.xlsx`);
+    XLSX.writeFile(wb, `Расходы_${hostelSlug}_${reportDate}.xlsx`);
   };
 
   const handleCashToTerminal = async (amount, comment = '', dateOverride = null, receipt = null) => {
@@ -226,5 +251,52 @@ export function useExpenseActions({
     }
   };
 
-  return { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal };
+  const handleEditExpenseCategory = async (expenseId, newCategory) => {
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), { category: newCategory });
+      showNotification('Категория обновлена', 'success');
+    } catch (err) {
+      showNotification('Ошибка: ' + (err.message || 'не удалось обновить'), 'error');
+    }
+  };
+
+  /** Обновляет comment у расходов текущего месяца по новой логике */
+  const handleBackfillComments = async () => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+
+    const toUpdate = expenses.filter(e =>
+      e.date >= monthStart && e.date < monthEnd && e.category !== 'Возврат'
+    );
+
+    if (toUpdate.length === 0) {
+      showNotification('Нет записей для обновления', 'info');
+      return;
+    }
+
+    let updated = 0;
+    for (const e of toUpdate) {
+      const newComment = buildExpenseComment(e);
+      if (newComment !== (e.comment || '').trim()) {
+        try {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', e.id), { comment: newComment });
+          updated++;
+        } catch (_) { /* skip */ }
+      }
+    }
+    showNotification(`Обновлено ${updated} из ${toUpdate.length} записей`, 'success');
+  };
+
+  /** Редактирует поля расхода (для админа) */
+  const handleUpdateExpense = async (expenseId, patch) => {
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), patch);
+      showNotification('Расход обновлён', 'success');
+    } catch (err) {
+      showNotification('Ошибка: ' + (err.message || 'не удалось обновить'), 'error');
+    }
+  };
+
+  return { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense };
 }

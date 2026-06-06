@@ -3,11 +3,13 @@ import { X, RotateCcw, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 
 // Actions that can be undone and their UI metadata
 const ACTION_META = {
-    checkin:    { icon: '🏨', label: 'Заселение',   color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-    payment:    { icon: '💵', label: 'Оплата',       color: 'bg-blue-50 border-blue-200 text-blue-800'         },
-    extend:     { icon: '📅', label: 'Продление',    color: 'bg-violet-50 border-violet-200 text-violet-800'   },
-    expense:    { icon: '💳', label: 'Расход',       color: 'bg-amber-50 border-amber-200 text-amber-800'      },
-    trim:       { icon: '✂️', label: 'Срез дней',     color: 'bg-orange-50 border-orange-200 text-orange-800'   },
+    checkin:     { icon: '🏨', label: 'Заселение',        color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+    payment:     { icon: '💵', label: 'Оплата',            color: 'bg-blue-50 border-blue-200 text-blue-800'         },
+    extend:      { icon: '📅', label: 'Продление',         color: 'bg-violet-50 border-violet-200 text-violet-800'   },
+    expense:     { icon: '💳', label: 'Расход',            color: 'bg-amber-50 border-amber-200 text-amber-800'      },
+    trim:        { icon: '✂️', label: 'Срез дней',          color: 'bg-orange-50 border-orange-200 text-orange-800'   },
+    debtPayment: { icon: '↩️', label: 'Погашение долга',   color: 'bg-rose-50 border-rose-200 text-rose-800'         },
+    rental:      { icon: '🏢', label: 'Аренда',            color: 'bg-teal-50 border-teal-200 text-teal-800'         },
 };
 
 const UNDO_WINDOW_MS = 30 * 60 * 1000; // 30 minutes

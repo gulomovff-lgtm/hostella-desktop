@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- cream sticker halo -->
+  <path d="M300 56 L176 288 L248 288 L212 456 L352 240 L276 240 Z"
+        fill="#f5ead6" stroke="#f5ead6" stroke-width="58" stroke-linejoin="round"/>
+  <!-- bolt body -->
+  <path d="M300 56 L176 288 L248 288 L212 456 L352 240 L276 240 Z"
+        fill="#e8943a" stroke="#2e2018" stroke-width="26" stroke-linejoin="round"/>
+  <!-- inner highlight -->
+  <path d="M288 112 L214 248 L262 248" fill="none"
+        stroke="#f7cf9b" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

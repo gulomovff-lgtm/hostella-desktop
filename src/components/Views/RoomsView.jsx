@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
     BedDouble, Wallet, CheckCircle2, Clock, CalendarDays, LogOut,
-    Plus, Edit, Trash2, Copy, Search, X, AlertTriangle,
+    Plus, Edit, Trash2, Copy, Search, X, AlertTriangle, AlertCircle,
     TrendingUp, Users, ArrowRight, Layers, RotateCcw,
-    Building2, User, Download
+    Building2, User, Download, Key, LogIn, Phone, RefreshCw, FileText
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { computeContractFinancials } from '../../utils/contractFinancials';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -22,6 +23,13 @@ const parseDate = d => {
     return isNaN(dt.getTime()) ? null : dt;
 };
 
+const getEffectiveCheckoutDate = (guest) => {
+    const regularCo = parseDate(guest?.checkOutDate);
+    const bonusCo = parseDate(guest?.bonusCheckOutDate);
+    if (regularCo && bonusCo) return bonusCo > regularCo ? bonusCo : regularCo;
+    return bonusCo || regularCo;
+};
+
 const fmt = n => (n ? Number(n).toLocaleString('ru-RU') : '0');
 const fmtShort = (d, lang = 'ru') => {
     if (!d) return '—';
@@ -31,6 +39,18 @@ const fmtShort = (d, lang = 'ru') => {
     return `${dt.getDate()} ${months[dt.getMonth()]}`;
 };
 const getDaysDiff = (a, b) => (!a || !b) ? 0 : Math.ceil((b - a) / 864e5);
+
+const isRegularBedId = (bedId, capacity) => {
+    const n = Number(bedId);
+    return Number.isInteger(n) && n >= 1 && n <= capacity;
+};
+
+const ExtraBedIcon = ({ size = 13, className = '' }) => (
+    <svg viewBox="0 0 24 24" fill="currentColor" width={size} height={size} className={className} aria-hidden="true">
+        <circle cx="5" cy="6" r="2.8"/>
+        <rect x="2" y="11" width="20" height="4" rx="2"/>
+    </svg>
+);
 
 const useNow = () => {
     const [n, setN] = useState(() => Date.now());
@@ -115,7 +135,7 @@ const KpiCard = ({ icon: Icon, label, value, sub, colorClass }) => (
 // ─────────────────────────────────────────────────────────────────────────────
 //  КАРТОЧКА КОЙКИ
 // ─────────────────────────────────────────────────────────────────────────────
-const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' }) => {
+const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru', cadastreRegs = [] }) => {
     const { id, status, guest, debt, freeForDays, isTimeout, isBonus, incomingGuest, incomingDays } = bed;
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const flagCode = guest?.country ? CF[guest.country] : null;
@@ -125,6 +145,16 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' 
         ? Math.floor((nowMs - new Date(guest.kppDate).getTime()) / 86400000)
         : -1;
     const kppAlert = kppDays >= 8 && !guest?.kppRegistered;
+
+    const cadastreExpired = (() => {
+        if (!guest?.id && !guest?.fullName) return false;
+        const regs = cadastreRegs.filter(r =>
+            (r.guestId === guest?.id || r.guestName === guest?.fullName) &&
+            r.status !== 'removed'
+        );
+        if (regs.length === 0) return false;
+        return !regs.some(r => r.endDate && new Date(r.endDate + 'T12:00:00') >= new Date(nowMs));
+    })();
 
     if (status === 'free') {
         return (
@@ -170,18 +200,19 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' 
             role="button" tabIndex={0}
             onClick={() => onBedClick(id, guest, false)}
             onKeyDown={e => e.key === 'Enter' && onBedClick(id, guest, false)}
-            title={`${guest?.fullName || t('nameUnknown')} | ${t('bed2')} ${id}`}
+            title={`${guest?.fullName || t('nameUnknown')} | ${bed?.isExtra ? 'Доп. гость' : `${t('bed2')} ${id}`}`}
             className={`group relative flex flex-col min-w-[120px] w-full sm:w-40 min-h-[155px] shrink-0 rounded-2xl border shadow-sm
                         ${cardBg} ${cardBorder}
                         hover:shadow-md hover:-translate-y-0.5
                         transition-all duration-300 cursor-pointer overflow-hidden text-left`}
         >
             <div className={`flex items-center justify-between px-3 py-2 ${headerBg} border-b border-white/60`}>
-                <span className="text-[10px] font-black text-slate-500">#{id}</span>
+                <span className="text-[10px] font-black text-slate-500 flex items-center gap-1">
+                    {bed?.isExtra ? <ExtraBedIcon size={13} className="opacity-70" /> : `#${id}`}
+                </span>
                 <div className="flex items-center gap-1.5">
                     {flagCode ? (
-                        <img src={`https://flagcdn.com/w40/${flagCode}.png`} alt={guest?.country}
-                            className="w-[22px] h-[14px] object-cover rounded shadow border border-black/10" loading="lazy" />
+                        <span className={`fi fi-${flagCode.toLowerCase()}`} style={{ width: 22, height: 14, display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', backgroundSize: 'cover' }} />
                     ) : (
                         <div className="w-[22px] h-[14px] rounded bg-white/60 border border-white shadow flex items-center justify-center">
                             <User size={8} className="text-slate-300" />
@@ -208,7 +239,7 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' 
                         <CalendarDays size={10} className="shrink-0 text-slate-400" />
                         <span>{fmtShort(guest?.checkInDate, lang)}</span>
                         <ArrowRight size={8} className="text-slate-300 shrink-0" />
-                        <span>{fmtShort(guest?.bonusCheckOutDate || guest?.checkOutDate, lang)}</span>
+                        <span>{fmtShort(getEffectiveCheckoutDate(guest), lang)}</span>
                     </div>
                 )}
                 {timeInfo && (
@@ -218,6 +249,13 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' 
                     <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1">
                         <div className="flex items-center gap-1 text-[9px] font-black text-amber-700">
                             <AlertTriangle size={9} />Регистрация! {kppDays}д
+                        </div>
+                    </div>
+                )}
+                {cadastreExpired && (
+                    <div className="mt-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1">
+                        <div className="flex items-center gap-1 text-[9px] font-black text-rose-700">
+                            <AlertCircle size={9} />Кадастр истёк
                         </div>
                     </div>
                 )}
@@ -279,7 +317,7 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru' 
                     </button>
                 )}
                 {/* Заселить нового — для просроченных, free_limited И ожидающих бронирования */}
-                {(isTimeout || status === 'free_limited' || status === 'booking') && (
+                {(isTimeout || status === 'free_limited' || status === 'booking') && !bed?.isExtra && (
                     <button onClick={e => { e.stopPropagation(); onBedClick(id, null, false); }}
                         className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors border border-emerald-400/40">
                         <Plus size={12} /> {t('checkinNew')}
@@ -307,7 +345,7 @@ const Sparkline = ({ guests, capacity, lang = 'ru' }) => {
             const occ = guests.filter(g => {
                 if (!['active', 'checked_out'].includes(g.status)) return false;
                 if (!g.checkInDate || !g.checkOutDate) return false;
-                return g.checkInDate <= ds && g.checkOutDate > ds;
+                return g.checkInDate.slice(0, 10) <= ds && g.checkOutDate.slice(0, 10) > ds;
             }).length;
             return Math.min(100, Math.round((occ / cap) * 100));
         });
@@ -338,21 +376,41 @@ const Sparkline = ({ guests, capacity, lang = 'ru' }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const buildBedsData = (room, guests) => {
     const now = new Date();
+    // Конец сегодняшнего дня. Гость со статусом active считается уже присутствующим,
+    // если дата заезда — сегодня или раньше (даже если расчётный час 14:00 ещё не настал
+    // при раннем заезде утром). Будущие заезды в системе всегда имеют статус booking.
+    const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
+    const isArrived = (g) => new Date(g.checkInDate) <= endOfToday;
     const cap = parseInt(room.capacity) || 0;
+    // Если комната сдана в аренду — все места считаются занятыми
+    if (room.rental?.active) {
+        return Array.from({ length: cap }, (_, i) => ({
+            id: i + 1,
+            status: 'rented_out',
+            guest: null,
+            debt: 0,
+            isTimeout: false,
+            isBonus: false,
+            freeForDays: null,
+            incomingGuest: null,
+            incomingDays: null,
+        }));
+    }
     const byBed = {};
     guests.forEach(g => {
-        const k = String(g.bedId);
+        const rawBedId = g?.bedId == null ? '' : String(g.bedId);
+        const k = rawBedId || `extra-${g.id}`;
         if (!byBed[k]) byBed[k] = [];
         byBed[k].push(g);
     });
     const beds = [];
     for (let i = 1; i <= cap; i++) {
         const bg = byBed[String(i)] || [];
-        // Активный гость — статус active И дата заезда уже наступила
-        const activeGuest = bg.find(g => g.status === 'active' && new Date(g.checkInDate) <= now);
+        // Активный гость — статус active И заезд сегодня или раньше
+        const activeGuest = bg.find(g => g.status === 'active' && isArrived(g));
         const nextBooking = bg
             .filter(g => (g.status === 'booking' ||
-                (g.status === 'active' && new Date(g.checkInDate) > now)) &&
+                (g.status === 'active' && !isArrived(g))) &&
                 g !== activeGuest)
             .sort((a, b) => new Date(a.checkInDate) - new Date(b.checkInDate))[0];
         let status = 'free', displayGuest = null, debt = 0, isTimeout = false, isBonus = false, freeForDays = null;
@@ -385,6 +443,50 @@ const buildBedsData = (room, guests) => {
         }
         beds.push({ id: i, status, guest: displayGuest, debt, isTimeout, isBonus, freeForDays, incomingGuest, incomingDays });
     }
+
+    const extraBedIds = Object.keys(byBed).filter(k => !isRegularBedId(k, cap));
+    extraBedIds.forEach(extraBedId => {
+        const bg = byBed[extraBedId] || [];
+        const activeGuest = bg
+            .filter(g => g.status === 'active' && isArrived(g))
+            .sort((a, b) => new Date(b.checkInDate || 0) - new Date(a.checkInDate || 0))[0];
+        const nextBooking = bg
+            .filter(g => (g.status === 'booking' || (g.status === 'active' && !isArrived(g))) && g !== activeGuest)
+            .sort((a, b) => new Date(a.checkInDate || 0) - new Date(b.checkInDate || 0))[0];
+
+        const showGuest = activeGuest || nextBooking;
+        if (!showGuest) return;
+
+        let status = nextBooking && !activeGuest ? 'booking' : 'occupied';
+        let debt = 0;
+        let isTimeout = false;
+        let isBonus = false;
+
+        if (activeGuest) {
+            const co = parseDate(activeGuest.checkOutDate);
+            const bonusCo = activeGuest.bonusCheckOutDate ? parseDate(activeGuest.bonusCheckOutDate) : null;
+            const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : (co || bonusCo);
+            const expired = effectiveCo && now > effectiveCo;
+            isBonus = !!(bonusCo && co && now > co && now <= bonusCo);
+            debt = Math.max(0, (activeGuest.totalPrice || 0) - getTotalPaid(activeGuest));
+            isTimeout = !!expired;
+            status = isTimeout ? 'timeout' : 'occupied';
+        }
+
+        beds.push({
+            id: extraBedId,
+            status,
+            guest: showGuest,
+            debt,
+            isTimeout,
+            isBonus,
+            freeForDays: null,
+            incomingGuest: null,
+            incomingDays: null,
+            isExtra: true,
+        });
+    });
+
     return beds;
 };
 
@@ -393,13 +495,16 @@ const buildBedsData = (room, guests) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  СТРОКА КОМНАТЫ
 // ─────────────────────────────────────────────────────────────────────────────
-const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, onKppConfirm, filter, guestSearch, lang = 'ru' }) => {
+const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, onAddExtraGuest, onKppConfirm, onEndRental, onEditRental, onExtendRental, onPayRental, filter, guestSearch, lang = 'ru', cadastreRegs = [], contractGroups = [], payments = [], allGuests = [] }) => {
     const nowMs = useNow();
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const bedsData = useMemo(() => buildBedsData(room, guests), [room, guests]);
 
+    // ── Rental state (computed here; return deferred until after all hooks) ───
+    const rental = room.rental?.active ? room.rental : null;
+
     const stats = useMemo(() => bedsData.reduce((a, b) => {
-        if (b.status === 'occupied' || b.isTimeout) a.occ++;
+        if (b.status === 'occupied' || b.isTimeout || b.status === 'rented_out') a.occ++;
         if (b.status === 'free' || b.status === 'free_limited') a.free++;
         if (b.debt > 0) { a.debtCount++; a.debtSum += b.debt; }
         if (b.isTimeout) a.timeout++;
@@ -409,12 +514,260 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
 
     const cap    = parseInt(room.capacity) || 1;
     const occPct = Math.min(100, Math.round((stats.occ / cap) * 100));
+    const canAddExtraGuest = stats.free === 0;
 
     if (filter === 'free'     && stats.free === 0)    return null;
     if (filter === 'occupied' && stats.occ === 0)     return null;
     if (filter === 'debt'     && stats.debtSum === 0) return null;
     if (filter === 'timeout'  && stats.timeout === 0) return null;
     if (filter === 'booking'  && stats.booking === 0) return null;
+    if (filter === 'rental'   && !room.rental?.active) return null;
+
+    // ── Rental card — light style (matches other rooms) ─────────────
+    if (rental) {
+        const daysLeft = (() => {
+            if (!rental.checkOutStr) return null;
+            const today    = new Date(); today.setHours(0, 0, 0, 0);
+            const checkout = new Date(rental.checkOutStr + 'T00:00:00');
+            return Math.round((checkout - today) / 86400000);
+        })();
+        // Если аренда привязана к договору — финансы берём из договора
+        const contract = rental.contractGroupId ? contractGroups.find(g => g.id === rental.contractGroupId) : null;
+        const fin = contract ? computeContractFinancials(contract, allGuests, payments) : null;
+        const contractName = contract?.name || rental.contractGroupName || '';
+        const charged   = fin ? fin.contractTotal : (rental.totalAmount || 0);
+        const totalPaid = fin ? fin.amountPaid : ((rental.paidCash || 0) + (rental.paidCard || 0) + (rental.paidQR || 0));
+        const debt      = fin ? Math.max(0, fin.debt) : Math.max(0, charged - totalPaid);
+        const totalDays = rental.days || 1;
+        const elapsed   = totalDays - Math.max(0, daysLeft ?? totalDays);
+        const pct       = Math.min(100, Math.round((elapsed / totalDays) * 100));
+        return (
+            <div className="group/room bg-white rounded-2xl border border-emerald-100
+                            shadow-[0_2px_20px_-6px_rgba(0,0,0,0.06)]
+                            hover:shadow-[0_8px_32px_-8px_rgba(0,0,0,0.1)]
+                            transition-all duration-300 overflow-hidden">
+
+                {/* цветная полоска */}
+                <div className="h-1 bg-gradient-to-r from-emerald-400 to-teal-400" />
+
+                {/* md+ layout */}
+                <div className="hidden md:flex flex-row">
+                    {/* левая панель */}
+                    <div className="w-52 lg:w-60 shrink-0 flex flex-col p-5 border-r border-slate-100 bg-gradient-to-b from-emerald-50/60 to-white">
+                        <div className="flex items-start justify-between mb-3">
+                            <div>
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                    <Key size={13} className="text-emerald-500" />
+                                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Аренда</span>
+                                </div>
+                                <span className="text-4xl font-black text-slate-800 tracking-tighter leading-none">{room.number}</span>
+                                {room.name && <div className="text-xs font-semibold text-slate-500 mt-1">{room.name}</div>}
+                            </div>
+                            <div className="flex flex-col gap-1 opacity-0 group-hover/room:opacity-100 transition-opacity duration-200">
+                                <button onClick={() => onEditRental?.(room)} title="Изменить аренду" className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit size={14}/></button>
+                                <button onClick={() => onExtendRental?.(room)} title="Продлить аренду" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"><RefreshCw size={14}/></button>
+                                <button onClick={() => onEndRental?.(room)} title="Завершить аренду" className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><LogIn size={14}/></button>
+                            </div>
+                        </div>
+                        <div className="mt-auto">
+                            <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Период</span>
+                                {daysLeft !== null && (
+                                    <span className={`text-[10px] font-black ${
+                                        daysLeft < 0  ? 'text-rose-500' :
+                                        daysLeft <= 1 ? 'text-orange-500' :
+                                        'text-emerald-600'
+                                    }`}>
+                                        {daysLeft < 0  ? `−${Math.abs(daysLeft)} дн.` :
+                                         daysLeft === 0 ? 'сегодня' :
+                                         `${daysLeft} дн.`}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-700" style={{
+                                    width: `${pct}%`,
+                                    background: daysLeft < 0 ? 'linear-gradient(90deg,#f87171,#ef4444)' :
+                                                daysLeft <= 1 ? 'linear-gradient(90deg,#fb923c,#f97316)' :
+                                                'linear-gradient(90deg,#34d399,#10b981)',
+                                }} />
+                            </div>
+                            <div className="text-[10px] font-semibold text-slate-400 mt-1">
+                                {rental.checkInDate?.slice(0,10)} → {rental.checkOutStr || rental.checkOutDate?.slice(0,10)}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mt-3">
+                                <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
+                                    <Key size={9} /> {rental.days} дн.
+                                </span>
+                                {debt > 0 && (
+                                    <span className="px-2 py-1 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-[10px] font-bold flex items-center gap-1">
+                                        <Wallet size={9} />{debt.toLocaleString()}
+                                    </span>
+                                )}
+                                {debt === 0 && totalPaid > 0 && (
+                                    <span className="px-2 py-1 rounded-lg bg-teal-50 border border-teal-100 text-teal-700 text-[10px] font-bold">
+                                        ✓ оплачено
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* правая часть */}
+                    <div className="flex-1 p-5 bg-white flex flex-col justify-between gap-3">
+                        {/* Арендатор */}
+                        <div className="flex items-start gap-3">
+                            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shrink-0 shadow-sm">
+                                <User size={18} className="text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-slate-800 font-black text-lg leading-tight tracking-tight">{rental.tenantName}</div>
+                                <div className="flex flex-wrap gap-2 mt-1.5">
+                                    {rental.passport && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold font-mono">
+                                            🪪 {rental.passport}
+                                        </span>
+                                    )}
+                                    {rental.phone && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold font-mono">
+                                            📞 {rental.phone}
+                                        </span>
+                                    )}
+                                    {rental.staffName && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 text-[10px] font-semibold font-mono">
+                                            {rental.staffName} · {rental.createdAt?.slice(0,10)}
+                                        </span>
+                                    )}
+                                    {contractName && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-teal-50 border border-teal-200 text-teal-700 text-[11px] font-bold">
+                                            <FileText size={11} /> {contractName}
+                                        </span>
+                                    )}
+                                </div>
+                                {rental.comment && (
+                                    <div className="text-slate-400 text-xs italic mt-1.5 bg-slate-50 rounded-lg px-2 py-1">{rental.comment}</div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Финансы + кнопки */}
+                        <div className="flex items-end justify-between gap-3 flex-wrap">
+                            {charged > 0 && (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
+                                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Итого{fin ? ' (договор)' : ''}</div>
+                                        <div className="text-slate-700 font-black text-sm font-mono leading-none">{charged.toLocaleString()}</div>
+                                    </div>
+                                    {totalPaid > 0 && (
+                                        <div className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-100">
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-emerald-500 mb-0.5">Внесено</div>
+                                            <div className="text-emerald-700 font-black text-sm font-mono leading-none">{totalPaid.toLocaleString()}</div>
+                                        </div>
+                                    )}
+                                    {debt > 0 ? (
+                                        <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200">
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-rose-400 mb-0.5">Долг</div>
+                                            <div className="text-rose-600 font-black text-sm font-mono leading-none">{debt.toLocaleString()}</div>
+                                        </div>
+                                    ) : totalPaid > 0 && (
+                                        <div className="px-3 py-2 rounded-xl bg-teal-50 border border-teal-100 flex items-center gap-1.5">
+                                            <CheckCircle2 size={13} className="text-teal-500" />
+                                            <div className="text-teal-700 font-black text-xs">Оплачено</div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {debt > 0 && !contract && (
+                                    <button onClick={() => onPayRental?.(room)}
+                                        className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-black rounded-xl bg-teal-600 text-white border border-teal-600 hover:bg-teal-700 shadow-sm shadow-teal-200 transition-colors">
+                                        <Wallet size={12} /> Оплатить
+                                    </button>
+                                )}
+                                {debt > 0 && contract && (
+                                    <span className="px-3 py-2 text-[11px] font-bold rounded-xl bg-teal-50 border border-teal-200 text-teal-700">оплата по договору</span>
+                                )}
+                                <button onClick={() => onEditRental?.(room)}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold rounded-xl bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors">
+                                    <Edit size={12} /> Изменить
+                                </button>
+                                <button onClick={() => onExtendRental?.(room)}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors">
+                                    <RefreshCw size={12} /> Продлить
+                                </button>
+                                <button onClick={() => onEndRental?.(room)}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold rounded-xl bg-slate-100 border border-slate-200 text-slate-500 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 transition-colors">
+                                    <LogIn size={12} /> Выселить
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* мобильная версия */}
+                <div className="md:hidden">
+                    <div className="px-3 py-2.5 flex items-center gap-2.5 border-b border-slate-100 bg-slate-50/80">
+                        <span className="text-2xl font-black text-slate-800 leading-none tracking-tighter w-10 shrink-0">{room.number}</span>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-slate-700 font-black text-sm">Комната №{room.number}</span>
+                                <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">АРЕНДА</span>
+                                {daysLeft !== null && (
+                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                        daysLeft < 0  ? 'bg-rose-100 text-rose-600' :
+                                        daysLeft <= 1 ? 'bg-orange-100 text-orange-600' :
+                                        'bg-emerald-100 text-emerald-700'
+                                    }`}>
+                                        {daysLeft < 0  ? `просрочка ${Math.abs(daysLeft)} дн.` :
+                                         daysLeft === 0 ? 'выезд сегодня' :
+                                         `${daysLeft} дн. осталось`}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="text-slate-400 text-[10px] font-mono mt-0.5">
+                                {rental.checkInDate?.slice(0,10)} → {rental.checkOutStr || rental.checkOutDate?.slice(0,10)} · {rental.days} дн.
+                            </div>
+                        </div>
+                    </div>
+                    <div className="px-3 py-2.5 bg-white">
+                        <div className="text-slate-800 font-black text-sm">{rental.tenantName}</div>
+                        <div className="flex gap-2 mt-0.5 flex-wrap items-center">
+                            {rental.passport && <span className="text-slate-400 text-[10px] font-mono">🪪 {rental.passport}</span>}
+                            {rental.phone    && <span className="text-slate-400 text-[10px] font-mono">{rental.phone}</span>}
+                            {contractName && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-50 border border-teal-200 text-teal-700 text-[10px] font-bold"><FileText size={9} />{contractName}</span>}
+                        </div>
+                        {charged > 0 && (
+                            <div className="flex gap-4 mt-1.5">
+                                <span className="text-slate-600 font-black text-xs font-mono">{charged.toLocaleString()} сум{fin ? ' · договор' : ''}</span>
+                                {debt > 0 && <span className="text-rose-600 font-black text-xs font-mono">долг {debt.toLocaleString()}</span>}
+                                {debt === 0 && totalPaid > 0 && <span className="text-emerald-600 font-bold text-xs">✓ оплачено</span>}
+                            </div>
+                        )}
+                    </div>
+                    <div className="px-3 pb-3 flex items-center gap-1.5 bg-white flex-wrap">
+                        {debt > 0 && !contract && (
+                            <button onClick={() => onPayRental?.(room)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-black rounded-lg bg-teal-600 text-white border border-teal-600 hover:bg-teal-700 transition-colors">
+                                <Wallet size={11} /> Оплатить
+                            </button>
+                        )}
+                        <button onClick={() => onEditRental?.(room)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-amber-50 border border-amber-100 text-amber-600 hover:bg-amber-100 transition-colors">
+                            <Edit size={11} /> Изменить
+                        </button>
+                        <button onClick={() => onExtendRental?.(room)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-100 transition-colors">
+                            <RefreshCw size={11} /> Продлить
+                        </button>
+                        <button onClick={() => onEndRental?.(room)}
+                            className="ml-auto flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors">
+                            <LogIn size={11} /> Завершить
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const searchNorm = guestSearch?.toLowerCase().trim();
     let visibleBeds = bedsData;
@@ -455,6 +808,18 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                     {stats.booking > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[9px] font-black">{stats.booking}{t('bedsBookingShort')}</span>}
                 </div>
 
+                {/* Кнопка доп-гостя */}
+                {canAddExtraGuest && (
+                    <button
+                        onClick={() => onAddExtraGuest?.(room)}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-100 text-orange-700 text-[10px] font-black hover:bg-orange-200 transition-colors shrink-0"
+                        title="Заселить доп. гостя"
+                    >
+                        <ExtraBedIcon size={12} />
+                        <span>+</span>
+                    </button>
+                )}
+
                 {/* Админ-кнопки */}
                 {isAdmin && (
                     <div className="flex items-center gap-1 shrink-0">
@@ -476,7 +841,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                     if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
                     return (
                         <div key={bed.id} className="w-36 shrink-0">
-                            <BedCell bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} />
+                            <BedCell bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} cadastreRegs={cadastreRegs} />
                         </div>
                     );
                 })}
@@ -516,8 +881,18 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             }`} style={{ width: `${occPct}%` }} />
                         </div>
                         <div className="text-[10px] font-semibold text-slate-400 mt-1">{occPct}% {t('occupied')}</div>
-                        <div className="mt-3">
+                        <div className="mt-3 flex items-center justify-between gap-2">
                             <Sparkline guests={guests} capacity={room.capacity} lang={lang} />
+                            {canAddExtraGuest && (
+                                <button
+                                    onClick={() => onAddExtraGuest?.(room)}
+                                    title="Заселить доп. гостя"
+                                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-700 text-[10px] font-black hover:bg-orange-200 transition-colors shrink-0"
+                                >
+                                    <ExtraBedIcon size={12} />
+                                    <span>Доп. гость</span>
+                                </button>
+                            )}
                         </div>
                         <div className="flex flex-wrap gap-1.5 mt-3">
                             {stats.free > 0 && <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold">{stats.free} {t('bedsFreeShort')}</span>}
@@ -538,7 +913,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             if (filter === 'timeout'  && !bed.isTimeout && bed.status !== 'free') return null;
                             if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
                             return (
-                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} />
+                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} cadastreRegs={cadastreRegs} />
                         );
                     })}
                     </div>
@@ -554,7 +929,8 @@ RoomRow.displayName = 'RoomRow';
 // ─────────────────────────────────────────────────────────────────────────────
 const RoomsView = ({
     filteredRooms, guestsByRoom, currentUser,
-    onBedClick, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom, onKppConfirm, onExportGuests, lang = 'ru',
+    onBedClick, onAddExtraGuest, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom, onKppConfirm, onExportGuests, onOpenGroupReceipt, onEndRental, onEditRental, onExtendRental, onPayRental, lang = 'ru', cadastreRegs = [],
+    contractGroups = [], payments = [], allGuests = [],
 }) => {
     const [filter, setFilter]           = useState('all');
     const [guestSearch, setGuestSearch] = useState('');
@@ -567,6 +943,7 @@ const RoomsView = ({
         { key: 'debt',     label: t('debts'),            icon: Wallet        },
         { key: 'timeout',  label: t('filterTimeout'),    icon: AlertTriangle },
         { key: 'booking',  label: t('filterBooking'),    icon: CalendarDays  },
+        { key: 'rental',   label: 'Аренда',              icon: Key           },
     ];
 
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
@@ -582,9 +959,19 @@ const RoomsView = ({
                 if (b.debt > 0) debtSum += b.debt;
                 if (b.isTimeout) timeoutCount++;
             });
+            // Долг по активной аренде комнаты (с учётом договора, если привязан)
+            if (r.rental?.active) {
+                const rt = r.rental;
+                const grp = rt.contractGroupId ? contractGroups.find(g => g.id === rt.contractGroupId) : null;
+                const fin = grp ? computeContractFinancials(grp, allGuests, payments) : null;
+                const rDebt = fin
+                    ? Math.max(0, fin.debt)
+                    : Math.max(0, (rt.totalAmount || 0) - ((rt.paidCash || 0) + (rt.paidCard || 0) + (rt.paidQR || 0) + (rt.paidTransfer || 0)));
+                if (rDebt > 0) debtSum += rDebt;
+            }
         });
         return { beds, occ, free, debtSum, timeoutCount };
-    }, [filteredRooms, guestsByRoom]);
+    }, [filteredRooms, guestsByRoom, contractGroups, payments, allGuests]);
 
     const clearSearch = useCallback(() => setGuestSearch(''), []);
 
@@ -635,12 +1022,12 @@ const RoomsView = ({
                     </div>
 
                     <button
-                        onClick={onExportGuests}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all duration-200 shrink-0 shadow-sm active:scale-95"
-                        title="Экспорт проживающих"
+                        onClick={onOpenGroupReceipt}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all duration-200 shrink-0 shadow-sm active:scale-95"
+                        title="Лист в бухгалтерию"
                     >
-                        <Download size={14} strokeWidth={3} />
-                        <span className="hidden sm:inline">Экспорт</span>
+                        <FileText size={14} strokeWidth={3} />
+                        <span className="hidden sm:inline">Лист</span>
                     </button>
 
                     {isAdmin && (
@@ -705,10 +1092,19 @@ const RoomsView = ({
                         onClone={() => onCloneRoom(room)}
                         onDelete={() => onDeleteRoom(room)}
                         onBedClick={onBedClick}
+                        onAddExtraGuest={onAddExtraGuest}
                         onKppConfirm={onKppConfirm}
+                        onEndRental={onEndRental}
+                        onEditRental={onEditRental}
+                        onExtendRental={onExtendRental}
+                        onPayRental={onPayRental}
                         filter={filter}
                         guestSearch={guestSearch}
                         lang={lang}
+                        cadastreRegs={cadastreRegs}
+                        contractGroups={contractGroups}
+                        payments={payments}
+                        allGuests={allGuests}
                     />
                 ))}
 
