@@ -1,51 +1,58 @@
 # Security Policy
 
-## Supported Versions
+## Поддерживаемые версии
 
-| Version | Supported          |
+Исправления безопасности выходят только для последней минорной версии.
+
+| Версия  | Поддержка          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
-| < 0.1.0 | :x:                |
+| 0.8.x   | :white_check_mark: |
+| < 0.8.0 | :x:                |
 
-## Reporting a Vulnerability
+## Сообщить об уязвимости
 
-If you discover a security vulnerability in Hostella, please **do not** open a public GitHub issue.
+Если вы нашли уязвимость в Hostella, **не открывайте публичный GitHub issue**.
 
-Instead, report it privately via one of the following channels:
+Сообщите приватно:
 
 - **Telegram:** [@gulomovff](https://t.me/gulomovff)
-- **Email:** *(добавьте при необходимости)*
 
-Please include in your report:
-- A clear description of the vulnerability
-- Steps to reproduce the issue
-- Potential impact assessment
-- Any suggested fix (optional)
+В отчёте укажите:
+- описание уязвимости;
+- шаги воспроизведения;
+- потенциальное влияние;
+- предполагаемое исправление (по желанию).
 
-We will acknowledge receipt within **48 hours** and aim to release a fix within **7 days** for critical issues.
+Мы подтвердим получение в течение **48 часов** и для критичных проблем постараемся выпустить фикс в течение **7 дней**.
 
-## Security Considerations
+## Принципы безопасности
 
-### Authentication
-- Admin access is protected via Firebase Authentication
-- Admin passwords are hashed and stored in Firestore
-- Session tokens are managed by Firebase SDK
+### Секреты и конфигурация
+- В клиентский бандл попадают **только публичные** переменные с префиксом `VITE_` — это конфиг Firebase (apiKey и пр.), который по дизайну открыт.
+- Файлы `.env*` **не коммитятся** (исключены в `.gitignore`: `.env`, `.env.*`, `.env.development`, `.env.production`).
+- Серверные секреты (Telegram bot-token, `ADMIN_STATS_PASSWORD`) хранятся в окружении Cloud Functions (`process.env`), а не в коде фронта.
+- В git-ремоут не должны попадать токены доступа: используйте credential helper (`gh auth setup-git`), а не PAT в URL.
 
-### Data Storage
-- All guest data is stored in **Google Firestore** with project-level access control
-- The app is a desktop (Electron) application — no public-facing API endpoints
-- Telegram Bot token is stored exclusively in **Firebase Cloud Functions environment config**, never in client-side code
+### Аутентификация и доступ
+- Доступ разграничен ролями (super / admin / кассир) и правами по хостелам.
+- Пароли администрирования проверяются на стороне Cloud Functions.
+- Сессии управляются Firebase SDK.
+
+### Хранение данных
+- Все данные — в **Google Firestore** с разграничением доступа на уровне проекта/правил.
+- Публичных API-эндпоинтов у приложения нет; запись идёт через Firebase SDK и Cloud Functions.
 
 ### Cloud Functions
-- `sendTelegramMessage` — validates input, reads recipient list from Firestore
-- `verifyAdminPassword` — rate limiting is handled by Firebase
-- `scanPassport` — processes images server-side, no data is retained after response
+- `sendTelegramMessage` — валидирует ввод, берёт список получателей из Firestore; bot-token только в окружении функций.
+- Проверка пароля администратора — на сервере, без хранения секрета в клиенте.
+- Обработка изображений (OCR паспорта) — на сервере, данные не сохраняются после ответа.
 
-### Electron Security
-- `nodeIntegration` is **disabled**
-- `contextIsolation` is **enabled**
-- All IPC communication goes through a typed `preload.js` bridge
-- External navigation is blocked
+### Electron
+- `nodeIntegration` **выключен**, `contextIsolation` **включён**.
+- Весь IPC — через типизированный мост `preload.js`.
+- Внешняя навигация заблокирована.
+- Авто-обновление — через подписанные релизы GitHub.
 
-### Dependency Updates
-We follow Electron and Firebase release notes and apply security patches on each release cycle.
+### Зависимости
+- Регулярно прогоняем `npm audit fix`; критичные и высокие уязвимости устраняем в рамках релизного цикла.
+- Следим за рекомендациями Electron и Firebase.
