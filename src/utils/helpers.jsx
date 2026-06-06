@@ -2,23 +2,13 @@ import React from 'react';
 import * as XLSX from 'xlsx';
 import { COUNTRY_MAP, COUNTRIES } from '../constants/countries';
 
-// Renders a country flag image from flagcdn.com by ISO code
-// flagcdn only supports: 20, 40, 80, 160, 320 — snap to nearest
-const FLAG_SIZES = [20, 40, 80, 160, 320];
-const snapFlagSize = (s) => FLAG_SIZES.find(f => f >= s) || 320;
+// Renders a country flag using flag-icons CSS (works offline, SVG bundled)
 export const Flag = ({ code, size = 20 }) => {
   if (!code) return null;
-  const w = snapFlagSize(size);
-  const w2 = snapFlagSize(size * 2);
-  const h = Math.round(size * 0.75);
   return (
-    <img
-      src={`https://flagcdn.com/w${w}/${code.toLowerCase()}.png`}
-      srcSet={`https://flagcdn.com/w${w2}/${code.toLowerCase()}.png 2x`}
-      width={size}
-      height={h}
-      alt={code}
-      style={{ display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0 }}
+    <span
+      className={`fi fi-${code.toLowerCase()}`}
+      style={{ width: size, height: Math.round(size * 0.75), display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }}
     />
   );
 };
@@ -47,6 +37,15 @@ export const HOSTELS = {
 };
 
 // --- HELPERS ---
+// Форматирование суммы с пробелами: "1800000" → "1 800 000"
+export const fmtSum = (raw) => {
+    const digits = String(raw ?? '').replace(/\D/g, '');
+    if (!digits) return '';
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+};
+// Обратное: убирает пробелы и возвращает строку цифр
+export const parseSum = (formatted) => String(formatted ?? '').replace(/[\s ]/g, '');
+
 export const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
 export const pluralize = (number, one, two, five, lang = 'ru') => {
     if (lang === 'uz') return one;
@@ -157,6 +156,14 @@ export const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0)
     XLSX.writeFile(wb, xlsxFilename);
 };
 
+// Escape special HTML characters to prevent XSS in document.write print functions
+const escHtml = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+
 // ? ИСПРАВЛЕНИЕ: Улучшенная печать документов (чеки, анкеты, справки)
 export const printDocument = (type, guest, hostel) => {
     const w = window.open('', '', 'width=800,height=600');
@@ -193,9 +200,9 @@ export const printDocument = (type, guest, hostel) => {
             <p style="margin: 2px 0; font-size: 12px;">Дата: ${date} ${time}</p>
         </div>
         <div style="text-align: center; font-size: 16px; font-weight: bold; margin: 15px 0;">КАССОВЫЙ ЧЕК</div>
-        <div class="info-row"><span class="label">Гость:</span><span>${guest.fullName}</span></div>
-        <div class="info-row"><span class="label">Паспорт:</span><span>${guest.passport || '-'}</span></div>
-        <div class="info-row"><span class="label">Комната:</span><span>№${guest.roomNumber}, Место ${guest.bedId}</span></div>
+        <div class="info-row"><span class="label">Гость:</span><span>${escHtml(guest.fullName)}</span></div>
+        <div class="info-row"><span class="label">Паспорт:</span><span>${escHtml(guest.passport || '-')}</span></div>
+        <div class="info-row"><span class="label">Комната:</span><span>№${escHtml(guest.roomNumber)}, Место ${escHtml(guest.bedId)}</span></div>
         <div class="info-row"><span class="label">Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
         <div class="info-row"><span class="label">Дней:</span><span>${guest.days}</span></div>
         <div class="info-row"><span class="label">Цена за ночь:</span><span>${guest.pricePerNight.toLocaleString()} сум</span></div>
@@ -212,14 +219,14 @@ export const printDocument = (type, guest, hostel) => {
             <h2>РЕГИСТРАЦИОННАЯ КАРТА ГОСТЯ</h2>
             <p style="margin: 2px 0;">${hostel.name}</p>
         </div>
-        <div class="info-row"><span class="label">ФИО:</span><span>${guest.fullName}</span></div>
-        <div class="info-row"><span class="label">Дата рождения:</span><span>${guest.birthDate || '-'}</span></div>
-        <div class="info-row"><span class="label">Паспорт:</span><span>${guest.passport || '-'}</span></div>
-        <div class="info-row"><span class="label">Гражданство:</span><span>${guest.country || '-'}</span></div>
+        <div class="info-row"><span class="label">ФИО:</span><span>${escHtml(guest.fullName)}</span></div>
+        <div class="info-row"><span class="label">Дата рождения:</span><span>${escHtml(guest.birthDate || '-')}</span></div>
+        <div class="info-row"><span class="label">Паспорт:</span><span>${escHtml(guest.passport || '-')}</span></div>
+        <div class="info-row"><span class="label">Гражданство:</span><span>${escHtml(guest.country || '-')}</span></div>
         <div class="info-row"><span class="label">Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
         <div class="info-row"><span class="label">Дата выезда:</span><span>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : '-'}</span></div>
-        <div class="info-row"><span class="label">Комната:</span><span>№${guest.roomNumber}</span></div>
-        <div class="info-row"><span class="label">Место:</span><span>№${guest.bedId}</span></div>
+        <div class="info-row"><span class="label">Комната:</span><span>№${escHtml(guest.roomNumber)}</span></div>
+        <div class="info-row"><span class="label">Место:</span><span>№${escHtml(guest.bedId)}</span></div>
         <div style="margin-top: 40px;">
             <p>Подпись гостя: <span class="signature"></span></p>
             <p>Дата: ${date}</p>
@@ -234,12 +241,12 @@ export const printDocument = (type, guest, hostel) => {
             <p style="margin: 2px 0; font-size: 11px;">${hostel.address}</p>
         </div>
         <p style="text-align: justify; line-height: 1.6; margin: 20px 0;">
-            Настоящая справка выдана <strong>${guest.fullName}</strong>, паспорт ${guest.passport || '-'}, 
-            в том, что он(а) действительно проживал(а) в ${hostel.name} 
+            Настоящая справка выдана <strong>${escHtml(guest.fullName)}</strong>, паспорт ${escHtml(guest.passport || '-')}, 
+            в том, что он(а) действительно проживал(а) в ${escHtml(hostel.name)} 
             с <strong>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</strong> 
             по <strong>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : 'настоящее время'}</strong>.
         </p>
-        <p style="margin: 20px 0;">Комната: №${guest.roomNumber}, Место: №${guest.bedId}</p>
+        <p style="margin: 20px 0;">Комната: №${escHtml(guest.roomNumber)}, Место: №${escHtml(guest.bedId)}</p>
         <p style="margin: 20px 0;">Справка выдана для предъявления по месту требования.</p>
         <div style="margin-top: 60px;">
             <p>Дата выдачи: ${date}</p>
@@ -293,9 +300,9 @@ export const printDebts = (debts, totalDebt) => {
     debts.forEach(d => {
         html += `
             <tr>
-                <td>${d.fullName}</td>
-                <td>${d.passport || '-'}</td>
-                <td>${d.roomNumber ? `Комната ${d.roomNumber}` : '-'}</td>
+                <td>${escHtml(d.fullName)}</td>
+                <td>${escHtml(d.passport || '-')}</td>
+                <td>${d.roomNumber ? `Комната ${escHtml(d.roomNumber)}` : '-'}</td>
                 <td class="debt">${d.totalDebt.toLocaleString()}</td>
             </tr>
         `;
@@ -371,9 +378,9 @@ export const printReport = (data, totalIncome, totalExpense, filters, users) => 
                 <td>${new Date(row.date).toLocaleString()}</td>
                 <td class="${typeClass}">${typeLabel}</td>
                 <td>${parseInt(row.amount).toLocaleString()}</td>
-                <td>${row.method || '-'}</td>
-                <td>${staffName}</td>
-                <td>${row.comment || '-'}</td>
+                <td>${escHtml(row.method || '-')}</td>
+                <td>${escHtml(staffName)}</td>
+                <td>${escHtml(row.comment || '-')}</td>
             </tr>
         `;
     });

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
-import { Flag, getTotalPaid } from '../../utils/helpers';
+import { Flag, getTotalPaid, fmtSum, parseSum } from '../../utils/helpers';
 import ConfirmDialog from '../UI/ConfirmDialog';
 
 const getStayDetails = (checkInDateTime, days) => {
@@ -95,6 +95,159 @@ const printDocument = (type, guest, hostel) => {
     w.document.write(html);
     w.document.close();
     w.print();
+};
+
+// ─── Договор клиента (3 языка) ───────────────────────────────────────────────
+const CONTRACT_I18N = {
+    ru: {
+        title: 'ДОГОВОР-СОГЛАСОВАНИЕ', sub: 'с ЯТТ Сабирова Ш. Б.', no: '№', addr: 'г. Ташкент, ул. Ниёзбек Йули, дом 43',
+        s1h: '1. Предмет договора',
+        s1: 'Исполнитель обязуется предоставить услуги по длительному или краткосрочному пребыванию (проживанию) в помещении, расположенном по адресу: {ADDR} (Хостел) (далее — «Услуги»), а Клиент обязуется соблюдать условия настоящего договора и оплатить стоимость проживания.',
+        s2h: '2. Предоставление места проживания',
+        s2: 'Исполнитель предоставляет Клиенту комнату или койко-место (далее — «место проживания») на условиях, указанных в прайс-листе Исполнителя.',
+        s3h: '3. Обязанности клиента',
+        s3lead: 'Клиент не приобретает прав на самостоятельное использование помещения и обязуется:',
+        obl: ['соблюдать Правила проживания, установленные Исполнителем;', 'не курить в жилых помещениях;', 'не употреблять наркотические вещества;', 'не употреблять алкогольные напитки;', 'не шуметь, не нарушать покой других жильцов;', 'не совершать кражу и не присваивать чужие вещи.'],
+        s4h: '4. Подписание договора',
+        s4: 'Заполнение и подписание настоящего договора означает полное согласие Клиента с условиями договора и внутренними правилами проживания (пребывания) в жилом помещении Исполнителя.',
+        s5h: '5. Информация о клиенте',
+        f: { cit: 'Гражданство', name: 'Ф.И.О.', pass: 'Паспортные данные', birth: 'Год рождения', phone: 'Контактный номер', cin: 'Дата приёма и регистрации', cout: 'Дата выбытия', days: 'дн.', room: 'Комната №', bed: 'Койка №' },
+        warn: 'Внимание: Администрация Хостела не несёт ответственности за утерянные вещи, денежные средства и драгоценности.',
+        s6h: '6. Согласование клиента', sigN: 'Ф.И.О.', sigS: 'Подпись', sigD: 'Дата',
+    },
+    uz: {
+        title: 'KELISHUV-SHARTNOMA', sub: 'YaTT Sabirova Sh. B. bilan', no: '№', addr: 'Toshkent shahri, Niyozbek Yo‘li ko‘chasi, 43-uy',
+        s1h: '1. Shartnoma predmeti',
+        s1: 'Ijrochi mijozga quyidagi xizmatlarni taqdim etadi: {ADDR} (Xostel) manzilida joylashgan xonalarda qisqa muddatli yoki uzoq muddatli yashash (turar joy) xizmatlari (keyingi o‘rinlarda — «Xizmatlar»).',
+        s2h: '2. Turar joy taqdim etish',
+        s2: 'Ijrochi mijozga xonani yoki yotoq-o‘rinni (keyingi o‘rinlarda — «turar joy») o‘zining prays-listiga muvofiq to‘lov evaziga taqdim etadi.',
+        s3h: '3. Mijozning majburiyatlari',
+        s3lead: 'Mijoz turar joydan mustaqil foydalanish huquqiga ega emas va quyidagilarga rioya etishni o‘z zimmasiga oladi:',
+        obl: ['Ijrochi belgilagan Turar joy qoidalariga rioya qilish;', 'xonalarda tamaki chekmaslik;', 'narkotik moddalarni iste’mol qilmaslik;', 'spirtli ichimliklarni iste’mol qilmaslik;', 'shovqin qilmaslik, boshqa mijozlarning tinchligini buzmaslik;', 'boshqalarning buyumlariga tajovuz qilmaslik.'],
+        s4h: '4. Shartnomani imzolash',
+        s4: 'Mazkur shartnomani to‘ldirish va imzolash mijozning shartnoma shartlariga hamda Ijrochi ichki qoidalariga to‘liq roziligini anglatadi.',
+        s5h: '5. Mijoz haqida ma’lumotlar',
+        f: { cit: 'Fuqaroligi', name: 'F.I.O.', pass: 'Pasport ma’lumotlari', birth: 'Tug‘ilgan sanasi', phone: 'Telefon raqami', cin: 'Qabul qilingan sana', cout: 'Chiqish sanasi', days: 'kun', room: 'Xona №', bed: 'Yotoq-o‘rin №' },
+        warn: 'Diqqat: Xostel ma’muriyati yo‘qolgan buyumlar, pul mablag‘lari va qimmatbaho ashyolar uchun javobgar emas.',
+        s6h: '6. Mijozning kelishuvi', sigN: 'F.I.O.', sigS: 'Imzo', sigD: 'Sana',
+    },
+    en: {
+        title: 'AGREEMENT-CONTRACT', sub: 'with Sole Proprietor Sabirova Sh. B.', no: 'No.', addr: 'Tashkent, Niyozbek Yuli Street, House 43',
+        s1h: '1. Subject of the Agreement',
+        s1: 'The Executor undertakes to provide services for short-term or long-term accommodation at the premises located at: {ADDR} (Hostel) (hereinafter — “Services”), and the Client undertakes to comply with the terms of this Agreement and pay for the accommodation.',
+        s2h: '2. Provision of Accommodation',
+        s2: 'The Executor provides the Client with a room or a bed (hereinafter — “accommodation”) subject to payment in accordance with the Executor’s price list.',
+        s3h: '3. Obligations of the Client',
+        s3lead: 'The Client does not acquire the right to independent use of the premises and undertakes to:',
+        obl: ['comply with the Rules of Residence established by the Executor;', 'not smoke in the rooms;', 'not use narcotic substances;', 'not consume alcoholic beverages;', 'not make noise or disturb other residents;', 'not steal or appropriate other people’s belongings.'],
+        s4h: '4. Signing of the Agreement',
+        s4: 'Completion and signing of this Agreement shall constitute the Client’s full consent with the terms and conditions of the Agreement as well as with the internal rules governing residence in the Executor’s premises.',
+        s5h: '5. Client Information',
+        f: { cit: 'Citizenship', name: 'Full Name', pass: 'Passport Details', birth: 'Date of Birth', phone: 'Contact Number', cin: 'Check-in Date', cout: 'Check-out Date', days: 'days', room: 'Room No.', bed: 'Bed No.' },
+        warn: 'Attention: The Hostel Administration shall not be held liable for lost items, money, or valuables.',
+        s6h: '6. Client’s Consent', sigN: 'Full Name', sigS: 'Signature', sigD: 'Date',
+    },
+};
+
+// Реквизиты по хостелам (ИП + адрес на 3 языках)
+const HOSTEL_LEGAL = {
+    hostel1: {
+        entity: 'YTT «SABIROVA SHOIRA BAXTIYOROVNA»',
+        person: { ru: 'Сабирова Ш. Б.', uz: 'Sabirova Sh. B.', en: 'Sabirova Sh. B.' },
+        addr: { ru: 'г. Ташкент, ул. Ниёзбек Йули, дом 43', uz: 'Toshkent shahri, Niyozbek Yo‘li ko‘chasi, 43-uy', en: 'Tashkent, Niyozbek Yuli Street, House 43' },
+    },
+    hostel2: {
+        entity: 'YATT «YULDASHEV AZIZ IRGASHEVICH»',
+        person: { ru: 'Юлдашев А. И.', uz: 'Yuldashev A. I.', en: 'Yuldashev A. I.' },
+        addr: { ru: 'г. Ташкент, 6-проезд Ниёзбек Йули, дом 41', uz: 'Toshkent shahri, Niyozbek Yo‘li 6-tor ko‘chasi, 41-uy', en: 'Tashkent, Niyozbek Yuli 6th drive, House 41' },
+    },
+};
+const CONTRACT_SUB = {
+    ru: (p) => `с ЯТТ ${p}`,
+    uz: (p) => `YaTT ${p} bilan`,
+    en: (p) => `with Sole Proprietor ${p}`,
+};
+
+const printContract = (guest, hostel, lang = 'ru') => {
+    const t = CONTRACT_I18N[lang] || CONTRACT_I18N.ru;
+    const legal = HOSTEL_LEGAL[guest.hostelId] || HOSTEL_LEGAL.hostel1;
+    const addr = legal.addr[lang] || legal.addr.ru;
+    const sub = (CONTRACT_SUB[lang] || CONTRACT_SUB.ru)(legal.person[lang] || legal.person.ru);
+    const esc = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fd = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '';
+    const logo1 = `${import.meta.env.BASE_URL}Logo.png`;
+    const logo2 = `${import.meta.env.BASE_URL}uzbek-tourism.svg`;
+    const days = guest.days ? `(${guest.days} ${t.f.days})` : '';
+    const w = window.open('', '', 'width=900,height=1200');
+    const html = `<!DOCTYPE html><html lang="${lang}"><head><meta charset="UTF-8"><title>${t.title}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0;}
+      html,body{background:#e7ecf1;font-family:'PT Sans','Segoe UI',Arial,sans-serif;color:#1b2733;font-size:11.5px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+      .page{width:210mm;min-height:297mm;margin:20px auto;background:#fff;padding:16mm 17mm 14mm;box-shadow:0 10px 40px rgba(18,62,116,.16);}
+      .head{display:flex;align-items:center;justify-content:space-between;gap:20px;}
+      .head img{object-fit:contain;display:block;}
+      .head .logoA{height:64px;}
+      .head .logoB{height:50px;}
+      .ent{text-align:center;font-weight:700;font-size:12px;letter-spacing:.4px;color:#2a3a49;margin-top:8px;}
+      .rule{border-top:2.5px solid #123e74;margin:8px 0 0;}
+      .rule i{display:block;border-top:1px solid #cdd8e6;margin-top:2.5px;}
+      .docno{text-align:right;font-size:11px;color:#46566a;margin-top:6px;}
+      .title{text-align:center;font-size:19px;font-weight:800;letter-spacing:.6px;color:#123e74;margin-top:2px;}
+      .sub{text-align:center;font-size:11.5px;color:#5e7186;margin-bottom:6px;}
+      h3{font-size:12.5px;color:#123e74;margin:11px 0 4px;padding-left:9px;border-left:3px solid #ef8a1c;line-height:1.2;}
+      p{margin:3px 0;text-align:justify;}
+      ul{margin:3px 0 4px;padding-left:22px;}
+      li{margin:2px 0;}
+      .info{margin-top:6px;border:1px solid #d8e0ea;border-radius:9px;overflow:hidden;}
+      table.f{width:100%;border-collapse:collapse;table-layout:fixed;}
+      table.f td{padding:7px 13px;font-size:12px;border-bottom:1px solid #edf1f6;vertical-align:middle;}
+      table.f tr:last-child td{border-bottom:none;}
+      table.f tr:nth-child(odd){background:#fafbfd;}
+      .lbl{color:#62748a;font-size:10.5px;font-weight:600;width:23%;white-space:nowrap;}
+      .val{font-weight:700;font-size:13px;color:#0d1b2a;border-bottom:1px solid #c2ccd8;min-height:18px;display:block;padding:0 2px 2px;}
+      .warn{margin:11px 0;padding:9px 13px;border:1px solid #f0cf86;background:#fff8e7;font-size:10.5px;border-radius:7px;color:#7a5a06;}
+      .sign{display:flex;justify-content:space-between;gap:18px;margin-top:22px;font-size:12px;}
+      .sign .ln{border-bottom:1px solid #2a3a49;display:inline-block;min-width:150px;}
+      .foot{margin-top:16px;padding-top:8px;border-top:1px solid #e7ecf1;text-align:center;font-size:9px;color:#9aa7b6;}
+      @media print{
+        html,body{background:#fff;}
+        .page{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none;}
+        .warn,table.f tr:nth-child(odd){-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      }
+      @page{size:A4;margin:13mm 15mm;}
+    </style></head><body>
+      <div class="page">
+        <div class="head"><img class="logoA" src="${logo1}" alt=""/><img class="logoB" src="${logo2}" alt=""/></div>
+        <div class="ent">${legal.entity}</div>
+        <div class="rule"><i></i></div>
+        <div class="docno">${t.no} ____________</div>
+        <div class="title">${t.title}</div>
+        <div class="sub">${sub}</div>
+        <h3>${t.s1h}</h3><p>${t.s1.replace('{ADDR}', addr)}</p>
+        <h3>${t.s2h}</h3><p>${t.s2}</p>
+        <h3>${t.s3h}</h3><p>${t.s3lead}</p><ul>${t.obl.map(o => `<li>${o}</li>`).join('')}</ul>
+        <h3>${t.s4h}</h3><p>${t.s4}</p>
+        <h3>${t.s5h}</h3>
+        <div class="info"><table class="f">
+          <tr><td class="lbl">${t.f.cit}</td><td><span class="val">${esc(guest.country || '')}</span></td>
+              <td class="lbl">${t.f.phone}</td><td><span class="val">${esc(guest.phone || '')}</span></td></tr>
+          <tr><td class="lbl">${t.f.name}</td><td colspan="3"><span class="val">${esc(guest.fullName || '')}</span></td></tr>
+          <tr><td class="lbl">${t.f.pass}</td><td><span class="val">${esc(guest.passport || '')}</span></td>
+              <td class="lbl">${t.f.birth}</td><td><span class="val">${esc(guest.birthDate ? fd(guest.birthDate) : '')}</span></td></tr>
+          <tr><td class="lbl">${t.f.cin}</td><td><span class="val">${esc(fd(guest.checkInDate))}</span></td>
+              <td class="lbl">${t.f.cout}</td><td><span class="val">${esc(fd(guest.checkOutDate))} ${days}</span></td></tr>
+          <tr><td class="lbl">${t.f.room}</td><td><span class="val">${esc(guest.roomNumber || '')}</span></td>
+              <td class="lbl">${t.f.bed}</td><td><span class="val">${esc(guest.bedId || '')}</span></td></tr>
+        </table></div>
+        <div class="warn">⚠️ ${t.warn}</div>
+        <h3>${t.s6h}</h3>
+        <div class="sign"><span>${t.sigN}: <span class="ln"></span></span><span>${t.sigS}: <span class="ln"></span></span><span>${t.sigD}: <span class="ln" style="min-width:90px"></span></span></div>
+        <div class="foot">${legal.entity} · ${addr}</div>
+      </div>
+    </body></html>`;
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 350);
 };
 
 // ─── Country list for replace form ─────────────────────────────────────────
@@ -456,10 +609,10 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
             ].map(([f,pl,ic,val,setter])=>(
                 <div key={f} className="relative">
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">{ic}</div>
-                    <input type="number" className="w-full pl-9 pr-9 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-emerald-500 outline-none"
+                    <input type="text" inputMode="numeric" className="w-full pl-9 pr-9 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-emerald-500 outline-none"
                         placeholder={pl}
-                        value={val}
-                        onChange={e=>setter(e.target.value)}
+                        value={fmtSum(val)}
+                        onChange={e=>setter(parseSum(e.target.value))}
                         onWheel={disableWheel}/>
                     <button onClick={()=>applyMagnet(f)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg"><Magnet size={15}/></button>
                 </div>
@@ -644,6 +797,22 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                 })()}
                             </div>
 
+                            {/* Печать договора клиента — выбор языка */}
+                            <div className="bg-white rounded-xl border border-slate-200 p-3 flex items-center gap-3">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(15,150,136,0.12)' }}><FileText size={17} className="text-teal-600"/></div>
+                                    <span className="text-sm font-bold text-slate-700">Распечатать договор</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    {[['uz','UZ','uz'],['ru','RU','ru'],['en','EN','gb']].map(([lc,lbl,flag])=>(
+                                        <button key={lc} onClick={()=>printContract(guest, hostelInfo, lc)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black border border-slate-200 text-slate-600 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-300 transition-colors">
+                                            <span className={`fi fi-${flag} rounded-sm`} style={{ width: 18, height: 13, backgroundSize: 'cover' }}/>{lbl}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             {(() => {
                                 const normStr2 = s => (s || '').replace(/\s/g, '').toUpperCase();
                                 const cadReg = cadastreRegs.find(r =>
@@ -747,7 +916,6 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             {!isBooking && (
                                 <>
                                     <button onClick={()=>handlePrint('check')}   className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Чек"><Printer size={17}/></button>
-                                    <button onClick={()=>handlePrint('regcard')} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Рег. карта"><FileText size={17}/></button>
                                     <button onClick={() => {
                                         setEditForm({
                                             fullName: guest.fullName || '',

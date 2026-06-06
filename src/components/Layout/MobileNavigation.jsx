@@ -3,7 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3,
+    ClipboardCheck, BarChart3, MapPin,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -29,8 +29,10 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('main2'),
         items: [
             { id: 'dashboard',     icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
-            { id: 'registrations', icon: ClipboardCheck,  label: t('emehmon'),   badgeKey: 'registrations' },
-            { id: 'tasks',         icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks' },
+            { id: 'registrations', icon: ClipboardCheck,  label: t('emehmon'),   badgeKey: 'registrations', permKey: 'viewRegistrations' },
+            { id: 'cadastre',      icon: MapPin,          label: 'Кадастр', permKey: 'viewCadastre' },
+            { id: 'manualstay',    icon: Users,           label: 'Ручной учёт', permKey: 'viewManualStay' },
+            { id: 'tasks',         icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks', permKey: 'viewTasks' },
         ],
     },
     {
@@ -51,7 +53,7 @@ const MORE_GROUPS_ADMIN = (t) => [
     {
         label: t('other2'),
         items: [
-            { id: 'referrals',    icon: Users2,        label: t('bonuses') },
+            { id: 'referrals',    icon: Users2,        label: t('bonuses'), permKey: 'viewReferrals' },
             { id: 'telegram',     icon: BellRing,      label: t('telegram2'),      adminOnly: true },
             { id: 'promos',       icon: Tag,            label: t('promos2'),        adminOnly: true },
             { id: 'hostelconfig', icon: Settings,       label: t('hostelSettings'), adminOnly: true },
@@ -65,15 +67,17 @@ const MORE_GROUPS_CASHIER = (t) => [
         label: t('main2'),
         items: [
             { id: 'dashboard', icon: LayoutDashboard, label: t('dashboard'), adminOnly: true, permKey: 'viewStats' },
-            { id: 'tasks',     icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks' },
+            { id: 'tasks',     icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks', permKey: 'viewTasks' },
         ],
     },
     {
         label: t('other2'),
         items: [
             { id: 'bookings',      icon: Globe,          label: t('bookings2'), badgeKey: 'bookings', glow: true },
-            { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),   badgeKey: 'registrations' },
-            { id: 'referrals',     icon: Users2,         label: t('bonuses') },
+            { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),   badgeKey: 'registrations', permKey: 'viewRegistrations' },
+            { id: 'cadastre',      icon: MapPin,         label: 'Кадастр', permKey: 'viewCadastre' },
+            { id: 'manualstay',    icon: Users,          label: 'Ручной учёт', permKey: 'viewManualStay' },
+            { id: 'referrals',     icon: Users2,         label: t('bonuses'), permKey: 'viewReferrals' },
         ],
     },
 ];
@@ -86,7 +90,7 @@ const MobileNavigation = ({
     selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter,
     onLogout,
     canPerformActions, onOpenCheckIn, onOpenGroupCheckIn, onOpenRoomRental,
-    onOpenShiftClosing, onOpenExpense, anyModalOpen,
+    onOpenShiftClosing, onOpenExpense, onOpenGroupReceipt, anyModalOpen,
     registrationsAlertCount = 0,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
@@ -246,6 +250,13 @@ const MobileNavigation = ({
                                 <Lock size={14}/> Смену
                             </button>
                         </div>
+                        <button
+                            onClick={() => { setDrawerOpen(false); onOpenGroupReceipt?.(); }}
+                            className="w-full mt-2 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
+                            style={{ background: 'rgba(15,150,136,0.16)', border: '1px solid rgba(15,150,136,0.34)', color: '#5eead4' }}
+                        >
+                            <FileText size={14}/> Лист в бухгалтерию
+                        </button>
                     </div>
                 )}
 

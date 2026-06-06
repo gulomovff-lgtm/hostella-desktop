@@ -10,15 +10,21 @@ release/
 build/
 *.local
 
+# Firebase CLI cache
+.firebase/
+
 # Environment
 .env
+.env.*
 .env.local
+.env.development
 .env.production
 functions/.env.local
 
 # Editor
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Users, Plus, Trash2, DollarSign, CreditCard, QrCode, Magnet, ArrowRightLeft } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { fmtSum, parseSum } from '../../utils/helpers';
 
 const MODAL_STYLE = `
     @keyframes gci-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -35,7 +36,7 @@ const EMPTY_GUEST = {
 const inputClass = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 outline-none text-sm font-medium text-slate-800 transition-all";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, notify, lang, currentUser }) => {
+const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
 
     const today = new Date().toISOString().split('T')[0];
@@ -127,12 +128,18 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
         }
         setSubmitting(true);
         try {
+            const nowTs = new Date();
             for (const g of guestList) {
                 const checkIn = new Date(checkInDate);
-                checkIn.setHours(14, 0, 0, 0);
+                checkIn.setHours(checkInHour, 0, 0, 0);
                 const checkOut = new Date(checkIn);
                 checkOut.setDate(checkOut.getDate() + (parseInt(days) || 1));
-                checkOut.setHours(12, 0, 0, 0);
+                checkOut.setHours(checkOutHour, 0, 0, 0);
+                // Ранний заезд: фиксируем фактическое время прихода, если расчётный час
+                // заезда сегодня ещё не наступил (иначе кровать ошибочно «свободна» до 14:00).
+                if (checkIn > nowTs && checkIn.toDateString() === nowTs.toDateString()) {
+                    checkIn.setTime(nowTs.getTime());
+                }
                 const price  = priceForGuest(g);
                 const total  = price * (parseInt(days) || 1);
                 const paid   = paidForGuest(g);
@@ -219,10 +226,10 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                         <div>
                             <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('pricePerNightAll')}</label>
                             <div className="relative">
-                                <input type="number" className={`${inputClass} pr-12`}
+                                <input type="text" inputMode="numeric" className={`${inputClass} pr-12`}
                                     placeholder={room ? String(parseInt(room.price) || 0) : '0'}
-                                    value={commonPrice}
-                                    onChange={e => setCommonPrice(e.target.value)}/>
+                                    value={fmtSum(commonPrice)}
+                                    onChange={e => setCommonPrice(parseSum(e.target.value))}/>
                                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">сум</span>
                             </div>
                         </div>
@@ -307,8 +314,8 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                                     <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{lbl}</label>
                                                     <div className="relative">
                                                         <Icon size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                                                        <input type="number" className={`${inputClass} pl-7 pr-7`} value={g[field]}
-                                                            onChange={e => updateGuest(g.id, field, e.target.value)}/>
+                                                        <input type="text" inputMode="numeric" className={`${inputClass} pl-7 pr-7`} value={fmtSum(g[field])}
+                                                            onChange={e => updateGuest(g.id, field, parseSum(e.target.value))}/>
                                                         <button onClick={() => applyMagnet(g.id, field)}
                                                             className="absolute right-2 top-1/2 -translate-y-1/2 text-teal-400 hover:text-teal-600">
                                                             <Magnet size={12}/>

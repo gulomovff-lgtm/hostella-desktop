@@ -54,17 +54,30 @@ const toMonthStr = (d) => {
 };
 const isoDate = (d) => d.toISOString().slice(0, 10);
 
+const isDarkMode = () => document.documentElement.dataset.theme === 'dark';
+
+const getDkTooltipStyle = () => {
+    const dk = isDarkMode();
+    return {
+        contentStyle: { background: dk ? '#1e293b' : '#fff', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}`, borderRadius: 12, fontSize: 12 },
+        labelStyle:   { color: dk ? '#94a3b8' : '#475569', fontWeight: 700 },
+        itemStyle:    { color: dk ? '#e2e8f0' : '#1e293b' },
+    };
+};
+
 // ─── Кастомный tooltip ────────────────────────────────────────────────────────
 const CustomTooltip = ({ active, payload, label }) => {
+    const dk = isDarkMode();
     if (!active || !payload?.length) return null;
     return (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-lg p-3 text-xs">
-            <div className="font-black text-slate-600 mb-2">{label}</div>
+        <div style={{ background: dk ? '#1e293b' : '#fff', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}` }}
+            className="rounded-xl shadow-lg p-3 text-xs">
+            <div className="font-black mb-2" style={{ color: dk ? '#94a3b8' : '#475569' }}>{label}</div>
             {payload.map((p, i) => (
                 <div key={i} className="flex items-center gap-2 py-0.5">
                     <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
-                    <span className="text-slate-500">{p.name}:</span>
-                    <span className="font-bold text-slate-800">{fmtShort(p.value)}</span>
+                    <span style={{ color: dk ? '#64748b' : '#94a3b8' }}>{p.name}:</span>
+                    <span className="font-bold" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>{fmtShort(p.value)}</span>
                 </div>
             ))}
         </div>
@@ -72,47 +85,56 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 // ─── KPI-карточка ─────────────────────────────────────────────────────────────
-const KpiCard = ({ icon: Icon, label, value, sub, color, trend }) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex items-start gap-4">
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: color + '18' }}>
-            <Icon size={22} style={{ color }} />
+const KpiCard = ({ icon: Icon, label, value, sub, color, trend }) => {
+    const dk = isDarkMode();
+    return (
+        <div style={{ background: dk ? '#1e293b' : '#fff', border: `1px solid ${dk ? '#334155' : '#f1f5f9'}` }}
+            className="rounded-2xl shadow-sm p-5 flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: color + '22' }}>
+                <Icon size={22} style={{ color }} />
+            </div>
+            <div className="min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{label}</div>
+                <div className="text-2xl font-black leading-tight truncate" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>{fmtShort(value)}</div>
+                {sub != null && (
+                    <div className={`flex items-center gap-1 mt-1 text-xs font-semibold ${trend >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {trend >= 0 ? <ArrowUpRight size={13}/> : <ArrowDownRight size={13}/>}
+                        {sub}
+                    </div>
+                )}
+            </div>
         </div>
-        <div className="min-w-0">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">{label}</div>
-            <div className="text-2xl font-black text-slate-800 leading-tight truncate">{fmtShort(value)}</div>
-            {sub != null && (
-                <div className={`flex items-center gap-1 mt-1 text-xs font-semibold ${trend >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                    {trend >= 0 ? <ArrowUpRight size={13}/> : <ArrowDownRight size={13}/>}
-                    {sub}
-                </div>
-            )}
-        </div>
-    </div>
-);
+    );
+};
 
 // ─── Пустое состояние ─────────────────────────────────────────────────────────
 const Empty = () => (
-    <div className="flex flex-col items-center justify-center h-48 gap-3 text-slate-300">
+    <div className="flex flex-col items-center justify-center h-48 gap-3" style={{ color: isDarkMode() ? '#475569' : '#cbd5e1' }}>
         <BarChart3 size={40} />
         <span className="text-sm font-semibold">Нет данных за период</span>
     </div>
 );
 
 // ─── Заглушка секции ─────────────────────────────────────────────────────────
-const ChartCard = ({ title, icon: Icon, children }) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-        <div className="flex items-center gap-2 mb-4">
-            <Icon size={16} className="text-slate-400" />
-            <span className="text-sm font-black text-slate-700 uppercase tracking-wide">{title}</span>
+const ChartCard = ({ title, icon: Icon, children }) => {
+    const dk = isDarkMode();
+    return (
+        <div style={{ background: dk ? '#1e293b' : '#fff', border: `1px solid ${dk ? '#334155' : '#f1f5f9'}` }}
+            className="rounded-2xl shadow-sm p-5">
+            <div className="flex items-center gap-2 mb-4">
+                <Icon size={16} style={{ color: dk ? '#64748b' : '#94a3b8' }} />
+                <span className="text-sm font-black uppercase tracking-wide" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{title}</span>
+            </div>
+            {children}
         </div>
-        {children}
-    </div>
-);
+    );
+};
 
 // ─── Главный компонент ────────────────────────────────────────────────────────
 const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], users = [], currentUser }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+    const dk = isDarkMode();
 
     // ─── Фильтры ─────────────────────────────────────────────────────────────
     const [period, setPeriod] = useState('30');
@@ -194,9 +216,9 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
     // ─── 2. Источники дохода ─────────────────────────────────────────────────
     const paymentMethodData = useMemo(() => {
-        const cash = filteredPayments.filter(p => p.method === 'cash').reduce((s, p) => s + (parseInt(p.amount)||0), 0);
-        const card = filteredPayments.filter(p => p.method === 'card').reduce((s, p) => s + (parseInt(p.amount)||0), 0);
-        const qr   = filteredPayments.filter(p => p.method === 'qr').reduce((s, p) => s + (parseInt(p.amount)||0), 0);
+        const cash = filteredPayments.reduce((s,p)=>s+(p.cash!==undefined?parseInt(p.cash)||0:p.method==='cash'?parseInt(p.amount)||0:0),0);
+        const card = filteredPayments.reduce((s,p)=>s+(p.card!==undefined?parseInt(p.card)||0:p.method==='card'?parseInt(p.amount)||0:0),0);
+        const qr   = filteredPayments.reduce((s,p)=>s+(p.qr!==undefined?parseInt(p.qr)||0:p.method==='qr'?parseInt(p.amount)||0:0),0);
         return [
             { name: 'Наличные', value: cash, color: COLORS.cash },
             { name: 'Карта',    value: card, color: COLORS.card },
@@ -281,9 +303,9 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             const staffUser = users.find(u => u.id === p.staffId || u.login === p.staffId);
             const name = staffUser?.name || staffUser?.login || p.staffId || 'Неизвестно';
             if (!map[name]) map[name] = { name, cash: 0, card: 0, qr: 0 };
-            if (p.method === 'cash') map[name].cash += parseInt(p.amount) || 0;
-            else if (p.method === 'card') map[name].card += parseInt(p.amount) || 0;
-            else if (p.method === 'qr') map[name].qr += parseInt(p.amount) || 0;
+            map[name].cash += p.cash !== undefined ? parseInt(p.cash)||0 : p.method==='cash' ? parseInt(p.amount)||0 : 0;
+            map[name].card += p.card !== undefined ? parseInt(p.card)||0 : p.method==='card' ? parseInt(p.amount)||0 : 0;
+            map[name].qr   += p.qr   !== undefined ? parseInt(p.qr)  ||0 : p.method==='qr'   ? parseInt(p.amount)||0 : 0;
         });
         return Object.values(map)
             .map(d => ({ ...d, total: d.cash + d.card + d.qr }))
@@ -421,7 +443,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     const rentability    = R_night > 0 ? Math.round((pGuest / R_night) * 100) : 0;
 
     return (
-        <div className="flex-1 overflow-y-auto bg-[#f0f2f5]">
+        <div className="flex-1 overflow-y-auto" style={{ background: dk ? '#0f172a' : '#f0f2f5' }}>
             <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
 
                 {/* ── Заголовок ── */}
@@ -430,21 +452,22 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         <BarChart3 size={20} className="text-white" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-slate-800">Аналитика</h1>
-                        <p className="text-xs text-slate-400">Финансы, загрузка, гости — всё в одном месте</p>
+                        <h1 className="text-xl font-black" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>Аналитика</h1>
+                        <p className="text-xs" style={{ color: dk ? '#64748b' : '#94a3b8' }}>Финансы, загрузка, гости — всё в одном месте</p>
                     </div>
                 </div>
 
                 {/* ── Фильтры ── */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-wrap gap-3 items-center">
+                <div className="rounded-2xl shadow-sm p-4 flex flex-wrap gap-3 items-center"
+                    style={{ background: dk ? '#1e293b' : '#fff', border: `1px solid ${dk ? '#334155' : '#f1f5f9'}` }}>
                     {/* Период */}
                     <div className="flex gap-1 flex-wrap">
                         {PERIODS.map(p => (
                             <button key={p.id} onClick={() => setPeriod(p.id)}
                                 className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
                                 style={period === p.id
-                                    ? { background: '#1e293b', color: '#fff' }
-                                    : { background: '#f1f5f9', color: '#64748b' }}>
+                                    ? { background: '#6366f1', color: '#fff' }
+                                    : { background: dk ? '#0f172a' : '#f1f5f9', color: dk ? '#94a3b8' : '#64748b' }}>
                                 {p.label}
                             </button>
                         ))}
@@ -454,14 +477,14 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     {period === 'custom' && (
                         <div className="flex items-center gap-2">
                             <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                                className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-indigo-400"/>
-                            <span className="text-slate-400 text-xs">—</span>
+                                className="px-3 py-1.5 rounded-xl text-xs font-semibold outline-none"
+                                style={{ background: dk ? '#0f172a' : '#fff', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}`, color: dk ? '#e2e8f0' : '#334155' }}/>
+                            <span className="text-xs" style={{ color: dk ? '#64748b' : '#94a3b8' }}>—</span>
                             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                                className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-indigo-400"/>
+                                className="px-3 py-1.5 rounded-xl text-xs font-semibold outline-none"
+                                style={{ background: dk ? '#0f172a' : '#fff', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}`, color: dk ? '#e2e8f0' : '#334155' }}/>
                         </div>
                     )}
-
-
                 </div>
 
                 {/* ── KPI-карточки ── */}
@@ -478,142 +501,110 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     <KpiCard icon={CreditCard}    label="Безнал + QR"         value={filteredPayments.filter(p=>p.method!=='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#3b82f6" />
                 </div>
 
-                {/* ── Доходность на гостя ── */}
-                <div className="rounded-3xl overflow-hidden shadow-lg border border-slate-100">
+                {/* ── Финансовый итог периода ── */}
+                {nTotal > 0 && (() => {
+                    const incomeBarPct = totalIncome > 0 ? 100 : 0;
+                    const expenseBarPct = totalIncome > 0 ? Math.min(100, Math.round(totalExpense / totalIncome * 100)) : 0;
+                    const profitColor = totalProfit >= 0 ? '#10b981' : '#ef4444';
+                    const marginPct = totalIncome > 0 ? Math.round(totalProfit / totalIncome * 100) : 0;
+                    const incomePerNight = Math.round(totalIncome / nTotal);
+                    const expensePerNight = Math.round(totalExpense / nTotal);
+                    const profitPerNight = incomePerNight - expensePerNight;
 
-                    {/* ═══ Hero ═══ */}
-                    <div style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%)' }}
-                        className="px-6 pt-6 pb-5 relative overflow-hidden">
-                        {/* Декоративные круги */}
-                        <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/[0.03] pointer-events-none"/>
-                        <div className="absolute -bottom-6 -left-6 w-32 h-32 rounded-full bg-violet-500/10 pointer-events-none"/>
-
-                        <div className="text-[10px] font-bold text-violet-400 uppercase tracking-[3px] mb-4">
-                            Реальная доходность · P = R − (C_var + C_fix / N)
-                        </div>
-
-                        {nTotal === 0 ? (
-                            <div className="text-white/40 text-sm py-2">Нет данных за выбранный период</div>
-                        ) : (
-                            <div className="flex items-end justify-between gap-4 flex-wrap">
-                                <div>
-                                    <div className="text-violet-300 text-xs font-semibold mb-1">Прибыль на 1 гостя/ночь</div>
-                                    <div className={`text-5xl font-black tracking-tight ${pGuest >= 0 ? 'text-white' : 'text-orange-300'}`}>
-                                        {pGuest >= 0 ? '+' : ''}{pGuest.toLocaleString('ru')}
-                                        <span className="text-xl font-semibold text-white/40 ml-2">сум</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-6">
-                                    <div className="text-center">
-                                        <div className={`text-4xl font-black ${rentability >= 0 ? 'text-amber-300' : 'text-orange-400'}`}>{rentability}%</div>
-                                        <div className="text-[10px] text-violet-400 font-medium mt-1">рентабельность</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-2xl font-black text-slate-300">{nTotal.toLocaleString('ru')}</div>
-                                        <div className="text-[10px] text-violet-400 font-medium mt-1">чел / ночей</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-2xl font-black text-slate-300">{guestCount}</div>
-                                        <div className="text-[10px] text-violet-400 font-medium mt-1">заселений</div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* ═══ Формула — визуальные блоки ═══ */}
-                    {nTotal > 0 && (
-                        <div className="bg-white px-5 pt-5 pb-4">
-                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Декомпозиция формулы</div>
-
-                            <div className="flex items-stretch gap-0 overflow-x-auto pb-1">
-
-                                {/* R */}
-                                <div className="flex-1 min-w-[90px] rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 p-4 flex flex-col">
-                                    <div className="text-[9px] font-black text-emerald-500 uppercase tracking-wider">R</div>
-                                    <div className="text-[9px] text-emerald-400 font-medium mb-auto pb-2">выручка / ночь</div>
-                                    <div className="text-xl font-black text-emerald-700">{Math.round(R_night).toLocaleString('ru')}</div>
-                                    <div className="text-[9px] text-emerald-500 mt-0.5">Доход ÷ N</div>
-                                </div>
-
-                                {/* operator - */}
-                                <div className="flex items-center justify-center px-2 flex-shrink-0">
-                                    <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center">
-                                        <span className="text-slate-500 font-black text-base leading-none">−</span>
-                                    </div>
-                                </div>
-
-                                {/* C_var */}
-                                <div className="flex-1 min-w-[90px] rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200 p-4 flex flex-col">
-                                    <div className="text-[9px] font-black text-amber-500 uppercase tracking-wider">C_var</div>
-                                    <div className="text-[9px] text-amber-400 font-medium mb-auto pb-2">перем. / ночь</div>
-                                    <div className="text-xl font-black text-amber-700">{Math.round(cVarNight).toLocaleString('ru')}</div>
-                                    <div className="text-[9px] text-amber-500 mt-0.5">Перем. ÷ N</div>
-                                </div>
-
-                                {/* operator - */}
-                                <div className="flex items-center justify-center px-2 flex-shrink-0">
-                                    <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center">
-                                        <span className="text-slate-500 font-black text-base leading-none">−</span>
-                                    </div>
-                                </div>
-
-                                {/* C_fix/N */}
-                                <div className="flex-1 min-w-[90px] rounded-2xl bg-gradient-to-br from-rose-50 to-rose-100/50 border border-rose-200 p-4 flex flex-col">
-                                    <div className="text-[9px] font-black text-rose-500 uppercase tracking-wider">C_fix / N</div>
-                                    <div className="text-[9px] text-rose-400 font-medium mb-auto pb-2">пост. / ночь</div>
-                                    <div className="text-xl font-black text-rose-700">{Math.round(cFixedNight).toLocaleString('ru')}</div>
-                                    <div className="text-[9px] text-rose-500 mt-0.5">Пост. ÷ N</div>
-                                </div>
-
-                                {/* operator = */}
-                                <div className="flex items-center justify-center px-2 flex-shrink-0">
-                                    <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center">
-                                        <span className="text-indigo-600 font-black text-base leading-none">=</span>
-                                    </div>
-                                </div>
-
-                                {/* P */}
-                                <div className={`flex-1 min-w-[90px] rounded-2xl border-2 p-4 flex flex-col ${
-                                    pGuest >= 0
-                                        ? 'bg-gradient-to-br from-indigo-50 to-indigo-100/50 border-indigo-300'
-                                        : 'bg-gradient-to-br from-orange-50 to-orange-100/50 border-orange-300'
-                                }`}>
-                                    <div className={`text-[9px] font-black uppercase tracking-wider ${pGuest >= 0 ? 'text-indigo-500' : 'text-orange-500'}`}>P — итог</div>
-                                    <div className={`text-[9px] font-medium mb-auto pb-2 ${pGuest >= 0 ? 'text-indigo-400' : 'text-orange-400'}`}>прибыль / ночь</div>
-                                    <div className={`text-xl font-black ${pGuest >= 0 ? 'text-indigo-700' : 'text-orange-700'}`}>
-                                        {pGuest >= 0 ? '+' : ''}{pGuest.toLocaleString('ru')}
-                                    </div>
-                                    <div className={`text-[9px] mt-0.5 font-semibold ${pGuest >= 0 ? 'text-indigo-500' : 'text-orange-500'}`}>{rentability}% маржа</div>
-                                </div>
+                    return (
+                        <div className="rounded-2xl shadow-sm overflow-hidden"
+                            style={{ background: dk ? '#1e293b' : '#fff', border: `1px solid ${dk ? '#334155' : '#f1f5f9'}` }}>
+                            {/* Заголовок */}
+                            <div className="px-5 py-3.5 flex items-center gap-2"
+                                style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f1f5f9'}` }}>
+                                <DollarSign size={15} style={{ color: dk ? '#64748b' : '#94a3b8' }} />
+                                <span className="text-sm font-black uppercase tracking-wide" style={{ color: dk ? '#e2e8f0' : '#334155' }}>Итог периода</span>
+                                <span className="ml-auto text-[11px]" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{guestCount} заселений · {nTotal} чел/ночей</span>
                             </div>
 
-                            {/* Нижняя строка: суммарные значения */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
-                                {[
-                                    { label: 'Постоянные расходы', value: cFixed, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-100' },
-                                    { label: 'Переменные расходы', value: cVar, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
-                                    { label: 'Доходы за период', value: totalIncome, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
-                                    { label: 'Чел / ночей (N)', value: nTotal, color: 'text-slate-700', bg: 'bg-slate-50 border-slate-100', noFmt: true },
-                                ].map(({ label, value, color, bg, noFmt }) => (
-                                    <div key={label} className={`rounded-xl border px-3 py-2.5 ${bg}`}>
-                                        <div className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">{label}</div>
-                                        <div className={`text-base font-black mt-0.5 ${color}`}>
-                                            {noFmt ? value.toLocaleString('ru') : value.toLocaleString('ru')}
+                            <div className="p-5 space-y-5">
+                                {/* Три главные цифры */}
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="rounded-2xl p-4" style={{ background: dk ? 'rgba(16,185,129,0.12)' : '#f0fdf4', border: `1px solid ${dk ? 'rgba(16,185,129,0.25)' : '#bbf7d0'}` }}>
+                                        <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-wide mb-1">Доходы</div>
+                                        <div className="text-2xl font-black text-emerald-400">{fmtShort(totalIncome)}</div>
+                                        <div className="text-[10px] text-emerald-500 mt-1">{fmtShort(incomePerNight)} / ночь</div>
+                                    </div>
+                                    <div className="rounded-2xl p-4" style={{ background: dk ? 'rgba(239,68,68,0.12)' : '#fff1f2', border: `1px solid ${dk ? 'rgba(239,68,68,0.25)' : '#fecdd3'}` }}>
+                                        <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wide mb-1">Расходы</div>
+                                        <div className="text-2xl font-black text-rose-400">{fmtShort(totalExpense)}</div>
+                                        <div className="text-[10px] text-rose-500 mt-1">{fmtShort(expensePerNight)} / ночь</div>
+                                    </div>
+                                    <div className="rounded-2xl border-2 p-4" style={{
+                                        background: dk
+                                            ? (totalProfit >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(249,115,22,0.1)')
+                                            : (totalProfit >= 0 ? '#f0fdf4' : '#fff7ed'),
+                                        borderColor: totalProfit >= 0 ? (dk ? 'rgba(16,185,129,0.3)' : '#bbf7d0') : (dk ? 'rgba(249,115,22,0.3)' : '#fed7aa')
+                                    }}>
+                                        <div className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: profitColor }}>Прибыль</div>
+                                        <div className="text-2xl font-black" style={{ color: profitColor }}>
+                                            {totalProfit >= 0 ? '+' : ''}{fmtShort(totalProfit)}
+                                        </div>
+                                        <div className="text-[10px] mt-1 font-semibold" style={{ color: profitColor }}>
+                                            маржа {marginPct}%
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+                                </div>
 
-                            {/* Расшифровка категорий */}
-                            <div className="mt-3 flex flex-wrap gap-3 text-[9px] text-slate-400 leading-relaxed">
-                                <span><span className="text-amber-500 font-bold">Переменные:</span> Продукты, Налоги, Ремонт, Другое</span>
-                                <span className="text-slate-300">·</span>
-                                <span><span className="text-rose-500 font-bold">Постоянные:</span> Аренда, Зарплата, Коммунал., Интернет, Реклама</span>
+                                {/* Визуальная шкала доход vs расход */}
+                                <div>
+                                    <div className="flex justify-between text-[10px] font-medium mb-1.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>
+                                        <span>Доходы</span>
+                                        <span>Расходы {expenseBarPct}% от дохода</span>
+                                    </div>
+                                    <div className="relative h-4 rounded-full overflow-hidden" style={{ background: dk ? '#0f172a' : '#f1f5f9' }}>
+                                        <div className="absolute left-0 top-0 h-full rounded-full bg-emerald-500" style={{ width: '100%', opacity: 0.2 }} />
+                                        <div className="absolute left-0 top-0 h-full rounded-full bg-rose-500 transition-all" style={{ width: `${expenseBarPct}%` }} />
+                                    </div>
+                                    <div className="flex justify-between text-[10px] font-bold mt-1">
+                                        <span className="text-emerald-500">{fmtShort(totalIncome)}</span>
+                                        <span className="text-rose-500">{fmtShort(totalExpense)}</span>
+                                    </div>
+                                </div>
+
+                                {/* Расходы: постоянные и переменные */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="rounded-xl p-3" style={{ background: dk ? '#0f172a' : '#f8fafc', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}` }}>
+                                        <div className="text-[10px] font-bold mb-1" style={{ color: dk ? '#94a3b8' : '#64748b' }}>🏠 Постоянные расходы</div>
+                                        <div className="text-lg font-black" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmtShort(cFixed)}</div>
+                                        <div className="text-[10px] mt-0.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>Аренда, Зарплата, ЖКХ, Интернет</div>
+                                    </div>
+                                    <div className="rounded-xl p-3" style={{ background: dk ? '#0f172a' : '#f8fafc', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}` }}>
+                                        <div className="text-[10px] font-bold mb-1" style={{ color: dk ? '#94a3b8' : '#64748b' }}>📦 Переменные расходы</div>
+                                        <div className="text-lg font-black" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmtShort(cVar)}</div>
+                                        <div className="text-[10px] mt-0.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>Продукты, Налоги, Ремонт, Прочее</div>
+                                    </div>
+                                </div>
+
+                                {/* Показатели на ночь */}
+                                <div className="flex items-center gap-3 rounded-xl p-3"
+                                    style={{ background: dk ? 'rgba(99,102,241,0.12)' : '#eef2ff', border: `1px solid ${dk ? 'rgba(99,102,241,0.25)' : '#c7d2fe'}` }}>
+                                    <div className="flex-1 text-center">
+                                        <div className="text-base font-black" style={{ color: dk ? '#a5b4fc' : '#4338ca' }}>{fmtShort(incomePerNight)}</div>
+                                        <div className="text-[10px] font-medium" style={{ color: dk ? '#6366f1' : '#818cf8' }}>доход / ночь</div>
+                                    </div>
+                                    <div className="w-px h-8" style={{ background: dk ? 'rgba(99,102,241,0.3)' : '#c7d2fe' }} />
+                                    <div className="flex-1 text-center">
+                                        <div className="text-base font-black text-rose-600">{fmtShort(expensePerNight)}</div>
+                                        <div className="text-[10px] text-rose-400 font-medium">расход / ночь</div>
+                                    </div>
+                                    <div className="w-px h-8" style={{ background: dk ? 'rgba(99,102,241,0.3)' : '#c7d2fe' }} />
+                                    <div className="flex-1 text-center">
+                                        <div className="text-base font-black" style={{ color: profitColor }}>
+                                            {profitPerNight >= 0 ? '+' : ''}{fmtShort(profitPerNight)}
+                                        </div>
+                                        <div className="text-[10px] font-medium" style={{ color: dk ? '#6366f1' : '#818cf8' }}>прибыль / ночь</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    )}
-                </div>
+                    );
+                })()}
 
                 {/* ── Диаграммы 2x2 ── */}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -623,9 +614,9 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         {financeChartData.length === 0 ? <Empty /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <LineChart data={financeChartData} margin={{ left: 10, right: 10, top: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                                    <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} width={52} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
+                                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
+                                    <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} width={52} />
                                     <Tooltip content={<CustomTooltip />} />
                                     <Legend wrapperStyle={{ fontSize: 12 }} />
                                     <Line type="monotone" dataKey="income"  name="Доход"   stroke={COLORS.income}  strokeWidth={2.5} dot={false} />
@@ -650,7 +641,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                                 <Cell key={i} fill={entry.color} />
                                             ))}
                                         </Pie>
-                                        <Tooltip formatter={(val) => [fmt(val)]} />
+                                        <Tooltip formatter={(val) => [fmt(val)]} {...getDkTooltipStyle()} />
                                     </PieChart>
                                 </ResponsiveContainer>
                                 <div className="flex-1 space-y-3">
@@ -692,11 +683,11 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                                         </linearGradient>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
                                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }}
                                         interval={Math.max(0, Math.floor(occupancyData.length / 10) - 1)} />
                                     <YAxis domain={[0, 100]} tickFormatter={v => v + '%'} tick={{ fontSize: 10, fill: '#94a3b8' }} width={40} />
-                                    <Tooltip formatter={(v) => [v + '%', 'Загрузка']} />
+                                    <Tooltip formatter={(v) => [v + '%', 'Загрузка']} {...getDkTooltipStyle()} />
                                     <Area type="monotone" dataKey="occupancy" name="Загрузка"
                                         stroke="#3b82f6" strokeWidth={2.5}
                                         fill="url(#occupancyGrad)" />
@@ -711,17 +702,16 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={countryData} layout="vertical" margin={{ left: 10, right: 40, top: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                                    <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                    <XAxis type="number" tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis type="category" dataKey="country" width={100}
                                         tick={({ x, y, payload }) => {
                                             const code = COUNTRY_FLAGS[payload.value];
                                             return (
                                                 <g transform={`translate(${x},${y})`}>
                                                     {code && (
-                                                        <image
-                                                            href={`https://flagcdn.com/w20/${code}.png`}
-                                                            x={-105} y={-8} width={16} height={12}
-                                                        />
+                                                        <foreignObject x={-110} y={-9} width={20} height={15}>
+                                                            <span className={`fi fi-${code.toLowerCase()}`} style={{ width: 18, height: 13, display: 'block', backgroundSize: 'cover', borderRadius: 2 }} />
+                                                        </foreignObject>
                                                     )}
                                                     <text x={-85} y={4} textAnchor="start"
                                                         fontSize={10} fill="#64748b" fontWeight={600}>
@@ -731,7 +721,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             );
                                         }}
                                     />
-                                    <Tooltip formatter={(v) => [v + ' чел.', 'Гостей']} />
+                                    <Tooltip formatter={(v) => [v + ' чел.', 'Гостей']} {...getDkTooltipStyle()} />
                                     <Bar dataKey="count" name="Гостей" radius={[0, 4, 4, 0]}>
                                         {countryData.map((_, i) => (
                                             <Cell key={i} fill={i === 0 ? '#6366f1' : i === 1 ? '#818cf8' : '#a5b4fc'} />
@@ -748,8 +738,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         {roomRevenueData.length === 0 ? <Empty /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={roomRevenueData} margin={{ left: 10, right: 10, top: 20 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                                    <XAxis dataKey="room" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
+                                    <XAxis dataKey="room" tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} width={52} />
                                     <Tooltip content={<CustomTooltip />} />
                                     <Bar dataKey="revenue" name="Доход" radius={[6, 6, 0, 0]}>
@@ -757,7 +747,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             <Cell key={i} fill={item.top ? '#f59e0b' : '#94a3b8'} />
                                         ))}
                                         <LabelList dataKey="revenue" position="top" formatter={fmtShort}
-                                            style={{ fontSize: 9, fill: '#475569', fontWeight: 700 }} />
+                                            style={{ fontSize: 9, fill: dk ? '#64748b' : '#475569', fontWeight: 700 }} />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
@@ -771,14 +761,14 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                 <ResponsiveContainer width="100%" height={280}>
                                     <BarChart data={cashierData} layout="vertical" margin={{ left: 10, right: 50, top: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                                        <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                        <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
                                         <YAxis type="category" dataKey="name" width={90}
-                                            tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} />
+                                            tick={{ fontSize: 10, fill: dk ? '#64748b' : '#334155', fontWeight: 600 }} />
                                         <Tooltip content={<CustomTooltip />} />
                                         <Legend wrapperStyle={{ fontSize: 11 }} />
                                         <Bar dataKey="cash" name="Наличные" stackId="a" fill={COLORS.cash} radius={[0, 0, 0, 0]}>
                                             <LabelList dataKey="total" position="right" formatter={fmtShort}
-                                                style={{ fontSize: 9, fill: '#475569', fontWeight: 700 }} />
+                                                style={{ fontSize: 9, fill: dk ? '#64748b' : '#475569', fontWeight: 700 }} />
                                         </Bar>
                                         <Bar dataKey="card" name="Карта"    stackId="a" fill={COLORS.card} />
                                         <Bar dataKey="qr"   name="QR"       stackId="a" fill={COLORS.qr} radius={[0, 4, 4, 0]} />
@@ -801,7 +791,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                                 <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />
                                             ))}
                                         </Pie>
-                                        <Tooltip formatter={(val) => [fmt(val)]} />
+                                        <Tooltip formatter={(val) => [fmt(val)]} {...getDkTooltipStyle()} />
                                     </PieChart>
                                 </ResponsiveContainer>
                                 <div className="flex-1 space-y-2 overflow-y-auto max-h-64">
@@ -831,11 +821,11 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
                                         </linearGradient>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
                                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }}
                                         interval={Math.max(0, Math.floor(newGuestsData.length / 10) - 1)} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={30} />
-                                    <Tooltip formatter={(v) => [v + ' чел.', 'Заселений']} />
+                                    <Tooltip formatter={(v) => [v + ' чел.', 'Заселений']} {...getDkTooltipStyle()} />
                                     <Area type="monotone" dataKey="count" name="Заселений"
                                         stroke="#8b5cf6" strokeWidth={2.5}
                                         fill="url(#newGuestsGrad)" />
@@ -849,16 +839,16 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         {stayLengthData.length === 0 ? <Empty /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={stayLengthData} margin={{ left: 10, right: 10, top: 20 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
+                                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={35} />
-                                    <Tooltip formatter={(v) => [v + ' гостей']} />
+                                    <Tooltip formatter={(v) => [v + ' гостей']} {...getDkTooltipStyle()} />
                                     <Bar dataKey="count" name="Гостей" radius={[6, 6, 0, 0]}>
                                         {stayLengthData.map((_, i) => (
                                             <Cell key={i} fill={['#06b6d4','#3b82f6','#8b5cf6','#ec4899','#f97316','#ef4444'][i % 6]} />
                                         ))}
                                         <LabelList dataKey="count" position="top"
-                                            style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+                                            style={{ fontSize: 11, fill: dk ? '#64748b' : '#475569', fontWeight: 700 }} />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
@@ -870,16 +860,16 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         {weekdayData.every(d => d.count === 0) ? <Empty /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={weekdayData} margin={{ left: 10, right: 10, top: 20 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
                                     <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 700 }} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={30} />
-                                    <Tooltip formatter={(v) => [v + ' заездов']} />
+                                    <Tooltip formatter={(v) => [v + ' заездов']} {...getDkTooltipStyle()} />
                                     <Bar dataKey="count" name="Заездов" radius={[6, 6, 0, 0]}>
                                         {weekdayData.map((item, i) => (
                                             <Cell key={i} fill={item.day === 'Сб' || item.day === 'Вс' ? '#f59e0b' : '#10b981'} />
                                         ))}
                                         <LabelList dataKey="count" position="top"
-                                            style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+                                            style={{ fontSize: 11, fill: dk ? '#64748b' : '#475569', fontWeight: 700 }} />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
@@ -892,10 +882,10 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                             <ResponsiveContainer width="100%" height={Math.max(220, debtGuestsData.length * 28)}>
                                 <BarChart data={debtGuestsData} layout="vertical" margin={{ left: 10, right: 60, top: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                                    <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                    <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis type="category" dataKey="name" width={110}
-                                        tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} />
-                                    <Tooltip formatter={(v) => [fmt(v), 'Долг']} />
+                                        tick={{ fontSize: 10, fill: dk ? '#64748b' : '#334155', fontWeight: 600 }} />
+                                    <Tooltip formatter={(v) => [fmt(v), 'Долг']} {...getDkTooltipStyle()} />
                                     <Bar dataKey="debt" name="Долг" fill="#ef4444" radius={[0, 6, 6, 0]}>
                                         <LabelList dataKey="debt" position="right" formatter={fmtShort}
                                             style={{ fontSize: 9, fill: '#ef4444', fontWeight: 700 }} />

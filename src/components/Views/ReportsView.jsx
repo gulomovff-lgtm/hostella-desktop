@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Award, Trophy, Medal } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
+import DatePicker from '../UI/DatePicker';
 
 // --- Styles ---
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
@@ -18,46 +18,75 @@ const getLocalDatetimeString = (dateObj) => {
     return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16);
 };
 
-const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '') => {
+const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '') => {
+    const ExcelJS = (await import('exceljs')).default;
     const net = totalIncome - totalExpense - totalRefund;
-    const loc = n => Number(n).toLocaleString('ru');
     const mLabel = methodLabel;
     const typeLabel = r => r.type === 'income' ? 'Приход' : r.category === 'Возврат' ? 'Возврат' : 'Расход';
 
-    // ─── Лист 1: Все операции ────────────────────────────────────
-    const mainRows = data.map((r, i) => ({
-        '№':            i + 1,
-        'Дата и время':  r.date,
-        'Тип':          typeLabel(r),
-        'Хостел':       r.hostel,
-        'Кассир':      r.staff,
-        'Категория':   r.category || '—',
-        'Сумма (сум)':  r.type === 'expense' ? -Math.abs(r.amount) : r.amount,
-        'Метод':        mLabel(r.method),
-        'Комментарий':  r.comment,
-    }));
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Hostella';
+    const MONEY = '#,##0';
+    const HEAD = 'FF0F9688', TOTAL_FILL = 'FFE8F5F3', ZEBRA = 'FFF1F5F9', TITLE = 'FF1A3C40';
+    const thin = { style: 'thin', color: { argb: 'FFE2E8F0' } };
+    const box = { top: thin, left: thin, bottom: thin, right: thin };
+    const addHeader = (ws, labels) => {
+        const r = ws.addRow(labels); r.height = 22;
+        r.eachCell(c => { c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEAD } }; c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; c.border = box; });
+    };
+    const boxRow = r => r.eachCell(c => { c.border = box; });
+    const fillRow = (r, argb) => r.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; });
+    const moneyFmt = (ws, idxs) => idxs.forEach(i => { ws.getColumn(i).numFmt = MONEY; ws.getColumn(i).alignment = { horizontal: 'right' }; });
+    const widths = (ws, ws_w) => ws_w.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    const titleBlock = (ws, span) => {
+        const t1 = ws.addRow([`Финансовый отчёт — ${hostelLabel}`]);
+        ws.mergeCells(t1.number, 1, t1.number, span);
+        const c1 = t1.getCell(1); c1.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }; c1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TITLE } }; c1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }; t1.height = 28;
+        const t2 = ws.addRow([`Период: ${periodStr}    ·    Сформировано: ${new Date().toLocaleString('ru')}`]);
+        ws.mergeCells(t2.number, 1, t2.number, span);
+        t2.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+        ws.addRow([]);
+    };
 
-    // Итоговые строки
-    mainRows.push({});
-    mainRows.push({ '№': 'ИТОГО', 'Дата и время': 'Приход',    'Сумма (сум)': totalIncome });
-    mainRows.push({ '№': '',       'Дата и время': 'Расход',    'Сумма (сум)': -totalExpense });
-    if (totalRefund > 0)
-        mainRows.push({ '№': '', 'Дата и время': 'Возврат', 'Сумма (сум)': -totalRefund });
-    mainRows.push({ '№': '', 'Дата и время': 'БАЛАНС',    'Сумма (сум)': net });
+    // ── Лист 1: Операции ──
+    const ws1 = wb.addWorksheet('Операции', { views: [{ state: 'frozen', ySplit: 4 }] });
+    titleBlock(ws1, 9);
+    addHeader(ws1, ['№', 'Дата и время', 'Тип', 'Хостел', 'Кассир', 'Категория', 'Сумма (сум)', 'Метод', 'Комментарий']);
+    data.forEach((r, i) => {
+        const row = ws1.addRow([i + 1, r.date, typeLabel(r), r.hostel, r.staff, r.category || '—', r.type === 'expense' ? -Math.abs(r.amount) : r.amount, mLabel(r.method), r.comment]);
+        boxRow(row);
+        if (i % 2) fillRow(row, ZEBRA);
+        row.getCell(7).font = { bold: true, color: { argb: r.type === 'income' ? 'FF16A34A' : 'FFEF4444' } };
+    });
+    ws1.addRow([]);
+    const addTot = (label, val, fill) => {
+        const r = ws1.addRow(['', label, '', '', '', '', val]);
+        r.getCell(2).font = { bold: true }; r.getCell(7).font = { bold: true }; r.getCell(7).numFmt = MONEY;
+        if (fill) fillRow(r, fill);
+        return r;
+    };
+    addTot('Приход', totalIncome);
+    addTot('Расход', -totalExpense);
+    if (totalRefund > 0) addTot('Возврат', -totalRefund);
+    addTot('БАЛАНС', net, TOTAL_FILL);
+    widths(ws1, [5, 20, 10, 14, 18, 16, 16, 12, 38]);
+    moneyFmt(ws1, [7]);
 
-    // ─── Лист 2: Сводка ────────────────────────────────────────────
-    const summaryRows = [
-        { 'Показатель': 'Период',    'Значение': periodStr },
-        { 'Показатель': 'Хостел',     'Значение': hostelLabel },
-        { 'Показатель': 'Сформировано', 'Значение': new Date().toLocaleString('ru') },
-        {},
-        { 'Показатель': 'ВСЕГО ПРИХОД',    'Значение': totalIncome,  'Операций': data.filter(r => r.type === 'income').length },
-        { 'Показатель': 'ВСЕГО РАСХОД',    'Значение': -totalExpense, 'Операций': data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length },
-        { 'Показатель': 'ВСЕГО ВОЗВРАТ',   'Значение': -totalRefund,  'Операций': data.filter(r => r.category === 'Возврат').length },
-        { 'Показатель': 'БАЛАНС',           'Значение': net,           'Операций': data.length },
+    // ── Лист 2: Сводка ──
+    const ws2 = wb.addWorksheet('Сводка');
+    titleBlock(ws2, 3);
+    addHeader(ws2, ['Показатель', 'Значение', 'Операций']);
+    const sumRows = [
+        ['ВСЕГО ПРИХОД', totalIncome, data.filter(r => r.type === 'income').length],
+        ['ВСЕГО РАСХОД', -totalExpense, data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length],
+        ['ВСЕГО ВОЗВРАТ', -totalRefund, data.filter(r => r.category === 'Возврат').length],
     ];
+    sumRows.forEach(rw => { const r = ws2.addRow(rw); boxRow(r); });
+    const balR = ws2.addRow(['БАЛАНС', net, data.length]); balR.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
+    widths(ws2, [22, 20, 12]);
+    moneyFmt(ws2, [2]);
 
-    // ─── Лист 3: По кассирам ──────────────────────────────────────
+    // ── Лист 3: По кассирам ──
     const byStaff = {};
     data.forEach(r => {
         const s = r.staff || '—';
@@ -67,74 +96,42 @@ const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0, totalR
         else byStaff[s].expense += r.amount;
         byStaff[s].count++;
     });
-    const staffRows = Object.entries(byStaff)
-        .sort((a, b) => b[1].income - a[1].income)
-        .map(([name, v]) => ({
-            'Кассир':         name,
-            'Операций':      v.count,
-            'Приход (сум)':    v.income,
-            'Расход (сум)':   -v.expense,
-            'Возврат (сум)':  -v.refund,
-            'Баланс (сум)':   v.income - v.expense - v.refund,
-        }));
+    const staffEntries = Object.entries(byStaff).sort((a, b) => b[1].income - a[1].income);
+    if (staffEntries.length) {
+        const ws3 = wb.addWorksheet('По кассирам', { views: [{ state: 'frozen', ySplit: 1 }] });
+        addHeader(ws3, ['Кассир', 'Операций', 'Приход', 'Расход', 'Возврат', 'Баланс']);
+        staffEntries.forEach(([name, v], i) => {
+            const r = ws3.addRow([name, v.count, v.income, -v.expense, -v.refund, v.income - v.expense - v.refund]);
+            boxRow(r); if (i % 2) fillRow(r, ZEBRA);
+        });
+        widths(ws3, [22, 10, 16, 16, 16, 16]);
+        moneyFmt(ws3, [2, 3, 4, 5, 6]);
+    }
 
-    // ─── Лист 4: По методам оплаты ────────────────────────────
+    // ── Лист 4: По методам ──
     const byMethod = {};
-    data.filter(r => r.type === 'income').forEach(r => {
-        const m = mLabel(r.method);
-        byMethod[m] = (byMethod[m] || 0) + r.amount;
-    });
-    const methodRows = Object.entries(byMethod)
-        .sort((a, b) => b[1] - a[1])
-        .map(([method, sum]) => ({
-            'Метод оплаты': method,
-            'Сумма (сум)': sum,
-            'Доля (%)': totalIncome > 0 ? +((sum / totalIncome) * 100).toFixed(1) : 0,
-        }));
-
-    // ─── Сборка книги ───────────────────────────────────────────
-    const wb = XLSX.utils.book_new();
-
-    const ws1 = XLSX.utils.json_to_sheet(mainRows);
-    ws1['!cols'] = [
-        { wch: 5  }, // №
-        { wch: 20 }, // Дата
-        { wch: 10 }, // Тип
-        { wch: 14 }, // Хостел
-        { wch: 18 }, // Кассир
-        { wch: 16 }, // Категория
-        { wch: 16 }, // Сумма
-        { wch: 12 }, // Метод
-        { wch: 38 }, // Комментарий
-    ];
-    ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
-    ws1['!autofilter'] = { ref: ws1['!ref'] };
-    XLSX.utils.book_append_sheet(wb, ws1, 'Операции');
-
-    const ws2 = XLSX.utils.json_to_sheet(summaryRows);
-    ws2['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 12 }];
-    ws2['!freeze'] = { xSplit: 0, ySplit: 1 };
-    XLSX.utils.book_append_sheet(wb, ws2, 'Сводка');
-
-    if (staffRows.length > 0) {
-        const ws3 = XLSX.utils.json_to_sheet(staffRows);
-        ws3['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
-        ws3['!freeze'] = { xSplit: 0, ySplit: 1 };
-        ws3['!autofilter'] = { ref: ws3['!ref'] };
-        XLSX.utils.book_append_sheet(wb, ws3, 'По кассирам');
+    data.filter(r => r.type === 'income').forEach(r => { const m = mLabel(r.method); byMethod[m] = (byMethod[m] || 0) + r.amount; });
+    const methodEntries = Object.entries(byMethod).sort((a, b) => b[1] - a[1]);
+    if (methodEntries.length) {
+        const ws4 = wb.addWorksheet('По методам', { views: [{ state: 'frozen', ySplit: 1 }] });
+        addHeader(ws4, ['Метод оплаты', 'Сумма (сум)', 'Доля (%)']);
+        methodEntries.forEach(([method, sum], i) => {
+            const r = ws4.addRow([method, sum, totalIncome > 0 ? +((sum / totalIncome) * 100).toFixed(1) : 0]);
+            boxRow(r); if (i % 2) fillRow(r, ZEBRA);
+        });
+        widths(ws4, [18, 16, 12]);
+        moneyFmt(ws4, [2]);
     }
 
-    if (methodRows.length > 0) {
-        const ws4 = XLSX.utils.json_to_sheet(methodRows);
-        ws4['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 12 }];
-        ws4['!freeze'] = { xSplit: 0, ySplit: 1 };
-        ws4['!autofilter'] = { ref: ws4['!ref'] };
-        XLSX.utils.book_append_sheet(wb, ws4, 'По методам');
-    }
-
-    // заменяем .xls на .xlsx в имени файла
-    const xlsxFilename = filename.replace(/\.xls$/, '.xlsx');
-    XLSX.writeFile(wb, xlsxFilename);
+    // ── Скачивание ──
+    if (wb.worksheets.length === 0) wb.addWorksheet('Отчёт');
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename.replace(/\.xls$/, '.xlsx');
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
 };
 
 const printReport = (data, totalIncome, totalExpense, totalRefund, filters, users) => {
@@ -179,19 +176,23 @@ const printReport = (data, totalIncome, totalExpense, totalRefund, filters, user
 };
 
 // --- ReportsView ---
-const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, lang }) => {
+const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, selectedHostelFilter, hostels, lang }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const HOSTEL_LIST = [
-        { id: 'hostel1', name: 'Хостел №1' },
-        { id: 'hostel2', name: 'Хостел №2' }
+        { id: 'hostel1', name: hostels?.hostel1?.name || 'Хостел №1' },
+        { id: 'hostel2', name: hostels?.hostel2?.name || 'Хостел №2' }
     ];
+    // Отчёт привязан к хостелу из верхнего переключателя (данные уже отфильтрованы по нему)
+    const initialHostel = (selectedHostelFilter && selectedHostelFilter !== 'all')
+        ? selectedHostelFilter
+        : (currentUser.role === 'admin' && currentUser.hostelId !== 'all' ? currentUser.hostelId : '');
     const [tempFilters, setTempFilters] = useState({
-        start: getLocalDatetimeString(new Date(new Date().setHours(0,0,0,0))), 
-        end: getLocalDatetimeString(new Date(new Date().setHours(23,59,59,999))), 
+        start: getLocalDatetimeString(new Date(new Date().setHours(0,0,0,0))),
+        end: getLocalDatetimeString(new Date(new Date().setHours(23,59,59,999))),
         staffId: '',
         method: '',
         type: '',
-        hostelId: currentUser.role === 'admin' && currentUser.hostelId !== 'all' ? currentUser.hostelId : '' 
+        hostelId: initialHostel
     });
     const [filters, setFilters] = useState({
         start: getLocalDatetimeString(new Date(new Date().setHours(0,0,0,0))),
@@ -199,8 +200,19 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         staffId: '',
         method: '',
         type: '',
-        hostelId: currentUser.role === 'admin' && currentUser.hostelId !== 'all' ? currentUser.hostelId : ''
+        hostelId: initialHostel
     });
+    // Синхронизируем фильтр хостела с верхним переключателем
+    useEffect(() => {
+        if (selectedHostelFilter && selectedHostelFilter !== 'all') {
+            setFilters(f => ({ ...f, hostelId: selectedHostelFilter }));
+            setTempFilters(f => ({ ...f, hostelId: selectedHostelFilter }));
+        }
+    }, [selectedHostelFilter]);
+    const [exporting, setExporting] = useState(false);
+    const [activePreset, setActivePreset] = useState('today');
+    const fInput = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
+    const fLabel = "block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wide ml-1";
     const handleApplyFilters = () => {
         if (tempFilters.start && tempFilters.end && tempFilters.start > tempFilters.end) {
             // Автоматически меняем местами если «С» позже «По»
@@ -291,7 +303,10 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const totalExpense = filteredData.filter(t => t.type === 'expense' && t.category !== 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
     const totalCTT     = filteredData.filter(t => t.type === 'cash_to_terminal').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
 
-    const handleExport = () => {
+    const handleExport = async () => {
+        if (exporting) return;
+        setExporting(true);
+        try {
         const hostelLabel = filters.hostelId
             ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId)
             : 'Все хостелы';
@@ -314,7 +329,13 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId).replace(/\s/g, '_')
             : 'Все_хостелы';
         const fname = `Hostella_${dateFrom}_${dateTo}_${sortLabel}_${hostelSlug}.xls`;
-        exportToExcel(exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr);
+        await exportToExcel(exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr);
+        } catch (e) {
+            console.error('Excel export failed:', e);
+            alert('Не удалось сформировать Excel: ' + (e?.message || 'неизвестная ошибка'));
+        } finally {
+            setExporting(false);
+        }
     };
 
     const applyPreset = (preset) => {
@@ -335,6 +356,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         }
         const nf = { ...tempFilters, start: getLocalDatetimeString(s), end: getLocalDatetimeString(e) };
         setTempFilters(nf); setFilters(nf);
+        setActivePreset(preset);
     };
     const net = totalIncome - totalExpense - totalRefund;
 
@@ -359,31 +381,44 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         return <span className="text-xs font-black text-slate-400 w-4 text-center">{rank + 1}</span>;
     };
 
+    const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    const hostelBadge = (selectedHostelFilter && selectedHostelFilter !== 'all')
+        ? (HOSTEL_LIST.find(h => h.id === selectedHostelFilter)?.name || selectedHostelFilter)
+        : (filters.hostelId ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId) : 'Все хостелы');
+    const periodLabel = `${new Date(filters.start).toLocaleDateString('ru')} — ${new Date(filters.end).toLocaleDateString('ru')}`;
+
     return (
         <>
-        <div className="space-y-4 animate-in fade-in">
+        <div className="space-y-5 animate-in fade-in">
+            {/* -- HEADER -- */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">Финансовый отчёт</h1>
+                    <p className="text-xs text-slate-400 font-semibold mt-0.5">{periodLabel}</p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-black border border-indigo-100 shadow-sm">
+                    🏨 {hostelBadge}
+                </span>
+            </div>
+
             {/* -- SUMMARY CARDS -- */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
-                    <div className="flex items-center gap-2 mb-2 opacity-80"><TrendingUp size={16}/><span className="text-xs font-bold uppercase tracking-wide">Приход</span></div>
-                    <div className="text-xl sm:text-2xl font-black">+{totalIncome.toLocaleString()}</div>
-                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.filter(x=>x.type==='income').length} операций</div>
-                </div>
-                <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-4 text-white shadow-lg">
-                    <div className="flex items-center gap-2 mb-2 opacity-80"><TrendingDown size={16}/><span className="text-xs font-bold uppercase tracking-wide">Расход</span></div>
-                    <div className="text-xl sm:text-2xl font-black">-{totalExpense.toLocaleString()}</div>
-                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.filter(x=>x.type==='expense'&&x.category!=='Возврат').length} операций</div>
-                </div>
-                <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl p-4 text-white shadow-lg">
-                    <div className="flex items-center gap-2 mb-2 opacity-80"><TrendingDown size={16}/><span className="text-xs font-bold uppercase tracking-wide">Возврат</span></div>
-                    <div className="text-xl sm:text-2xl font-black">-{totalRefund.toLocaleString()}</div>
-                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.filter(x=>x.type==='expense'&&x.category==='Возврат').length} операций</div>
-                </div>
-                <div className={`rounded-2xl p-4 text-white shadow-lg bg-gradient-to-br ${ net >= 0 ? 'from-indigo-500 to-purple-600' : 'from-slate-600 to-slate-700'}`}>
-                    <div className="flex items-center gap-2 mb-2 opacity-80"><Wallet size={16}/><span className="text-xs font-bold uppercase tracking-wide">Баланс</span></div>
-                    <div className="text-xl sm:text-2xl font-black">{net >= 0 ? '+' : ''}{net.toLocaleString()}</div>
-                    <div className="text-[10px] opacity-70 mt-0.5">{filteredData.length} всего</div>
-                </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                {[
+                    { label: 'Приход',  Icon: TrendingUp,   grad: 'from-emerald-500 to-teal-600',  shadow: 'rgba(16,185,129,0.35)', val: `+${totalIncome.toLocaleString()}`,  count: filteredData.filter(x=>x.type==='income').length },
+                    { label: 'Расход',  Icon: TrendingDown, grad: 'from-rose-500 to-pink-600',     shadow: 'rgba(244,63,94,0.35)',  val: `-${totalExpense.toLocaleString()}`, count: filteredData.filter(x=>x.type==='expense'&&x.category!=='Возврат').length },
+                    { label: 'Возврат', Icon: TrendingDown, grad: 'from-amber-500 to-orange-600',  shadow: 'rgba(245,158,11,0.35)', val: `-${totalRefund.toLocaleString()}`,  count: filteredData.filter(x=>x.type==='expense'&&x.category==='Возврат').length },
+                    { label: 'Баланс',  Icon: Wallet,       grad: net >= 0 ? 'from-indigo-500 to-purple-600' : 'from-slate-600 to-slate-700', shadow: 'rgba(99,102,241,0.35)', val: `${net >= 0 ? '+' : ''}${net.toLocaleString()}`, count: `${filteredData.length} всего` },
+                ].map(({ label, Icon, grad, shadow, val, count }) => (
+                    <div key={label} className={`relative overflow-hidden rounded-3xl p-5 text-white bg-gradient-to-br ${grad}`} style={{ boxShadow: `0 12px 28px -8px ${shadow}` }}>
+                        <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/10 pointer-events-none" />
+                        <div className="relative flex items-center gap-2 mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center"><Icon size={18}/></div>
+                            <span className="text-xs font-black uppercase tracking-wider opacity-90">{label}</span>
+                        </div>
+                        <div className="relative text-2xl sm:text-3xl font-black tracking-tight tabular-nums leading-none">{val}</div>
+                        <div className="relative inline-block text-[10px] font-bold mt-2.5 px-2 py-0.5 rounded-full bg-white/15">{typeof count === 'number' ? `${count} операций` : count}</div>
+                    </div>
+                ))}
             </div>
 
             {totalCTT > 0 && (
@@ -396,61 +431,33 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 </div>
             )}
 
-            {/* ── Top Cashiers ── */}
-            {currentUser.role !== 'cashier' && topCashiers.length > 0 && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-amber-50">
-                        <Award size={16} className="text-amber-600"/>
-                        <span className="font-black text-slate-700 text-sm">Топ кассиров — приход за период</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                        {topCashiers.map((c, i) => {
-                            const maxIncome = topCashiers[0]?.income || 1;
-                            const pct = Math.round((c.income / maxIncome) * 100);
-                            return (
-                                <div key={i} className="flex items-center gap-3 px-5 py-3">
-                                    <MedalIcon rank={i}/>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-sm font-bold text-slate-800 truncate">{c.name}</span>
-                                            <span className="text-sm font-black text-emerald-700 ml-2 shrink-0">+{c.income.toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all" style={{ width: `${pct}%` }}/>
-                                            </div>
-                                            <span className="text-[10px] text-slate-400 font-semibold shrink-0">{c.count} оп.</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-
             {/* -- FILTERS -- */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="flex gap-2 p-3 border-b border-slate-100 bg-slate-50 overflow-x-auto">
-                    {[['today','Сегодня'],['yesterday','Вчера'],['week','7 дней'],['month','Этот месяц']].map(([k,l]) => (
-                        <button key={k} onClick={() => applyPreset(k)}
-                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-xs font-bold transition-all shadow-sm">
-                            {l}
-                        </button>
-                    ))}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
+                <div className="flex gap-1.5 p-2.5 border-b border-slate-100 bg-slate-50/70 overflow-x-auto scrollbar-hide rounded-t-2xl">
+                    {[['today','Сегодня'],['yesterday','Вчера'],['week','7 дней'],['month','Этот месяц']].map(([k,l]) => {
+                        const on = activePreset === k;
+                        return (
+                            <button key={k} onClick={() => applyPreset(k)}
+                                className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95 ${on ? 'bg-indigo-600 text-white border border-indigo-600 shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700'}`}>
+                                {l}
+                            </button>
+                        );
+                    })}
                 </div>
-                <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className={labelClass}>С</label>
-                        <input type="datetime-local" className={inputClass} value={tempFilters.start} onChange={e=>setTempFilters({...tempFilters,start:e.target.value})}/>
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                        <label className={labelClass}>По</label>
-                        <input type="datetime-local" className={inputClass} value={tempFilters.end} onChange={e=>setTempFilters({...tempFilters,end:e.target.value})}/>
+                <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                    <div>
+                        <label className={fLabel}>С</label>
+                        <DatePicker value={(tempFilters.start||'').slice(0,10)} placeholder="Дата" className={fInput}
+                            onChange={(d)=>{ setTempFilters({...tempFilters, start: d ? d + 'T00:00' : ''}); setActivePreset(''); }}/>
                     </div>
                     <div>
-                        <label className={labelClass}>Тип</label>
-                        <select className={inputClass} value={tempFilters.type} onChange={e=>setTempFilters({...tempFilters,type:e.target.value})}>
+                        <label className={fLabel}>По</label>
+                        <DatePicker value={(tempFilters.end||'').slice(0,10)} placeholder="Дата" className={fInput}
+                            onChange={(d)=>{ setTempFilters({...tempFilters, end: d ? d + 'T23:59' : ''}); setActivePreset(''); }}/>
+                    </div>
+                    <div>
+                        <label className={fLabel}>Тип</label>
+                        <select className={fInput} value={tempFilters.type} onChange={e=>setTempFilters({...tempFilters,type:e.target.value})}>
                             <option value="">Все</option>
                             <option value="income">Приход</option>
                             <option value="expense">Расход</option>
@@ -459,8 +466,8 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                         </select>
                     </div>
                     <div>
-                        <label className={labelClass}>Метод</label>
-                        <select className={inputClass} value={tempFilters.method} onChange={e=>setTempFilters({...tempFilters,method:e.target.value})}>
+                        <label className={fLabel}>Метод</label>
+                        <select className={fInput} value={tempFilters.method} onChange={e=>setTempFilters({...tempFilters,method:e.target.value})}>
                             <option value="">Все</option>
                             <option value="cash">{t('cash')}</option>
                             <option value="card">{t('card')}</option>
@@ -468,23 +475,26 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             <option value="transfer">Перечисление</option>
                         </select>
                     </div>
-                    <div>
-                        <label className={labelClass}>{t('staff')}</label>
-                        <select className={inputClass} value={tempFilters.staffId} onChange={e=>setTempFilters({...tempFilters,staffId:e.target.value})}>
+                    <div className="col-span-2 sm:col-span-1">
+                        <label className={fLabel}>{t('staff')}</label>
+                        <select className={fInput} value={tempFilters.staffId} onChange={e=>setTempFilters({...tempFilters,staffId:e.target.value})}>
                             <option value="">Все</option>
                             {availableCashiers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
                     </div>
                 </div>
-                <div className="px-4 pb-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                    <Button onClick={handleApplyFilters} icon={Check}>Применить</Button>
-                    <Button icon={Printer} variant="secondary" onClick={() => printReport(filteredData, totalIncome, totalExpense, totalRefund, filters, users)}>{t('printReport')}</Button>
-                    <Button icon={Download} variant="secondary" onClick={handleExport}>Excel</Button>
+                <div className="px-3 pb-3 flex flex-wrap gap-2 border-t border-slate-100 pt-2.5">
+                    <button onClick={handleApplyFilters} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95">
+                        <Check size={15}/> Применить
+                    </button>
+                    <button onClick={() => printReport(filteredData, totalIncome, totalExpense, totalRefund, filters, users)} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors">
+                        <Printer size={15}/> {t('printReport')}
+                    </button>
+                    <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors disabled:opacity-60">
+                        <Download size={15}/> {exporting ? 'Формирую…' : 'Excel'}
+                    </button>
                     {onCashToTerminal && (
-                        <button
-                            onClick={openCTT}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors"
-                        >
+                        <button onClick={openCTT} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
                             🏦 Инкассация
                         </button>
                     )}
@@ -618,11 +628,16 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                                 {isIncome ? 'ПРИХОД' : item.category === 'Возврат' ? 'ВОЗВРАТ' : 'РАСХОД'}
                                             </span>
                                         </td>
-                                        <td className={`px-4 py-3 font-black text-sm ${ isIncome ? 'text-emerald-600' : 'text-rose-600' }`}>
+                                        <td className={`px-4 py-3 font-black text-sm tabular-nums ${ isIncome ? 'text-emerald-600' : 'text-rose-600' }`}>
                                             {isIncome?'+':'-'}{parseInt(item.amount).toLocaleString()}
                                         </td>
-                                        <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{methodLabel(item.method)}</td>
-                                        <td className="px-4 py-3 text-sm text-slate-700">{staffName}</td>
+                                        <td className="px-4 py-3"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{methodLabel(item.method)}</span></td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-black shrink-0">{initials(staffName)}</div>
+                                                <span className="text-sm text-slate-700">{staffName}</span>
+                                            </div>
+                                        </td>
                                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{detail}</td>
                                         {currentUser.role==='super' && (
                                             <td className="px-4 py-3">

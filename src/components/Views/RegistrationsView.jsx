@@ -20,14 +20,7 @@ const COUNTRY_FLAGS = {
 const Flag = ({ country, size = 18 }) => {
     const code = COUNTRY_FLAGS[country];
     if (!code) return null;
-    return (
-        <img
-            src={`https://flagcdn.com/w${size * 2}/${code.toLowerCase()}.png`}
-            width={size} height={Math.round(size * 0.75)}
-            alt={code}
-            style={{ display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0 }}
-        />
-    );
+    return <span className={`fi fi-${code.toLowerCase()}`} style={{ width: size, height: Math.round(size * 0.75), display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }} />;
 };
 
 const getRegStatus = (reg) => {
@@ -41,7 +34,7 @@ const getRegStatus = (reg) => {
 };
 
 const getDaysLeft = (endDate) => {
-    const end = new Date(endDate + 'T23:59:59').getTime();
+    const end = new Date(endDate + 'T00:00:00').getTime();
     return Math.ceil((end - Date.now()) / 86400000);
 };
 
@@ -72,7 +65,7 @@ const ExtendModal = ({ reg, onClose, onSubmit, lang }) => {
     const inp = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-medium";
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
             <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
                     <h3 className="font-black text-base text-slate-800">

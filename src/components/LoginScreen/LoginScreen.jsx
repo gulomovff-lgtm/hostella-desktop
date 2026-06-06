@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TRANSLATIONS from '../../constants/translations';
 import { APP_VERSION } from '../../constants/config';
@@ -300,6 +300,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
     const [submitPhase, setSubmitPhase] = useState('idle');
     const [pendingUser, setPendingUser] = useState(null);
     const [loginFocused, setLoginFocused] = useState(false);
+    const [showPass, setShowPass] = useState(false);
     const loginInputRef = useRef(null);
     const [loadingTextIdx, setLoadingTextIdx] = useState(0);
     const [hostelError, setHostelError]         = useState(null); // { hostelId, occupiedBy }
@@ -494,6 +495,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                 appearance: none;
                 box-shadow: none;
             }
+            .v7-login-input:focus {
+                border-color: rgba(255,255,255,0.4) !important;
+                background: rgba(255,255,255,0.13) !important;
+            }
             .v7-login-input:-webkit-autofill,
             .v7-login-input:-webkit-autofill:hover,
             .v7-login-input:-webkit-autofill:focus {
@@ -619,8 +624,8 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             <div className="relative flex flex-col h-full" style={{ zIndex: 10 }}>
 
                 {/* TOP BAR */}
-                <div className="relative z-50 flex items-center justify-between px-2 sm:px-4 pt-2 sm:pt-3 pb-1 flex-shrink-0 gap-2 sm:gap-3">
-                    {/* Тема суток — скрыта на мобильном, показана на sm+ */}
+                <div className="hidden sm:flex relative z-50 items-center justify-between px-2 sm:px-4 pt-2 sm:pt-3 pb-1 flex-shrink-0 gap-2 sm:gap-3">
+                    {/* Тема суток — показана на sm+ */}
                     <div className="hidden sm:flex top-pill">
                         {THEME_OPTIONS.map(opt => (
                             <button key={opt.id} onClick={() => setThemeId(opt.id)}
@@ -696,7 +701,8 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                 <div className="hidden md:flex flex-1 flex-col items-center justify-center p-10">
                                     <div className="v7-brand flex flex-col items-center text-center">
                                         <div className="mb-6">
-                                            <img src="https://hostella.uz/logo.png" alt="Hostella"
+                                            <img src={`${import.meta.env.BASE_URL}Logo.png`} alt="Hostella"
+                                                 loading="eager" decoding="async"
                                                  className="w-36 h-36 rounded-full object-cover"
                                                  style={{
                                                      filter: `drop-shadow(0 0 24px ${theme.logoGlow})
@@ -927,59 +933,21 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                        style={{color:'rgba(255,255,255,0.38)'}}>
                                                     {t('login')}
                                                 </label>
-                                                {/* Visual login field — same approach as SlotPasswordInput */}
-                                                <div
-                                                    style={{
-                                                        width: '100%', height: '50px', padding: '0 16px',
-                                                        boxSizing: 'border-box', borderRadius: '12px',
-                                                        border: `1px solid ${loginFocused ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.12)'}`,
-                                                        background: loginFocused ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.08)',
-                                                        transition: 'border-color 0.15s, background 0.15s',
-                                                        display: 'flex', alignItems: 'center', gap: '3px',
-                                                        position: 'relative', overflow: 'hidden',
-                                                        cursor: isSubmitting ? 'default' : 'text',
-                                                    }}
-                                                    onClick={() => !isSubmitting && loginInputRef.current?.focus()}
-                                                >
-                                                    {/* Cursor before placeholder */}
-                                                    {loginFocused && login === '' && (
-                                                        <motion.span
-                                                            animate={{ opacity: [1, 1, 0, 0] }}
-                                                            transition={{ duration: 1.1, repeat: Infinity, ease: 'linear' }}
-                                                            style={{ display: 'inline-block', width: '1.5px', height: '18px', background: 'rgba(255,255,255,0.65)', borderRadius: '1px', flexShrink: 0, marginRight: '2px' }}
-                                                        />
-                                                    )}
-                                                    {/* Placeholder */}
-                                                    {login === '' && (
-                                                        <span style={{ color: 'rgba(255,255,255,0.28)', fontSize: '14px', fontWeight: 500, userSelect: 'none' }}>
-                                                            {loginFocused ? '' : 'Введите логин'}
-                                                        </span>
-                                                    )}
-                                                    {/* Login text */}
-                                                    {login !== '' && (
-                                                        <span style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>{login}</span>
-                                                    )}
-                                                    {/* Cursor after text */}
-                                                    {loginFocused && login !== '' && (
-                                                        <motion.span
-                                                            animate={{ opacity: [1, 1, 0, 0] }}
-                                                            transition={{ duration: 1.1, repeat: Infinity, ease: 'linear' }}
-                                                            style={{ display: 'inline-block', width: '1.5px', height: '18px', background: 'rgba(255,255,255,0.65)', borderRadius: '1px', flexShrink: 0, marginLeft: '1px' }}
-                                                        />
-                                                    )}
-                                                    {/* Hidden real input */}
-                                                    <input
-                                                        ref={loginInputRef}
-                                                        value={login}
-                                                        onChange={e => { setLogin(e.target.value); setError(''); }}
-                                                        disabled={isSubmitting}
-                                                        autoComplete="username"
-                                                        autoFocus
-                                                        style={{ position: 'absolute', inset: 0, opacity: 0, cursor: isSubmitting ? 'default' : 'text', zIndex: 1, fontSize: '14px' }}
-                                                        onFocus={() => setLoginFocused(true)}
-                                                        onBlur={() => setLoginFocused(false)}
-                                                    />
-                                                </div>
+                                                <input
+                                                    ref={loginInputRef}
+                                                    type="text"
+                                                    name="username"
+                                                    value={login}
+                                                    onChange={e => { setLogin(e.target.value); setError(''); }}
+                                                    disabled={isSubmitting}
+                                                    autoComplete="username"
+                                                    autoFocus
+                                                    placeholder="Введите логин"
+                                                    className="v7-login-input"
+                                                    style={{ width: '100%', height: '50px', padding: '0 16px', boxSizing: 'border-box', borderRadius: '12px',
+                                                        border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)',
+                                                        color: '#fff', fontSize: '15px', fontWeight: 500, outline: 'none', transition: 'border-color 0.15s, background 0.15s' }}
+                                                />
                                             </div>
 
                                             <div className="mb-5">
@@ -987,13 +955,28 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                        style={{color:'rgba(255,255,255,0.38)'}}>
                                                     {t('pass')}
                                                 </label>
-                                                <SlotPasswordInput
-                                                    value={pass}
-                                                    onChange={e => { setPass(e.target.value); setError(''); }}
-                                                    onFocus={() => setError('')}
-                                                    placeholder="Введите пароль"
-                                                    disabled={isSubmitting}
-                                                />
+                                                <div style={{ position: 'relative' }}>
+                                                    <input
+                                                        type={showPass ? 'text' : 'password'}
+                                                        name="password"
+                                                        value={pass}
+                                                        onChange={e => { setPass(e.target.value); setError(''); }}
+                                                        onFocus={() => setError('')}
+                                                        disabled={isSubmitting}
+                                                        autoComplete="current-password"
+                                                        placeholder="Введите пароль"
+                                                        className="v7-login-input"
+                                                        style={{ width: '100%', height: '50px', padding: '0 46px 0 16px', boxSizing: 'border-box', borderRadius: '12px',
+                                                            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)',
+                                                            color: '#fff', fontSize: '15px', fontWeight: 500, outline: 'none', transition: 'border-color 0.15s, background 0.15s' }}
+                                                    />
+                                                    <button type="button" tabIndex={-1} onClick={() => setShowPass(s => !s)}
+                                                        style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', width: '34px', height: '34px',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer',
+                                                            color: 'rgba(255,255,255,0.5)', fontSize: '17px', borderRadius: '8px' }}>
+                                                        {showPass ? '🙈' : '👁'}
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             {error && (
@@ -1132,16 +1115,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                             </div>
                                         </form>
 
-                                        <div className="mt-5 pt-4 text-center border-t"
-                                             style={{borderColor:'rgba(255,255,255,0.07)'}}>
-                                            <button onClick={onSeed}
-                                                className="text-xs transition-colors"
-                                                style={{color:'rgba(255,255,255,0.2)'}}
-                                                onMouseOver={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}
-                                                onMouseOut={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}>
-                                                {t('initDb')}
-                                            </button>
-                                        </div>
+
                                     </motion.div>
                                   )}
                                   </AnimatePresence>
@@ -1151,6 +1125,9 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     </AnimatePresence>
                 </div>
 
+
+
+                {/* OCEAN WAVES */}
                 {/* MOBILE BOTTOM BAR — тема суток + язык, только на мобильном */}
                 <div className="sm:hidden relative z-20 flex items-center justify-between px-5 pb-2 pt-1 flex-shrink-0">
                     <div className="top-pill">
@@ -1179,7 +1156,6 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     </div>
                 </div>
 
-                {/* OCEAN WAVES */}
                 <div className="relative z-10 flex-shrink-0 overflow-hidden" style={{height:72}}>
                     <svg className="v7-wave-c" viewBox="0 0 2880 72" fill="none" preserveAspectRatio="none"
                          style={{position:'absolute', bottom:16, width:'200%', height:'80%'}}>

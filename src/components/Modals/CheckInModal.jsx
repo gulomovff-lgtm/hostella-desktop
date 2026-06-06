@@ -3,7 +3,7 @@ import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magne
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
-import { Flag } from '../../utils/helpers';
+import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 
 // --- Helpers ---
 const getStayDetails = (checkInDateTime, days) => {
@@ -102,15 +102,16 @@ const StepIndicator = ({ step, total }) => (
     </div>
 );
 
-const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon: Icon, rightElement, error }) => (
+const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon: Icon, rightElement, error, formatNumber }) => (
     <div className="space-y-1">
         {label && <label className={`text-xs font-bold uppercase ml-1 ${error ? 'text-rose-500' : 'text-slate-600'}`}>{label}{error && ' *'}</label>}
         <div className="relative group">
             {Icon && <div className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${error ? 'text-rose-400' : 'text-slate-400 group-focus-within:text-blue-600'}`}><Icon size={18}/></div>}
             <input
-                type={type}
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
+                type={formatNumber ? 'text' : type}
+                inputMode={formatNumber ? 'numeric' : undefined}
+                value={formatNumber ? fmtSum(value) : value}
+                onChange={(e) => onChange(formatNumber ? parseSum(e.target.value) : e.target.value)}
                 placeholder={placeholder}
                 className={`w-full bg-white border rounded-xl py-2.5 ${Icon ? 'pl-10' : 'pl-3'} ${rightElement ? 'pr-10' : 'pr-3'} font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all shadow-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${error ? 'border-rose-400 ring-2 ring-rose-200 bg-rose-50 focus:ring-rose-300 focus:border-rose-500' : 'border-slate-200 focus:ring-teal-500/20 focus:border-teal-600'}`}
             />
@@ -315,14 +316,35 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const displayTotal = currencyMode === 'USD' && effectiveRate > 0 ? `${(totalPrice / effectiveRate).toFixed(2)} USD` : `${totalPrice.toLocaleString()} сум`;
     const displayBalance = currencyMode === 'USD' && effectiveRate > 0 ? `${(balance / effectiveRate).toFixed(2)} USD` : `${balance.toLocaleString()} сум`;
 
+    const rentalConflict = useMemo(() => {
+        if (!formData.roomId || !formData.checkInDate) return null;
+        const room = allRooms.find(r => r.id === formData.roomId);
+        if (!room?.rental?.active || !room.rental.checkInDate || !room.rental.checkOutDate) return null;
+        const ci = new Date(formData.checkInDate + 'T00:00:00');
+        const co = new Date(ci); co.setDate(co.getDate() + (parseInt(formData.days) || 1));
+        const rs = new Date(room.rental.checkInDate);
+        const re = new Date(room.rental.checkOutDate);
+        if (ci < re && co > rs) {
+            return {
+                tenantName: room.rental.tenantName || '',
+                from: rs.toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                to:   re.toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+            };
+        }
+        return null;
+    }, [allRooms, formData.roomId, formData.checkInDate, formData.days]);
+
     const availableBeds = useMemo(() => {
         if (!formData.roomId) return [];
         const room = allRooms.find(r => r.id === formData.roomId);
         if (!room) return [];
         const now = new Date();
         const checkIn = formData.checkInDate ? new Date(formData.checkInDate + 'T00:00:00') : now;
+        // Гость со статусом active, заехавший сегодня (даже если расчётный час 14:00 ещё
+        // не настал при раннем заезде), уже занимает кровать.
+        const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
         const occupiedIds = guests
-            .filter(g => g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= now)
+            .filter(g => g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday)
             .filter(g => { const out = new Date(g.checkOutDate); return !g.checkOutDate || now < out; })
             .map(g => String(g.bedId));
         return Array.from({ length: room.capacity || 0 }, (_, i) => {
@@ -496,13 +518,25 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             return;
         }
         setSubmitConflict(null);
+        if (rentalConflict) return; // inline-предупреждение уже показано в UI
         setIsSubmitting(true);
         try {
             const checkIn = new Date(formData.checkInDate);
             checkIn.setHours(checkInHour, 0, 0, 0);
+            // Выезд считается от даты заезда + дни в расчётный час выезда (полные сутки),
+            // независимо от фактического времени прихода.
             const checkOut = new Date(checkIn);
             checkOut.setDate(checkOut.getDate() + (parseInt(formData.days) || 1));
             checkOut.setHours(checkOutHour, 0, 0, 0);
+            // Ранний заезд: гость уже физически здесь. Если расчётный час заезда сегодня
+            // ещё не наступил (например пришёл в 9:00, а заезд в 14:00) — фиксируем
+            // фактическое время прихода, иначе гость числится будущей бронью и кровать
+            // ошибочно показывается свободной, что ведёт к двойному заселению и ложному
+            // авто-выселению.
+            const nowTs = new Date();
+            if (status === 'active' && checkIn > nowTs && checkIn.toDateString() === nowTs.toDateString()) {
+                checkIn.setTime(nowTs.getTime());
+            }
             await onSubmit({
                 ...formData,
                 status,
@@ -821,7 +855,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-100 pb-2">{t('stayConditions')}</h3>
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
                                     <SimpleInput label={t('checkIn')} type="date" value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
-                                    <SimpleInput label={t('price')} type="number" value={formData.pricePerNight} onChange={val => handleChange('pricePerNight', val)}
+                                    <SimpleInput label={t('price')} type="number" formatNumber value={formData.pricePerNight} onChange={val => handleChange('pricePerNight', val)}
                                         rightElement={<span className="text-xs font-bold text-slate-400">сум</span>} error={errors.pricePerNight}/>
                                 </div>
                                 <div className="relative">
@@ -935,22 +969,22 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     )}
                                 </div>
                                 <div className="bg-white p-4 rounded-xl border space-y-4" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
-                                    <SimpleInput label={t('cash') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number"
+                                    <SimpleInput label={t('cash') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number" formatNumber={currencyMode !== 'USD'}
                                         value={currencyMode === 'USD' ? usdInputs.paidCash : formData.paidCash}
                                         onChange={val => currencyMode === 'USD' ? handleUsdChange('paidCash', val) : handleChange('paidCash', val)} icon={DollarSign}
                                         rightElement={<button onClick={() => handleMagnet('paidCash')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                     {currencyMode === 'USD' && formData.paidCash && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidCash).toLocaleString()} сум</p>}
-                                    <SimpleInput label={t('card') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number"
+                                    <SimpleInput label={t('card') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number" formatNumber={currencyMode !== 'USD'}
                                         value={currencyMode === 'USD' ? usdInputs.paidCard : formData.paidCard}
                                         onChange={val => currencyMode === 'USD' ? handleUsdChange('paidCard', val) : handleChange('paidCard', val)} icon={CreditCard}
                                         rightElement={<button onClick={() => handleMagnet('paidCard')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                     {currencyMode === 'USD' && formData.paidCard && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidCard).toLocaleString()} сум</p>}
-                                    <SimpleInput label={t('qrTransfer') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number"
+                                    <SimpleInput label={t('qrTransfer') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number" formatNumber={currencyMode !== 'USD'}
                                         value={currencyMode === 'USD' ? usdInputs.paidQR : formData.paidQR}
                                         onChange={val => currencyMode === 'USD' ? handleUsdChange('paidQR', val) : handleChange('paidQR', val)} icon={QrCode}
                                         rightElement={<button onClick={() => handleMagnet('paidQR')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
                                     {currencyMode === 'USD' && formData.paidQR && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidQR).toLocaleString()} сум</p>}
-                                    <SimpleInput label="Перечисление" type="number"
+                                    <SimpleInput label="Перечисление" type="number" formatNumber
                                         value={formData.paidTransfer}
                                         onChange={val => handleChange('paidTransfer', val)} icon={ArrowRightLeft}
                                         rightElement={<button onClick={() => handleMagnet('paidTransfer')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
@@ -959,6 +993,26 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                         </div>
                     )}
                 </div>
+
+                {/* ── Аренда конфликт ── */}
+                {rentalConflict && (
+                    <div className="mx-6 mb-4 rounded-2xl overflow-hidden border border-orange-300 shadow-lg">
+                        <div className="bg-orange-500 px-4 py-3 flex items-center gap-2">
+                            <span className="text-white text-lg">🏢</span>
+                            <div>
+                                <div className="text-white font-black text-sm">Комната арендована</div>
+                                <div className="text-orange-100 text-xs">Заселение в эти даты невозможно</div>
+                            </div>
+                        </div>
+                        <div className="bg-orange-50 px-4 py-3">
+                            <p className="text-sm text-orange-800 font-semibold">
+                                {rentalConflict.tenantName && <span>Арендатор: <b>{rentalConflict.tenantName}</b> · </span>}
+                                Период аренды: <b>{rentalConflict.from}</b> — <b>{rentalConflict.to}</b>
+                            </p>
+                            <p className="text-xs text-orange-600 mt-1">Измените даты заезда/выезда или выберите другую комнату</p>
+                        </div>
+                    </div>
+                )}
 
                 {/* ── Inline конфликт-плашка ── */}
                 {submitConflict && (
@@ -1019,7 +1073,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 <div className="px-6 py-4 shrink-0 flex items-center gap-3" style={{ borderTop: '1px solid #f1f5f9', background: '#fff' }}>
                     {step === 2 && (
                         <button onClick={() => handleSubmit('booking')}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || !!rentalConflict}
                             className="mr-auto px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors flex items-center gap-2 shadow-sm">
                             {t('booking')}
                         </button>
@@ -1067,7 +1121,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     ) : (
                         <>
                             <button type="button" onClick={() => handleSubmit('active')}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || !!rentalConflict}
                                 className="px-10 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-opacity flex items-center gap-2"
                                 style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', boxShadow: '0 4px 14px rgba(15,150,136,0.3)' }}
                                 onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
@@ -1076,7 +1130,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             </button>
                             {totalPaid === 0 && totalPrice > 0 && (
                                 <button type="button" onClick={() => handleSubmit('active')}
-                                    disabled={isSubmitting}
+                                    disabled={isSubmitting || !!rentalConflict}
                                     className="ml-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
                                     <Wallet size={14}/> {t('inDebt')}
                                 </button>

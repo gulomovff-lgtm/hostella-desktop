@@ -215,7 +215,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang = 'ru', 
     return (
         <div>
             {/* Tab switcher */}
-            <div className="flex items-center gap-1 mb-5 bg-slate-100 rounded-2xl p-1 w-full sm:w-fit">
+            <div className="flex items-center gap-1 mb-5 mt-4 sm:mt-0 bg-slate-100 rounded-2xl p-1 w-full sm:w-fit">
                 <button
                     onClick={() => setTab('website')}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all"

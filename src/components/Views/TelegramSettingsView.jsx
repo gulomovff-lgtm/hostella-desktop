@@ -21,6 +21,7 @@ export const NOTIFICATION_TYPES = {
     registrationRemove: { label: 'Вывод из E-mehmon',            icon: '🔴', category: 'guests',  color: '#94a3b8' },
     cadastreNew:        { label: 'Кадастр — новая регистрация',    icon: '🏠', category: 'guests', color: '#6366f1' },
     cadastreExpiring:   { label: 'Кадастр — истекает регистрация', icon: '⚠️', category: 'guests', color: '#f59e0b' },
+    kppAlert:           { label: 'КПП — нужна регистрация (9-10 дн.)', icon: '📍', category: 'guests', color: '#ef4444' },
     // ── Бронирование ───────────────────────────────────────────────────────
     newBooking:      { label: 'Онлайн-бронь (новая)',        icon: '📋', category: 'booking', color: '#8b5cf6' },
     bookingAccepted: { label: 'Бронь принята',               icon: '✅', category: 'booking', color: '#10b981' },
@@ -71,8 +72,7 @@ export const DEFAULT_TEMPLATES = {
     shiftEnd:        '🔴 <b>Смена закрыта</b>\n👤 {{staffName}}\n🏨 {{hostel}}\n💰 Наличные: {{cash}} | Терминал: {{card}} | QR: {{qr}}\n🕐 {{time}}',
     dailyReport:     '📊 <b>Ежедневный отчёт — {{date}}</b>\n🏨 {{hostel}}\n👥 Гостей: {{activeGuests}}\n📈 Выручка: {{revenue}} сум\n💸 Расходы: {{expenses}} сум',
     cadastreNew:      '🏠 <b>Кадастр-регистрация добавлена</b>\n👤 {{guestName}}\n🪪 {{passport}}\n📍 {{address}}\n📅 {{checkIn}} → {{checkOut}} ({{days}} дн.)\n💰 {{amount}} сум\n🏨 {{hostel}}\n👷 {{staffName}}',
-    cadastreExpiring: '⚠️ <b>Кадастр-регистрация истекает</b>\n👤 {{guestName}}\n🪪 {{passport}}\n📍 {{address}}\n📅 Окончание: <b>{{checkOut}}</b>\n⏰ Осталось: <b>{{daysLeft}} дн.</b>',
-};
+    cadastreExpiring: '⚠️ <b>Кадастр-регистрация истекает</b>\n👤 {{guestName}}\n🪪 {{passport}}\n📍 {{address}}\n📅 Окончание: <b>{{checkOut}}</b>\n⏰ Осталось: <b>{{daysLeft}} дн.</b>',    kppAlert:         '📍 <b>Нужна регистрация!</b>\n👤 {{guestName}}\n� {{passport}}\n🎂 Д/р: {{birthDate}}\n📋 Паспорт выдан: {{passportIssueDate}}\n🌐 {{country}}\n📅 Дата КПП: {{kppDate}}\n⏰ Прошло {{days}} дн. — требуется регистрация\n🏨 {{hostel}} · Ком. {{room}}, место {{bed}}',};
 
 // Variables per type
 const TEMPLATE_VARS = {
@@ -99,6 +99,7 @@ const TEMPLATE_VARS = {
     dailyReport:     ['date','hostel','activeGuests','revenue','expenses'],
     cadastreNew:      ['guestName','passport','address','checkIn','checkOut','days','amount','hostel','staffName'],
     cadastreExpiring: ['guestName','passport','address','checkOut','daysLeft'],
+    kppAlert:         ['guestName','passport','birthDate','passportIssueDate','country','kppDate','days','hostel','room','bed'],
 };
 
 const SAMPLE_DATA = {
@@ -128,6 +129,8 @@ const SAMPLE_DATA = {
     address: 'Ташкент, ул. Навои, 12',
     daysLeft: '2',
     passport: 'AA1234567',
+    birthDate: '15.03.1990',
+    passportIssueDate: '12.07.2020',
 };
 
 const fillTemplate = (tpl, data) =>
@@ -166,7 +169,7 @@ const Toggle = ({ val, onChange }) => (
 const RecipientModal = ({ recipient, onSave, onClose }) => {
     const [form, setForm] = useState(() => recipient || {
         name: '', telegramId: '', active: true,
-        notifications: Object.fromEntries(Object.keys(NOTIFICATION_TYPES).map(k => [k, true]))
+        notifications: Object.fromEntries(Object.keys(NOTIFICATION_TYPES).map(k => [k, k === 'kppAlert' ? false : true]))
     });
     const [err, setErr] = useState('');
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -562,9 +565,49 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
     };
 
     // ─────────────── Render ──────────────────────────────────────────────────
+    const [kppBotTokenInput, setKppBotTokenInput] = useState(settings?.kppBotToken || '');
+    const [kppBotTokenShow, setKppBotTokenShow]   = useState(false);
+    const [kppBotSaving, setKppBotSaving]         = useState(false);
+
+    // КПП-бот получатели
+    const [kppRecipientModal, setKppRecipientModal]     = useState(false);
+    const [kppEditRecipient, setKppEditRecipient]       = useState(null);
+    const [kppExpandedRec, setKppExpandedRec]           = useState(null);
+
+    const kppRecipients = settings?.kppBotRecipients || [];
+
+    const handleSaveKppBot = async () => {
+        setKppBotSaving(true);
+        try {
+            await saveSettings({ kppBotToken: kppBotTokenInput.trim() });
+        } finally {
+            setKppBotSaving(false);
+        }
+    };
+
+    const handleSaveKppRecipient = async (data) => {
+        const existing = [...kppRecipients];
+        const idx = existing.findIndex(r => r.id === data.id);
+        if (idx >= 0) existing[idx] = data;
+        else existing.push({ ...data, id: Date.now().toString() });
+        await saveSettings({ kppBotRecipients: existing });
+        setKppRecipientModal(false);
+        setKppEditRecipient(null);
+    };
+
+    const handleDeleteKppRecipient = async (id) => {
+        if (!confirm('Удалить получателя?')) return;
+        await saveSettings({ kppBotRecipients: kppRecipients.filter(r => r.id !== id) });
+    };
+
+    const handleToggleKppRecipient = async (id, active) => {
+        await saveSettings({ kppBotRecipients: kppRecipients.map(r => r.id === id ? { ...r, active } : r) });
+    };
+
     const tabList = [
         { id: 'recipients', icon: Users, label: 'Получатели', badge: activeCount },
         { id: 'templates',  icon: MessageSquare, label: 'Шаблоны' },
+        { id: 'bots',       icon: Settings, label: 'Боты' },
         { id: 'test',       icon: TestTube2, label: 'Тест' },
     ];
 
@@ -794,6 +837,172 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                 </div>
             )}
 
+            {/* ── TAB: BOTS ── */}
+            {tab === 'bots' && (
+                <div className="space-y-4">
+                    {/* Основной бот */}
+                    <div className={`${card} p-5`}>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-sm font-black text-slate-700">🤖 Основной бот</div>
+                            <span className="text-xs bg-emerald-100 text-emerald-700 font-bold px-2.5 py-0.5 rounded-full">
+                                {recipients.filter(r => r.active).length} активных
+                            </span>
+                        </div>
+                        <div className="text-xs text-slate-500 bg-slate-50 rounded-xl p-3">
+                            Токен задаётся через переменную <code className="bg-slate-200 px-1 rounded font-mono">TELEGRAM_BOT_TOKEN</code> Firebase Cloud Functions.
+                            Получатели управляются во вкладке <b>Получатели</b>.
+                        </div>
+                    </div>
+
+                    {/* КПП-бот */}
+                    <div className={`${card} overflow-hidden`}>
+                        {/* Заголовок */}
+                        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                            <div>
+                                <div className="text-sm font-black text-slate-700 flex items-center gap-2">
+                                    📍 КПП-бот
+                                    {settings?.kppBotToken
+                                        ? <span className="text-[11px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">✅ Токен задан</span>
+                                        : <span className="text-[11px] bg-slate-100 text-slate-400 font-bold px-2 py-0.5 rounded-full">Токен не задан</span>
+                                    }
+                                </div>
+                                <div className="text-xs text-slate-400 mt-0.5">{kppRecipients.filter(r=>r.active).length} активных · {kppRecipients.length} всего</div>
+                            </div>
+                            {settings?.kppBotToken && (
+                                <button onClick={() => { setKppEditRecipient(null); setKppRecipientModal(true); }}
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-colors">
+                                    <Plus size={14}/> Добавить получателя
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Токен */}
+                        <div className="px-5 py-4 space-y-3 border-b border-slate-100">
+                            <label className="block text-xs font-bold text-slate-500 uppercase">Токен бота</label>
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <input
+                                        className={`${inp} font-mono text-xs pr-10`}
+                                        type={kppBotTokenShow ? 'text' : 'password'}
+                                        placeholder="123456:ABC-DEF..."
+                                        value={kppBotTokenInput}
+                                        onChange={e => setKppBotTokenInput(e.target.value)}
+                                    />
+                                    <button onClick={() => setKppBotTokenShow(v => !v)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600">
+                                        {kppBotTokenShow ? <EyeOff size={15}/> : <Eye size={15}/>}
+                                    </button>
+                                </div>
+                                <button onClick={handleSaveKppBot} disabled={kppBotSaving}
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                                    {kppBotSaving ? <RefreshCw size={14} className="animate-spin"/> : <Check size={14}/>}
+                                    {kppBotSaving ? '...' : 'Сохранить'}
+                                </button>
+                                {settings?.kppBotToken && (
+                                    <button onClick={() => { setKppBotTokenInput(''); saveSettings({ kppBotToken: '' }); }}
+                                        className="px-3 py-2 border border-rose-200 text-rose-500 rounded-xl font-bold text-sm hover:bg-rose-50 transition-colors">
+                                        <Trash2 size={14}/>
+                                    </button>
+                                )}
+                            </div>
+                            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                                ⚠️ Токен хранится в Firestore. Не давайте доступ к базе посторонним.
+                            </div>
+                        </div>
+
+                        {/* Получатели КПП-бота */}
+                        {!settings?.kppBotToken ? (
+                            <div className="px-5 py-8 text-center">
+                                <div className="text-3xl mb-2">🔒</div>
+                                <div className="text-sm font-bold text-slate-500">Сначала введите и сохраните токен бота</div>
+                            </div>
+                        ) : kppRecipients.length === 0 ? (
+                            <div className="px-5 py-8 text-center">
+                                <div className="text-4xl mb-2">📭</div>
+                                <div className="text-sm font-bold text-slate-600 mb-1">Нет получателей</div>
+                                <div className="text-xs text-slate-400 mb-4">Добавьте Telegram-чаты, которым этот бот будет отправлять уведомления</div>
+                                <button onClick={() => { setKppEditRecipient(null); setKppRecipientModal(true); }}
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors">
+                                    <Plus size={15}/> Добавить первого получателя
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-slate-50">
+                                {kppRecipients.map(r => {
+                                    const enabledCount = Object.keys(allTypes).filter(k => r.notifications?.[k] !== false).length;
+                                    const totalCount = Object.keys(allTypes).length;
+                                    const isExpanded = kppExpandedRec === r.id;
+                                    return (
+                                        <div key={r.id} className="p-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 ${r.active ? 'bg-indigo-100' : 'bg-slate-100'}`}>
+                                                    {r.active ? '📍' : '⚫'}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-black text-slate-800 text-sm">{r.name}</span>
+                                                        {!r.active && <span className="text-[10px] font-bold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">Отключён</span>}
+                                                    </div>
+                                                    <div className="text-xs text-slate-400 font-mono mt-0.5">
+                                                        ID: {r.telegramId}{r.threadId ? ` · 💬 ${r.threadId}` : ''} · {enabledCount}/{totalCount}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <Toggle val={r.active} onChange={v => handleToggleKppRecipient(r.id, v)}/>
+                                                    <button onClick={() => setKppExpandedRec(isExpanded ? null : r.id)}
+                                                        className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+                                                        {isExpanded ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+                                                    </button>
+                                                    <button onClick={() => { setKppEditRecipient(r); setKppRecipientModal(true); }}
+                                                        className="p-1.5 text-indigo-400 hover:text-indigo-600 transition-colors">
+                                                        <Edit2 size={16}/>
+                                                    </button>
+                                                    <button onClick={() => handleDeleteKppRecipient(r.id)}
+                                                        className="p-1.5 text-red-400 hover:text-red-600 transition-colors">
+                                                        <Trash2 size={16}/>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-indigo-400 rounded-full transition-all"
+                                                        style={{ width: `${totalCount > 0 ? (enabledCount / totalCount) * 100 : 0}%` }}/>
+                                                </div>
+                                                <span className="text-xs text-slate-400 font-bold shrink-0">{enabledCount}/{totalCount}</span>
+                                            </div>
+                                            {isExpanded && (
+                                                <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50/50 rounded-xl p-3 space-y-2">
+                                                    {Object.entries(CATEGORIES).map(([catKey, cat]) => {
+                                                        const types = Object.entries(allTypes).filter(([, v]) => v.category === catKey);
+                                                        if (!types.length) return null;
+                                                        return (
+                                                            <div key={catKey}>
+                                                                <div className="text-[10px] font-black text-slate-400 uppercase mb-1">{cat.icon} {cat.label}</div>
+                                                                <div className="grid grid-cols-2 gap-1">
+                                                                    {types.map(([typeKey, type]) => {
+                                                                        const on = r.notifications?.[typeKey] ?? true;
+                                                                        return (
+                                                                            <div key={typeKey} className="flex items-center gap-1.5 text-xs text-slate-600">
+                                                                                <span className={on ? 'text-indigo-500' : 'text-slate-300'}>●</span>
+                                                                                <span className={on ? '' : 'text-slate-400 line-through'}>{type.icon} {type.label}</span>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* ── TAB: TEST ── */}
             {tab === 'test' && (
                 <div className="space-y-4">
@@ -871,6 +1080,13 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                     recipient={editRecipient}
                     onSave={handleSaveRecipient}
                     onClose={() => { setRecipientModal(false); setEditRecipient(null); }}
+                />
+            )}
+            {kppRecipientModal && (
+                <RecipientModal
+                    recipient={kppEditRecipient}
+                    onSave={handleSaveKppRecipient}
+                    onClose={() => { setKppRecipientModal(false); setKppEditRecipient(null); }}
                 />
             )}
             {editTemplate && (

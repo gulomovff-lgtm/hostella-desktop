@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, ChevronLeft, ChevronRight, Upload, RefreshCw, UserPlus } from 'lucide-react';
+import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, ChevronLeft, ChevronRight, Upload, RefreshCw, UserPlus, Wallet } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import ClientEditModal from '../Modals/ClientEditModal';
@@ -39,12 +39,9 @@ const COUNTRY_FLAGS = {
   "Туркмения":"TM","Монголия":"MN"
 };
 
-const FLAG_SIZES = [20, 40, 80, 160, 320];
-const snapFlagSize = (s) => FLAG_SIZES.find(f => f >= s) || 320;
 const Flag = ({ code, size = 20 }) => {
     if (!code) return null;
-    const w = snapFlagSize(size), w2 = snapFlagSize(size * 2), h = Math.round(size * 0.75);
-    return <img src={`https://flagcdn.com/w${w}/${code.toLowerCase()}.png`} srcSet={`https://flagcdn.com/w${w2}/${code.toLowerCase()}.png 2x`} width={size} height={h} alt={code} style={{ display:'inline-block', objectFit:'cover', borderRadius:2, verticalAlign:'middle', flexShrink:0 }}/>;
+    return <span className={`fi fi-${code.toLowerCase()}`} style={{ width: size, height: Math.round(size * 0.75), display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }} />;
 };
 
 const getNormalizedCountry = (input) => {
@@ -113,8 +110,73 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
     );
 };
 
+// --- BalanceAdjustModal ---
+const BalanceAdjustModal = ({ client, onClose, onAdjust }) => {
+    const [mode, setMode] = useState('+');
+    const [amount, setAmount] = useState('');
+
+    const handleSubmit = () => {
+        const val = parseInt(amount);
+        if (!val || val <= 0) return;
+        onAdjust(client.id, mode === '+' ? val : -val);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Wallet size={18} className="text-violet-600"/> Баланс клиента</h3>
+                    <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">✕</button>
+                </div>
+                <p className="text-sm text-slate-500 mb-1 truncate font-medium">{client.fullName}</p>
+                <div className="mb-4 bg-slate-50 rounded-xl px-4 py-3">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Текущий баланс</div>
+                    <div className={`text-xl font-black ${(client.balance || 0) > 0 ? 'text-violet-700' : (client.balance || 0) < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                        {(client.balance || 0).toLocaleString()} сум
+                    </div>
+                </div>
+                <div className="flex gap-2 mb-3">
+                    <button
+                        onClick={() => setMode('+')}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
+                            mode === '+' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >+ Пополнить</button>
+                    <button
+                        onClick={() => setMode('-')}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
+                            mode === '-' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >− Уменьшить</button>
+                </div>
+                <input
+                    type="number"
+                    min="1"
+                    placeholder="Сумма в сумах"
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 mb-4"
+                    autoFocus
+                />
+                <div className="flex gap-2">
+                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!amount || parseInt(amount) <= 0}
+                        className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white transition-colors disabled:opacity-40 ${
+                            mode === '+' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+                        }`}
+                    >{mode === '+' ? `Пополнить` : `Уменьшить`}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- ClientsView ---
-const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set() }) => {
+const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set(), onAdjustBalance }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [search, setSearch] = useState('');
     const [editingClient, setEditingClient] = useState(null);
@@ -127,8 +189,10 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
     const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false);
     const [confirmNormalizeOpen, setConfirmNormalizeOpen] = useState(false);
     const [confirmSyncOpen, setConfirmSyncOpen] = useState(false);
+    const [balanceEditClient, setBalanceEditClient] = useState(null);
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
+    const isSuper = currentUser.role === 'super';
 
     const filtered = useMemo(() => {
         const nowMs = Date.now();
@@ -269,8 +333,30 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                                     <div className="text-xs font-medium text-slate-700">{c.birthDate || '—'}</div>
                                 </div>
                             </div>
-                            {(c.visits > 0 || c.lastVisit) && (
+                            {(isSuper || (c.balance || 0) !== 0) && (
+                                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-100">
+                                    <div className="flex items-center gap-1.5">
+                                        <Wallet size={11} className="text-violet-400 shrink-0"/>
+                                        <span className={`text-xs font-bold ${
+                                            (c.balance || 0) > 0 ? 'text-violet-700' : (c.balance || 0) < 0 ? 'text-rose-600' : 'text-slate-400'
+                                        }`}>{(c.balance || 0).toLocaleString()} сум</span>
+                                    </div>
+                                    {isSuper && onAdjustBalance && (
+                                        <button
+                                            onClick={e => { e.stopPropagation(); setBalanceEditClient(c); }}
+                                            className="flex items-center gap-1 px-2 py-0.5 bg-violet-50 hover:bg-violet-100 text-violet-600 rounded-lg text-[10px] font-bold transition-colors"
+                                        ><Edit size={9}/> Изменить</button>
+                                    )}
+                                </div>
+                            )}
+                            {!(isSuper || (c.balance || 0) !== 0) && (c.visits > 0 || c.lastVisit) && (
                                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                                    <span className="text-xs text-slate-400">{c.lastVisit ? new Date(c.lastVisit).toLocaleDateString() : '—'}</span>
+                                    {c.visits > 0 && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">{c.visits}×</span>}
+                                </div>
+                            )}
+                            {(isSuper || (c.balance || 0) !== 0) && (c.visits > 0 || c.lastVisit) && (
+                                <div className="flex items-center justify-between pt-1">
                                     <span className="text-xs text-slate-400">{c.lastVisit ? new Date(c.lastVisit).toLocaleDateString() : '—'}</span>
                                     {c.visits > 0 && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">{c.visits}×</span>}
                                 </div>
@@ -295,6 +381,13 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                 </div>
             )}
 
+            {balanceEditClient && onAdjustBalance && (
+                <BalanceAdjustModal
+                    client={balanceEditClient}
+                    onClose={() => setBalanceEditClient(null)}
+                    onAdjust={onAdjustBalance}
+                />
+            )}
             {editingClient && <ClientEditModal client={editingClient} onClose={() => setEditingClient(null)} onSave={(d) => {
                 if (editingClient.id) { onUpdateClient(editingClient.id, d); }
                 else if (onAddClient) { onAddClient(d); }

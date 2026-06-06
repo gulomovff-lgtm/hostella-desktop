@@ -173,23 +173,27 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     if (!clientId || !amount || isNaN(amount) || amount <= 0) return;
     const amt = Number(amount);
     const client = clients.find(c => c.id === clientId);
+    // Пополнение баланса супером НЕ должно попадать в кассу
+    const skip = skipCashbox || currentUser?.role === 'super';
 
     // 1. Обновляем баланс клиента
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { balance: increment(amt) });
 
     let paymentId = null;
     // 2. Создаём запись в кассе (payments) — только если не обход кассы
-    if (!skipCashbox) {
+    if (!skip) {
       const payRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), {
         type: 'balance_topup',
         clientId,
         clientName: client?.fullName || '',
-        staffId: currentUser?.uid || currentUser?.id || '',
-        staffName: currentUser?.name || currentUser?.displayName || '',
+        guestId: null,
+        staffId: currentUser?.id || currentUser?.login || '',
+        staffName: currentUser?.name || currentUser?.login || '',
         amount: amt,
         method,
         date: new Date().toISOString(),
         hostelId: currentUser?.hostelId || '',
+        comment: `Пополнение баланса: ${client?.fullName || clientId}`,
         note: `Пополнение баланса: ${client?.fullName || clientId}`,
       });
       paymentId = payRef.id;
@@ -206,6 +210,17 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
 
     logAction(currentUser, 'balance_topup', { clientId, amount: amt, method, skipCashbox });
     showNotification(`✅ Баланс пополнен: +${amt.toLocaleString()} сум`, 'success');
+  };
+
+  const handleAdjustBalance = async (clientId, delta) => {
+    if (!clientId || !delta || isNaN(delta) || delta === 0) return;
+    const amt = Number(delta);
+    const client = clients.find(c => c.id === clientId);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { balance: increment(amt) });
+    logAction(currentUser, 'balance_adjust', { clientId, delta: amt, clientName: client?.fullName || '' });
+    showNotification(amt > 0
+      ? `✅ Баланс пополнен: +${amt.toLocaleString()} сум`
+      : `✅ Баланс уменьшен: ${amt.toLocaleString()} сум`, 'success');
   };
 
   const handleAddClient = async (data) => {
@@ -231,6 +246,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     handleNormalizeCountries,
     handleSyncClientsFromGuests,
     handleTopUpBalance,
+    handleAdjustBalance,
     handleAddClient,
   };
 }

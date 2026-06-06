@@ -6,24 +6,41 @@ import {
   Link, Copy, ExternalLink,
 } from 'lucide-react';
 import { HOSTELS } from '../../utils/helpers';
+import { getConfig } from '../../utils/appConfig';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
+// Возвращает локальную дату в формате YYYY-MM-DD
+const getLocalDateStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+// Разность в днях: endDate (YYYY-MM-DD) минус сегодня (локальное время)
+// Регистрация 6–16: последний день 16-е → daysLeft=0 когда сегодня 16-е
+const getDaysLeft = (endDate) => {
+  const todayStr = getLocalDateStr();
+  const endMs   = new Date(endDate   + 'T12:00:00').getTime();
+  const todayMs = new Date(todayStr  + 'T12:00:00').getTime();
+  return Math.round((endMs - todayMs) / 86400000);
+};
+
 const getStatus = (reg) => {
   if (reg.status === 'removed') return 'removed';
-  const daysLeft = Math.ceil((new Date(reg.endDate + 'T23:59:59') - Date.now()) / 86400000);
-  if (daysLeft < 0) return 'expired';
+  const daysLeft = getDaysLeft(reg.endDate);
+  if (daysLeft <= 0) return 'expired';
   if (daysLeft <= 3) return 'expiring';
   return 'active';
 };
-const getDaysLeft = (endDate) =>
-  Math.ceil((new Date(endDate + 'T23:59:59') - Date.now()) / 86400000);
 
 const STATUS_CFG = {
   active:   { label: 'Активна',       icon: CheckCircle2,   bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
   expiring: { label: 'Истекает',      icon: AlertTriangle,  bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   dot: 'bg-amber-500'   },
   expired:  { label: 'Истекла',       icon: AlertCircle,    bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200',    dot: 'bg-rose-500'    },
-  removed:  { label: 'Снят',          icon: UserX,          bg: 'bg-slate-50',   text: 'text-slate-500',   border: 'border-slate-200',   dot: 'bg-slate-400'   },
+  removed:  { label: 'Завершён',       icon: UserX,          bg: 'bg-slate-50',   text: 'text-slate-500',   border: 'border-slate-200',   dot: 'bg-slate-400'   },
 };
 
 const calcEndDate = (startDate, days) => {
@@ -35,7 +52,130 @@ const calcEndDate = (startDate, days) => {
 };
 
 const fmt = (n) => Number(n || 0).toLocaleString();
-const inp = 'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-medium';
+const inp = 'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none font-medium';
+
+// ─── EditRegModal ─────────────────────────────────────────────────────────────
+
+const EditRegModal = ({ reg, onClose, onSubmit }) => {
+  const [guestName, setGuestName] = useState(reg.guestName || '');
+  const [startDate, setStartDate] = useState(reg.startDate || '');
+  const [days, setDays] = useState(String(reg.days || 1));
+  const [dailyPrice, setDailyPrice] = useState(() => {
+    const regDays = Number(reg.days) || 0;
+    const regAmount = Number(reg.amount) || 0;
+    return regDays > 0 ? String(Math.round(regAmount / regDays)) : '';
+  });
+  const [amount, setAmount] = useState(String(reg.amount || ''));
+  const [regLink, setRegLink] = useState(reg.regLink || '');
+
+  const endDate = calcEndDate(startDate, days);
+
+  const submit = () => {
+    if (!guestName.trim() || !startDate || parseInt(days) <= 0) return;
+    onSubmit({ guestName: guestName.trim(), startDate, endDate, days: parseInt(days), amount: Number(amount) || 0, regLink: regLink.trim() });
+    onClose();
+  };
+
+  const recalcAmount = (priceVal, daysVal) => {
+    const d = parseInt(daysVal, 10);
+    const p = Number(priceVal);
+    if (d > 0 && p >= 0) {
+      setAmount(String(Math.round(p * d)));
+    }
+  };
+
+  return (
+    <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center"><Edit2 size={15} className="text-teal-600" /></div>
+            <h3 className="font-black text-base text-slate-800">Изменить регистрацию</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+        </div>
+        <div className="text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2">
+          📍 {reg.cadastreAddress}
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">Гость</label>
+            <input className={inp} value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Имя гостя" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-600 mb-1 block">Дата начала</label>
+              <input className={inp} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 mb-1 block">Количество дней</label>
+              <input
+                className={inp}
+                type="number"
+                min="1"
+                value={days}
+                onChange={e => {
+                  const v = e.target.value;
+                  setDays(v);
+                  recalcAmount(dailyPrice, v);
+                }}
+              />
+            </div>
+          </div>
+          {endDate && (
+            <p className="text-sm text-teal-700 font-semibold bg-teal-50 px-3 py-2 rounded-lg">
+              📅 Дата окончания: <b>{endDate}</b>
+            </p>
+          )}
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">Цена за день (сум)</label>
+            <input
+              className={inp}
+              type="number"
+              min="0"
+              placeholder="0"
+              value={dailyPrice}
+              onChange={e => {
+                const v = e.target.value;
+                setDailyPrice(v);
+                recalcAmount(v, days);
+              }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">Стоимость регистрации (сум)</label>
+            <input
+              className={inp}
+              type="number"
+              placeholder="0"
+              value={amount}
+              onChange={e => {
+                const v = e.target.value;
+                setAmount(v);
+                const d = parseInt(days, 10);
+                const total = Number(v);
+                if (d > 0 && total >= 0) {
+                  setDailyPrice(String(Math.round(total / d)));
+                }
+              }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">Ссылка на регистрацию</label>
+            <input className={inp} type="url" placeholder="https://..." value={regLink} onChange={e => setRegLink(e.target.value)} />
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Отмена</button>
+          <button onClick={submit} disabled={!guestName.trim() || !startDate || parseInt(days) <= 0}
+            className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-40">
+            Сохранить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ─── ExtendModal ──────────────────────────────────────────────────────────────
 
@@ -57,23 +197,42 @@ const CopyButton = ({ text }) => {
 };
 
 const ExtendModal = ({ reg, onClose, onSubmit }) => {
+  // Цена за день из текущей регистрации (для автоподстановки)
+  const pricePerDay = (reg.amount > 0 && reg.days > 0) ? reg.amount / reg.days : 0;
+
   const [days, setDays] = useState('30');
-  const [regCost, setRegCost] = useState('');
+  const [startFrom, setStartFrom] = useState(reg.endDate || '');
+  const [regCost, setRegCost] = useState(() =>
+    pricePerDay > 0 ? String(Math.round(pricePerDay * 30)) : ''
+  );
   const [addToExpenses, setAddToExpenses] = useState(false);
 
-  const newEndDate = calcEndDate(reg.endDate, days);
+  const newEndDate = calcEndDate(startFrom || reg.endDate, days);
+
+  const handleDaysChange = (val) => {
+    setDays(val);
+    if (pricePerDay > 0 && parseInt(val) > 0) {
+      setRegCost(String(Math.round(pricePerDay * parseInt(val))));
+    }
+  };
 
   const submit = () => {
     if (!days || parseInt(days) <= 0) return;
-    onSubmit({ days: parseInt(days), newEndDate, regCost, addToExpenses });
+    onSubmit({ days: parseInt(days), newEndDate, startFrom, regCost, addToExpenses });
     onClose();
   };
 
+  const hasGap = startFrom && reg.endDate && startFrom > reg.endDate;
+  const gapDays = hasGap ? Math.round((new Date(startFrom + 'T12:00:00') - new Date(reg.endDate + 'T12:00:00')) / 86400000) : 0;
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+    <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-black text-base text-slate-800">🔄 Продление регистрации</h3>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center"><RefreshCw size={15} className="text-teal-600" /></div>
+            <h3 className="font-black text-base text-slate-800">Продление регистрации</h3>
+          </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
         </div>
         <div className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3 space-y-1">
@@ -83,11 +242,25 @@ const ExtendModal = ({ reg, onClose, onSubmit }) => {
         </div>
         <div className="space-y-3">
           <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">Начало продления</label>
+            <input className={inp} type="date" value={startFrom} onChange={e => setStartFrom(e.target.value)} />
+            {hasGap && (
+              <p className="text-xs text-amber-600 mt-1 font-medium">
+                ⚠️ Пробел {gapDays} дн. (с {reg.endDate} по {startFrom})
+              </p>
+            )}
+            {startFrom && reg.endDate && startFrom < reg.endDate && (
+              <p className="text-xs text-rose-500 mt-1 font-medium">
+                ⚠️ Дата раньше окончания текущей регистрации
+              </p>
+            )}
+          </div>
+          <div>
             <label className="text-xs font-semibold text-slate-600 mb-1 block">Количество дней</label>
-            <input className={inp} type="number" min="1" value={days} onChange={e => setDays(e.target.value)} />
+            <input className={inp} type="number" min="1" value={days} onChange={e => handleDaysChange(e.target.value)} />
           </div>
           {newEndDate && (
-            <p className="text-sm text-indigo-700 font-semibold bg-indigo-50 px-3 py-2 rounded-lg">
+            <p className="text-sm text-teal-700 font-semibold bg-teal-50 px-3 py-2 rounded-lg">
               📅 Новая дата окончания: <b>{newEndDate}</b>
             </p>
           )}
@@ -97,13 +270,13 @@ const ExtendModal = ({ reg, onClose, onSubmit }) => {
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={addToExpenses} onChange={e => setAddToExpenses(e.target.checked)}
-              className="w-4 h-4 rounded accent-indigo-600" />
+              className="w-4 h-4 rounded accent-teal-600" />
             <span className="text-sm text-slate-700">Добавить стоимость в расходы</span>
           </label>
         </div>
         <div className="flex gap-2 pt-1">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Отмена</button>
-          <button onClick={submit} className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">Продлить</button>
+          <button onClick={submit} className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700">Продлить</button>
         </div>
       </div>
     </div>
@@ -129,6 +302,7 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [days, setDays] = useState('30');
   const [amount, setAmount] = useState('');
+  const [amountManual, setAmountManual] = useState(false); // true если пользователь вручную изменил сумму
   const [regLink, setRegLink] = useState('');
   const [addToExpenses, setAddToExpenses] = useState(false);
 
@@ -139,6 +313,24 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
     cadastres.filter(c => c.active !== false && (isAdmin || c.hostelId === hostelId)),
     [cadastres, hostelId, isAdmin]
   );
+
+  // Авто-расчёт суммы из dailyRate кадастра × дни (если не редактировалось вручную)
+  const autoCalcAmount = useCallback((cadastre, daysVal) => {
+    if (!amountManual && cadastre && Number(cadastre.dailyRate) > 0 && parseInt(daysVal) > 0) {
+      setAmount(String(Math.round(Number(cadastre.dailyRate) * parseInt(daysVal))));
+    }
+  }, [amountManual]);
+
+  const handleSelectCadastre = (c) => {
+    setSelectedCadastre(c || null);
+    if (c) { setManualAddress(''); setManualName(''); setManualOwner(''); }
+    if (!amountManual) autoCalcAmount(c, days);
+  };
+
+  const handleDaysChange = (val) => {
+    setDays(val);
+    if (!amountManual) autoCalcAmount(selectedCadastre, val);
+  };
 
   // Поиск гостей
   const guestResults = useMemo(() => {
@@ -160,17 +352,18 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
   const cadastreName    = selectedCadastre ? selectedCadastre.name    : manualName;
   const cadastreOwner   = selectedCadastre ? selectedCadastre.owner   : manualOwner;
 
-  const canSubmit = selectedGuest && cadastreAddress && startDate && parseInt(days) > 0;
+  const canSubmit = (selectedGuest || guestSearch.trim().length >= 2) && cadastreAddress && startDate && parseInt(days) > 0;
 
   const submit = () => {
     if (!canSubmit) return;
     onSubmit({
-      guestId:         selectedGuest.id,
-      guestName:       selectedGuest.fullName,
-      passport:        selectedGuest.passport || '',
-      birthDate:       selectedGuest.birthDate || '',
-      country:         selectedGuest.country   || '',
-      phone:           selectedGuest.phone     || '',
+      guestId:          selectedGuest?.id || null,
+      guestName:        selectedGuest?.fullName || guestSearch.trim(),
+      passport:         selectedGuest?.passport         || '',
+      birthDate:        selectedGuest?.birthDate        || '',
+      passportIssueDate:selectedGuest?.passportIssueDate|| '',
+      country:          selectedGuest?.country          || '',
+      phone:            selectedGuest?.phone            || '',
       cadastreId:      selectedCadastre?.id || null,
       cadastreAddress, cadastreName, cadastreOwner,
       startDate, endDate, days: parseInt(days),
@@ -182,13 +375,13 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+    <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center">
-              <Home size={16} className="text-indigo-600" />
+            <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center">
+              <Home size={16} className="text-teal-600" />
             </div>
             <h3 className="font-black text-base text-slate-800">Новая кадастр-регистрация</h3>
           </div>
@@ -216,12 +409,17 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
               <div className="mt-1 border border-slate-200 rounded-xl overflow-hidden shadow-lg">
                 {guestResults.map(g => (
                   <button key={g.id} onClick={() => selectGuest(g)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0">
+                    className="w-full text-left px-3 py-2.5 hover:bg-teal-50 transition-colors border-b border-slate-100 last:border-0">
                     <p className="text-sm font-semibold text-slate-800">{g.fullName}</p>
                     <p className="text-xs text-slate-500">{g.passport} · {g.country} · {g.phone}</p>
                   </button>
                 ))}
               </div>
+            )}
+            {!selectedGuest && guestSearch.trim().length >= 2 && guestResults.length === 0 && (
+              <p className="mt-1.5 text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                Гость не найден в базе — будет сохранено введённое имя: <b className="text-slate-600">{guestSearch.trim()}</b>
+              </p>
             )}
             {selectedGuest && (
               <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-center justify-between">
@@ -247,8 +445,7 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
                 value={selectedCadastre?.id || ''}
                 onChange={e => {
                   const c = filteredCadastres.find(x => x.id === e.target.value);
-                  setSelectedCadastre(c || null);
-                  if (c) { setManualAddress(''); setManualName(''); setManualOwner(''); }
+                  handleSelectCadastre(c);
                 }}
               >
                 <option value="">— Выбрать из списка или ввести вручную —</option>
@@ -276,23 +473,23 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
             </div>
             <div>
               <label className="text-xs font-bold text-slate-600 mb-1 block">Количество дней</label>
-              <input className={inp} type="number" min="1" value={days} onChange={e => setDays(e.target.value)} />
+              <input className={inp} type="number" min="1" value={days} onChange={e => handleDaysChange(e.target.value)} />
             </div>
           </div>
           {endDate && (
-            <p className="text-sm text-indigo-700 font-semibold bg-indigo-50 px-3 py-2 rounded-lg">
+            <p className="text-sm text-teal-700 font-semibold bg-teal-50 px-3 py-2 rounded-lg">
               📅 Дата окончания: <b>{endDate}</b>
             </p>
           )}
 
           {/* Стоимость регистрации */}
           <div>
-            <label className="text-xs font-bold text-slate-600 mb-1 block">Стоимость регистрации (сум)</label>
-            <input className={inp} type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+            <label className="text-xs font-bold text-slate-600 mb-1 block">Стоимость регистрации (сум){selectedCadastre?.dailyRate > 0 && !amountManual ? <span className="ml-1 text-teal-500 font-normal normal-case">(авто: {Number(selectedCadastre.dailyRate).toLocaleString()} × {days} дн.)</span> : null}</label>
+            <input className={inp} type="number" placeholder="0" value={amount} onChange={e => { setAmountManual(true); setAmount(e.target.value); }} />
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={addToExpenses} onChange={e => setAddToExpenses(e.target.checked)}
-              className="w-4 h-4 rounded accent-indigo-600" />
+              className="w-4 h-4 rounded accent-teal-600" />
             <span className="text-sm text-slate-700">Добавить стоимость регистрации в расходы</span>
           </label>
 
@@ -317,7 +514,7 @@ const CadastreModal = ({ clients, cadastres, currentUser, selectedHostelFilter, 
           <button
             onClick={submit}
             disabled={!canSubmit}
-            className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Зарегистрировать
           </button>
@@ -334,7 +531,7 @@ const CadastreManageModal = ({ cadastre, onClose, onSubmit, selectedHostelFilter
   const [address, setAddress] = useState(cadastre?.address || '');
   const [owner, setOwner] = useState(cadastre?.owner || '');
   const [phone, setPhone] = useState(cadastre?.phone || '');
-  const [dailyRate, setDailyRate] = useState(cadastre?.dailyRate || '');
+  const [dailyRate, setDailyRate] = useState(cadastre?.dailyRate || getConfig().registrationDailyRate || '');
   const [hostelId, setHostelId] = useState(cadastre?.hostelId || (selectedHostelFilter === 'all' ? 'hostel1' : selectedHostelFilter) || 'hostel1');
 
   const submit = () => {
@@ -344,12 +541,13 @@ const CadastreManageModal = ({ cadastre, onClose, onSubmit, selectedHostelFilter
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+    <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-black text-base text-slate-800">
-            {cadastre ? '✏️ Редактировать кадастр' : '🏠 Добавить кадастр'}
-          </h3>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center"><Building size={15} className="text-teal-600" /></div>
+            <h3 className="font-black text-base text-slate-800">{cadastre ? 'Редактировать кадастр' : 'Добавить кадастр'}</h3>
+          </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
         </div>
         <div className="space-y-3">
@@ -385,7 +583,7 @@ const CadastreManageModal = ({ cadastre, onClose, onSubmit, selectedHostelFilter
         <div className="flex gap-2 pt-1">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Отмена</button>
           <button onClick={submit} disabled={!address.trim()}
-            className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40">
+            className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-40">
             {cadastre ? 'Сохранить' : 'Добавить'}
           </button>
         </div>
@@ -394,17 +592,91 @@ const CadastreManageModal = ({ cadastre, onClose, onSubmit, selectedHostelFilter
   );
 };
 
+// ─── RemoveConfirmModal ──────────────────────────────────────────────────────
+
+const RemoveConfirmModal = ({ reg, onClose, onConfirm }) => {
+  const [addToExpenses, setAddToExpenses] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const hasAmount = Number(reg.amount) > 0 && !reg.expenseAdded;
+
+  const handleConfirm = async () => {
+    if (busy) return;
+    setBusy(true);
+    await onConfirm(reg, { addToExpenses: hasAmount && addToExpenses });
+    onClose();
+  };
+
+  return (
+    <div className="modal-centered fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+        <div className="h-1.5 bg-amber-400 w-full" />
+        <div className="p-6 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <UserX size={20} className="text-amber-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 text-base">Завершить регистрацию</h3>
+              <p className="text-sm text-slate-500 mt-1">
+                Регистрация <b>{reg.guestName}</b> будет завершена.
+              </p>
+            </div>
+          </div>
+
+          {hasAmount && (
+            <label className="flex items-center gap-3 cursor-pointer bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+              <input type="checkbox" checked={addToExpenses} onChange={e => setAddToExpenses(e.target.checked)}
+                className="w-4 h-4 rounded accent-violet-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-violet-800">Добавить сумму в расходы</p>
+                <p className="text-xs text-violet-600">{fmt(reg.amount)} сум</p>
+              </div>
+            </label>
+          )}
+
+          <div className="flex gap-3">
+            <button onClick={onClose} disabled={busy}
+              className="flex-1 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 disabled:opacity-40">
+              Отмена
+            </button>
+            <button onClick={handleConfirm} disabled={busy}
+              className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white font-bold text-sm hover:bg-amber-600 disabled:opacity-40 flex items-center justify-center gap-2">
+              {busy
+                ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : <UserX size={14} />
+              }
+              Завершить
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── RegCard ──────────────────────────────────────────────────────────────────
 
-const RegCard = ({ reg, onExtend, onRemove, onDelete, onAddToExpenses, isAdmin }) => {
+const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, isAdmin }) => {
   const [expanded, setExpanded] = useState(false);
+  const [busyExpense, setBusyExpense] = useState(false);
+
+  // Сколько уже в расходах (backward-compatible: старые записи без totalExpensed)
+  const alreadyExpensed = reg.totalExpensed ?? (reg.expenseAdded ? (Number(reg.amount) || 0) : 0);
+  const unexpensed = Math.max(0, (Number(reg.amount) || 0) - alreadyExpensed);
+
+  const handleAddToExpenses = async () => {
+    if (busyExpense) return;
+    setBusyExpense(true);
+    await onAddToExpenses(reg);
+    setBusyExpense(false);
+  };
   const status = getStatus(reg);
   const cfg = STATUS_CFG[status];
   const daysLeft = getDaysLeft(reg.endDate);
   const Icon = cfg.icon;
 
   return (
-    <div className={`bg-white rounded-2xl border ${cfg.border} shadow-sm overflow-hidden`}>
+    <div className={`bg-white rounded-2xl border ${cfg.border} shadow-sm overflow-hidden transition-all hover:shadow-md`}>
       <div className="p-4">
         <div className="flex items-start gap-3">
           <div className={`w-10 h-10 rounded-xl ${cfg.bg} border ${cfg.border} flex items-center justify-center flex-shrink-0`}>
@@ -415,13 +687,22 @@ const RegCard = ({ reg, onExtend, onRemove, onDelete, onAddToExpenses, isAdmin }
               <h3 className="font-black text-slate-800 text-sm">{reg.guestName}</h3>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text} border ${cfg.border}`}>
                 {cfg.label}
-                {status === 'active' && daysLeft > 0 && ` · ${daysLeft} дн.`}
-                {status === 'expiring' && ` · ${daysLeft} дн.`}
-                {status === 'expired' && ` · ${Math.abs(daysLeft)} дн. назад`}
+                {status === 'active'   && daysLeft > 0 && ` · ${daysLeft} дн.`}
+                {status === 'expiring' && (
+                  daysLeft === 0 ? ' · сегодня!' :
+                  daysLeft === 1 ? ' · завтра' :
+                  ` · ${daysLeft} дн.`
+                )}
+                {status === 'expired'  && (daysLeft === 0 ? ' · сегодня' : ` · ${Math.abs(daysLeft)} дн. назад`)}
               </span>
-              {reg.expenseAdded && (
+              {reg.expenseAdded && unexpensed <= 0 && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
                   📊 В расходах
+                </span>
+              )}
+              {unexpensed > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  ⚠️ Не в расходах: {fmt(unexpensed)} сум
                 </span>
               )}
             </div>
@@ -429,7 +710,7 @@ const RegCard = ({ reg, onExtend, onRemove, onDelete, onAddToExpenses, isAdmin }
               <p className="text-xs text-slate-600 flex items-center gap-1">
                 <MapPin size={10} className="text-slate-400 flex-shrink-0" />
                 {reg.cadastreAddress}
-                {reg.cadastreName && <span className="text-slate-400">· {reg.cadastreName}</span>}
+                {reg.cadastreName && reg.cadastreName !== reg.cadastreAddress && <span className="text-slate-400">· {reg.cadastreName}</span>}
               </p>
               <p className="text-xs text-slate-500 flex items-center gap-1">
                 <Calendar size={10} className="text-slate-400" />
@@ -437,7 +718,7 @@ const RegCard = ({ reg, onExtend, onRemove, onDelete, onAddToExpenses, isAdmin }
                 <span className="text-slate-400">({reg.days} дн.)</span>
               </p>
               {reg.amount > 0 && (
-                <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1">
+                <p className="text-xs font-semibold text-teal-700 flex items-center gap-1">
                   <Receipt size={10} /> Стоимость рег.: {fmt(reg.amount)} сум
                 </p>
               )}
@@ -461,9 +742,9 @@ const RegCard = ({ reg, onExtend, onRemove, onDelete, onAddToExpenses, isAdmin }
           {/* Ссылка на регистрацию */}
           {reg.regLink && (
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-              <Link size={12} className="text-indigo-500 flex-shrink-0" />
+              <Link size={12} className="text-teal-500 flex-shrink-0" />
               <a href={reg.regLink} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-indigo-600 hover:underline truncate flex-1 font-medium">
+                className="text-xs text-teal-600 hover:underline truncate flex-1 font-medium">
                 {reg.regLink}
               </a>
               <CopyButton text={reg.regLink} />
@@ -478,20 +759,28 @@ const RegCard = ({ reg, onExtend, onRemove, onDelete, onAddToExpenses, isAdmin }
             {status !== 'removed' && (
               <>
                 <button onClick={() => onExtend(reg)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
                   <RefreshCw size={11} /> Продлить
                 </button>
-                {!reg.expenseAdded && reg.amount > 0 && (
-                  <button onClick={() => onAddToExpenses(reg)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-bold hover:bg-violet-700">
-                    <Receipt size={11} /> В расходы
-                  </button>
-                )}
+                <button onClick={() => onEdit(reg)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-600 text-white text-xs font-bold hover:bg-slate-700">
+                  <Edit2 size={11} /> Изменить
+                </button>
                 <button onClick={() => onRemove(reg)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600">
-                  <UserX size={11} /> Снять
+                  <UserX size={11} /> Завершить
                 </button>
               </>
+            )}
+            {unexpensed > 0 && (
+              <button onClick={handleAddToExpenses} disabled={busyExpense}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50">
+                {busyExpense
+                  ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <Receipt size={11} />
+                }
+                В расходы {fmt(unexpensed)} сум
+              </button>
             )}
             {isAdmin && (
               <button onClick={() => onDelete(reg)}
@@ -516,6 +805,7 @@ export default function CadastreView({
   selectedHostelFilter,
   onAddReg,
   onExtendReg,
+  onUpdateReg,
   onRemoveReg,
   onDeleteReg,
   onAddToExpenses,
@@ -530,37 +820,121 @@ export default function CadastreView({
   const [search, setSearch] = useState('');
   // По умолчанию показываем активные + истекающие (обязательная фильтрация)
   const [statusFilter, setStatusFilter] = useState('active_expiring');
+  const [monthFilter, setMonthFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [extendReg, setExtendReg] = useState(null);
-  const [cadastreModal, setCadastreModal] = useState(null); // null | 'add' | cadastre object to edit
+  const [editReg, setEditReg] = useState(null);
+  const [cadastreModal, setCadastreModal] = useState(null);
+  const [removeConfirmReg, setRemoveConfirmReg] = useState(null);
+  const [addAllConfirm, setAddAllConfirm] = useState(false);
+  const [busyAddAll, setBusyAddAll] = useState(false);
 
   // ─── Hostel filtering (cashier sees own only) ───────────────────────
-  const visibleRegs = useMemo(
-    () => isAdmin ? cadastreRegs : cadastreRegs.filter(r => r.hostelId === currentUser.hostelId),
-    [cadastreRegs, isAdmin, currentUser.hostelId]
-  );
-  const visibleCadastres = useMemo(
-    () => isAdmin ? cadastres : cadastres.filter(c => c.hostelId === currentUser.hostelId),
-    [cadastres, isAdmin, currentUser.hostelId]
-  );
+  const visibleRegs = useMemo(() => {
+    if (!isAdmin) return cadastreRegs.filter(r => r.hostelId === currentUser.hostelId);
+    if (selectedHostelFilter && selectedHostelFilter !== 'all') return cadastreRegs.filter(r => r.hostelId === selectedHostelFilter);
+    return cadastreRegs;
+  }, [cadastreRegs, isAdmin, currentUser.hostelId, selectedHostelFilter]);
+
+  const visibleCadastres = useMemo(() => {
+    if (!isAdmin) return cadastres.filter(c => c.hostelId === currentUser.hostelId);
+    if (selectedHostelFilter && selectedHostelFilter !== 'all') return cadastres.filter(c => c.hostelId === selectedHostelFilter);
+    return cadastres;
+  }, [cadastres, isAdmin, currentUser.hostelId, selectedHostelFilter]);
+
+  const toNum = (v) => Number(v) || 0;
+  const monthKey = (dateLike) => {
+    if (!dateLike) return '';
+    const s = String(dateLike);
+    if (s.length >= 7 && s[4] === '-') return s.slice(0, 7);
+    const d = new Date(dateLike);
+    if (Number.isNaN(d.getTime())) return '';
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${d.getFullYear()}-${m}`;
+  };
+
+  const getRegExpenseByMonth = useCallback((reg) => {
+    const explicit = reg?.expenseByMonth && typeof reg.expenseByMonth === 'object' ? { ...reg.expenseByMonth } : {};
+    if (Object.keys(explicit).length > 0) return explicit;
+    const total = toNum(reg?.amount);
+    const mk = monthKey(reg?.createdAt) || monthKey(reg?.startDate);
+    return (total > 0 && mk) ? { [mk]: Math.round(total) } : {};
+  }, []);
+
+  const getRegExpensedByMonth = useCallback((reg, expenseByMonth) => {
+    const explicit = reg?.expensedByMonth && typeof reg.expensedByMonth === 'object' ? { ...reg.expensedByMonth } : {};
+    if (Object.keys(explicit).length > 0) return explicit;
+    const totalExpensed = toNum(reg?.totalExpensed ?? (reg?.expenseAdded ? reg?.amount : 0));
+    if (totalExpensed <= 0) return {};
+    const next = {};
+    let rest = totalExpensed;
+    const months = Object.keys(expenseByMonth).sort();
+    for (const m of months) {
+      if (rest <= 0) break;
+      const cap = toNum(expenseByMonth[m]);
+      if (cap <= 0) continue;
+      const take = Math.min(cap, rest);
+      next[m] = take;
+      rest -= take;
+    }
+    return next;
+  }, []);
+
+  const getRegMonthAccrued = useCallback((reg, month) => {
+    const map = getRegExpenseByMonth(reg);
+    if (!month) return Object.values(map).reduce((s, v) => s + toNum(v), 0);
+    return toNum(map[month]);
+  }, [getRegExpenseByMonth]);
+
+  const getRegMonthPending = useCallback((reg, month) => {
+    const expenseByMonth = getRegExpenseByMonth(reg);
+    const expensedByMonth = getRegExpensedByMonth(reg, expenseByMonth);
+    if (!month) {
+      return Object.keys(expenseByMonth).reduce((sum, m) => (
+        sum + Math.max(0, toNum(expenseByMonth[m]) - toNum(expensedByMonth[m]))
+      ), 0);
+    }
+    return Math.max(0, toNum(expenseByMonth[month]) - toNum(expensedByMonth[month]));
+  }, [getRegExpenseByMonth, getRegExpensedByMonth]);
+
+  // ─── Available months for month filter ──────────────────────────────────────
+  const availableMonths = useMemo(() => {
+    const months = new Set();
+    visibleRegs.forEach(r => {
+      const map = getRegExpenseByMonth(r);
+      Object.keys(map).forEach(m => months.add(m));
+    });
+    return [...months].sort().reverse();
+  }, [visibleRegs, getRegExpenseByMonth]);
+
+  const formatMonth = (ym) => {
+    const [y, m] = ym.split('-');
+    const names = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    return `${names[parseInt(m, 10) - 1]} ${y}`;
+  };
+
+  // ─── Month-filtered (before search/status filter) ─────────────────────────
+  const monthFilteredRegs = useMemo(() => {
+    if (!monthFilter) return visibleRegs;
+    return visibleRegs.filter(r => getRegMonthAccrued(r, monthFilter) > 0);
+  }, [visibleRegs, monthFilter, getRegMonthAccrued]);
 
   // ─── Stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const active   = visibleRegs.filter(r => getStatus(r) === 'active').length;
-    const expiring = visibleRegs.filter(r => getStatus(r) === 'expiring').length;
-    const expired  = visibleRegs.filter(r => getStatus(r) === 'expired').length;
-    const totalCost = visibleRegs
+    const active   = monthFilteredRegs.filter(r => getStatus(r) === 'active').length;
+    const expiring = monthFilteredRegs.filter(r => getStatus(r) === 'expiring').length;
+    const expired  = monthFilteredRegs.filter(r => getStatus(r) === 'expired').length;
+    const totalCost = monthFilteredRegs
+      .reduce((s, r) => s + getRegMonthAccrued(r, monthFilter), 0);
+    const pendingExpense = monthFilteredRegs
       .filter(r => r.status !== 'removed')
-      .reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    const pendingExpense = visibleRegs
-      .filter(r => r.status !== 'removed' && !r.expenseAdded && Number(r.amount) > 0)
-      .reduce((s, r) => s + Number(r.amount), 0);
+      .reduce((s, r) => s + getRegMonthPending(r, monthFilter), 0);
     return { active, expiring, expired, totalCost, pendingExpense };
-  }, [visibleRegs]);
+  }, [monthFilteredRegs, monthFilter, getRegMonthAccrued, getRegMonthPending]);
 
   // ─── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    let list = visibleRegs;
+    let list = monthFilteredRegs;
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(r =>
@@ -576,25 +950,29 @@ export default function CadastreView({
       list = list.filter(r => getStatus(r) === statusFilter);
     }
     return list;
-  }, [cadastreRegs, search, statusFilter]);
+  }, [monthFilteredRegs, search, statusFilter]);
 
   const hostelName = (id) => HOSTELS[id]?.name || id || '—';
 
   const handleAddAll = useCallback(() => {
-    if (!window.confirm(
-      `Добавить ${stats.pendingExpense.toLocaleString()} сум в расходы?\n` +
-      `(все активные регистрации без учёта в расходах)`
-    )) return;
-    onAddAllToExpenses(visibleRegs);
-  }, [visibleRegs, stats.pendingExpense, onAddAllToExpenses]);
+    setAddAllConfirm(true);
+  }, []);
+
+  const handleAddAllConfirmed = useCallback(async () => {
+    if (busyAddAll) return;
+    setBusyAddAll(true);
+    await onAddAllToExpenses(monthFilteredRegs);
+    setBusyAddAll(false);
+    setAddAllConfirm(false);
+  }, [monthFilteredRegs, onAddAllToExpenses, busyAddAll]);
 
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center">
-            <Home size={18} className="text-indigo-600" />
+          <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center">
+            <Home size={18} className="text-teal-600" />
           </div>
           <div>
             <h2 className="font-black text-slate-800 text-lg leading-tight">Кадастр-регистрация</h2>
@@ -613,7 +991,7 @@ export default function CadastreView({
           )}
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 shadow-sm shadow-indigo-200"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 shadow-sm shadow-teal-200"
           >
             <Plus size={14} /> Регистрация
           </button>
@@ -626,10 +1004,10 @@ export default function CadastreView({
           { label: 'Активных',  value: stats.active,   color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', filter: 'active' },
           { label: 'Истекают',  value: stats.expiring, color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200',   filter: 'expiring' },
           { label: 'Истекли',   value: stats.expired,  color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200',    filter: 'expired' },
-          { label: 'Все расходы', value: fmt(stats.totalCost) + ' сум', color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200', filter: 'all' },
+          { label: 'Все расходы', value: fmt(stats.totalCost) + ' сум', color: 'text-teal-700', bg: 'bg-teal-50', border: 'border-teal-200', filter: 'all' },
         ].map(s => (
-          <button key={s.label} onClick={() => setStatusFilter(s.filter)}
-            className={`${s.bg} border ${s.border} rounded-xl p-3 text-center hover:opacity-80 transition-opacity`}>
+          <button key={s.label} onClick={() => setStatusFilter(f => f === s.filter ? 'active_expiring' : s.filter)}
+            className={`${s.bg} border-2 ${statusFilter === s.filter ? s.border + ' ring-2 ring-offset-1 ring-current opacity-100' : s.border + ' opacity-70'} rounded-xl p-3 text-center hover:opacity-90 transition-all`}>
             <p className={`text-lg font-black ${s.color}`}>{s.value}</p>
             <p className="text-[10px] text-slate-500 mt-0.5">{s.label}</p>
           </button>
@@ -646,7 +1024,7 @@ export default function CadastreView({
             <button
               key={t.id}
               onClick={() => setSubTab(t.id)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${subTab === t.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${subTab === t.id ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               {t.label}
             </button>
@@ -662,14 +1040,24 @@ export default function CadastreView({
             <div className="relative flex-1 min-w-48">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
-                className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
                 placeholder="Поиск по гостю, адресу..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
             <select
-              className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-indigo-400 min-w-44"
+              className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-teal-400 min-w-36"
+              value={monthFilter}
+              onChange={e => setMonthFilter(e.target.value)}
+            >
+              <option value="">Все месяцы</option>
+              {availableMonths.map(ym => (
+                <option key={ym} value={ym}>{formatMonth(ym)}</option>
+              ))}
+            </select>
+            <select
+              className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-teal-400 min-w-44"
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
             >
@@ -677,7 +1065,7 @@ export default function CadastreView({
               <option value="active">Только активные</option>
               <option value="expiring">Только истекают</option>
               <option value="expired">Истекли</option>
-              <option value="removed">Снятые</option>
+              <option value="removed">Завершённые</option>
               <option value="all">Все записи</option>
             </select>
           </div>
@@ -699,7 +1087,8 @@ export default function CadastreView({
                   reg={reg}
                   isAdmin={isAdmin}
                   onExtend={r => setExtendReg(r)}
-                  onRemove={onRemoveReg}
+                  onEdit={r => setEditReg(r)}
+                  onRemove={r => setRemoveConfirmReg(r)}
                   onDelete={onDeleteReg}
                   onAddToExpenses={onAddToExpenses}
                 />
@@ -715,7 +1104,7 @@ export default function CadastreView({
           <div className="flex justify-end">
             <button
               onClick={() => setCadastreModal('add')}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700"
             >
               <Plus size={14} /> Добавить кадастр
             </button>
@@ -743,7 +1132,7 @@ export default function CadastreView({
                 </div>
                 <div className="flex gap-1.5 flex-shrink-0">
                   <button onClick={() => setCadastreModal(c)}
-                    className="p-2 rounded-lg hover:bg-indigo-50 text-indigo-500">
+                    className="p-2 rounded-lg hover:bg-teal-50 text-teal-500">
                     <Edit2 size={14} />
                   </button>
                   <button onClick={() => onDeleteCadastre(c.id)}
@@ -758,6 +1147,47 @@ export default function CadastreView({
       )}
 
       {/* Modals */}
+      {removeConfirmReg && (
+        <RemoveConfirmModal
+          reg={removeConfirmReg}
+          onClose={() => setRemoveConfirmReg(null)}
+          onConfirm={onRemoveReg}
+        />
+      )}
+      {addAllConfirm && (
+        <div className="modal-centered fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="h-1.5 bg-violet-500 w-full" />
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
+                  <Receipt size={20} className="text-violet-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Добавить все в расходы</h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Будет добавлено <b className="text-violet-700">{fmt(stats.pendingExpense)} сум</b> по всем активным регистрациям без учёта.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setAddAllConfirm(false)} disabled={busyAddAll}
+                  className="flex-1 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 disabled:opacity-40">
+                  Отмена
+                </button>
+                <button onClick={handleAddAllConfirmed} disabled={busyAddAll}
+                  className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white font-bold text-sm hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-2">
+                  {busyAddAll
+                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <Receipt size={14} />
+                  }
+                  Добавить
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {showModal && (
         <CadastreModal
           clients={clients}
@@ -773,6 +1203,13 @@ export default function CadastreView({
           reg={extendReg}
           onClose={() => setExtendReg(null)}
           onSubmit={data => onExtendReg(extendReg, data)}
+        />
+      )}
+      {editReg && (
+        <EditRegModal
+          reg={editReg}
+          onClose={() => setEditReg(null)}
+          onSubmit={data => onUpdateReg(editReg, data)}
         />
       )}
       {cadastreModal && (

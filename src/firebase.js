@@ -11,12 +11,12 @@ import { getStorage } from 'firebase/storage';
 
 // --- FIREBASE CONFIG ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAoVj92dmnl5gBB7zYul0iG2Ekp5cbmkp0",
-  authDomain: "hostella-app-a1e07.firebaseapp.com",
-  projectId: "hostella-app-a1e07",
-  storageBucket: "hostella-app-a1e07.firebasestorage.app",
-  messagingSenderId: "826787873496",
-  appId: "1:826787873496:web:51a0c6e42631a28919cdad"
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 export const app = initializeApp(firebaseConfig);
@@ -33,7 +33,7 @@ try {
   }, "hostella");
 } catch (error) {
   console.log('Firestore already initialized, using existing instance');
-  db = getFirestore(app);
+  db = getFirestore(app, "hostella");
 }
 
 export { db };

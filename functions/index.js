@@ -19,7 +19,11 @@ exports.scanPassport = functions
     timeoutSeconds: 60 
   })
   .https.onCall(async (data, context) => {
-  
+
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+
   if (!data || !data.image) {
     throw new functions.https.HttpsError("invalid-argument", "Image data missing.");
   }
@@ -208,95 +212,106 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
     }
 
-    let targetChatIds = [];
-
-    // If explicit chatIds override is provided (e.g. test sends), use them directly
+    // If explicit chatIds override is provided (e.g. test sends), use main bot directly
     if (Array.isArray(data.chatIds) && data.chatIds.length > 0) {
-        targetChatIds = data.chatIds;
-    } else {
-        // Read recipients from Firestore
-        try {
-            // Determine the app settings path to match the frontend PUBLIC_DATA_PATH
-            // path: artifacts/{appId}/public/data/settings/telegram
-            // NOTE: frontend uses named database "hostella", admin SDK must use it too
-            const APP_ID = 'hostella-multi-v4';
-            const { getFirestore } = require('firebase-admin/firestore');
-            const hostellaDb = getFirestore('hostella');
-            const settingsRef = hostellaDb
-                .doc(`artifacts/${APP_ID}/public/data/settings/telegram`);
-            const settingsSnap = await settingsRef.get();
-            const settings = settingsSnap.exists ? settingsSnap.data() : null;
+        const results = await Promise.allSettled(data.chatIds.map(target => {
+            const chatId = typeof target === 'string' ? target : target.chatId;
+            const rawThreadId = typeof target === 'object' ? (target.threadId || '').toString().trim() : '';
+            const tid = rawThreadId ? parseInt(rawThreadId, 10) : null;
+            const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+            if (tid && !isNaN(tid)) payload.message_thread_id = tid;
+            return fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(res => res.json()).then(json => ({ ok: json.ok, chatId }));
+        }));
+        const successful = results.filter(r => r.status === 'fulfilled' && r.value?.ok).length;
+        return { success: successful > 0, sent: successful, total: data.chatIds.length };
+    }
 
-            const recipients = settings?.recipients || [];
-            const disabledTypes = new Set(settings?.disabledTypes || []);
-            const notificationType = data.notificationType || null;
+    // Read recipients from Firestore
+    let settings = null;
+    try {
+        const APP_ID = 'hostella-multi-v4';
+        const { getFirestore } = require('firebase-admin/firestore');
+        const hostellaDb = getFirestore('hostella');
+        const settingsSnap = await hostellaDb
+            .doc(`artifacts/${APP_ID}/public/data/settings/telegram`)
+            .get();
+        settings = settingsSnap.exists ? settingsSnap.data() : null;
+    } catch (e) {
+        console.error('Failed to read Telegram settings:', e.message);
+        return { success: false, sent: 0, total: 0, skipped: 'settings_error', error: e.message };
+    }
 
-            // If this notification type is globally disabled, skip
-            if (notificationType && disabledTypes.has(notificationType)) {
-                return { success: true, sent: 0, total: 0, skipped: 'type_disabled' };
-            }
+    const notificationType = data.notificationType || null;
+    const disabledTypes = new Set(settings?.disabledTypes || []);
 
-            // Filter active recipients subscribed to this notification type
-            const filteredRecipients = recipients.filter(r => {
-                if (!r.active) return false;
-                if (!r.telegramId) return false;
-                if (notificationType) {
-                    return r.notifications?.[notificationType] !== false;
-                }
-                return true;
-            });
+    // If this notification type is globally disabled, skip
+    if (notificationType && disabledTypes.has(notificationType)) {
+        return { success: true, sent: 0, total: 0, skipped: 'type_disabled' };
+    }
 
-            targetChatIds = filteredRecipients.map(r => ({
-                chatId: r.telegramId,
-                threadId: r.threadId || null
-            }));
+    // ── Build sends: [ { token, target } ] ───────────────────────────────────
+    const sends = [];
 
-            // If no recipients configured in Firestore — skip silently
-            if (targetChatIds.length === 0 && recipients.length === 0) {
-                return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
-            }
-        } catch (e) {
-            console.error('Failed to read Telegram settings:', e.message);
-            return { success: false, sent: 0, total: 0, skipped: 'settings_error', error: e.message };
+    // 1. Main bot recipients
+    const mainRecipients = (settings?.recipients || []).filter(r => {
+        if (!r.active || !r.telegramId) return false;
+        if (notificationType) return r.notifications?.[notificationType] !== false;
+        return true;
+    });
+    for (const r of mainRecipients) {
+        sends.push({ token: botToken, chatId: r.telegramId, threadId: r.threadId || null });
+    }
+
+    // 2. KPP-bot recipients (if token is set)
+    if (settings?.kppBotToken) {
+        const kppRecipients = (settings?.kppBotRecipients || []).filter(r => {
+            if (!r.active || !r.telegramId) return false;
+            if (notificationType) return r.notifications?.[notificationType] !== false;
+            return true;
+        });
+        for (const r of kppRecipients) {
+            sends.push({ token: settings.kppBotToken, chatId: r.telegramId, threadId: r.threadId || null });
         }
     }
 
-    if (targetChatIds.length === 0) {
+    if (sends.length === 0) {
         return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
     }
 
-    const sendOne = async (target) => {
-        const chatId = typeof target === 'string' ? target : target.chatId;
-        const rawThreadId = typeof target === 'object' ? (target.threadId || '').toString().trim() : '';
-        const threadId = rawThreadId ? parseInt(rawThreadId, 10) : null;
-        const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
-        if (threadId && !isNaN(threadId)) payload.message_thread_id = threadId;
+    const results = await Promise.allSettled(
+        sends.map(({ token, chatId, threadId }) => {
+            const rawThreadId = (threadId || '').toString().trim();
+            const tid = rawThreadId ? parseInt(rawThreadId, 10) : null;
+            const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+            if (tid && !isNaN(tid)) payload.message_thread_id = tid;
+            console.log(`Sending to chatId=${chatId} threadId=${tid ?? 'none'}`);
+            return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(res => res.json()).then(json => {
+                if (!json.ok) {
+                    console.error(`Telegram error chatId=${chatId}: ${json.error_code} — ${json.description}`);
+                    return { ok: false, chatId, errorCode: json.error_code, description: json.description };
+                }
+                return { ok: true, chatId };
+            });
+        })
+    );
 
-        console.log(`Sending to chatId=${chatId} threadId=${threadId ?? 'none'} payload_keys=${Object.keys(payload).join(',')}`);
-
-        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const json = await res.json();
-        if (!json.ok) {
-            console.error(`Telegram error for chatId=${chatId} threadId=${threadId}: ${json.error_code} — ${json.description}`);
-            return { ok: false, chatId, threadId, errorCode: json.error_code, description: json.description };
-        }
-        return { ok: true, chatId };
-    };
-
-    const results = await Promise.allSettled(targetChatIds.map(sendOne));
     const successful = results.filter(r => r.status === 'fulfilled' && r.value?.ok).length;
     const failed = results
         .filter(r => r.status === 'fulfilled' && !r.value?.ok)
-        .map(r => ({ chatId: r.value.chatId, threadId: r.value.threadId, code: r.value.errorCode, msg: r.value.description }));
+        .map(r => ({ chatId: r.value.chatId, code: r.value.errorCode, msg: r.value.description }));
     const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
 
-    console.log(`Telegram [${data.notificationType || 'manual'}]: ${successful}/${targetChatIds.length} sent`, failed.length ? { failed } : '');
+    console.log(`Telegram [${notificationType || 'manual'}]: ${successful}/${sends.length} sent`, failed.length ? { failed } : '');
 
-    return { success: successful > 0, sent: successful, total: targetChatIds.length, failed, errors };
+    return { success: successful > 0, sent: successful, total: sends.length, failed, errors };
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,3 +521,178 @@ exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
         );
     }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getFreeBeds — текущая свободность мест для n8n бота
+//
+// GET /getFreeBeds?key=YOUR_API_KEY
+// GET /getFreeBeds?key=YOUR_API_KEY&hostelId=hostel1   (фильтр по хостелу)
+//
+// Возвращает:
+// {
+//   ok: true,
+//   updatedAt: "2026-04-21T10:00:00.000Z",
+//   total: { capacity: 30, occupied: 12, free: 18 },
+//   hostels: {
+//     hostel1: { name: "Хостел №1", capacity: 16, occupied: 7, free: 9 },
+//     hostel2: { name: "Хостел №2", capacity: 14, occupied: 5, free: 9 }
+//   },
+//   rooms: [
+//     { hostelId: "hostel1", roomNumber: "1", capacity: 8, occupied: 3, free: 5 },
+//     ...
+//   ]
+// }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getFreeBeds = functions
+    .runWith({ secrets: ['N8N_API_KEY'] })
+    .https.onRequest(async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+
+    // --- Проверка API-ключа ---
+    const apiKey = req.query.key || req.headers['x-api-key'];
+    const validKey = process.env.N8N_API_KEY;
+    if (!validKey || validKey === 'NOT_SET') {
+        res.status(503).json({ ok: false, error: 'API key not configured on server' });
+        return;
+    }
+    if (!apiKey || apiKey !== validKey) {
+        res.status(401).json({ ok: false, error: 'Invalid or missing API key' });
+        return;
+    }
+
+    try {
+        const { getFirestore } = require('firebase-admin/firestore');
+        const hostellaDb = getFirestore('hostella');
+        const APP_ID = 'hostella-multi-v4';
+        const basePath = `artifacts/${APP_ID}/public/data`;
+
+        const hostelFilter = req.query.hostelId || null; // опциональный фильтр
+
+        // 1. Загружаем все комнаты
+        let roomsQuery = hostellaDb.collection(`${basePath}/rooms`);
+        if (hostelFilter) roomsQuery = roomsQuery.where('hostelId', '==', hostelFilter);
+        const roomsSnap = await roomsQuery.get();
+
+        const rooms = {};
+        roomsSnap.forEach(doc => {
+            const d = doc.data();
+            rooms[doc.id] = {
+                id: doc.id,
+                hostelId: d.hostelId || 'hostel1',
+                roomNumber: d.number || d.roomNumber || '?',
+                capacity: parseInt(d.capacity) || 0,
+                occupied: 0,
+            };
+        });
+
+        // 2. Загружаем активных гостей (только status=active, прямо сейчас)
+        let guestsQuery = hostellaDb.collection(`${basePath}/guests`)
+            .where('status', '==', 'active');
+        if (hostelFilter) guestsQuery = guestsQuery.where('hostelId', '==', hostelFilter);
+        const guestsSnap = await guestsQuery.get();
+
+        const now = new Date();
+        guestsSnap.forEach(doc => {
+            const g = doc.data();
+            // Считаем занятыми всех активных гостей — в т.ч. просроченных,
+            // которые ещё не выселены формально (авто-выселение могло не сработать).
+            // Свободным место считается только если статус не 'active'.
+            if (!g.roomId || !rooms[g.roomId]) return;
+            rooms[g.roomId].occupied += 1;
+        });
+
+        // 3. Агрегируем по хостелам
+        const HOSTEL_NAMES = { hostel1: 'Хостел №1', hostel2: 'Хостел №2' };
+        const hostelStats = {};
+        const roomList = [];
+
+        Object.values(rooms).forEach(r => {
+            const free = Math.max(0, r.capacity - r.occupied);
+            roomList.push({
+                hostelId: r.hostelId,
+                roomNumber: r.roomNumber,
+                capacity: r.capacity,
+                occupied: r.occupied,
+                free,
+            });
+            if (!hostelStats[r.hostelId]) {
+                hostelStats[r.hostelId] = {
+                    name: HOSTEL_NAMES[r.hostelId] || r.hostelId,
+                    capacity: 0,
+                    occupied: 0,
+                    free: 0,
+                };
+            }
+            hostelStats[r.hostelId].capacity += r.capacity;
+            hostelStats[r.hostelId].occupied += r.occupied;
+            hostelStats[r.hostelId].free     += free;
+        });
+
+        // 4. Итого
+        const totalCapacity = roomList.reduce((s, r) => s + r.capacity, 0);
+        const totalOccupied = roomList.reduce((s, r) => s + r.occupied, 0);
+        const totalFree     = Math.max(0, totalCapacity - totalOccupied);
+
+        // Сортируем комнаты по хостелу, потом по номеру
+        roomList.sort((a, b) => {
+            if (a.hostelId !== b.hostelId) return a.hostelId.localeCompare(b.hostelId);
+            return String(a.roomNumber).localeCompare(String(b.roomNumber), undefined, { numeric: true });
+        });
+
+        res.json({
+            ok: true,
+            updatedAt: now.toISOString(),
+            total: { capacity: totalCapacity, occupied: totalOccupied, free: totalFree },
+            hostels: hostelStats,
+            rooms: roomList,
+        });
+
+    } catch (e) {
+        console.error('getFreeBeds error:', e);
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Автоматический бэкап Firestore (именованная БД 'hostella')
+// Ежедневно в 04:00 по Ташкенту экспортирует ВСЕ коллекции в GCS-бакет проекта
+// по умолчанию, в папку firestore-backups/<timestamp>.
+// Требует: план Blaze (уже включён, раз функции работают) и право экспорта у
+// сервис-аккаунта функций (роль Editor у App Engine SA по умолчанию это покрывает).
+// ─────────────────────────────────────────────────────────────────────────────
+const { v1: firestoreV1 } = require("@google-cloud/firestore");
+const firestoreAdminClient = new firestoreV1.FirestoreAdminClient();
+
+exports.scheduledFirestoreBackup = functions
+  .runWith({ memory: "256MB", timeoutSeconds: 540 })
+  .pubsub.schedule("0 4 * * *")
+  .timeZone("Asia/Tashkent")
+  .onRun(async () => {
+    const projectId  = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+    const databaseId = "hostella";
+
+    // Бакет проекта по умолчанию (Firebase Storage) — гарантированно существует.
+    let bucketName;
+    try { bucketName = admin.storage().bucket().name; }
+    catch { bucketName = `${projectId}.appspot.com`; }
+
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const outputUriPrefix = `gs://${bucketName}/firestore-backups/${ts}`;
+    const name = firestoreAdminClient.databasePath(projectId, databaseId);
+
+    try {
+      const [response] = await firestoreAdminClient.exportDocuments({
+        name,
+        outputUriPrefix,
+        collectionIds: [], // [] = все коллекции
+      });
+      console.log(`✅ Firestore backup started: ${response.name} → ${outputUriPrefix}`);
+      return response;
+    } catch (err) {
+      console.error("❌ Firestore backup failed:", err);
+      throw err;
+    }
+  });

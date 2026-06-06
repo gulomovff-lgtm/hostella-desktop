@@ -3,7 +3,7 @@ import {
     History, Search, Download, ChevronDown, ChevronRight,
     X, Filter, TrendingUp, TrendingDown, Minus, Users,
     Banknote, CreditCard, QrCode, Building2, ArrowRight, RefreshCw,
-    Eye, EyeOff,
+    Eye, EyeOff, Plus,
 } from 'lucide-react';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -20,6 +20,14 @@ const METHOD_ICON = { cash: Banknote, card: CreditCard, qr: QrCode };
 const fmt     = n => (parseInt(n) || 0).toLocaleString('ru');
 const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 const ymd     = iso => iso ? new Date(iso).toISOString().slice(0, 10) : '';
+
+const getStayNights = (stay) => {
+    const directDays = parseInt(stay?.days, 10);
+    if (directDays > 0) return directDays;
+    if (!stay?.checkInDate || !stay?.checkOutDate) return 0;
+    const diffMs = new Date(stay.checkOutDate) - new Date(stay.checkInDate);
+    return diffMs > 0 ? Math.round(diffMs / 86400000) : 0;
+};
 
 const getTotalPaid = g =>
     typeof g.amountPaid === 'number'
@@ -73,11 +81,22 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
     const [sortKey,            setSortKey           ] = useState('lastDate');
     const [sortAsc,            setSortAsc           ] = useState(false);
     const HIDDEN_KEY = 'hostella_hidden_guest_groups';
+    const CONTRACT_GROUPS_KEY = 'hostella_contract_groups';
     const [hiddenKeys,  setHiddenKeys ] = useState(() => {
         try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); }
         catch { return new Set(); }
     });
     const [showHidden,  setShowHidden ] = useState(false);
+    const [contractGroups, setContractGroups] = useState(() => {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(CONTRACT_GROUPS_KEY) || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    });
+    const [contractGroupName, setContractGroupName] = useState('');
+    const [selectedContractGroupId, setSelectedContractGroupId] = useState('');
 
     // Resolve staffId → user name
     const resolveUser = (staffId) => {
@@ -147,6 +166,66 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         });
     }, [enriched]);
 
+    const groupedMap = useMemo(() => new Map(grouped.map(grp => [grp.key, grp])), [grouped]);
+
+    const contractGroupMembership = useMemo(() => {
+        const map = new Map();
+        contractGroups.forEach(group => {
+            (group.memberKeys || []).forEach(memberKey => {
+                if (!map.has(memberKey)) map.set(memberKey, []);
+                map.get(memberKey).push(group.id);
+            });
+        });
+        return map;
+    }, [contractGroups]);
+
+    const detailedContractGroups = useMemo(() => {
+        return contractGroups.map(group => {
+            const members = (group.memberKeys || [])
+                .map(memberKey => groupedMap.get(memberKey))
+                .filter(Boolean);
+            const manualEntries = Array.isArray(group.manualEntries) ? group.manualEntries : [];
+            const totalNights = members.reduce((sum, member) => (
+                sum + member.stays.reduce((staySum, stay) => staySum + getStayNights(stay), 0)
+            ), 0);
+            const manualPersonNights = manualEntries.reduce((sum, entry) => {
+                const people = parseInt(entry?.people, 10) || 0;
+                const nights = Math.max(1, parseInt(entry?.nights, 10) || 1);
+                return sum + (people * nights);
+            }, 0);
+            const manualRoomNights = manualEntries.reduce((sum, entry) => {
+                const rooms = parseInt(entry?.rooms, 10) || 0;
+                const nights = Math.max(1, parseInt(entry?.nights, 10) || 1);
+                return sum + (rooms * nights);
+            }, 0);
+            const effectiveTotalNights = totalNights + manualPersonNights;
+            const totalAmount = members.reduce((sum, member) => sum + member.totalAmount, 0);
+            const totalPaid = members.reduce((sum, member) => sum + member.totalPaid, 0);
+            const totalDebt = totalAmount - totalPaid;
+            const contractRate = parseInt(group.contractRate, 10) || 0;
+            return {
+                ...group,
+                members,
+                memberCount: members.length,
+                totalNights,
+                manualEntries,
+                manualPersonNights,
+                manualRoomNights,
+                effectiveTotalNights,
+                totalAmount,
+                totalPaid,
+                totalDebt,
+                contractRate,
+                contractTotal: contractRate > 0 ? contractRate * effectiveTotalNights : 0,
+            };
+        });
+    }, [contractGroups, groupedMap]);
+
+    const selectedContractGroup = useMemo(
+        () => detailedContractGroups.find(group => group.id === selectedContractGroupId) || null,
+        [detailedContractGroups, selectedContractGroupId]
+    );
+
     // Статистика по сгруппированным данным
     const stats = useMemo(() => {
         const allPrices = enriched.map(g => parseInt(g.pricePerNight) || 0).filter(p => p > 0);
@@ -203,6 +282,86 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         setSearch(''); setFilterHostel(''); setFilterDateFrom('');
         setFilterDateTo(''); setFilterCashier(''); setFilterStatus('all');
         setFilterPriceChanged('all');
+    };
+
+    const persistContractGroups = (nextGroups) => {
+        setContractGroups(nextGroups);
+        try {
+            localStorage.setItem(CONTRACT_GROUPS_KEY, JSON.stringify(nextGroups));
+        } catch {}
+    };
+
+    const createContractGroup = () => {
+        const name = contractGroupName.trim();
+        if (!name) return;
+        const newGroup = {
+            id: `contract-${Date.now()}`,
+            name,
+            memberKeys: [],
+            contractRate: '',
+            manualEntries: [],
+        };
+        const nextGroups = [newGroup, ...contractGroups];
+        persistContractGroups(nextGroups);
+        setSelectedContractGroupId(newGroup.id);
+        setContractGroupName('');
+    };
+
+    const updateContractGroup = (groupId, patch) => {
+        persistContractGroups(contractGroups.map(group => (
+            group.id === groupId ? { ...group, ...patch } : group
+        )));
+    };
+
+    const deleteContractGroup = (groupId) => {
+        const nextGroups = contractGroups.filter(group => group.id !== groupId);
+        persistContractGroups(nextGroups);
+        if (selectedContractGroupId === groupId) {
+            setSelectedContractGroupId(nextGroups[0]?.id || '');
+        }
+    };
+
+    const toggleMemberInContractGroup = (groupId, memberKey) => {
+        persistContractGroups(contractGroups.map(group => {
+            if (group.id !== groupId) return group;
+            const memberKeys = new Set(group.memberKeys || []);
+            if (memberKeys.has(memberKey)) memberKeys.delete(memberKey);
+            else memberKeys.add(memberKey);
+            return { ...group, memberKeys: [...memberKeys] };
+        }));
+    };
+
+    const addManualEntryToGroup = (groupId) => {
+        const newEntry = {
+            id: `manual-${Date.now()}`,
+            date: new Date().toISOString().slice(0, 10),
+            rooms: '',
+            people: '',
+            nights: '1',
+        };
+        persistContractGroups(contractGroups.map(group => (
+            group.id === groupId
+                ? { ...group, manualEntries: [...(group.manualEntries || []), newEntry] }
+                : group
+        )));
+    };
+
+    const updateManualEntryInGroup = (groupId, entryId, patch) => {
+        persistContractGroups(contractGroups.map(group => {
+            if (group.id !== groupId) return group;
+            const manualEntries = (group.manualEntries || []).map(entry => (
+                entry.id === entryId ? { ...entry, ...patch } : entry
+            ));
+            return { ...group, manualEntries };
+        }));
+    };
+
+    const removeManualEntryFromGroup = (groupId, entryId) => {
+        persistContractGroups(contractGroups.map(group => {
+            if (group.id !== groupId) return group;
+            const manualEntries = (group.manualEntries || []).filter(entry => entry.id !== entryId);
+            return { ...group, manualEntries };
+        }));
     };
 
     const hideGroup = (key) => {
@@ -482,6 +641,211 @@ ${styles}${sheet1}${sheet2}
                 />
             </div>
 
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <h2 className="text-base font-black text-slate-800">Контрактные группы</h2>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                            Собирайте людей в одну группу и сразу смотрите общее количество прожитых суток.
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                            value={contractGroupName}
+                            onChange={e => setContractGroupName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') createContractGroup(); }}
+                            placeholder="Название группы / контракта"
+                            className={INP + ' min-w-[220px]'}
+                        />
+                        <button
+                            onClick={createContractGroup}
+                            className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors"
+                        >
+                            Создать группу
+                        </button>
+                    </div>
+                </div>
+
+                {detailedContractGroups.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+                        Групп пока нет. Создайте группу и добавляйте в нее людей прямо из списка ниже.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                        {detailedContractGroups.map(group => {
+                            const isSelected = group.id === selectedContractGroupId;
+                            return (
+                                <div
+                                    key={group.id}
+                                    className={`rounded-2xl border p-4 transition-colors ${isSelected ? 'border-indigo-300 bg-indigo-50/40' : 'border-slate-200 bg-white'}`}
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h3 className="font-black text-slate-800">{group.name}</h3>
+                                                {isSelected && (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">активная</span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-slate-500 mt-1">
+                                                {group.memberCount} чел. · {group.effectiveTotalNights.toLocaleString()} суток · {group.members.reduce((sum, member) => sum + member.stayCount, 0)} заселений
+                                                {group.manualPersonNights > 0 ? ` · +${group.manualPersonNights.toLocaleString()} ручных` : ''}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <button
+                                                onClick={() => setSelectedContractGroupId(isSelected ? '' : group.id)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                                            >
+                                                {isSelected ? 'Выбрана' : 'Выбрать'}
+                                            </button>
+                                            <button
+                                                onClick={() => deleteContractGroup(group.id)}
+                                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 border border-rose-200 hover:bg-rose-50 transition-colors"
+                                            >
+                                                Удалить
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Всего суток</div>
+                                            <div className="text-lg font-black text-slate-800">{group.effectiveTotalNights.toLocaleString()}</div>
+                                            {group.manualPersonNights > 0 && (
+                                                <div className="text-[10px] text-slate-500">авто {group.totalNights.toLocaleString()} + ручные {group.manualPersonNights.toLocaleString()}</div>
+                                            )}
+                                        </div>
+                                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Начислено</div>
+                                            <div className="text-lg font-black text-slate-800">{fmt(group.totalAmount)}</div>
+                                        </div>
+                                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Оплачено</div>
+                                            <div className="text-lg font-black text-emerald-600">{fmt(group.totalPaid)}</div>
+                                        </div>
+                                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">По договору</div>
+                                            <div className="text-lg font-black text-indigo-700">{group.contractRate > 0 ? fmt(group.contractTotal) : '—'}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs font-bold text-slate-500">Ставка по договору за сутки:</span>
+                                        <input
+                                            value={group.contractRate || ''}
+                                            onChange={e => updateContractGroup(group.id, { contractRate: e.target.value.replace(/[^0-9]/g, '') })}
+                                            placeholder="0"
+                                            className={INP + ' w-[140px]'}
+                                        />
+                                        <span className="text-xs text-slate-400">сум / сутки</span>
+                                        {group.contractRate > 0 && (
+                                            <span className="text-xs font-bold text-indigo-600">
+                                                {group.effectiveTotalNights.toLocaleString()} × {fmt(group.contractRate)} = {fmt(group.contractTotal)}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                            <div>
+                                                <div className="text-xs font-black text-slate-700">Ручной учёт проживания</div>
+                                                <div className="text-[11px] text-slate-500">Добавляйте вручную: дата, комнаты, люди и дни</div>
+                                            </div>
+                                            <button
+                                                onClick={() => addManualEntryToGroup(group.id)}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50 transition-colors"
+                                            >
+                                                <Plus size={12} />
+                                                Добавить
+                                            </button>
+                                        </div>
+
+                                        {group.manualEntries.length === 0 ? (
+                                            <div className="text-[11px] text-slate-400">Нет ручных записей</div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {group.manualEntries.map((entry) => {
+                                                    const people = parseInt(entry.people, 10) || 0;
+                                                    const nights = Math.max(1, parseInt(entry.nights, 10) || 1);
+                                                    const rooms = parseInt(entry.rooms, 10) || 0;
+                                                    const personNights = people * nights;
+                                                    const roomNights = rooms * nights;
+                                                    return (
+                                                        <div key={entry.id} className="grid grid-cols-12 gap-2 items-center">
+                                                            <input
+                                                                type="date"
+                                                                value={entry.date || ''}
+                                                                onChange={e => updateManualEntryInGroup(group.id, entry.id, { date: e.target.value })}
+                                                                className={INP + ' col-span-12 md:col-span-3'}
+                                                            />
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                placeholder="Комнат"
+                                                                value={entry.rooms || ''}
+                                                                onChange={e => updateManualEntryInGroup(group.id, entry.id, { rooms: e.target.value.replace(/[^0-9]/g, '') })}
+                                                                className={INP + ' col-span-4 md:col-span-2'}
+                                                            />
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                placeholder="Людей"
+                                                                value={entry.people || ''}
+                                                                onChange={e => updateManualEntryInGroup(group.id, entry.id, { people: e.target.value.replace(/[^0-9]/g, '') })}
+                                                                className={INP + ' col-span-4 md:col-span-2'}
+                                                            />
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                placeholder="Дней"
+                                                                value={entry.nights || '1'}
+                                                                onChange={e => updateManualEntryInGroup(group.id, entry.id, { nights: e.target.value.replace(/[^0-9]/g, '') || '1' })}
+                                                                className={INP + ' col-span-4 md:col-span-2'}
+                                                            />
+                                                            <div className="col-span-10 md:col-span-2 text-[11px] text-slate-600 font-semibold">
+                                                                {roomNights.toLocaleString()} комн-сут / {personNights.toLocaleString()} чел-сут
+                                                            </div>
+                                                            <button
+                                                                onClick={() => removeManualEntryFromGroup(group.id, entry.id)}
+                                                                className="col-span-2 md:col-span-1 w-8 h-8 rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50 inline-flex items-center justify-center"
+                                                                title="Удалить запись"
+                                                            >
+                                                                <X size={12} />
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {group.members.length === 0 ? (
+                                            <span className="text-xs text-slate-400">Пока нет участников</span>
+                                        ) : group.members.map(member => (
+                                            <span
+                                                key={member.key}
+                                                className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700"
+                                            >
+                                                {member.name}
+                                                <span className="text-slate-400">· {member.stays.reduce((sum, stay) => sum + getStayNights(stay), 0)} сут.</span>
+                                                <button
+                                                    onClick={() => toggleMemberInContractGroup(group.id, member.key)}
+                                                    className="text-rose-500 hover:text-rose-700"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
             {/* Filters */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase">
@@ -572,6 +936,8 @@ ${styles}${sheet1}${sheet2}
                                 const isExpanded = expandedKeys.has(grp.key);
                                 const isHidden   = hiddenKeys.has(grp.key);
                                 const hasDebt    = grp.totalDebt > 0;
+                                const memberGroupIds = contractGroupMembership.get(grp.key) || [];
+                                const isInSelectedContractGroup = selectedContractGroup ? memberGroupIds.includes(selectedContractGroup.id) : false;
                                 return (
                                     <div key={grp.key} className={`group/g ${isHidden ? 'opacity-40' : ''}`}>
                                         {/* Group header row */}
@@ -592,6 +958,15 @@ ${styles}${sheet1}${sheet2}
                                                         {grp.isActive && (
                                                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">живёт</span>
                                                         )}
+                                                        {memberGroupIds.map(groupId => {
+                                                            const group = detailedContractGroups.find(item => item.id === groupId);
+                                                            if (!group) return null;
+                                                            return (
+                                                                <span key={groupId} className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                                                    {group.name}
+                                                                </span>
+                                                            );
+                                                        })}
                                                     </div>
                                                     <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
                                                         {grp.hostels.map(h => (
@@ -603,6 +978,18 @@ ${styles}${sheet1}${sheet2}
                                                         }
                                                     </div>
                                                 </div>
+                                                {selectedContractGroup && (
+                                                    <button
+                                                        onClick={e => {
+                                                            e.stopPropagation();
+                                                            toggleMemberInContractGroup(selectedContractGroup.id, grp.key);
+                                                        }}
+                                                        className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${isInSelectedContractGroup ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'}`}
+                                                        title={isInSelectedContractGroup ? `Убрать из группы ${selectedContractGroup.name}` : `Добавить в группу ${selectedContractGroup.name}`}
+                                                    >
+                                                        {isInSelectedContractGroup ? 'В группе' : 'В группу'}
+                                                    </button>
+                                                )}
                                                 {currentUser.role === 'super' && (
                                                     <button
                                                         onClick={e => { e.stopPropagation(); isHidden ? unhideGroup(grp.key) : hideGroup(grp.key); }}

@@ -2,15 +2,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     LayoutDashboard, TrendingUp, TrendingDown, BedDouble, Users, AlertCircle,
     Plus, UserPlus, LogOut, Calendar, Clock, Wallet, DollarSign, CreditCard,
-    QrCode, BarChart3, CalendarDays, CheckCircle2, User, Download
+    QrCode, BarChart3, CalendarDays, CheckCircle2, User, Download, ArrowRightLeft, FileText
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import * as XLSX from 'xlsx';
+import { printGroupReceipt } from '../../utils/groupReceipt';
+import GroupReceiptModal from '../Modals/GroupReceiptModal';
 
 // -- Export helpers ----------------------------------------------------------
 const exportGuestsToExcel = (guests) => {
     const rows = guests.map((g, i) => {
-        const paid = (parseInt(g.paidCash)||0) + (parseInt(g.paidCard)||0) + (parseInt(g.paidQR)||0) + (parseInt(g.amountPaid)||0);
+        const paid = (parseInt(g.paidCash)||0) + (parseInt(g.paidCard)||0) + (parseInt(g.paidQR)||0) + (parseInt(g.paidTransfer)||0) + (parseInt(g.amountPaid)||0);
         const debt = Math.max(0, (parseInt(g.totalPrice)||0) - paid);
         return {
             '№':        i + 1,
@@ -55,23 +57,9 @@ const COUNTRY_FLAGS = {
   "Швейцария":"CH","Швеция":"SE","Шри-Ланка":"LK","Эстония":"EE","Япония":"JP"
 };
 
-const FLAG_SIZES = [20, 40, 80, 160, 320];
-const snapFlagSize = (s) => FLAG_SIZES.find(f => f >= s) || 320;
 const Flag = ({ code, size = 20 }) => {
   if (!code) return null;
-  const w = snapFlagSize(size);
-  const w2 = snapFlagSize(size * 2);
-  const h = Math.round(size * 0.75);
-  return (
-    <img
-      src={`https://flagcdn.com/w${w}/${code.toLowerCase()}.png`}
-      srcSet={`https://flagcdn.com/w${w2}/${code.toLowerCase()}.png 2x`}
-      width={size}
-      height={h}
-      alt={code}
-      style={{ display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0 }}
-    />
-  );
+  return <span className={`fi fi-${code.toLowerCase()}`} style={{ width: size, height: Math.round(size * 0.75), display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }} />;
 };
 
 const useNow = () => {
@@ -109,7 +97,7 @@ const getTimeLeftLabel = (checkOutDate, nowMs) => {
   return { text: `${mins} мин`, color: 'text-rose-600', icon: 'clock' };
 };
 
-const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0) + (g.paidTransfer || 0)));
 
 const getLocalDateString = (dateObj) => {
     if (!dateObj) return '';
@@ -126,6 +114,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
     const [tab, setTab] = useState('overview');
     const [chartMode, setChartMode] = useState('income');
     const [selectMode, setSelectMode] = useState(false);
+    const [groupModalOpen, setGroupModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [bulkDays, setBulkDays] = useState('1');
     const nowMs = useNow();
@@ -148,7 +137,11 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         const activeGuests = relGuests.filter(g => g.status === 'active');
         const relRoomIds = new Set(relRooms.map(r => r.id));
         const occupancyGuests = activeGuests.filter(g => relRoomIds.has(g.roomId));
-        const occupancyRaw = totalBeds ? Math.round((occupancyGuests.length / totalBeds) * 100) : 0;
+        // Арендованные комнаты целиком считаем занятыми
+        const rentedBeds = relRooms.filter(r => r.rental?.active).reduce((s, r) => s + parseInt(r.capacity || 0), 0);
+        const occupiedBeds = occupancyGuests.length + rentedBeds;
+        const freeBeds = Math.max(0, totalBeds - occupiedBeds);
+        const occupancyRaw = totalBeds ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
         const occupancyPct = Math.min(100, occupancyRaw);
         const isOverCapacity = occupancyRaw > 100;
 
@@ -166,18 +159,36 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         const totalExpense = relExpenses.reduce((s, e) => s + (parseInt(e.amount) || 0), 0);
         const incomeToday = relPayments.filter(p => ymd(p.date) === todayStr).reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
         const incomeWeek = last7.reduce((s, d) => s + d.inc, 0);
-        const incomeMonth = pay30.reduce((s, d) => s + d.inc, 0);
+        const incomeMonth = pay30.reduce((s, d) => s + d.inc, 0); // скользящие 30 дней (для графика)
+        // Текущий календарный месяц
+        const monthPrefix = todayStr.slice(0, 7); // 'YYYY-MM'
+        const incomeThisMonth  = relPayments.filter(p => ymd(p.date).slice(0, 7) === monthPrefix).reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
+        const expenseThisMonth = relExpenses.filter(e => ymd(e.date).slice(0, 7) === monthPrefix).reduce((s, e) => s + (parseInt(e.amount) || 0), 0);
 
-        const byCash = relPayments.filter(p => p.method === 'cash').reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
-        const byCard = relPayments.filter(p => p.method === 'card').reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
-        const byQR   = relPayments.filter(p => p.method === 'qr').reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
+        const byCash = relPayments.reduce((s, p) => s + (p.cash !== undefined ? parseInt(p.cash)||0 : p.method==='cash' ? parseInt(p.amount)||0 : 0), 0);
+        const byCard = relPayments.reduce((s, p) => s + (p.card !== undefined ? parseInt(p.card)||0 : p.method==='card' ? parseInt(p.amount)||0 : 0), 0);
+        const byQR   = relPayments.reduce((s, p) => s + (p.qr   !== undefined ? parseInt(p.qr)  ||0 : p.method==='qr'   ? parseInt(p.amount)||0 : 0), 0);
+        const byTransfer = relPayments.reduce((s, p) => s + (p.transfer !== undefined ? parseInt(p.transfer)||0 : p.method==='transfer' ? parseInt(p.amount)||0 : 0), 0);
 
         const guestsWithDebt = relGuests
             .filter(g => g.status !== 'booking')
             .map(g => ({ ...g, debt: (g.totalPrice || 0) - getTotalPaid(g) }))
             .filter(g => g.debt > 0)
             .sort((a, b) => b.debt - a.debt);
-        const totalDebt = guestsWithDebt.reduce((s, g) => s + g.debt, 0);
+        const guestDebtTotal = guestsWithDebt.reduce((s, g) => s + g.debt, 0);
+        // Долги по активной аренде комнат
+        const rentalDebts = relRooms
+            .filter(r => r.rental?.active)
+            .map(r => {
+                const rt = r.rental;
+                const paid = (rt.paidCash || 0) + (rt.paidCard || 0) + (rt.paidQR || 0) + (rt.paidTransfer || 0);
+                return { id: 'rent-' + r.id, isRental: true, fullName: rt.tenantName || 'Аренда', roomNumber: r.number, bedId: '', totalPrice: rt.totalAmount || 0, debt: Math.max(0, (rt.totalAmount || 0) - paid), status: 'active' };
+            })
+            .filter(x => x.debt > 0)
+            .sort((a, b) => b.debt - a.debt);
+        const totalRentalDebt = rentalDebts.reduce((s, x) => s + x.debt, 0);
+        const totalDebt = guestDebtTotal + totalRentalDebt;
+        const debtors = [...guestsWithDebt, ...rentalDebts].sort((a, b) => b.debt - a.debt);
 
         const arrivalsToday = relGuests.filter(g => ymd(g.checkInDate || g.checkInDateTime) === todayStr && g.status === 'active');
         const dep = relGuests.filter(g => ymd(g.checkOutDate) === todayStr);
@@ -207,7 +218,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
         const roomOccupancy = relRooms.map(r => {
             const rGuests = relGuests.filter(g => g.roomId === r.id && g.status === 'active');
-            return { ...r, occupied: rGuests.length, pct: r.capacity ? Math.round((rGuests.length / r.capacity) * 100) : 0 };
+            const cap = parseInt(r.capacity) || 0;
+            const rented = !!r.rental?.active;
+            // Арендованная комната занята целиком
+            const occupied = rented ? cap : rGuests.length;
+            const pct = cap ? Math.round((occupied / cap) * 100) : (rented ? 100 : 0);
+            return { ...r, occupied, pct, rented };
         }).sort((a, b) => b.pct - a.pct);
 
         const checkedOut = relGuests.filter(g => g.status === 'checked_out' && g.days);
@@ -228,26 +244,33 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         relPayments.forEach(p => {
             const rm = guestRoomMap[p.guestId];
             if (!rm) return;
-            if (!roomIncomeMap[rm.roomId]) roomIncomeMap[rm.roomId] = { cash: 0, card: 0, qr: 0 };
+            if (!roomIncomeMap[rm.roomId]) roomIncomeMap[rm.roomId] = { cash: 0, card: 0, qr: 0, transfer: 0 };
             const amt = parseInt(p.amount) || 0;
-            if (p.method === 'cash') roomIncomeMap[rm.roomId].cash += amt;
-            else if (p.method === 'card') roomIncomeMap[rm.roomId].card += amt;
-            else if (p.method === 'qr') roomIncomeMap[rm.roomId].qr += amt;
-            else roomIncomeMap[rm.roomId].cash += amt;
+            const c  = p.cash     !== undefined ? parseInt(p.cash)||0     : p.method==='cash'     ? amt : 0;
+            const cd = p.card     !== undefined ? parseInt(p.card)||0     : p.method==='card'     ? amt : 0;
+            const q  = p.qr       !== undefined ? parseInt(p.qr)||0       : p.method==='qr'       ? amt : 0;
+            const tr = p.transfer !== undefined ? parseInt(p.transfer)||0 : p.method==='transfer' ? amt : 0;
+            roomIncomeMap[rm.roomId].cash     += c;
+            roomIncomeMap[rm.roomId].card     += cd;
+            roomIncomeMap[rm.roomId].qr       += q;
+            roomIncomeMap[rm.roomId].transfer += tr;
+            // прочие методы (баланс и т.п.) — в наличные, чтобы не терять сумму
+            if (c + cd + q + tr === 0 && amt > 0) roomIncomeMap[rm.roomId].cash += amt;
         });
-        const maxRoomIncome = Math.max(1, ...Object.values(roomIncomeMap).map(r => r.cash + r.card + r.qr));
+        const maxRoomIncome = Math.max(1, ...Object.values(roomIncomeMap).map(r => r.cash + r.card + r.qr + r.transfer));
         const roomIncome = relRooms.map(r => {
-            const m = roomIncomeMap[r.id] || { cash: 0, card: 0, qr: 0 };
-            const total = m.cash + m.card + m.qr;
+            const m = roomIncomeMap[r.id] || { cash: 0, card: 0, qr: 0, transfer: 0 };
+            const total = m.cash + m.card + m.qr + m.transfer;
             const occ = roomOccupancy.find(ro => ro.id === r.id);
-            return { ...r, income: total, cash: m.cash, card: m.card, qr: m.qr, pct: occ?.pct || 0, occupied: occ?.occupied || 0 };
+            return { ...r, income: total, cash: m.cash, card: m.card, qr: m.qr, transfer: m.transfer, pct: occ?.pct || 0, occupied: occ?.occupied || 0 };
         }).sort((a, b) => b.income - a.income);
 
         return {
             relRooms, relGuests, totalBeds, activeGuests, occupancyGuests, occupancyPct, occupancyRaw, isOverCapacity,
-            pay30, last7, totalIncome, totalExpense, incomeToday, incomeWeek, incomeMonth,
-            byCash, byCard, byQR,
-            guestsWithDebt, totalDebt,
+            rentedBeds, occupiedBeds, freeBeds,
+            pay30, last7, totalIncome, totalExpense, incomeToday, incomeWeek, incomeMonth, incomeThisMonth, expenseThisMonth,
+            byCash, byCard, byQR, byTransfer,
+            guestsWithDebt, totalDebt, rentalDebts, totalRentalDebt, guestDebtTotal, debtors,
             arrivalsToday, dep, arrivalsTomorrow, depTomorrow,
             expired, topCountries, recentPayments, roomOccupancy,
             avgStay, staffTodayList, roomIncome, maxRoomIncome,
@@ -271,7 +294,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
     const MiniBar = ({ value, max, color = 'indigo' }) => {
         const pct = max ? Math.round((value / max) * 100) : 0;
-        const bg = { indigo: 'bg-indigo-500', emerald: 'bg-emerald-500', rose: 'bg-rose-500', amber: 'bg-amber-400' }[color];
+        const bg = { indigo: 'bg-indigo-500', emerald: 'bg-emerald-500', rose: 'bg-rose-500', amber: 'bg-amber-400', sky: 'bg-sky-500', purple: 'bg-purple-500' }[color] || 'bg-indigo-500';
         return (
             <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div className={`${bg} h-full rounded-full`} style={{ width: `${Math.min(pct, 100)}%` }} />
@@ -289,15 +312,42 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             purple:  { ring: 'ring-purple-200',  bg: 'bg-purple-50',  text: 'text-purple-600',  icon: 'bg-purple-100' },
         }[color] || { ring: 'ring-slate-200', bg: 'bg-white', text: 'text-slate-800', icon: 'bg-slate-100' };
         return (
-            <div className={`bg-white border border-slate-200 rounded-2xl p-4 ring-1 ${cfg.ring} shadow-sm`}>
-                <div className="flex items-start justify-between mb-3">
-                    <div className={`w-10 h-10 rounded-xl ${cfg.icon} flex items-center justify-center`}>
-                        <Icon size={18} className={cfg.text} />
+            <div className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+                <div className={`absolute -right-5 -top-5 w-20 h-20 rounded-full ${cfg.bg}`} />
+                <div className="relative">
+                    <div className="flex items-start justify-between mb-3">
+                        <div className={`w-10 h-10 rounded-xl ${cfg.icon} flex items-center justify-center`}>
+                            <Icon size={18} className={cfg.text} />
+                        </div>
+                        {sub && <span className="text-[10px] font-bold text-slate-500 bg-white/80 border border-slate-100 px-2 py-0.5 rounded-full">{sub}</span>}
                     </div>
-                    {sub && <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{sub}</span>}
+                    <div className={`text-2xl font-black ${cfg.text}`}>{value}{suffix && <span className="text-sm font-semibold ml-0.5">{suffix}</span>}</div>
+                    <div className="text-xs font-semibold text-slate-400 mt-0.5 uppercase tracking-wide">{label}</div>
                 </div>
-                <div className={`text-2xl font-black ${cfg.text}`}>{value}{suffix && <span className="text-sm font-semibold ml-0.5">{suffix}</span>}</div>
-                <div className="text-xs font-semibold text-slate-400 mt-0.5 uppercase tracking-wide">{label}</div>
+            </div>
+        );
+    };
+
+    // Компактная плитка для вкладок — плоская и тонированная, чтобы НЕ сливаться с верхними KPI
+    const TabStat = ({ label, value, sub, icon: Icon, color, suffix }) => {
+        const cfg = {
+            emerald: { bg: 'bg-emerald-50', br: 'border-emerald-100', icon: 'bg-emerald-100', text: 'text-emerald-600' },
+            rose:    { bg: 'bg-rose-50',    br: 'border-rose-100',    icon: 'bg-rose-100',    text: 'text-rose-600' },
+            indigo:  { bg: 'bg-indigo-50',  br: 'border-indigo-100',  icon: 'bg-indigo-100',  text: 'text-indigo-600' },
+            amber:   { bg: 'bg-amber-50',   br: 'border-amber-100',   icon: 'bg-amber-100',   text: 'text-amber-600' },
+            slate:   { bg: 'bg-slate-100',  br: 'border-slate-200',   icon: 'bg-white',       text: 'text-slate-700' },
+            purple:  { bg: 'bg-purple-50',  br: 'border-purple-100',  icon: 'bg-purple-100',  text: 'text-purple-600' },
+            sky:     { bg: 'bg-sky-50',     br: 'border-sky-100',     icon: 'bg-sky-100',     text: 'text-sky-600' },
+        }[color] || { bg: 'bg-slate-50', br: 'border-slate-200', icon: 'bg-white', text: 'text-slate-700' };
+        return (
+            <div className={`flex items-center gap-3 rounded-2xl border ${cfg.br} ${cfg.bg} px-4 py-3 transition-transform hover:scale-[1.015]`}>
+                <div className={`w-11 h-11 rounded-xl ${cfg.icon} flex items-center justify-center shrink-0 shadow-sm`}>
+                    <Icon size={18} className={cfg.text} />
+                </div>
+                <div className="min-w-0">
+                    <div className={`text-xl font-black ${cfg.text} leading-none`}>{value}{suffix && <span className="text-sm font-semibold ml-0.5">{suffix}</span>}</div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide truncate mt-1">{label}{sub ? <span className="text-slate-400 normal-case font-semibold"> · {sub}</span> : ''}</div>
+                </div>
             </div>
         );
     };
@@ -341,13 +391,44 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         { label: 'Гостей сейчас', value: data.activeGuests.length, suffix: '', icon: Users, color: 'indigo', sub: `+${data.arrivalsToday.length} сег.` },
         { label: 'Загрузка', value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: `${data.occupancyGuests.length}/${data.totalBeds}${data.isOverCapacity ? ' ⚠' : ''}` },
         { label: 'Доход сегодня', value: data.incomeToday.toLocaleString(), suffix: '', icon: TrendingUp, color: 'emerald', sub: 'UZS' },
-        { label: 'Долг гостей', value: data.totalDebt.toLocaleString(), suffix: '', icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'slate', sub: `${data.guestsWithDebt.length} гостей` },
+        { label: 'Долги', value: data.totalDebt.toLocaleString(), suffix: '', icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'slate', sub: data.totalRentalDebt > 0 ? `${data.debtors.length} (аренда ${data.totalRentalDebt.toLocaleString()})` : `${data.debtors.length} должн.` },
         { label: 'Просроченных', value: data.expired.length, suffix: '', icon: AlertCircle, color: data.expired.length > 0 ? 'amber' : 'slate', sub: 'не выселены' },
-        { label: 'Свободных мест', value: Math.max(0, data.totalBeds - data.occupancyGuests.length), suffix: '', icon: Plus, color: 'purple', sub: `из ${data.totalBeds}` },
+        { label: 'Свободных мест', value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `из ${data.totalBeds}${data.rentedBeds ? ` · аренда ${data.rentedBeds}` : ''}` },
     ];
+
+    const scopeLabel = currentHostelId === 'all' ? 'Все хостелы' : currentHostelId === 'hostel1' ? 'Хостел №1' : currentHostelId === 'hostel2' ? 'Хостел №2' : 'Хостел';
+    const monthLabel = now.toLocaleDateString('ru', { month: 'long' });
+    const netMonth = data.incomeThisMonth - data.expenseThisMonth;
 
     return (
         <div className="space-y-4 animate-in fade-in">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
+                        <LayoutDashboard size={20} className="text-white" />
+                    </div>
+                    <div>
+                        <h2 className="font-black text-xl text-slate-800">Дашборд</h2>
+                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1"><BedDouble size={11}/> {scopeLabel}</span>
+                            <span className="text-slate-300">·</span>
+                            <span>{now.toLocaleDateString('ru', { day: '2-digit', month: 'long', weekday: 'short' })}</span>
+                        </p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100">
+                        <TrendingUp size={14} className="text-emerald-600" />
+                        <span className="text-xs font-bold text-emerald-700">Доход за {monthLabel}: {data.incomeThisMonth.toLocaleString()}</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border ${netMonth >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-rose-50 border-rose-100'}`}>
+                        <Wallet size={14} className={netMonth >= 0 ? 'text-teal-600' : 'text-rose-600'} />
+                        <span className={`text-xs font-bold ${netMonth >= 0 ? 'text-teal-700' : 'text-rose-700'}`}>Прибыль за месяц: {netMonth.toLocaleString()}</span>
+                    </div>
+                </div>
+            </div>
+
             {/* KPI strip */}
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
                 {kpis.map((k, i) => <StatCard key={i} {...k} />)}
@@ -466,10 +547,13 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 {data.roomOccupancy.map(r => (
                                     <div key={r.id}>
                                         <div className="flex items-center justify-between text-xs mb-0.5">
-                                            <span className="font-bold text-slate-700">№{r.number}</span>
+                                            <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                                                №{r.number}
+                                                {r.rented && <span className="text-[9px] font-black text-teal-700 bg-teal-100 px-1.5 rounded-full">аренда</span>}
+                                            </span>
                                             <span className="font-semibold text-slate-500">{r.occupied}/{r.capacity}</span>
                                         </div>
-                                        <MiniBar value={r.occupied} max={r.capacity} color={r.pct >= 80 ? 'emerald' : r.pct >= 40 ? 'amber' : 'rose'} />
+                                        <MiniBar value={r.occupied} max={r.capacity} color={r.rented ? 'sky' : r.pct >= 80 ? 'emerald' : r.pct >= 40 ? 'amber' : 'rose'} />
                                     </div>
                                 ))}
                             </div>
@@ -569,26 +653,26 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                            { label: 'Доход сегодня',    value: data.incomeToday.toLocaleString(),  color: 'emerald', icon: TrendingUp },
-                            { label: 'Доход за 7 дней',  value: data.incomeWeek.toLocaleString(),   color: 'indigo',  icon: Calendar },
-                            { label: 'Доход за 30 дней', value: data.incomeMonth.toLocaleString(),  color: 'purple',  icon: BarChart3 },
-                            { label: 'Расход за 30 дней',value: data.pay30.reduce((s,d)=>s+d.exp,0).toLocaleString(), color: 'rose', icon: TrendingDown },
-                        ].map((s, i) => <StatCard key={i} {...s} />)}
+                            { label: 'Доход сегодня',   value: data.incomeToday.toLocaleString(),       color: 'emerald', icon: TrendingUp },
+                            { label: 'Доход за 7 дней', value: data.incomeWeek.toLocaleString(),        color: 'indigo',  icon: Calendar },
+                            { label: 'Доход за месяц',  value: data.incomeThisMonth.toLocaleString(),   color: 'purple',  icon: BarChart3, sub: monthLabel },
+                            { label: 'Расход за месяц', value: data.expenseThisMonth.toLocaleString(),  color: 'rose',    icon: TrendingDown, sub: monthLabel },
+                        ].map((s, i) => <TabStat key={i} {...s} />)}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                            <div className="font-bold text-slate-800 mb-1">30 дней — Доходы vs Расходы</div>
-                            <div className="text-xs text-slate-400 mb-4">Каждый столбик = 1 день</div>
+                            <div className="font-bold text-slate-800 mb-1">Доходы vs Расходы</div>
+                            <div className="text-xs text-slate-400 mb-4">Тренд за 30 дней · итоги за {monthLabel}</div>
                             <BarChartMini data30={data.pay30} />
                             <div className="flex justify-between mt-2 text-[10px] text-slate-400">
                                 <span>{data.pay30[0]?.ds?.slice(5)}</span>
                                 <span>{data.pay30[29]?.ds?.slice(5)}</span>
                             </div>
                             <div className="flex gap-6 mt-3 text-xs font-bold border-t border-slate-100 pt-3">
-                                <span className="text-emerald-600">+{data.incomeMonth.toLocaleString()}</span>
-                                <span className="text-rose-600">-{data.pay30.reduce((s,d)=>s+d.exp,0).toLocaleString()}</span>
-                                <span className="text-indigo-600 ml-auto">Баланс: {(data.incomeMonth - data.pay30.reduce((s,d)=>s+d.exp,0)).toLocaleString()}</span>
+                                <span className="text-emerald-600">+{data.incomeThisMonth.toLocaleString()}</span>
+                                <span className="text-rose-600">-{data.expenseThisMonth.toLocaleString()}</span>
+                                <span className={`ml-auto ${netMonth >= 0 ? 'text-teal-600' : 'text-rose-600'}`}>Баланс: {netMonth.toLocaleString()}</span>
                             </div>
                         </div>
 
@@ -596,11 +680,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             <div className="font-bold text-slate-800 mb-4">Методы оплаты (всё время)</div>
                             <div className="space-y-3">
                                 {[
-                                    { label: 'Наличные', value: data.byCash, icon: DollarSign, color: 'emerald' },
-                                    { label: 'Карта',    value: data.byCard, icon: CreditCard, color: 'indigo' },
-                                    { label: 'QR',       value: data.byQR,   icon: QrCode,     color: 'purple' },
+                                    { label: 'Наличные',     value: data.byCash,     icon: DollarSign,     color: 'emerald' },
+                                    { label: 'Карта',        value: data.byCard,     icon: CreditCard,     color: 'indigo' },
+                                    { label: 'QR',           value: data.byQR,       icon: QrCode,         color: 'purple' },
+                                    { label: 'Перечисление', value: data.byTransfer, icon: ArrowRightLeft, color: 'sky' },
                                 ].map((m, i) => {
-                                    const total = data.byCash + data.byCard + data.byQR || 1;
+                                    const total = data.byCash + data.byCard + data.byQR + data.byTransfer || 1;
                                     return (
                                         <div key={i}>
                                             <div className="flex items-center justify-between text-sm mb-1">
@@ -670,10 +755,10 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
                             { label: 'Загрузка', value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: data.isOverCapacity ? 'Перегружен!' : `из ${data.totalBeds}` },
-                            { label: 'Занято мест',   value: data.occupancyGuests.length, icon: Users,    color: 'indigo', sub: `из ${data.totalBeds}` },
-                            { label: 'Свободно',      value: Math.max(0, data.totalBeds - data.occupancyGuests.length), icon: Plus, color: 'emerald' },
+                            { label: 'Занято мест',   value: data.occupiedBeds, icon: Users,    color: 'indigo', sub: `из ${data.totalBeds}${data.rentedBeds ? ` · +${data.rentedBeds} аренда` : ''}` },
+                            { label: 'Свободно',      value: data.freeBeds, icon: Plus, color: 'emerald' },
                             { label: 'Ср. проживание',value: data.avgStay, suffix: ' дн', icon: Calendar, color: 'slate' },
-                        ].map((s, i) => <StatCard key={i} {...s} />)}
+                        ].map((s, i) => <TabStat key={i} {...s} />)}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -710,16 +795,20 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             {data.roomOccupancy.map(r => (
                                 <div key={r.id} className="border border-slate-200 rounded-xl p-3">
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className="font-black text-slate-800">Комната №{r.number}</span>
+                                        <span className="font-black text-slate-800 flex items-center gap-1.5">
+                                            Комната №{r.number}
+                                            {r.rented && <span className="text-[9px] font-black text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-full">АРЕНДА</span>}
+                                        </span>
                                         <span className={`text-xs font-black px-2 py-0.5 rounded-full ${
+                                            r.rented ? 'bg-sky-100 text-sky-700' :
                                             r.pct === 100 ? 'bg-emerald-100 text-emerald-700' :
                                             r.pct >= 50 ? 'bg-amber-100 text-amber-700' :
                                             'bg-rose-100 text-rose-700'
                                         }`}>{r.pct}%</span>
                                     </div>
-                                    <MiniBar value={r.occupied} max={r.capacity} color={r.pct >= 80 ? 'emerald' : r.pct >= 40 ? 'amber' : 'rose'} />
+                                    <MiniBar value={r.occupied} max={r.capacity} color={r.rented ? 'sky' : r.pct >= 80 ? 'emerald' : r.pct >= 40 ? 'amber' : 'rose'} />
                                     <div className="flex justify-between mt-1 text-[10px] text-slate-400 font-semibold">
-                                        <span>Занято: {r.occupied}</span>
+                                        <span>{r.rented ? 'Сдана в аренду' : `Занято: ${r.occupied}`}</span>
                                         <span>Всего: {r.capacity}</span>
                                     </div>
                                 </div>
@@ -738,7 +827,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             { label: 'Броней', value: data.relGuests.filter(g=>g.status==='booking').length, icon: Clock, color: 'amber' },
                             { label: 'Выселено (с долгом)', value: data.relGuests.filter(g=>g.status==='checked_out'&&((g.totalPrice||0)-getTotalPaid(g))>0).length, icon: AlertCircle, color: 'rose' },
                             { label: 'Ср. ночей', value: data.avgStay, suffix: ' дн', icon: CalendarDays, color: 'slate' },
-                        ].map((s, i) => <StatCard key={i} {...s} />)}
+                        ].map((s, i) => <TabStat key={i} {...s} />)}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -772,12 +861,17 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 <div className="flex items-center gap-2">
                                     <span className="text-xs text-slate-400">{data.activeGuests.length}</span>
                                     {selectMode && selectedIds.length > 0 && (
-                                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Выбрано: {selectedIds.length}</span>
+                                        <span className="text-xs font-black text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">Выбрано: {selectedIds.length}</span>
                                     )}
                                     <button
                                         onClick={() => { setSelectMode(m => { if (m) setSelectedIds([]); return !m; }); }}
-                                        className={`text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors ${selectMode ? 'bg-indigo-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>
+                                        className={`text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors ${selectMode ? 'bg-teal-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>
                                         {selectMode ? 'Готово' : 'Выбрать'}
+                                    </button>
+                                    <button onClick={() => setGroupModalOpen(true)}
+                                        title="Лист в бухгалтерию (ручной ввод)"
+                                        className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white transition-colors">
+                                        <FileText size={13}/> Лист
                                     </button>
                                     <button onClick={() => exportGuestsToExcel(data.activeGuests, currentHostelId)}
                                         title="Экспорт в Excel"
@@ -801,9 +895,9 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                                     if (client) onGuestClick(client);
                                                 }
                                             }}
-                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-indigo-50' : onGuestClick ? 'cursor-pointer hover:bg-indigo-50/50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-indigo-50' : ''}`}>
+                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-teal-50' : onGuestClick ? 'cursor-pointer hover:bg-teal-50/50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-teal-50' : ''}`}>
                                             {selectMode && (
-                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-teal-600 border-teal-600' : 'border-slate-300'}`}>
                                                     {isSelected && <CheckCircle2 size={10} className="text-white" strokeWidth={3}/>}
                                                 </div>
                                             )}
@@ -828,12 +922,22 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                     <div className="flex-1"/>
                                     {selectedIds.length > 0 && (
                                         <>
+                                            <button
+                                                onClick={() => {
+                                                    const sel = data.activeGuests.filter(g => selectedIds.includes(g.id));
+                                                    const hid = (currentHostelId && currentHostelId !== 'all') ? currentHostelId : (sel[0]?.hostelId || 'hostel1');
+                                                    printGroupReceipt(sel, hid);
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-black transition-colors">
+                                                <FileText size={13}/> В бухгалтерию
+                                            </button>
+                                            <span className="w-px h-5 bg-slate-200"/>
                                             <span className="text-xs text-slate-500 font-semibold">Продлить ({selectedIds.length} чел.):</span>
                                             <input
                                                 type="number" min="1" max="30"
                                                 value={bulkDays}
                                                 onChange={e => setBulkDays(e.target.value)}
-                                                className="w-14 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-black text-center focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                                className="w-14 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-black text-center focus:outline-none focus:ring-2 focus:ring-teal-400"
                                             />
                                             <span className="text-xs text-slate-400">дн.</span>
                                             <button
@@ -843,7 +947,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                                     setSelectedIds([]);
                                                     setSelectMode(false);
                                                 }}
-                                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black transition-colors">
+                                                className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-black transition-colors">
                                                 + Продлить
                                             </button>
                                         </>
@@ -859,9 +963,9 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             {tab === 'rooms' && (
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <StatCard label="Всего комнат" value={data.relRooms.length} icon={BedDouble} color="indigo" />
-                        <StatCard label="Общий доход" value={data.roomIncome.reduce((s,r)=>s+r.income,0).toLocaleString()} icon={TrendingUp} color="emerald" sub="UZS" />
-                        <StatCard label="Лучшая комната" value={data.roomIncome[0] ? `№${data.roomIncome[0].number}` : '—'} icon={BarChart3} color="amber" sub={data.roomIncome[0] ? data.roomIncome[0].income.toLocaleString() : ''} />
+                        <TabStat label="Всего комнат" value={data.relRooms.length} icon={BedDouble} color="indigo" />
+                        <TabStat label="Общий доход" value={data.roomIncome.reduce((s,r)=>s+r.income,0).toLocaleString()} icon={TrendingUp} color="emerald" sub="UZS" />
+                        <TabStat label="Лучшая комната" value={data.roomIncome[0] ? `№${data.roomIncome[0].number}` : '—'} icon={BarChart3} color="amber" sub={data.roomIncome[0] ? data.roomIncome[0].income.toLocaleString() : ''} />
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -894,10 +998,11 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                             <MiniBar value={r.income} max={data.maxRoomIncome} color="emerald" />
                                         </div>
                                         {r.income > 0 && (
-                                            <div className="flex gap-3 text-[10px] font-bold text-slate-500">
+                                            <div className="flex gap-3 flex-wrap text-[10px] font-bold text-slate-500">
                                                 <span className="flex items-center gap-1"><DollarSign size={9} className="text-emerald-500"/>Наличные: {r.cash.toLocaleString()}</span>
                                                 <span className="flex items-center gap-1"><CreditCard size={9} className="text-indigo-500"/>Карта: {r.card.toLocaleString()}</span>
                                                 <span className="flex items-center gap-1"><QrCode size={9} className="text-purple-500"/>QR: {r.qr.toLocaleString()}</span>
+                                                {r.transfer > 0 && <span className="flex items-center gap-1"><ArrowRightLeft size={9} className="text-sky-500"/>Перечисл.: {r.transfer.toLocaleString()}</span>}
                                             </div>
                                         )}
                                     </div>
@@ -911,35 +1016,37 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             {/* TAB: DEBTS */}
             {tab === 'debts' && (
                 <div className="space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <StatCard label="Общий долг" value={data.totalDebt.toLocaleString()} icon={Wallet} color="rose" sub="UZS" />
-                        <StatCard label="Должников" value={data.guestsWithDebt.length} icon={Users} color="amber" />
-                        <StatCard label="Просроченных" value={data.expired.length} icon={AlertCircle} color={data.expired.length > 0 ? 'rose' : 'slate'} />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <TabStat label="Общий долг" value={data.totalDebt.toLocaleString()} icon={Wallet} color="rose" sub="UZS" />
+                        <TabStat label="Долг аренды" value={data.totalRentalDebt.toLocaleString()} icon={Wallet} color={data.totalRentalDebt > 0 ? 'amber' : 'slate'} sub="UZS" />
+                        <TabStat label="Должников" value={data.debtors.length} icon={Users} color="amber" />
+                        <TabStat label="Просроченных" value={data.expired.length} icon={AlertCircle} color={data.expired.length > 0 ? 'rose' : 'slate'} />
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-100">
                             <span className="font-bold text-slate-800 text-sm">Должники (по убыванию)</span>
                         </div>
-                        {data.guestsWithDebt.length === 0 ? (
+                        {data.debtors.length === 0 ? (
                             <div className="p-10 text-center text-slate-400">
                                 <CheckCircle2 size={32} className="mx-auto mb-2 text-emerald-400"/>
                                 <div className="font-semibold">Долгов нет!</div>
                             </div>
                         ) : (
                             <div className="overflow-y-auto" style={{ maxHeight: 500 }}>
-                                {data.guestsWithDebt.map((g, i) => {
+                                {data.debtors.map((g, i) => {
                                     const isExpired = (() => { const co = parseDate(g.checkOutDate); return co && now > co && g.status === 'active'; })();
                                     return (
-                                        <div key={g.id} className={`flex items-center gap-3 px-4 py-3 border-b border-slate-50 hover:bg-slate-50 ${isExpired ? 'bg-rose-50/50' : ''}`}>
+                                        <div key={g.id} className={`flex items-center gap-3 px-4 py-3 border-b border-slate-50 hover:bg-slate-50 ${isExpired ? 'bg-rose-50/50' : g.isRental ? 'bg-amber-50/40' : ''}`}>
                                             <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">{i+1}</div>
-                                            {COUNTRY_FLAGS[g.country] ? <Flag code={COUNTRY_FLAGS[g.country]} size={16}/> : <User size={14} className="text-slate-300 shrink-0"/>}
+                                            {g.isRental ? <span className="text-base shrink-0">🏢</span> : COUNTRY_FLAGS[g.country] ? <Flag code={COUNTRY_FLAGS[g.country]} size={16}/> : <User size={14} className="text-slate-300 shrink-0"/>}
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-xs font-bold text-slate-800 truncate flex items-center gap-1">
                                                     {g.fullName}
+                                                    {g.isRental && <span className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded font-black">АРЕНДА</span>}
                                                     {isExpired && <span className="text-[9px] bg-rose-100 text-rose-600 px-1 rounded font-black">ПРОСРОЧЕН</span>}
                                                 </div>
-                                                <div className="text-[10px] text-slate-400">К.{g.roomNumber} М.{g.bedId} · {g.status === 'checked_out' ? 'Выселен' : 'Живёт'}</div>
+                                                <div className="text-[10px] text-slate-400">{g.isRental ? `Комната №${g.roomNumber} · аренда` : `К.${g.roomNumber} М.${g.bedId} · ${g.status === 'checked_out' ? 'Выселен' : 'Живёт'}`}</div>
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <div className="font-black text-base text-rose-600">-{formatMoney(g.debt)}</div>
@@ -957,6 +1064,13 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                     </div>
                 </div>
             )}
+
+            <GroupReceiptModal
+                open={groupModalOpen}
+                onClose={() => setGroupModalOpen(false)}
+                defaultHostelId={(currentHostelId && currentHostelId !== 'all') ? currentHostelId : 'hostel1'}
+                activeGuests={data.activeGuests}
+            />
         </div>
     );
 };

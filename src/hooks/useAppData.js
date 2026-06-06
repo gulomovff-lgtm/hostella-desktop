@@ -32,6 +32,8 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [sessions,       setSessions      ] = useState([]);
   const [cadastres,      setCadastres     ] = useState([]);
   const [cadastreRegs,   setCadastreRegs  ] = useState([]);
+  const [manualStayGroups, setManualStayGroups] = useState([]);
+  const [clientVersions, setClientVersions] = useState([]);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
@@ -80,7 +82,7 @@ export const useAppData = (firebaseUser, currentUser) => {
             .map(d => ({ id: d.id, ...d.data() }))
             .sort((a, b) => parseInt(a.number) - parseInt(b.number))
         );
-        setIsOnline(!snap.metadata.fromCache);
+        if (!snap.metadata.fromCache) setIsOnline(true);
         setIsDataReady(true);
       },
       (err) => {
@@ -177,7 +179,10 @@ export const useAppData = (firebaseUser, currentUser) => {
           .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       ),
-      () => setCadastreRegs([])
+      (err) => {
+        console.error('[cadastreRegs] onSnapshot error:', err.code, err.message);
+        // Не очищаем массив при ошибке — лучше показать старые данные
+      }
     );
 
     // Recurring expenses (Fix 17: только для admin/super — кассирам не нужно)
@@ -191,6 +196,14 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
+    // Договоры (групповое проживание / аренда по договору)
+    const manualStayCol = collection(db, ...PUBLIC_DATA_PATH, 'manualStayGroups');
+    const uMsg = onSnapshot(
+      manualStayCol,
+      (snap) => setManualStayGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => setManualStayGroups([])
+    );
+
     // Hostel config (checkInHour, etc.)
     const hostelCfgDoc = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
     const uCfg = onSnapshot(
@@ -199,7 +212,22 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setHostelConfig({})
     );
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); };
+    // Телеметрия версий клиентов — admin/super
+    let uVer = () => {};
+    if (currentUser.role === 'admin' || currentUser.role === 'super') {
+      const versionsCol = collection(db, ...PUBLIC_DATA_PATH, 'clientVersions');
+      uVer = onSnapshot(
+        versionsCol,
+        (snap) => setClientVersions(
+          snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => new Date(b.lastSeenAt || 0) - new Date(a.lastSeenAt || 0))
+        ),
+        () => setClientVersions([])
+      );
+    }
+
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uVer(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -220,6 +248,8 @@ export const useAppData = (firebaseUser, currentUser) => {
     sessions,
     cadastres,
     cadastreRegs,
+    manualStayGroups,
+    clientVersions,
     isOnline,
     permissionError,
     isDataReady,

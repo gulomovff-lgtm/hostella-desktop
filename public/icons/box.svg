@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- cream sticker halo -->
+  <path d="M256 92 L430 186 L430 366 L256 460 L82 366 L82 186 Z"
+        fill="#f5ead6" stroke="#f5ead6" stroke-width="54" stroke-linejoin="round"/>
+  <!-- box silhouette -->
+  <path d="M256 92 L430 186 L430 366 L256 460 L82 366 L82 186 Z"
+        fill="#e8943a" stroke="#2e2018" stroke-width="26" stroke-linejoin="round"/>
+  <!-- right face shade -->
+  <path d="M256 274 L430 186 L430 366 L256 460 Z" fill="#d97b2e"/>
+  <!-- top face (lighter) -->
+  <path d="M82 186 L256 92 L430 186 L256 274 Z" fill="#f3b06a" stroke="#2e2018" stroke-width="26" stroke-linejoin="round"/>
+  <!-- crisp outer outline over the shaded face -->
+  <path d="M256 92 L430 186 L430 366 L256 460 L82 366 L82 186 Z"
+        fill="none" stroke="#2e2018" stroke-width="26" stroke-linejoin="round"/>
+  <!-- center vertical edge -->
+  <path d="M256 274 L256 460" stroke="#2e2018" stroke-width="22"/>
+  <!-- teal tape strip -->
+  <rect x="236" y="286" width="40" height="168" rx="6" fill="#0f9688" stroke="#2e2018" stroke-width="12"/>
+</svg>
