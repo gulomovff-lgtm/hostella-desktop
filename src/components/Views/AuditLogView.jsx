@@ -19,6 +19,7 @@ const ACTION_META = {
     payment_add:          { icon: '💵', label: 'Оплата',                   color: 'green',   group: 'Финансы' },
     debt_add:             { icon: '💸', label: 'Долг добавлен',            color: 'rose',    group: 'Финансы' },
     debt_paid:            { icon: '💰', label: 'Долг погашен',             color: 'emerald', group: 'Финансы' },
+    super_payment:        { icon: '🛡️', label: 'Зачёт суммы (не выручка)', color: 'purple',  group: 'Финансы' },
     // Промокоды
     promo_create:         { icon: '🏷️', label: 'Промокод создан',         color: 'orange',  group: 'Промокоды' },
     promo_delete:         { icon: '🗑️', label: 'Промокод удалён',         color: 'rose',    group: 'Промокоды' },

@@ -92,10 +92,16 @@ export function useCadastreActions({
     ].slice(0, 5));
   };
 
-  const targetHostel = () =>
-    (!currentUser.hostelId || currentUser.hostelId === 'all')
+  const targetHostel = () => {
+    // Fazliddin управляет кадастром нескольких хостелов — создаём запись
+    // по выбранному в фильтре хостелу, а не по его собственному (hostel2).
+    if (currentUser.login === 'fazliddin' && selectedHostelFilter && selectedHostelFilter !== 'all') {
+      return selectedHostelFilter;
+    }
+    return (!currentUser.hostelId || currentUser.hostelId === 'all')
       ? (selectedHostelFilter || 'hostel1')
       : currentUser.hostelId;
+  };
 
   // ─── Управление кадастрами (частными домами) ──────────────────────────────
 
@@ -291,7 +297,7 @@ export function useCadastreActions({
           hostelId: reg.hostelId,
           staffId:  safeStaffId,
           source:   'cadastre',
-          date:     new Date().toISOString(),
+          date:     reg.createdAt || new Date().toISOString(),
         });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
           expenseAdded: true,
@@ -375,7 +381,7 @@ export function useCadastreActions({
         hostelId: reg.hostelId,
         staffId:  currentUser.id || currentUser.login,
         source:   'cadastre',
-        date:     new Date().toISOString(),
+        date:     reg.createdAt || new Date().toISOString(),
       });
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
         expenseAdded:  true,
@@ -400,8 +406,9 @@ export function useCadastreActions({
   // Добавить ВСЕ активные регистрации в расходы одной кнопкой
   const handleAddAllToExpenses = async (cadastreRegs) => {
     const safeStaffId = currentUser.id || currentUser.login;
+    // Включаем и завершённые (removed) регистрации с неучтённым расходом — чтобы не потерять
     const toAdd = cadastreRegs.filter(r => {
-      if (r.status === 'removed' || !(Number(r.amount) > 0)) return false;
+      if (!(Number(r.amount) > 0)) return false;
       const alreadyExpensed = r.totalExpensed ?? (r.expenseAdded ? (Number(r.amount) || 0) : 0);
       return (Number(r.amount) - alreadyExpensed) > 0;
     });
@@ -425,7 +432,7 @@ export function useCadastreActions({
           hostelId: reg.hostelId,
           staffId:  safeStaffId,
           source:   'cadastre',
-          date:     now,
+          date:     reg.createdAt || now,
         });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
           expenseAdded:  true,

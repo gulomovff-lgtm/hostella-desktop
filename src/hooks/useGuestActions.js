@@ -517,6 +517,14 @@ export function useGuestActions(ctx) {
       const methodField = method === 'card' ? 'paidCard' : method === 'qr' ? 'paidQR' : 'paidCash';
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         [methodField]: increment(amount), amountPaid: increment(amount), superAdjusted: increment(amount),
+        superAdjustedBy: currentUser.login || currentUser.id || 'unknown',
+        superAdjustedAt: new Date().toISOString(),
+      });
+      // Зачёт не идёт в кассу/выручку, но фиксируется в аудит-логе — чтобы был след,
+      // кто и кому зачёл сумму (виден владельцу/super).
+      const g = guests.find(x => x.id === guestId);
+      logAction(currentUser, 'super_payment', {
+        guestId, guestName: g?.fullName || '', amount, method,
       });
       setGuestDetailsModal({ open: false, guest: null });
       showNotification('Сумма зачтена');

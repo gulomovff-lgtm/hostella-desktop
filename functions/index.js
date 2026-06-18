@@ -696,3 +696,132 @@ exports.scheduledFirestoreBackup = functions
       throw err;
     }
   });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Запрос на понижение цены: кассир отправляет запрос → Telegram с кнопками
+// «Одобрить / Отклонить» → нажатие обрабатывается вебхуком telegramWebhook.
+// ─────────────────────────────────────────────────────────────────────────────
+const PRICE_APP_ID = 'hostella-multi-v4';
+const PRICE_BASE = `artifacts/${PRICE_APP_ID}/public/data`;
+const fmtMoneyRu = (n) => (Number(n) || 0).toLocaleString('ru-RU');
+
+async function tgAnswerCallback(botToken, cbId, text) {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: cbId, text: text || '', show_alert: false }),
+    });
+  } catch (e) { console.error('answerCallbackQuery', e.message); }
+}
+
+exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Требуется авторизация');
+  }
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
+
+  const { requestId, guestName, roomNumber, hostelId, cashierName, currentPrice, requestedPrice, chatIds } = data || {};
+  if (!requestId || !Array.isArray(chatIds) || chatIds.length === 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'requestId и chatIds обязательны');
+  }
+  const hostelName = hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
+  const lines = [
+    '🔻 <b>Запрос на понижение цены</b>',
+    `👤 Гость: <b>${guestName || '—'}</b>`,
+    `🏨 ${hostelName} · комната ${roomNumber || '—'}`,
+  ];
+  if (Number(currentPrice) > 0) lines.push(`💵 Текущая цена: ${fmtMoneyRu(currentPrice)} сум/ночь`);
+  lines.push(`🔻 Запрошенная: <b>${fmtMoneyRu(requestedPrice)} сум/ночь</b>`);
+  lines.push(`👷 Кассир: ${cashierName || '—'}`);
+  lines.push('');
+  lines.push('Разрешить эту цену?');
+  const text = lines.join('\n');
+  const reply_markup = {
+    inline_keyboard: [[
+      { text: '✅ Одобрить', callback_data: `pricereq:approve:${requestId}` },
+      { text: '❌ Отклонить', callback_data: `pricereq:reject:${requestId}` },
+    ]],
+  };
+  const results = await Promise.allSettled((chatIds || []).map(chatId =>
+    fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: String(chatId), text, parse_mode: 'HTML', reply_markup }),
+    }).then(r => r.json())
+  ));
+  const sent = results.filter(r => r.status === 'fulfilled' && r.value && r.value.ok).length;
+  return { success: sent > 0, sent };
+});
+
+exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  try {
+    const update = req.body || {};
+    const cb = update.callback_query;
+    if (!cb) { res.status(200).send('ok'); return; }
+
+    const m = /^pricereq:(approve|reject):(.+)$/.exec(cb.data || '');
+    if (!m) { await tgAnswerCallback(botToken, cb.id, 'Неизвестное действие'); res.status(200).send('ok'); return; }
+    const action = m[1];
+    const requestId = m[2];
+
+    const { getFirestore } = require('firebase-admin/firestore');
+    const hostellaDb = getFirestore('hostella');
+    const reqRef = hostellaDb.doc(`${PRICE_BASE}/priceRequests/${requestId}`);
+    const snap = await reqRef.get();
+    if (!snap.exists) { await tgAnswerCallback(botToken, cb.id, 'Заявка не найдена'); res.status(200).send('ok'); return; }
+    const r = snap.data();
+    if (r.status && r.status !== 'pending') {
+      await tgAnswerCallback(botToken, cb.id, `Уже обработано: ${r.status === 'approved' ? 'одобрено' : 'отклонено'}`);
+      res.status(200).send('ok'); return;
+    }
+
+    const approver = [cb.from && cb.from.first_name, cb.from && cb.from.last_name].filter(Boolean).join(' ')
+      || (cb.from && cb.from.username) || String((cb.from && cb.from.id) || '');
+    const nowIso = new Date().toISOString();
+
+    if (action === 'approve') {
+      await reqRef.update({ status: 'approved', decidedAt: nowIso, approvedBy: approver });
+      if (r.guestId) {
+        await hostellaDb.doc(`${PRICE_BASE}/guests/${r.guestId}`).update({
+          priceReductionAllowed: true,
+          approvedPrice: Number(r.requestedPrice) || 0,
+          priceRequestId: requestId,
+        });
+      }
+      // Добавляем человека в постоянный список разрешённых (по паспорту) —
+      // при повторном заселении запрос больше не показывается.
+      const pKey = String(r.passport || '').replace(/\s/g, '').toUpperCase();
+      if (pKey) {
+        try {
+          await hostellaDb.doc(`${PRICE_BASE}/priceWhitelist/${pKey}`).set({
+            passport: r.passport || '',
+            name: r.guestName || '',
+            price: Number(r.requestedPrice) || 0,
+            addedBy: approver,
+            addedAt: nowIso,
+            source: 'telegram',
+          }, { merge: true });
+        } catch (e) { console.error('whitelist write', e.message); }
+      }
+    } else {
+      await reqRef.update({ status: 'rejected', decidedAt: nowIso, approvedBy: approver });
+    }
+
+    await tgAnswerCallback(botToken, cb.id, action === 'approve' ? '✅ Одобрено' : '❌ Отклонено');
+    if (cb.message) {
+      const tail = action === 'approve' ? `\n\n✅ <b>ОДОБРЕНО</b> · ${approver}` : `\n\n❌ <b>ОТКЛОНЕНО</b> · ${approver}`;
+      await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: cb.message.chat.id, message_id: cb.message.message_id,
+          text: (cb.message.text || 'Запрос на понижение цены') + tail, parse_mode: 'HTML',
+        }),
+      });
+    }
+    res.status(200).send('ok');
+  } catch (e) {
+    console.error('[telegramWebhook]', e);
+    res.status(200).send('ok'); // всегда 200 — иначе Telegram будет ретраить
+  }
+});

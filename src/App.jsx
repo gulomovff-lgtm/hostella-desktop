@@ -37,6 +37,8 @@ import {
   printDebts,
   printReport,
   getNormalizedCountry,
+  getKppDayNumber,
+  getRegistrationWindow,
   Flag
 } from './utils/helpers';
 import { sendTelegramMessage } from './utils/telegram';
@@ -145,6 +147,7 @@ import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import SessionsView from './components/Views/SessionsView';
 import ClientVersionsView from './components/Views/ClientVersionsView';
+import PricePermissionsView from './components/Views/PricePermissionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
@@ -154,7 +157,7 @@ import { logAction, logSystemError } from './utils/auditLog';
 import { reportClientVersion } from './utils/clientTelemetry';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import * as XLSX from 'xlsx';
-import { createSession, closeSession, heartbeatSession, getLoginAt, LOGIN_AT_KEY } from './utils/session';
+import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
@@ -410,6 +413,7 @@ function App() {
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
     recurringExpenses, hostelConfig, sessions, cadastres, cadastreRegs,
     manualStayGroups,
+    priceWhitelist,
     clientVersions,
     isOnline, permissionError, isDataReady,
   } = useAppData(firebaseUser, currentUser);
@@ -928,6 +932,16 @@ function App() {
     return () => clearInterval(timer);
   }, [currentUser]);
 
+  // Авто-закрытие "зависших" сессий (active:true, но без хартбита > 15 мин).
+  // closeSession() при закрытии вкладки/выключении ноута часто не долетает до Firestore,
+  // поэтому подчищаем по lastSeen. Список сессий есть только у admin/super — они и чистят.
+  // Снапшот сессий обновляется при каждом хартбите (в т.ч. своём), давая авто-перепроверку.
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') return;
+    if (!sessions.length) return;
+    closeAbandonedSessions(sessions);
+  }, [sessions, currentUser]);
+
   // Ref-флаг: предотвращает повторный тригер force-logout при множественных
   // обновлениях usersList (Firestore может прислать несколько патчей подряд)
   const forceLogoutTriggeredRef = useRef(false);
@@ -1194,7 +1208,7 @@ function App() {
   // Уведомления об истекающих кадастр-регистрациях
   useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline });
 
-  // 🔔 Уведомление Telegram при 9 и 10 днях с КПП (нужна регистрация)
+  // 🔔 Уведомление Telegram в день дедлайна и на следующий день (срок зависит от гражданства)
   useEffect(() => {
     if (!isOnline || !guests?.length || !currentUser) return;
     const disabledTypes = new Set(tgSettings?.disabledTypes || []);
@@ -1204,8 +1218,11 @@ function App() {
       if (g.status !== 'active') return;
       if (!g.kppDate || !g.country || g.country === 'Узбекистан') return;
       if (g.kppRegistered) return;
-      const days = Math.floor((Date.now() - new Date(g.kppDate).getTime()) / 86400000);
-      if (days !== 9 && days !== 10) return;
+      // День прибытия = 1. Срок без регистрации зависит от гражданства (дедлайн = regWindow).
+      // Шлём в день дедлайна и на следующий день (просрочка).
+      const regWindow = getRegistrationWindow(g.country);
+      const days = getKppDayNumber(g.kppDate);
+      if (days !== regWindow && days !== regWindow + 1) return;
       const key = `kpp_${g.id}_day${days}_${today}`;
       const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
       const room = rooms.find(r => r.id === g.roomId);
@@ -1218,7 +1235,7 @@ function App() {
         `📋 Паспорт выдан: ${fmt(g.passportIssueDate)}`,
         `🌐 ${g.country}`,
         `📅 Дата КПП: ${fmt(g.kppDate)}`,
-        `⏰ Прошло <b>${days} дн.</b> — требуется регистрация`,
+        `⏰ Прошло <b>${days} дн.</b> из ${regWindow} — требуется регистрация`,
         `🏨 ${hostelName} · Комната ${room?.number || g.roomNumber || '?'}, место ${g.bedId}`,
       ].join('\n');
       // checkAndMarkAlert атомарно проверяет Firestore: один раз на все устройства
@@ -1737,6 +1754,117 @@ const filterByHostel = (items) => {
     }
   };
 
+  // Запрос на понижение цены: создаём заявку + шлём в Telegram с кнопками одобрения
+  const handleRequestPriceReduction = async (guest, requestedPrice) => {
+    const price = parseInt(requestedPrice) || 0;
+    if (!guest?.id || price <= 0) { showNotification('Укажите корректную цену', 'error'); return; }
+    try {
+      const chatIds = getConfig().priceApprovalChatIds || [];
+      if (!chatIds.length) { showNotification('Не задан Telegram ID для одобрения', 'error'); return; }
+      const payload = {
+        guestName: guest.fullName || '',
+        roomNumber: guest.roomNumber || '',
+        hostelId: guest.hostelId || currentUser?.hostelId || '',
+        cashierName: currentUser?.name || currentUser?.login || '',
+        currentPrice: parseInt(guest.pricePerNight) || 0,
+        requestedPrice: price,
+      };
+      const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'priceRequests'), {
+        guestId: guest.id,
+        passport: guest.passport || '',
+        cashierId: currentUser?.id || currentUser?.login || '',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        ...payload,
+      });
+      await httpsCallable(functions, 'sendPriceRequest')({ requestId: ref.id, chatIds, ...payload });
+      logAction(currentUser, 'price_request', { guestId: guest.id, requestedPrice: price });
+      showNotification('🔻 Запрос на понижение отправлен на одобрение', 'success');
+    } catch (e) {
+      showNotification('Ошибка запроса: ' + (e?.message || e), 'error');
+    }
+  };
+
+  // Запрос на понижение цены ДО заселения (гостя ещё нет) — возвращает id заявки для отслеживания
+  const handleCheckinPriceRequest = async ({ guestName, passport, roomNumber, hostelId, requestedPrice }) => {
+    const price = parseInt(requestedPrice) || 0;
+    if (price <= 0) { showNotification('Укажите корректную цену', 'error'); return null; }
+    const chatIds = getConfig().priceApprovalChatIds || [];
+    if (!chatIds.length) { showNotification('Не задан Telegram ID для одобрения', 'error'); return null; }
+    try {
+      const payload = {
+        guestName: guestName || '',
+        roomNumber: roomNumber || '',
+        hostelId: hostelId || currentUser?.hostelId || '',
+        cashierName: currentUser?.name || currentUser?.login || '',
+        currentPrice: 0,
+        requestedPrice: price,
+      };
+      const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'priceRequests'), {
+        type: 'checkin',
+        guestId: null,
+        passport: passport || '',
+        cashierId: currentUser?.id || currentUser?.login || '',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        ...payload,
+      });
+      await httpsCallable(functions, 'sendPriceRequest')({ requestId: ref.id, chatIds, ...payload });
+      logAction(currentUser, 'price_request_checkin', { passport, requestedPrice: price });
+      showNotification('🔻 Запрос отправлен на одобрение', 'success');
+      return ref.id;
+    } catch (e) {
+      showNotification('Ошибка запроса: ' + (e?.message || e), 'error');
+      return null;
+    }
+  };
+
+  // Перевод существующего гостя на стандартный тариф 70 000 без перезаселения
+  const handleUpgradeToStandardTariff = async (guest) => {
+    if (!guest?.id) return;
+    const days = parseInt(guest.days) || 0;
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
+        pricePerNight: 70000,
+        totalPrice: 70000 * days,
+        tariff: 'standard',
+        nonRefundable: false,
+      });
+      logAction(currentUser, 'tariff_upgrade_70k', { guestId: guest.id, days });
+      showNotification('✅ Гость переведён на тариф 70 000', 'success');
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  // Ручное добавление клиента в список разрешённых на понижение цены (админ)
+  const handleGrantPriceReduction = async (client, price) => {
+    const key = (client?.passport || '').replace(/\s/g, '').toUpperCase();
+    if (!key) { showNotification('У клиента нет паспорта — нельзя добавить', 'error'); return; }
+    try {
+      await setDoc(doc(db, ...PUBLIC_DATA_PATH, 'priceWhitelist', key), {
+        passport: client.passport || '',
+        name: client.fullName || '',
+        price: parseInt(price) || 0,
+        addedBy: currentUser?.name || currentUser?.login || '',
+        addedAt: new Date().toISOString(),
+        source: 'manual',
+      }, { merge: true });
+      logAction(currentUser, 'price_whitelist_add', { passport: key, price: parseInt(price) || 0 });
+      showNotification('✅ Добавлен в список разрешённых на понижение', 'success');
+    } catch (e) { showNotification(e.message, 'error'); }
+  };
+
+  const handleRevokePriceReduction = async (entry) => {
+    const key = entry?.id || (entry?.passport || '').replace(/\s/g, '').toUpperCase();
+    if (!key) return;
+    try {
+      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'priceWhitelist', key));
+      logAction(currentUser, 'price_whitelist_remove', { passport: key });
+      showNotification('Удалён из списка', 'success');
+    } catch (e) { showNotification(e.message, 'error'); }
+  };
+
   const handleAddTask = async (task) => {
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'tasks'), task); 
     showNotification("Task Added"); 
@@ -2134,6 +2262,8 @@ return (
                         cadastreRegs={currentUser.role === 'admin' || currentUser.role === 'super' ? (cadastreRegs || []) : filteredCadastreRegs}
                         cadastres={currentUser.role === 'admin' || currentUser.role === 'super' ? (cadastres || []) : filteredCadastres}
                         clients={clients}
+                        guests={guests}
+                        rooms={rooms}
                         currentUser={currentUser}
                         selectedHostelFilter={selectedHostelFilter}
                         onAddReg={handleAddCadastreReg}
@@ -2156,6 +2286,17 @@ return (
                         onDelete={handleDeleteUser}
                         onUpdate={handleUpdateUser}
                         currentUser={currentUser}
+                        lang={lang}
+                    />
+                )}
+
+                {activeTab === 'pricePerms' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <PricePermissionsView
+                        whitelist={priceWhitelist}
+                        clients={clients}
+                        guests={guests}
+                        onGrant={handleGrantPriceReduction}
+                        onRevoke={handleRevokePriceReduction}
                         lang={lang}
                     />
                 )}
@@ -2400,6 +2541,8 @@ return (
                 clientsDb={clients}
                 onClose={() => setCheckInModal({open: false, room: null, bedId: null, date: null, client: null})}
                 onSubmit={handleCheckInSubmit}
+                onCheckinPriceRequest={handleCheckinPriceRequest}
+                priceWhitelist={priceWhitelist}
                 notify={showNotification}
                 lang={lang}
                 currentUser={currentUser}
@@ -2440,6 +2583,9 @@ return (
                 cadastreRegs={cadastreRegs || []}
                 onKppConfirm={handleKppConfirm}
                 onKppReset={handleKppReset}
+                onPriceRequest={handleRequestPriceReduction}
+                onUpgradeTariff={handleUpgradeToStandardTariff}
+                priceWhitelist={priceWhitelist}
                 onOpenHistory={() => {
                     const g = guestDetailsModal.guest;
                     const norm = s => (s || '').replace(/\s/g, '').toUpperCase();

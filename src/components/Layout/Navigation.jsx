@@ -7,7 +7,7 @@ import {
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
     Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
     SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
-    FolderPlus, FolderMinus, Pencil, Check,
+    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
@@ -29,6 +29,7 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'guesthistory',   icon: History,           label: 'История гостей',    adminOnly: true                        },
     { id: 'manualstay',     icon: Users,             label: 'Ручной учёт',       permKey: 'viewManualStay'               },
     { id: 'staff',          icon: UserCog,           label: t('staff'),          adminOnly: true                        },
+    { id: 'pricePerms',     icon: ShieldCheck,       label: 'Понижение цены',    adminOnly: true                        },
     { id: 'shifts',         icon: Clock,             label: t('shifts'),         adminOnly: true                        },
     { id: 'telegram',       icon: BellRing,          label: t('telegram2'),      adminOnly: true                        },
     { id: 'promos',         icon: Tag,               label: t('promos2'),        adminOnly: true                        },

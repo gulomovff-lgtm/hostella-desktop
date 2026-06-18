@@ -33,6 +33,7 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [cadastres,      setCadastres     ] = useState([]);
   const [cadastreRegs,   setCadastreRegs  ] = useState([]);
   const [manualStayGroups, setManualStayGroups] = useState([]);
+  const [priceWhitelist, setPriceWhitelist] = useState([]);
   const [clientVersions, setClientVersions] = useState([]);
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
@@ -204,6 +205,14 @@ export const useAppData = (firebaseUser, currentUser) => {
       () => setManualStayGroups([])
     );
 
+    // Список разрешённых на понижение цены (по паспорту)
+    const priceWlCol = collection(db, ...PUBLIC_DATA_PATH, 'priceWhitelist');
+    const uPwl = onSnapshot(
+      priceWlCol,
+      (snap) => setPriceWhitelist(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => setPriceWhitelist([])
+    );
+
     // Hostel config (checkInHour, etc.)
     const hostelCfgDoc = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
     const uCfg = onSnapshot(
@@ -227,7 +236,7 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uVer(); };
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uPwl(); uVer(); };
   }, [firebaseUser, currentUser]);
 
   return {
@@ -249,6 +258,7 @@ export const useAppData = (firebaseUser, currentUser) => {
     cadastres,
     cadastreRegs,
     manualStayGroups,
+    priceWhitelist,
     clientVersions,
     isOnline,
     permissionError,

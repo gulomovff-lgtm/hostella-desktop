@@ -4,7 +4,7 @@ export const BUILD_TS = typeof __BUILD_TS__ !== 'undefined' ? __BUILD_TS__ : '00
 
 // --- VERSION ---
 export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
-export const MIN_REQUIRED_VERSION = '0.3.0';
+export const MIN_REQUIRED_VERSION = '0.8.6';
 
 // --- SALARY CONFIG ---
 export const DAILY_SALARY = 266666;

@@ -13,6 +13,50 @@ export const Flag = ({ code, size = 20 }) => {
   );
 };
 
+// ── КПП / регистрация ──
+// Срок освобождения от регистрации (дней) зависит от гражданства.
+// Отсчёт от даты прохода КПП, день прибытия = 1-й день (включительно).
+//   Казахстан                      — до 30 дней
+//   Россия, Азербайджан, Беларусь  — до 15 дней
+//   Таджикистан                    — до 10 дней
+//   остальные                      — 3 дня
+export const getRegistrationWindow = (country) => {
+  switch (country) {
+    case 'Казахстан':
+      return 30;
+    case 'Россия':
+    case 'Азербайджан':
+    case 'Белоруссия':
+    case 'Беларусь':
+      return 15;
+    case 'Таджикистан':
+      return 10;
+    default:
+      return 3;
+  }
+};
+
+// День прохода КПП считается ПЕРВЫМ днём: прибыл 15-го → 10-й день = 24-е.
+// Возвращает порядковый номер дня (1 = день прибытия).
+export const getKppDayNumber = (kppDate) => {
+  if (!kppDate) return 0;
+  const [y, m, d] = String(kppDate).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return 0;
+  const start = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((today - start) / 86400000) + 1;
+};
+
+// Крайний день регистрации (включительно). windowDays=10 → прибыл 15-го → дедлайн 24-е.
+// windowDays получают из getRegistrationWindow(country).
+export const getKppDeadline = (kppDate, windowDays = 10) => {
+  if (!kppDate) return null;
+  const [y, m, d] = String(kppDate).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d + (windowDays - 1));
+};
+
 // Pure function: compute time-left label given a checkOutDate string and current ts
 export const getTimeLeftLabel = (checkOutDate, nowMs) => {
   const checkOut = new Date(checkOutDate); // Replaced parseDate with new Date()

@@ -360,6 +360,16 @@ input[type="number"]::-webkit-inner-spin-button {
   html.tg .app-content-scroll {
     padding-top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
   }
+
+  /* В Telegram плавающая шапка (Закрыть / ⌄ / …) перекрывает верх центрированных
+     окон — сдвигаем их ниже и ограничиваем высоту, чтобы шапка окна и кнопки были видны. */
+  html.tg .modal-centered.fixed.inset-0 {
+    align-items: flex-start !important;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+  }
+  html.tg .modal-centered.fixed.inset-0 > div {
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 148px) !important;
+  }
 }
 
 /* ── Mobile touch improvements ── */

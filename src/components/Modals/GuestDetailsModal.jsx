@@ -1,12 +1,12 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
-    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft
+    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft, AlertTriangle
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
-import { Flag, getTotalPaid, fmtSum, parseSum } from '../../utils/helpers';
+import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, getRegistrationWindow } from '../../utils/helpers';
 import ConfirmDialog from '../UI/ConfirmDialog';
 
 const getStayDetails = (checkInDateTime, days) => {
@@ -278,7 +278,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -293,6 +293,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const [payBalance, setPayBalance] = useState(0);
     const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
     const [extendDays, setExtendDays] = useState(1);
+    const [showPriceReq, setShowPriceReq] = useState(false);
+    const [reqPrice, setReqPrice] = useState('');
     const [checkoutManualRefund, setCheckoutManualRefund] = useState('');
     const [checkoutBalanceChoice, setCheckoutBalanceChoice] = useState('balance'); // 'refund' | 'balance' | 'mix'
     const [checkoutMixBalance, setCheckoutMixBalance] = useState('');
@@ -350,6 +352,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const isCheckedOut = guest.status === 'checked_out';
     const isAdmin      = currentUser.role === 'admin' || currentUser.role === 'super';
     const canMoveDate  = isAdmin || currentUser.login === 'fazliddin';
+    const canEditPrice = isAdmin || currentUser.login === 'fazliddin'; // редактировать цену в карточке — только Fazliddin/админ
     const canPay = !isAdmin
         && !(guest.hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false)
         && !(guest.hostelId === 'hostel2' && currentUser.permissions?.canPayInHostel2 === false);
@@ -359,8 +362,30 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const daysStayed = Math.min(Math.max(1, Math.ceil((today - checkIn)/(1000*60*60*24))), parseInt(guest.days));
     const actualCost = daysStayed * parseInt(guest.pricePerNight);
     const balance    = totalPaid - actualCost;
+    // Тарифные правила: цена ниже 70 000 = пакет/скидка → продление только пакетом (от 10 дней)
+    const MIN_NIGHT_PRICE = 70000;
+    const PACKAGE_MIN_DAYS = 10;
+    const guestRate = parseInt(guest.pricePerNight) || 0;
+    const isBelowMinRate = guestRate > 0 && guestRate < MIN_NIGHT_PRICE;
+    // Понижение цены одобрено: флаг на госте ИЛИ паспорт в списке разрешённых
+    const normPass = (p) => (p || '').replace(/\s/g, '').toUpperCase();
+    const wlEntry = priceWhitelist.find(w => normPass(w.passport || w.id) === normPass(guest.passport));
+    const isPriceApproved = !!guest.priceReductionAllowed || !!wlEntry;
+    const approvedPrice = parseInt(guest.approvedPrice) || parseInt(wlEntry?.price) || 0;
+    const extRate = (isPriceApproved && approvedPrice > 0) ? approvedPrice : guestRate;
+    // Пакет-онли действует, только если понижение НЕ одобрено
+    const packageOnly = isBelowMinRate && !isPriceApproved;
+    // Невозвратный пакетный тариф: при выселении переплата не возвращается (пакет сгорает)
+    const isNonRefundable = !!guest.nonRefundable || guest.tariff === 'package';
     const alreadySettledRefund = Math.max(0, Number(guest.refundSettledAmount || 0));
-    const refundableNow = balance > 0 ? Math.max(0, balance - alreadySettledRefund) : 0;
+    const refundableNow = isNonRefundable ? 0 : (balance > 0 ? Math.max(0, balance - alreadySettledRefund) : 0);
+
+    // Для тарифа ниже 70 000 (без одобрения) продление только пакетом — минимум 10 дней
+    useEffect(() => {
+        if (currentView === 'extend' && packageOnly) {
+            setExtendDays(d => Math.max(parseInt(d) || 1, PACKAGE_MIN_DAYS));
+        }
+    }, [currentView, packageOnly]);
 
     // Bonus days: first check guest.bonusDaysAdded (already applied), then client remaining balance
     const normStr = s => (s || '').replace(/\s/g, '').toUpperCase();
@@ -406,7 +431,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     }, [guests, guest, extendDays]);
 
     const applyMagnet = field => {
-        const extCost = currentView === 'extend' ? extendDays * parseInt(guest.pricePerNight) : 0;
+        const extCost = currentView === 'extend' ? extendDays * extRate : 0;
         const total  = debt + extCost;
         const others = (field !== 'payCash'     ? (parseInt(payCash)||0)     : 0)
                      + (field !== 'payCard'     ? (parseInt(payCard)||0)     : 0)
@@ -434,6 +459,23 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
         }
     };
 
+    // Скрытый вызов «Зачёт суммы»: долгое нажатие (1.5с) на иконку «Чек».
+    // Пункта в меню для fazliddin нет — чтобы подменный кассир на общем логине не видел соблазна.
+    // Операция всё равно пишется в аудит-лог (см. handleSuperPayment).
+    const canSuperPay = currentUser.role === 'super' || currentUser.login === 'fazliddin';
+    const superPayHoldRef = useRef(null);
+    const superPayTriggeredRef = useRef(false);
+    const startSuperPayHold = () => {
+        if (!canSuperPay || isCheckedOut) return;
+        superPayHoldRef.current = setTimeout(() => {
+            superPayTriggeredRef.current = true;
+            setCurrentView('superPay');
+        }, 1500);
+    };
+    const cancelSuperPayHold = () => {
+        if (superPayHoldRef.current) { clearTimeout(superPayHoldRef.current); superPayHoldRef.current = null; }
+    };
+
     const handleSuperPaymentLocal = async () => {
         const amount = parseInt(superPayAmount) || 0;
         if (amount <= 0) return notify('Введите сумму', 'error');
@@ -449,8 +491,25 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
         }
     };
 
+    const handleUpgrade = () => {
+        if (!onUpgradeTariff) return;
+        const days = parseInt(guest.days) || 0;
+        const newTotal = 70000 * days;
+        const extra = Math.max(0, newTotal - totalPaid);
+        const msg = `Перевести гостя на тариф 70 000 сум/ночь?\n\nСумма за ${days} дн.: ${newTotal.toLocaleString()} сум.`
+            + (extra > 0 ? `\nДоплата за уже прожитые дни: ${extra.toLocaleString()} сум.` : '');
+        if (window.confirm(msg)) {
+            onUpgradeTariff(guest);
+            onClose();
+        }
+    };
+
     const handleExtend = async () => {
         const days = parseInt(extendDays); if (!days) return;
+        // Тариф ниже 70 000 без одобрения — продлевать можно только пакетом (минимум 10 дней)
+        if (packageOnly && days < PACKAGE_MIN_DAYS) {
+            return notify(`Тариф ниже ${MIN_NIGHT_PRICE.toLocaleString()} — продление только пакетом (мин. ${PACKAGE_MIN_DAYS} дн.) или по одобрению админа`, 'error');
+        }
         // Блокируем продление, если конфликт с другим заселением
         if (extendConflict?.isOver) {
             const d = new Date(extendConflict.nextGuest.checkInDate).toLocaleDateString('ru-RU');
@@ -461,7 +520,8 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
         // чтобы избежать ошибок округления при смеси date-only и ISO-строк
         const existingDays = parseInt(guest.days) || 0;
         const newDays  = existingDays + days;
-        const newTotal = (guest.totalPrice || 0) + (guest.pricePerNight || 0) * days;
+        // По одобренному понижению — считаем доплату по одобренной цене
+        const newTotal = (guest.totalPrice || 0) + extRate * days;
 
         // Если есть активный бонусный период — продлеваем ОТ конца бонуса, чтобы
         // бонус остался на своих ячейках (посередине бара), а не сдвигался в конец
@@ -671,6 +731,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                         <span className="text-xs text-slate-400">К.{guest.roomNumber} · Место {guest.bedId}</span>
                                         {isBooking    && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">БРОНЬ</span>}
                                         {isCheckedOut && <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">ВЫЕХАЛ</span>}
+                                        {isNonRefundable && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">ПАКЕТ · невозвр.</span>}
+                                        {!isNonRefundable && isBelowMinRate && (
+                                            isPriceApproved
+                                                ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ снижение одобрено</span>
+                                                : <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">тариф &lt;70к · только пакет</span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -855,8 +921,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             })()}
 
                             {guest.kppDate && guest.country && guest.country !== 'Узбекистан' && (() => {
-                                const days = Math.floor((Date.now() - new Date(guest.kppDate).getTime()) / 86400000);
-                                const needsReg = days >= 8 && !guest.kppRegistered;
+                                // День прибытия = 1. Срок без регистрации зависит от гражданства.
+                                const regWindow = getRegistrationWindow(guest.country);
+                                const days = getKppDayNumber(guest.kppDate);
+                                const deadline = getKppDeadline(guest.kppDate, regWindow);
+                                const needsReg = days >= regWindow - 1 && !guest.kppRegistered;
+                                const overdue = days > regWindow && !guest.kppRegistered;
                                 const isSuper = currentUser?.role === 'super' || currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
                                 return (
                                     <div className={`rounded-xl p-3 border ${needsReg ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200'}`}>
@@ -864,12 +934,19 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                         <div className="flex items-center justify-between gap-2">
                                             <div>
                                                 <div className="text-xs font-semibold text-slate-700">Дата КПП: {new Date(guest.kppDate).toLocaleDateString('ru-RU')}</div>
+                                                {deadline && (
+                                                    <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                                                        Регистрация до: <span className={overdue ? 'text-rose-600 font-bold' : 'text-slate-700 font-bold'}>{deadline.toLocaleDateString('ru-RU')}</span> <span className="text-slate-400">({regWindow} дн.)</span>
+                                                    </div>
+                                                )}
                                                 <div className={`text-xs font-bold mt-0.5 ${needsReg ? 'text-amber-700' : 'text-slate-500'}`}>
                                                     {guest.kppRegistered
                                                         ? '\u2705 Регистрация подтверждена'
-                                                        : needsReg
+                                                        : overdue
+                                                            ? `⚠️ Просрочено! Прошло ${days} дн. — срочно зарегистрировать!`
+                                                            : needsReg
                                                             ? `\u26a0\ufe0f Прошло ${days} дн. — нужна регистрация!`
-                                                            : `Дней с КПП: ${days}`}
+                                                            : `День ${days} из ${regWindow}`}
                                                 </div>
                                             </div>
                                             <div className="flex flex-col gap-1.5 shrink-0">
@@ -901,6 +978,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                     </div>
                                 </div>
                             ) : !isCheckedOut ? (
+                                <>
                                 <div className="grid grid-cols-2 gap-2">
                                     {canPay && (
                                         <button onClick={()=>setCurrentView('pay')} className="py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 flex items-center justify-center gap-1.5"><Wallet size={15}/> {t('payment')}</button>
@@ -909,13 +987,24 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                     <button onClick={()=>setCurrentView('split')}    className="py-3 rounded-xl bg-amber-400  text-white font-bold text-sm hover:bg-amber-500  flex items-center justify-center gap-1.5"><Split size={15}/> {t('pauseBtn')}</button>
                                     <button onClick={()=>setCurrentView('checkout')} className="py-3 rounded-xl bg-rose-500   text-white font-bold text-sm hover:bg-rose-600   flex items-center justify-center gap-1.5"><LogOut size={15}/> {t('evict')}</button>
                                 </div>
+                                {isBelowMinRate && onUpgradeTariff && (
+                                    <button onClick={handleUpgrade} className="w-full mt-2 py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 flex items-center justify-center gap-1.5">
+                                        ⬆️ Перейти на тариф 70 000
+                                    </button>
+                                )}
+                                </>
                             ) : null}
                         </div>
 
                         <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0 flex items-center gap-1 flex-wrap">
                             {!isBooking && (
                                 <>
-                                    <button onClick={()=>handlePrint('check')}   className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Чек"><Printer size={17}/></button>
+                                    <button
+                                        onClick={()=>{ if (superPayTriggeredRef.current) { superPayTriggeredRef.current = false; return; } handlePrint('check'); }}
+                                        onPointerDown={startSuperPayHold}
+                                        onPointerUp={cancelSuperPayHold}
+                                        onPointerLeave={cancelSuperPayHold}
+                                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Чек"><Printer size={17}/></button>
                                     <button onClick={() => {
                                         setEditForm({
                                             fullName: guest.fullName || '',
@@ -981,15 +1070,52 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                     <div className="flex flex-col overflow-hidden h-full">
                         {hdr(t('extendTitle'), true)}
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
+                            {isPriceApproved && (
+                                <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
+                                    <ShieldCheck size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
+                                    <p className="text-xs text-emerald-700 font-semibold leading-snug">
+                                        Понижение цены <b>одобрено</b>: {approvedPrice.toLocaleString()} сум/ночь. Можно продлевать по 1 дню по этой цене.
+                                    </p>
+                                </div>
+                            )}
+                            {packageOnly && (
+                                <div className="px-3 py-2.5 bg-orange-50 border border-orange-300 rounded-xl space-y-2">
+                                    <div className="flex items-start gap-2">
+                                        <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5"/>
+                                        <p className="text-xs text-orange-700 font-semibold leading-snug">
+                                            Тариф ниже {MIN_NIGHT_PRICE.toLocaleString()} сум — продление <b>только пакетом</b> (мин. {PACKAGE_MIN_DAYS} дн.). Для продления по 1 дню нужно одобрение админа.
+                                        </p>
+                                    </div>
+                                    {onPriceRequest && (
+                                        !showPriceReq ? (
+                                            <button onClick={() => { setShowPriceReq(true); setReqPrice(String(guestRate)); }}
+                                                className="w-full py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold flex items-center justify-center gap-1.5">
+                                                🔻 Запрос на понижение цены
+                                            </button>
+                                        ) : (
+                                            <div className="space-y-2 bg-white rounded-xl p-2.5 border border-orange-200">
+                                                <label className="text-[11px] font-bold text-slate-500 uppercase">Желаемая цена (сум/ночь)</label>
+                                                <input type="number" className="w-full p-2.5 text-center border border-slate-200 rounded-xl outline-none font-bold focus:border-orange-400" placeholder="Цена" value={reqPrice} onChange={e=>setReqPrice(e.target.value)} onWheel={disableWheel}/>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => setShowPriceReq(false)} className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50">Отмена</button>
+                                                    <button onClick={() => { onPriceRequest(guest, parseInt(reqPrice)||0); setShowPriceReq(false); }}
+                                                        disabled={!((parseInt(reqPrice)||0) > 0)}
+                                                        className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-xs font-bold">Отправить админу</button>
+                                                </div>
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+                            )}
                             <div className="flex items-center justify-center gap-5">
-                                <button onClick={()=>setExtendDays(Math.max(1,extendDays-1))} className="w-14 h-14 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200"><Minus size={28}/></button>
+                                <button onClick={()=>setExtendDays(Math.max(packageOnly ? PACKAGE_MIN_DAYS : 1, extendDays-1))} className="w-14 h-14 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200"><Minus size={28}/></button>
                                 <div className="text-center">
-                                    <input type="number" className="w-20 text-center text-5xl font-black text-slate-800 bg-transparent outline-none" value={extendDays} onChange={e=>setExtendDays(Math.max(1,parseInt(e.target.value)||1))} onWheel={disableWheel}/>
+                                    <input type="number" className="w-20 text-center text-5xl font-black text-slate-800 bg-transparent outline-none" value={extendDays} onChange={e=>setExtendDays(Math.max(packageOnly ? PACKAGE_MIN_DAYS : 1,parseInt(e.target.value)||1))} onWheel={disableWheel}/>
                                     <div className="text-slate-400 font-bold text-xs uppercase">{t('days')}</div>
                                 </div>
                                 <button onClick={()=>setExtendDays(d=>d+1)} className="w-14 h-14 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200"><Plus size={28}/></button>
                             </div>
-                            <div className="flex gap-2 justify-center">{[1,3,7,30].map(d=><button key={d} onClick={()=>setExtendDays(d)} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-sm font-bold hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600">+{d}</button>)}</div>
+                            <div className="flex gap-2 justify-center">{(packageOnly ? [10,20,30] : [1,3,7,30]).map(d=><button key={d} onClick={()=>setExtendDays(d)} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-sm font-bold hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600">+{d}</button>)}</div>
                             {extendConflict && (
                                 <div className="flex items-start gap-2 p-3 rounded-xl border bg-amber-50 border-amber-300">
                                     <span className="text-amber-500 text-base shrink-0">⚠️</span>
@@ -1011,7 +1137,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             )}
                             <div className="flex justify-between items-center px-1">
                                 <span className="text-slate-500 font-bold">{t('cost')}:</span>
-                                <span className="text-2xl font-black text-indigo-600">+{(extendDays*parseInt(guest.pricePerNight)).toLocaleString()}</span>
+                                <span className="text-2xl font-black text-indigo-600">+{(extendDays*extRate).toLocaleString()}</span>
                             </div>
                             {!isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)) > 0 && (
                                 <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-xs font-semibold">
@@ -1030,6 +1156,15 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                     <div className="flex flex-col overflow-hidden h-full">
                         {hdr(t('evict'), true)}
                         <div className="p-5 flex-1 overflow-y-auto space-y-4">
+                            {isNonRefundable && (
+                                <div className="flex items-start gap-2 px-3 py-3 bg-rose-50 border-2 border-rose-300 rounded-xl">
+                                    <AlertTriangle size={18} className="text-rose-500 shrink-0 mt-0.5"/>
+                                    <div>
+                                        <p className="text-sm text-rose-700 font-bold">Невозвратный пакетный тариф</p>
+                                        <p className="text-xs text-rose-600 font-semibold mt-0.5">При выселении пакет сгорает полностью — возврат оплаченной суммы не предусмотрен.</p>
+                                    </div>
+                                </div>
+                            )}
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
                                 <div className="flex justify-between"><span className="text-slate-500">{t('stayed')}</span><span className="font-bold">{daysStayed} {t('daysShort')}</span></div>
                                 <div className="flex justify-between"><span className="text-slate-500">{t('cost')}</span><span className="font-bold">{actualCost.toLocaleString()}</span></div>
@@ -1153,7 +1288,16 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             {editForm.country && editForm.country !== 'Узбекистан' && (
                                 <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Дата прохода КПП</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.kppDate} onChange={e=>setEditForm({...editForm,kppDate:e.target.value})}/></div>
                             )}
-                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Тариф/ночь</label><input type="number" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.pricePerNight} onChange={e=>setEditForm({...editForm,pricePerNight:e.target.value})}/></div>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Тариф/ночь</label>
+                                {canEditPrice ? (
+                                    <input type="number" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.pricePerNight} onChange={e=>setEditForm({...editForm,pricePerNight:e.target.value})}/>
+                                ) : (
+                                    <div className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 text-slate-500 flex items-center justify-between">
+                                        <span>{(parseInt(editForm.pricePerNight)||0).toLocaleString()} сум</span>
+                                        <span className="text-[10px] text-slate-400 flex items-center gap-1"><Lock size={11}/> только Fazliddin</span>
+                                    </div>
+                                )}
+                            </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Фото паспорта</label>
                                 <button type="button" onClick={()=>photoInputRef.current?.click()} className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 font-bold text-sm flex items-center justify-center gap-2 hover:border-indigo-300 hover:text-indigo-600">
@@ -1223,7 +1367,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             <button onClick={handleSuperPaymentLocal} className="w-full py-3.5 text-white rounded-xl font-bold flex items-center justify-center gap-2" style={{background:'#7c3aed'}}>
                                 <ShieldCheck size={16}/> ЗАЧЕСТЬ СУММУ
                             </button>
-                            <p className="text-xs text-slate-400 text-center">Операция не отображается в финансовых отчётах</p>
+                            <p className="text-xs text-slate-400 text-center">Не учитывается как выручка, но фиксируется в истории операций</p>
                         </div>
                     </div>
                 )}

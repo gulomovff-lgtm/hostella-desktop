@@ -13,6 +13,13 @@ const fmtDisplay = (iso) => {
     if (!y || !m || !d) return '';
     return `${pad(d)} ${MONTHS_SHORT[m - 1]} ${y}`;
 };
+// YYYY-MM-DD → ДД.ММ.ГГГГ (для ручного ввода)
+const fmtInput = (iso) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    if (!y || !m || !d) return '';
+    return `${d}.${m}.${y}`;
+};
 
 /**
  * Современный date-picker (без сторонних зависимостей).
@@ -22,23 +29,47 @@ const fmtDisplay = (iso) => {
 export default function DatePicker({ value, onChange, placeholder = 'Дата', className = '' }) {
     const [open, setOpen] = useState(false);
     const [alignRight, setAlignRight] = useState(false);
+    const [openUp, setOpenUp] = useState(false);
     const [view, setView] = useState(() => (value ? new Date(value + 'T00:00:00') : new Date()));
+    const [text, setText] = useState(value ? fmtInput(value) : ''); // текст ручного ввода
     const ref = useRef(null);
     const dk = document.documentElement.dataset.theme === 'dark';
 
-    // Открыть и выбрать сторону раскрытия, чтобы календарь не уходил за край экрана
+    // Ручной ввод: автоформат цифр в ДД.ММ.ГГГГ, при полной дате — эмитим YYYY-MM-DD
+    const onType = (raw) => {
+        const digits = raw.replace(/\D/g, '').slice(0, 8);
+        let out = digits;
+        if (digits.length > 4) out = `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
+        else if (digits.length > 2) out = `${digits.slice(0, 2)}.${digits.slice(2)}`;
+        setText(out);
+        if (digits.length === 8) {
+            const d = +digits.slice(0, 2), m = +digits.slice(2, 4), y = +digits.slice(4);
+            if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 1900 && y <= 2100) {
+                onChange(`${y}-${pad(m)}-${pad(d)}`);
+                setView(new Date(y, m - 1, d));
+            }
+        } else if (digits.length === 0) {
+            onChange('');
+        }
+    };
+
+    // Открыть и выбрать сторону/направление раскрытия, чтобы календарь не уходил за края
     const toggleOpen = () => {
         setOpen(o => {
             const next = !o;
             if (next && ref.current) {
                 const rect = ref.current.getBoundingClientRect();
                 setAlignRight(rect.left + 292 > window.innerWidth - 8);
+                const POPUP_H = 360;
+                // если снизу не помещается, а сверху места хватает — раскрываем вверх
+                setOpenUp(rect.bottom + POPUP_H > window.innerHeight - 8 && rect.top > POPUP_H);
             }
             return next;
         });
     };
 
     useEffect(() => { if (value) setView(new Date(value + 'T00:00:00')); }, [value]);
+    useEffect(() => { setText(value ? fmtInput(value) : ''); }, [value]);
     useEffect(() => {
         if (!open) return;
         const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -60,12 +91,22 @@ export default function DatePicker({ value, onChange, placeholder = 'Дата', 
 
     return (
         <div className="relative" ref={ref}>
-            <button type="button" onClick={toggleOpen} className={`${className} flex items-center justify-between gap-2 text-left`}>
-                <span className={value ? '' : 'text-slate-400'}>{value ? fmtDisplay(value) : placeholder}</span>
-                <Calendar size={15} className="text-slate-400 shrink-0" />
-            </button>
+            <div className={`${className} flex items-center gap-2 focus-within:ring-2 focus-within:ring-teal-500/25`}>
+                <input
+                    type="text"
+                    inputMode="numeric"
+                    value={text}
+                    onChange={e => onType(e.target.value)}
+                    onFocus={() => setOpen(false)}
+                    placeholder={placeholder}
+                    className="flex-1 min-w-0 bg-transparent outline-none border-0 p-0 m-0 text-current"
+                />
+                <button type="button" onClick={toggleOpen} className="shrink-0 text-slate-400 hover:text-teal-500" title="Календарь">
+                    <Calendar size={15} />
+                </button>
+            </div>
             {open && (
-                <div className={`absolute ${alignRight ? 'right-0' : 'left-0'} z-[60] mt-2 p-3 rounded-2xl shadow-2xl border w-[284px] max-w-[90vw]`}
+                <div className={`absolute ${alignRight ? 'right-0' : 'left-0'} ${openUp ? 'bottom-full mb-2' : 'top-full mt-2'} z-[60] p-3 rounded-2xl shadow-2xl border w-[284px] max-w-[90vw]`}
                     style={{ background: dk ? '#1e293b' : '#fff', borderColor: dk ? '#334155' : '#e2e8f0' }}>
                     {/* Навигация по месяцам */}
                     <div className="flex items-center justify-between mb-2.5">

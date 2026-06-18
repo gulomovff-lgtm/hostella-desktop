@@ -3,7 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3, MapPin,
+    ClipboardCheck, BarChart3, MapPin, ShieldCheck,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -47,6 +47,7 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('personnel'),
         items: [
             { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
+            { id: 'pricePerms', icon: ShieldCheck, label: 'Понижение цены', adminOnly: true },
             { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
         ],
     },

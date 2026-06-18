@@ -9,11 +9,18 @@
  *  - При следующем createSession для того же юзера — предыдущая сессия закрывается
  *  - При closeSession localStorage-запись удаляется (нормальный logout)
  */
-import { addDoc, updateDoc, doc, collection } from 'firebase/firestore';
+import { addDoc, updateDoc, doc, collection, writeBatch } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 
 const SESSION_KEY  = 'hostella_session_id';
 export const LOGIN_AT_KEY = 'hostella_login_at';
+
+/**
+ * Сессия считается "мёртвой", если хартбита (lastSeen) не было дольше этого порога.
+ * Хартбит идёт каждые 30с, поэтому 15 мин — заведомо закрытая вкладка/выключенный ноут,
+ * с запасом на кратковременный сон устройства и сетевые перебои.
+ */
+export const ABANDONED_SESSION_MS = 15 * 60 * 1000;
 
 /** localStorage-ключ для восстановления sessionId после перезапуска вкладки/приложения */
 const PREV_SESSION_LS_KEY = 'hostella_prev_session';
@@ -129,6 +136,8 @@ export const closeSession = async () => {
 
 /**
  * Обновляет lastSeen текущей сессии (вызывается по таймеру).
+ * Заодно переподтверждает active:true — если сессию ошибочно закрыли авто-очисткой,
+ * пока устройство спало, живой хартбит её "оживит".
  */
 export const heartbeatSession = async () => {
   const sessionId = sessionStorage.getItem(SESSION_KEY);
@@ -136,8 +145,51 @@ export const heartbeatSession = async () => {
   try {
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'sessions', sessionId), {
       lastSeen: new Date().toISOString(),
+      active:   true,
     });
   } catch { /* silent */ }
+};
+
+// Сессии, для которых уже отправили закрытие — чтобы не писать повторно
+// в окне до прихода свежего снапшота.
+const _closeAttempted = new Set();
+
+/**
+ * Авто-закрывает "зависшие" сессии: active:true, но без хартбита дольше порога.
+ * Нужно потому, что closeSession() при закрытии вкладки/выключении ноута часто
+ * не успевает долететь до Firestore. logoutAt ставим = последней активности
+ * (lastSeen), а не "сейчас" — так время выхода отражает реальный конец работы.
+ * @param {Array} sessions — массив сессий из снапшота Firestore
+ * @returns {Promise<number>} сколько сессий закрыто
+ */
+export const closeAbandonedSessions = async (sessions, { thresholdMs = ABANDONED_SESSION_MS } = {}) => {
+  const ownId = sessionStorage.getItem(SESSION_KEY);
+  const now = Date.now();
+  const stale = (sessions || []).filter(s =>
+    s.active &&
+    s.id !== ownId &&                       // свою текущую сессию не трогаем
+    !_closeAttempted.has(s.id) &&
+    (!s.lastSeen || now - new Date(s.lastSeen).getTime() > thresholdMs)
+  );
+  if (!stale.length) return 0;
+  stale.forEach(s => _closeAttempted.add(s.id));
+
+  const nowIso = new Date().toISOString();
+  let closed = 0;
+  // Firestore batch: максимум 500 операций
+  for (let i = 0; i < stale.length; i += 490) {
+    const chunk = stale.slice(i, i + 490);
+    const batch = writeBatch(db);
+    for (const s of chunk) {
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'sessions', s.id), {
+        active:   false,
+        logoutAt: s.lastSeen || nowIso,
+      });
+    }
+    try { await batch.commit(); closed += chunk.length; }
+    catch (e) { console.warn('[session] closeAbandonedSessions batch failed:', e.message); }
+  }
+  return closed;
 };
 
 /** Возвращает ISO-строку времени входа из sessionStorage. */

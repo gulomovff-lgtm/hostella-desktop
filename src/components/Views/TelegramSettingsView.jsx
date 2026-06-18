@@ -21,7 +21,7 @@ export const NOTIFICATION_TYPES = {
     registrationRemove: { label: 'Вывод из E-mehmon',            icon: '🔴', category: 'guests',  color: '#94a3b8' },
     cadastreNew:        { label: 'Кадастр — новая регистрация',    icon: '🏠', category: 'guests', color: '#6366f1' },
     cadastreExpiring:   { label: 'Кадастр — истекает регистрация', icon: '⚠️', category: 'guests', color: '#f59e0b' },
-    kppAlert:           { label: 'КПП — нужна регистрация (9-10 дн.)', icon: '📍', category: 'guests', color: '#ef4444' },
+    kppAlert:           { label: 'КПП — нужна регистрация (срок по стране)', icon: '📍', category: 'guests', color: '#ef4444' },
     // ── Бронирование ───────────────────────────────────────────────────────
     newBooking:      { label: 'Онлайн-бронь (новая)',        icon: '📋', category: 'booking', color: '#8b5cf6' },
     bookingAccepted: { label: 'Бронь принята',               icon: '✅', category: 'booking', color: '#10b981' },

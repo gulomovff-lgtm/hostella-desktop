@@ -19,6 +19,8 @@ export const DEFAULT_APP_CONFIG = {
     // Уведомления об ошибках
     errorAlertsEnabled: true,
     errorAlertChatId: '7029598539',
+    // Кому уходят запросы на понижение цены (Telegram chat_id, можно несколько)
+    priceApprovalChatIds: ['6953132612'],
     // Финансы
     defaultUsdRate: '',          // курс USD по умолчанию в модалке расхода
     registrationDailyRate: '',   // ставка регистрации (кадастр) по умолчанию

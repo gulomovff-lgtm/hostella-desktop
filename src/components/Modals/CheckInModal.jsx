@@ -1,9 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, ArrowRightLeft } from 'lucide-react';
+import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, ArrowRightLeft, AlertTriangle } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
+import DatePicker from '../UI/DatePicker';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db, PUBLIC_DATA_PATH } from '../../firebase';
 
 // --- Helpers ---
 const getStayDetails = (checkInDateTime, days) => {
@@ -39,6 +42,11 @@ const getRoomPrice = (room, bedId) => {
 const EXTRA_BED_ID = 'extra';
 
 const isExtraBed = (bedId) => String(bedId || '').toLowerCase() === EXTRA_BED_ID;
+
+// ── Тарифы заселения ──
+const MIN_NIGHT_PRICE  = 70000;  // минимальная цена обычного размещения (сум/ночь)
+const PACKAGE_PRICE    = 65000;  // фикс. цена пакетного тарифа (сум/ночь)
+const PACKAGE_MIN_DAYS = 10;     // минимум дней для пакетного тарифа
 
 // --- MRZ Parser (Machine Readable Zone) ---
 const parseMRZ = (raw) => {
@@ -121,6 +129,20 @@ const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon:
     </div>
 );
 
+// Дата через единый кастомный календарь приложения (как в бронированиях/отчётах)
+const DateField = ({ label, value, onChange, error, placeholder }) => (
+    <div className="space-y-1">
+        {label && <label className={`text-xs font-bold uppercase ml-1 ${error ? 'text-rose-500' : 'text-slate-600'}`}>{label}{error && ' *'}</label>}
+        <DatePicker
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder || 'дд.мм.гггг'}
+            className={`w-full bg-white border rounded-xl py-2.5 px-3 font-medium text-slate-800 shadow-sm transition-all ${error ? 'border-rose-400 ring-2 ring-rose-200 bg-rose-50' : 'border-slate-200'}`}
+        />
+        {error && <p className="text-xs text-rose-500 font-medium ml-1 mt-0.5">{error}</p>}
+    </div>
+);
+
 const SimpleSelect = ({ label, value, onChange, options }) => (
     <div className="space-y-1">
         {label && <label className="text-xs font-bold text-slate-600 uppercase ml-1">{label}</label>}
@@ -153,7 +175,7 @@ const cyrToLat = (str) => str.toUpperCase().split('').map(ch => {
 }).join('');
 
 // --- Main Component ---
-const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
+const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
     const t = (k) => TRANSLATIONS[lang][k];
 
     const safeInitialRoom = initialRoom || (allRooms.length > 0 ? allRooms[0] : null);
@@ -176,6 +198,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
         checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
         days: 1,
+        tariff: 'standard', // 'standard' | 'package' (пакет 65000, от 10 дней, невозвратный)
 
         paidCash: '',
         paidCard: '',
@@ -189,6 +212,11 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [errors, setErrors] = useState({});
+    // Запрос на понижение цены при заселении (одобрение в Telegram)
+    const [priceReqId, setPriceReqId] = useState(null);
+    const [priceReqStatus, setPriceReqStatus] = useState('idle'); // idle | pending | approved | rejected
+    const [priceReqApproved, setPriceReqApproved] = useState(0);
+    const [priceReqSending, setPriceReqSending] = useState(false);
     const [blacklistWarning, setBlacklistWarning] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitConflict, setSubmitConflict] = useState(null); // { maxDays, guestName, guestDate, alternatives }
@@ -386,6 +414,70 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         return availableBeds.every(b => b.isOccupied);
     }, [formData.roomId, availableBeds]);
 
+    // Выбор тарифа: пакет фиксирует цену 65000 и минимум 10 дней
+    const selectTariff = (mode) => {
+        setErrors(e => ({ ...e, pricePerNight: '', days: '' }));
+        if (mode === 'package') {
+            setFormData(p => ({
+                ...p,
+                tariff: 'package',
+                pricePerNight: String(PACKAGE_PRICE),
+                days: Math.max(parseInt(p.days) || 1, PACKAGE_MIN_DAYS),
+            }));
+        } else {
+            setFormData(p => ({
+                ...p,
+                tariff: 'standard',
+                // если стояла пакетная цена — сбрасываем, чтобы кассир ввёл от 70000
+                pricePerNight: (parseInt(p.pricePerNight) || 0) === PACKAGE_PRICE ? '' : p.pricePerNight,
+            }));
+        }
+    };
+
+    // Слушаем статус заявки на понижение цены при заселении
+    useEffect(() => {
+        if (!priceReqId) return;
+        const unsub = onSnapshot(doc(db, ...PUBLIC_DATA_PATH, 'priceRequests', priceReqId), (snap) => {
+            if (!snap.exists()) return;
+            const d = snap.data();
+            setPriceReqStatus(d.status || 'pending');
+            if (d.status === 'approved') {
+                const ap = parseInt(d.requestedPrice) || 0;
+                setPriceReqApproved(ap);
+                if (ap > 0) setFormData(p => ({ ...p, pricePerNight: String(ap) }));
+            }
+        });
+        return unsub;
+    }, [priceReqId]);
+
+    const requestPriceApproval = async () => {
+        if (!onCheckinPriceRequest) return;
+        const price = parseInt(formData.pricePerNight) || 0;
+        if (price <= 0) { notify('Укажите желаемую цену', 'error'); return; }
+        if (!formData.fullName.trim()) { notify('Сначала укажите ФИО гостя', 'error'); return; }
+        setPriceReqSending(true);
+        setPriceReqStatus('pending');
+        try {
+            const id = await onCheckinPriceRequest({
+                guestName: formData.fullName,
+                passport: formData.passport,
+                roomNumber: formData.roomNumber,
+                hostelId: currentUser?.hostelId || '',
+                requestedPrice: price,
+            });
+            if (id) setPriceReqId(id); else setPriceReqStatus('idle');
+        } catch { setPriceReqStatus('idle'); }
+        finally { setPriceReqSending(false); }
+    };
+
+    // Клиент уже в списке разрешённых на понижение (по паспорту) — запрос не нужен
+    const clientWhitelisted = useMemo(() => {
+        const key = (formData.passport || '').replace(/\s/g, '').toUpperCase();
+        return !!key && priceWhitelist.some(w => (w.passport || w.id || '').replace(/\s/g, '').toUpperCase() === key);
+    }, [formData.passport, priceWhitelist]);
+
+    const priceApproved = priceReqStatus === 'approved' || clientWhitelisted;
+
     const handleChange = (field, value) => {
         const processed = (field === 'fullName' || field === 'passport') ? value.toUpperCase() : value;
         setFormData(prev => ({ ...prev, [field]: processed }));
@@ -501,12 +593,22 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             notify(t('fillAllFields'), 'error');
             return;
         }
+        // Правила тарифов (финальный контроль)
+        if (formData.tariff === 'package') {
+            if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) {
+                notify(`Пакетный тариф: минимум ${PACKAGE_MIN_DAYS} дней`, 'error');
+                return;
+            }
+        } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
+            notify(`Цена ниже ${MIN_NIGHT_PRICE.toLocaleString()} — нужно одобрение администратора`, 'error');
+            return;
+        }
         if (blacklistWarning?.level === 'blacklist') {
             if (!window.confirm(t('blacklistConfirmMsg'))) return;
         }
         // Проверка конфликта занятости — показываем inline-плашку
         const selBed = isExtraBed(formData.bedId) ? null : availableBeds.find(b => b.id === formData.bedId);
-        if (selBed?.maxFreeDays !== null && selBed.maxFreeDays !== undefined &&
+        if (selBed && selBed.maxFreeDays !== null && selBed.maxFreeDays !== undefined &&
             (parseInt(formData.days) || 1) > selBed.maxFreeDays) {
             setSubmitConflict({
                 maxDays: selBed.maxFreeDays,
@@ -519,6 +621,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         }
         setSubmitConflict(null);
         if (rentalConflict) return; // inline-предупреждение уже показано в UI
+        // Защита от некорректной даты заезда (иначе toISOString() бросит RangeError и заселение молча провалится)
+        const checkInBase = new Date(formData.checkInDate);
+        if (isNaN(checkInBase.getTime())) {
+            notify('Укажите корректную дату заезда', 'error');
+            return;
+        }
         setIsSubmitting(true);
         try {
             const checkIn = new Date(formData.checkInDate);
@@ -543,8 +651,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 checkInDate: checkIn.toISOString(),
                 checkOutDate: checkOut.toISOString(),
                 totalPrice,
-                amountPaid: totalPaid
+                amountPaid: totalPaid,
+                nonRefundable: formData.tariff === 'package',
+                priceReductionAllowed: !!priceApproved,
+                approvedPrice: priceApproved ? (parseInt(formData.pricePerNight) || 0) : 0,
             });
+        } catch (e) {
+            console.error('[checkin]', e);
+            notify('Ошибка заселения: ' + (e?.message || e), 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -553,7 +667,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     return (
         <>
         <style>{MODAL_STYLE}</style>
-        <div className="ci-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4" style={{ background: 'rgba(15,30,32,0.7)' }}>
+        <div className="ci-backdrop modal-centered fixed inset-0 z-[200] flex items-center justify-center p-4 pb-[84px] sm:pb-4" style={{ background: 'rgba(15,30,32,0.7)' }}>
             <div className="ci-card w-full max-w-2xl overflow-hidden flex flex-col relative" style={{ borderRadius: 24, boxShadow: '0 32px 80px rgba(0,0,0,0.35)', maxHeight: '95vh', background: '#fff' }}>
 
                 <div style={{ background: '#1a3c40', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
@@ -816,12 +930,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                                 <SimpleInput label={t('passport')} value={formData.passport} onChange={val => handleChange('passport', val)} placeholder="AA 1234567" icon={FileText} error={errors.passport}/>
-                                <SimpleInput label={t('birthDate')} type="date" value={formData.birthDate} onChange={val => handleChange('birthDate', val)} error={errors.birthDate}/>
+                                <DateField label={t('birthDate')} value={formData.birthDate} onChange={val => handleChange('birthDate', val)} error={errors.birthDate}/>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                                 {formData.country && formData.country !== 'Узбекистан' && (
-                                    <SimpleInput label={t('passportIssueDateLabel')} type="date" value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)} error={errors.passportIssueDate}/>
+                                    <DateField label={t('passportIssueDateLabel')} value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)} error={errors.passportIssueDate}/>
                                 )}
                                 <SimpleInput label={t('phone')} value={formData.phone} onChange={val => handleChange('phone', val)} placeholder="+998..." icon={Phone}/>
                             </div>
@@ -842,9 +956,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             </div>
 
                             {formData.country && formData.country !== 'Узбекистан' && (
-                                <SimpleInput
+                                <DateField
                                     label="Дата прохода КПП"
-                                    type="date"
                                     value={formData.kppDate}
                                     onChange={val => handleChange('kppDate', val)}
                                     error={errors.kppDate}
@@ -853,13 +966,82 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             <div className="bg-white p-4 rounded-xl border mt-2" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
                                 <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-100 pb-2">{t('stayConditions')}</h3>
-                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
-                                    <SimpleInput label={t('checkIn')} type="date" value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
-                                    <SimpleInput label={t('price')} type="number" formatNumber value={formData.pricePerNight} onChange={val => handleChange('pricePerNight', val)}
-                                        rightElement={<span className="text-xs font-bold text-slate-400">сум</span>} error={errors.pricePerNight}/>
+
+                                {/* Тариф */}
+                                <label className="text-xs font-bold uppercase ml-1 text-slate-600 block mb-1">Тариф</label>
+                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                    <button type="button" onClick={() => selectTariff('standard')}
+                                        className={`py-2.5 rounded-xl border text-sm font-bold transition-colors ${formData.tariff === 'standard' ? 'bg-teal-600 text-white border-teal-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                        Обычный
+                                    </button>
+                                    <button type="button" onClick={() => selectTariff('package')}
+                                        className={`py-2.5 rounded-xl border text-sm font-bold transition-colors flex flex-col items-center leading-tight ${formData.tariff === 'package' ? 'bg-orange-500 text-white border-orange-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                        <span>Пакет · {PACKAGE_PRICE.toLocaleString()}</span>
+                                        <span className="text-[10px] font-semibold opacity-80">от {PACKAGE_MIN_DAYS} дн. · невозвратный</span>
+                                    </button>
                                 </div>
+                                {formData.tariff === 'package' && (
+                                    <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-300 rounded-xl mb-3">
+                                        <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                                        <p className="text-xs text-amber-700 font-semibold leading-snug">
+                                            Пакетный тариф <b>невозвратный</b>. Минимум {PACKAGE_MIN_DAYS} дней. При выселении пакет <b>сгорает полностью</b> — возврат не предусмотрен.
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
+                                    <DateField label={t('checkIn')} value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
+                                    {formData.tariff === 'package' ? (
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold uppercase ml-1 text-slate-600 block">{t('price')}</label>
+                                            <div className="w-full bg-orange-50 border border-orange-200 rounded-xl py-2.5 px-3 font-bold text-orange-700 flex items-center justify-between">
+                                                <span>{PACKAGE_PRICE.toLocaleString()}</span>
+                                                <span className="text-[10px] font-semibold text-orange-500">пакет · сум</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <SimpleInput label={`${t('price')} (от ${MIN_NIGHT_PRICE.toLocaleString()})`} type="number" formatNumber value={formData.pricePerNight} onChange={val => handleChange('pricePerNight', val)}
+                                            rightElement={<span className="text-xs font-bold text-slate-400">сум</span>} error={errors.pricePerNight}/>
+                                    )}
+                                </div>
+
+                                {/* Запрос на понижение цены (цена < 70 000, обычный тариф) */}
+                                {formData.tariff === 'standard' && (parseInt(formData.pricePerNight)||0) > 0 && (parseInt(formData.pricePerNight)||0) < MIN_NIGHT_PRICE && (
+                                    <div className="mb-4">
+                                        {clientWhitelisted ? (
+                                            <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
+                                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
+                                                <p className="text-xs text-emerald-700 font-semibold">Клиент в списке разрешённых на понижение — цену можно ставить ниже 70 000, запрос не нужен.</p>
+                                            </div>
+                                        ) : priceReqStatus === 'approved' ? (
+                                            <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
+                                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
+                                                <p className="text-xs text-emerald-700 font-semibold">Цена {priceReqApproved.toLocaleString()} сум одобрена администратором — можно заселять.</p>
+                                            </div>
+                                        ) : priceReqStatus === 'pending' ? (
+                                            <div className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 border border-amber-300 rounded-xl">
+                                                <span className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin shrink-0"/>
+                                                <p className="text-xs text-amber-700 font-semibold">Ожидает одобрения в Telegram… Не закрывайте окно.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="px-3 py-2.5 bg-orange-50 border border-orange-300 rounded-xl space-y-2">
+                                                <div className="flex items-start gap-2">
+                                                    <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5"/>
+                                                    <p className="text-xs text-orange-700 font-semibold leading-snug">
+                                                        Цена ниже {MIN_NIGHT_PRICE.toLocaleString()} сум — нужно одобрение администратора.
+                                                        {priceReqStatus === 'rejected' && <b className="block text-rose-600 mt-1">Предыдущий запрос отклонён.</b>}
+                                                    </p>
+                                                </div>
+                                                <button type="button" onClick={requestPriceApproval} disabled={priceReqSending}
+                                                    className="w-full py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-bold">
+                                                    🔻 Запросить понижение цены ({(parseInt(formData.pricePerNight)||0).toLocaleString()})
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="relative">
-                                    <SimpleInput label={t('quantityDays')} type="number" value={formData.days} onChange={val => handleChange('days', val)}/>
+                                    <SimpleInput label={`${t('quantityDays')}${formData.tariff === 'package' ? ` (от ${PACKAGE_MIN_DAYS})` : ''}`} type="number" value={formData.days} onChange={val => handleChange('days', val)} error={errors.days}/>
                                     <div className="absolute right-2 top-[26px] flex gap-1">
                                         <button onClick={() => handleChange('days', Math.max(1, (parseInt(formData.days)||1)-1))} className="p-1 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><Minus size={14}/></button>
                                         <button onClick={() => handleChange('days', (parseInt(formData.days)||1)+1)} className="p-1 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><Plus size={14}/></button>
@@ -1097,7 +1279,11 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
                                     if (!formData.kppDate) errs.kppDate = t('fieldRequired');
                                 }
-                                if (!(parseInt(formData.pricePerNight) > 0)) errs.pricePerNight = t('priceRequired');
+                                if (formData.tariff === 'package') {
+                                    if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) errs.days = `Минимум ${PACKAGE_MIN_DAYS} дней`;
+                                } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
+                                    errs.pricePerNight = `Минимум ${MIN_NIGHT_PRICE.toLocaleString()} сум (или одобрение)`;
+                                }
                                 if (Object.keys(errs).length > 0) { setErrors(errs); return; }
                                 setErrors({});
                             }

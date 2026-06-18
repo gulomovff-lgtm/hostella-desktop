@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { computeContractFinancials } from '../../utils/contractFinancials';
+import { getKppDayNumber, getRegistrationWindow } from '../../utils/helpers';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -141,10 +142,12 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru',
     const flagCode = guest?.country ? CF[guest.country] : null;
     const timeInfo = buildTimeInfo(guest, status, nowMs, lang);
 
+    // День КПП = 1. Срок без регистрации зависит от гражданства. Пересчёт каждый рендер (nowMs).
     const kppDays = (guest?.kppDate && guest.country && guest.country !== 'Узбекистан')
-        ? Math.floor((nowMs - new Date(guest.kppDate).getTime()) / 86400000)
+        ? getKppDayNumber(guest.kppDate)
         : -1;
-    const kppAlert = kppDays >= 8 && !guest?.kppRegistered;
+    const kppWindow = getRegistrationWindow(guest?.country);
+    const kppAlert = kppDays >= kppWindow - 1 && !guest?.kppRegistered;
 
     const cadastreExpired = (() => {
         if (!guest?.id && !guest?.fullName) return false;
