@@ -70,6 +70,23 @@ export function useShiftActions({
     );
     if (active) return;
     const hostelId = hostelIdOverride || currentUser.hostelId;
+    // Не даём открыть вторую смену в хостеле, где уже открыта смена другого кассира.
+    // (учитываем только смены существующих пользователей — как и авто-старт)
+    const otherOpen = shifts.find(s =>
+      s.hostelId === hostelId &&
+      !s.endTime &&
+      s.staffId !== currentUser.id &&
+      (s.staffLogin ? s.staffLogin !== currentUser.login : true) &&
+      usersList.some(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin))
+    );
+    if (otherOpen) {
+      const owner = usersList.find(u => u.id === otherOpen.staffId || (otherOpen.staffLogin && u.login === otherOpen.staffLogin));
+      showNotification(
+        `В этом хостеле уже открыта смена (${owner?.name || otherOpen.staffName || 'другой кассир'}). Сначала закройте или передайте её.`,
+        'error'
+      );
+      return;
+    }
     try {
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), {
         staffId:    currentUser.id,

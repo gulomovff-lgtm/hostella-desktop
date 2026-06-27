@@ -1,5 +1,6 @@
-// Лист проживающих для бухгалтерии (KVITANSIYA) — список группы 1..20 чел.
-// Печать в том же стиле, что и договор. Печать (М.П.) ставится отдельно вручную.
+// Лист проживающих для бухгалтерии — список группы 1..20 чел.
+// Печать в том же стиле, что и договор. Заголовок и язык (RU/UZ) задаются в модалке.
+// Печать (М.П.) ставится отдельно вручную.
 
 const getPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid
     : ((+g.paidCash || 0) + (+g.paidCard || 0) + (+g.paidQR || 0) + (+g.paidTransfer || 0)));
@@ -8,43 +9,90 @@ const getPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid
 const LEGAL = {
     hostel1: {
         entity: '«SABIROVA SHOIRA BAXTIYOROVNA»',
-        kind: 'Yuridik shaxs tashkil etmagan oilaviy tadbirkorlik',
         regAddr: 'Юнусабадский район, Мирзо Улугбек МФЙ, ул. Ниёзбек Йули, 43',
         idLabel: 'ИНН', idNum: '41802800190045',
         account: '20218000207167574001',
         mfo: '01145',
         bank: 'Шайхантахурский филиал АИКБ «Ипак Йули»',
-        sign: 'YATT SABIROVA SH. B.',
+        sign: 'SABIROVA SH. B.',
     },
     hostel2: {
         entity: '«YULDASHEV AZIZ IRGASHEVICH»',
-        kind: 'Yuridik shaxs tashkil etmagan oilaviy tadbirkorlik',
         regAddr: 'Юнусабадский район, ул. Ниёзбек Йули, 6-проезд, 41',
         idLabel: 'ПИНФЛ', idNum: '31406840190037',
         account: '20218000507377875001',
         mfo: '01145',
         bank: 'АТБ «Ипак Йули»',
-        sign: 'YATT YULDASHEV A. I.',
+        sign: 'YULDASHEV A. I.',
     },
 };
+
+// Заголовки документа по умолчанию (используются и в модалке)
+export const RECEIPT_TITLES = {
+    ru: 'СПРАВКА О ПРОЖИВАНИИ',
+    uz: 'YASHASH TO‘G‘RISIDA MA’LUMOTNOMA',
+};
+
+// Полностью переводимые строки документа
+const STR = {
+    ru: {
+        titleDefault: RECEIPT_TITLES.ru,
+        entityPrefix: 'ИП',
+        fromDate: 'от ',
+        period: 'Период проживания',
+        rate: 'Ставка', rateUnit: 'сум/ночь',
+        thName: 'Ф.И.О.', thPassport: 'Паспортные данные', thQty: 'Кол-во', thPrice: 'Цена', thSum: 'Сумма, сум',
+        totalStay: 'Итого за проживание', total: 'ИТОГО', persons: 'чел.',
+        svcTitle: 'Дополнительные услуги', thService: 'Услуга', svcTotal: 'Итого услуги',
+        grand: 'ВСЕГО К ОПЛАТЕ', sum: 'сум',
+        emptyList: 'Список пуст',
+        accountLbl: 'Счёт №', mfoLbl: 'МФО',
+        signRole: 'Подпись ответственного лица', seal: 'М.П.',
+        kind: 'Семейное предпринимательство без образования юридического лица',
+        locale: 'ru-RU',
+    },
+    uz: {
+        titleDefault: RECEIPT_TITLES.uz,
+        entityPrefix: 'YATT',
+        fromDate: '',
+        period: 'Yashash davri',
+        rate: 'Tarif', rateUnit: 'so‘m/kecha',
+        thName: 'F.I.Sh.', thPassport: 'Pasport ma’lumotlari', thQty: 'Soni', thPrice: 'Narxi', thSum: 'Summa, so‘m',
+        totalStay: 'Yashash uchun jami', total: 'JAMI', persons: 'kishi',
+        svcTitle: 'Qo‘shimcha xizmatlar', thService: 'Xizmat', svcTotal: 'Xizmatlar jami',
+        grand: 'JAMI TO‘LOVGA', sum: 'so‘m',
+        emptyList: 'Ro‘yxat bo‘sh',
+        accountLbl: 'Hisob raqami', mfoLbl: 'MFO',
+        signRole: 'Mas’ul shaxs imzosi', seal: 'M.O‘.',
+        kind: 'Yuridik shaxs tashkil etmagan oilaviy tadbirkorlik',
+        locale: 'uz-UZ',
+    },
+};
+
+// Узбекские аналоги налоговых меток
+const ID_LABEL_UZ = { 'ИНН': 'STIR', 'ПИНФЛ': 'JSHSHIR' };
 
 const esc = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const money = (n) => (Number(n) || 0).toLocaleString('ru-RU');
 
 /**
- * Печать листа проживающих (квитанция для бухгалтерии).
+ * Печать листа проживающих для бухгалтерии.
  * @param {Array} guests  — массив гостей (1..20)
  * @param {string} hostelId — 'hostel1' | 'hostel2'
- * @param {object} opts — { date?: Date|string, title?: string }
+ * @param {object} opts — { date, periodFrom, periodTo, rate, services, blocks, title, lang }
  */
 export function printGroupReceipt(guests = [], hostelId = 'hostel1', opts = {}) {
     const L = LEGAL[hostelId] || LEGAL.hostel1;
+    const lang = opts.lang === 'uz' ? 'uz' : 'ru';
+    const S = STR[lang];
+    const title = (opts.title || '').trim() || S.titleDefault;
+
     const list = (guests || []).slice(0, 20);
     const dateObj = opts.date ? new Date(opts.date) : new Date();
-    const dateStr = dateObj.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
-    const fmtD = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '';
-    const period = (opts.periodFrom && opts.periodTo) ? `Период проживания: ${fmtD(opts.periodFrom)} — ${fmtD(opts.periodTo)}` : '';
-    const rateLine = opts.rate ? `Ставка: ${money(opts.rate)} сум/ночь` : '';
+    const dateStr = dateObj.toLocaleDateString(S.locale, { day: '2-digit', month: 'long', year: 'numeric' });
+    const fmtD = (d) => d ? new Date(d).toLocaleDateString(S.locale) : '';
+    const period = (opts.periodFrom && opts.periodTo) ? `${S.period}: ${fmtD(opts.periodFrom)} — ${fmtD(opts.periodTo)}` : '';
+    const rateLine = opts.rate ? `${S.rate}: ${money(opts.rate)} ${S.rateUnit}` : '';
     const logo1 = `${import.meta.env.BASE_URL}Logo.png`;
     const logo2 = `${import.meta.env.BASE_URL}uzbek-tourism.svg`;
 
@@ -63,11 +111,40 @@ export function printGroupReceipt(guests = [], hostelId = 'hostel1', opts = {}) 
         </tr>`;
     }).join('');
 
-    const bank1 = `${L.regAddr}${L.idNum ? `, ${L.idLabel || 'ИНН'} ${L.idNum}` : ''}`;
-    const bank2 = `Счёт № ${L.account || '____________________'}, МФО ${L.mfo || '_____'}${L.bank ? `, ${L.bank}` : ''}`;
+    // Доп. услуги (произвольные цены)
+    const servicesArr = Array.isArray(opts.services) ? opts.services : [];
+    const svcQty = (s) => (Number(s.qty) > 0 ? Number(s.qty) : 1);
+    const svcSum = (s) => svcQty(s) * (Number(s.price) || 0);
+    const servicesTotal = servicesArr.reduce((acc, x) => acc + svcSum(x), 0);
+    const grandTotal = total + servicesTotal;
+    const servicesRows = servicesArr.map((s, i) => `<tr>
+            <td class="c">${i + 1}</td>
+            <td>${esc(s.name || '')}</td>
+            <td class="c">${svcQty(s)}</td>
+            <td class="r">${money(s.price)}</td>
+            <td class="r">${money(svcSum(s))}</td>
+        </tr>`).join('');
+    const servicesBlock = servicesArr.length ? `
+        <div class="subttl">${S.svcTitle}</div>
+        <table class="g svc">
+          <thead><tr><th class="c num">№</th><th>${S.thService}</th><th class="c kun">${S.thQty}</th><th class="r">${S.thPrice}</th><th class="r sum">${S.thSum}</th></tr></thead>
+          <tbody>${servicesRows}</tbody>
+          <tfoot><tr><td colspan="4" class="r">${S.svcTotal}:</td><td class="r">${money(servicesTotal)}</td></tr></tfoot>
+        </table>
+        <div class="grand">${S.grand}: <b>${money(grandTotal)} ${S.sum}</b></div>` : '';
+
+    // Произвольные текстовые блоки
+    const blocksArr = Array.isArray(opts.blocks) ? opts.blocks : [];
+    const blocksBlock = blocksArr.length
+        ? `<div class="blocks">${blocksArr.map(t => `<p>${esc(t).replace(/\n/g, '<br/>')}</p>`).join('')}</div>`
+        : '';
+
+    const idLabel = lang === 'uz' ? (ID_LABEL_UZ[L.idLabel] || L.idLabel) : L.idLabel;
+    const bank1 = `${L.regAddr}${L.idNum ? `, ${idLabel} ${L.idNum}` : ''}`;
+    const bank2 = `${S.accountLbl} ${L.account || '____________________'}, ${S.mfoLbl} ${L.mfo || '_____'}${L.bank ? `, ${L.bank}` : ''}`;
 
     const w = window.open('', '', 'width=900,height=1200');
-    const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>KVITANSIYA</title>
+    const html = `<!DOCTYPE html><html lang="${lang}"><head><meta charset="UTF-8"><title>${esc(title)}</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0;}
       html,body{background:#e7ecf1;font-family:'PT Sans','Segoe UI',Arial,sans-serif;color:#1b2733;font-size:11.5px;line-height:1.4;-webkit-font-smoothing:antialiased;}
@@ -82,7 +159,7 @@ export function printGroupReceipt(guests = [], hostelId = 'hostel1', opts = {}) 
       .org .bank{font-size:10px;color:#5a6b7e;margin-top:2px;}
       .rule{border-top:2.5px solid #123e74;margin:8px 0 0;}
       .rule i{display:block;border-top:1px solid #cdd8e6;margin-top:2.5px;}
-      .ktitle{text-align:center;font-size:21px;font-weight:800;letter-spacing:3px;color:#123e74;margin:11px 0 1px;}
+      .ktitle{text-align:center;font-size:18px;font-weight:800;letter-spacing:1.5px;color:#123e74;margin:11px 0 1px;line-height:1.25;}
       .kdate{text-align:center;font-size:11px;color:#5a6b7e;margin-bottom:9px;}
       table.g{width:100%;border-collapse:collapse;font-size:11.5px;}
       table.g th{background:#123e74;color:#fff;font-size:10.5px;font-weight:700;padding:8px 9px;text-align:left;}
@@ -94,6 +171,10 @@ export function printGroupReceipt(guests = [], hostelId = 'hostel1', opts = {}) 
       table.g .kun{width:60px;}
       table.g .sum{width:120px;}
       table.g tfoot td{font-weight:800;font-size:12.5px;border-top:2px solid #123e74;background:#eef3f9;padding:9px;}
+      .subttl{font-weight:800;font-size:12px;color:#123e74;margin:14px 0 6px;}
+      .grand{text-align:right;font-size:14px;font-weight:800;color:#123e74;margin-top:8px;}
+      .blocks{margin-top:14px;font-size:11.5px;color:#1b2733;}
+      .blocks p{margin:0 0 7px;white-space:pre-wrap;line-height:1.5;}
       .sigrow{display:flex;justify-content:space-between;align-items:flex-end;margin-top:34px;gap:24px;}
       .sigrow .who{font-size:11.5px;}
       .sigrow .who .ln{display:inline-block;border-bottom:1px solid #2a3a49;min-width:160px;margin-left:6px;}
@@ -110,30 +191,32 @@ export function printGroupReceipt(guests = [], hostelId = 'hostel1', opts = {}) 
       <div class="page">
         <div class="head"><img class="logoA" src="${logo1}" alt=""/><img class="logoB" src="${logo2}" alt=""/></div>
         <div class="org">
-          <div class="name">${L.entity}</div>
-          <div class="kind">${L.kind}</div>
+          <div class="name">${S.entityPrefix} ${L.entity}</div>
+          <div class="kind">${S.kind}</div>
           <div class="bank">${bank1}</div>
           <div class="bank">${bank2}</div>
         </div>
         <div class="rule"><i></i></div>
-        <div class="ktitle">KVITANSIYA</div>
-        <div class="kdate">от ${dateStr}${period ? ` · ${period}` : ''}${rateLine ? ` · ${rateLine}` : ''}</div>
+        <div class="ktitle">${esc(title)}</div>
+        <div class="kdate">${S.fromDate}${dateStr}${period ? ` · ${period}` : ''}${rateLine ? ` · ${rateLine}` : ''}</div>
         <table class="g">
           <thead><tr>
-            <th class="c num">№</th><th>Ф.И.О.</th><th>Паспортные данные</th>
-            <th class="c kun">Кол-во</th><th class="r sum">Сумма, сум</th>
+            <th class="c num">№</th><th>${S.thName}</th><th>${S.thPassport}</th>
+            <th class="c kun">${S.thQty}</th><th class="r sum">${S.thSum}</th>
           </tr></thead>
-          <tbody>${rows || '<tr><td colspan="5" class="c" style="color:#9aa7b6;padding:18px">Список пуст</td></tr>'}</tbody>
-          <tfoot><tr><td colspan="4" class="r">ИТОГО (${list.length} чел.):</td><td class="r">${money(total)}</td></tr></tfoot>
+          <tbody>${rows || `<tr><td colspan="5" class="c" style="color:#9aa7b6;padding:18px">${S.emptyList}</td></tr>`}</tbody>
+          <tfoot><tr><td colspan="4" class="r">${servicesArr.length ? S.totalStay : S.total} (${list.length} ${S.persons}):</td><td class="r">${money(total)}</td></tr></tfoot>
         </table>
+        ${servicesBlock}
+        ${blocksBlock}
         <div class="sigrow">
           <div class="who">
-            <div>${L.sign}: <span class="ln"></span></div>
-            <div class="role">Подпись ответственного лица</div>
+            <div>${S.entityPrefix} ${L.sign}: <span class="ln"></span></div>
+            <div class="role">${S.signRole}</div>
           </div>
-          <div class="seal">М.П.</div>
+          <div class="seal">${S.seal}</div>
         </div>
-        <div class="foot">${L.entity} · ${L.regAddr}</div>
+        <div class="foot">${S.entityPrefix} ${L.entity} · ${L.regAddr}</div>
       </div>
     </body></html>`;
     w.document.write(html);

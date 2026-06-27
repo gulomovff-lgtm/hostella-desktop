@@ -18,7 +18,6 @@
  */
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField,
-  getDocs, query, where,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
@@ -379,23 +378,29 @@ export function useGuestActions(ctx) {
         totalPrice: final.totalPrice, refund: cashPart, balanceTopUp: balancePart,
       });
 
-      // Авто-снятие кадастр-регистраций при выселении гостя
-      if (guest.id) {
-        try {
-          const cadRegsSnap = await getDocs(
-            query(
-              collection(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations'),
-              where('guestId', '==', guest.id),
-              where('status', '==', 'active'),
-            )
-          );
-          const removedAt = new Date().toISOString();
-          for (const cadDoc of cadRegsSnap.docs) {
-            await updateDoc(cadDoc.ref, { status: 'removed', removedAt, removedBy: 'auto_checkout' });
-          }
-        } catch (cadErr) {
-          console.warn('[checkout] Не удалось снять кадастр-регистрации:', cadErr.message);
+      // Авто-снятие кадастр-регистраций при выселении гостя.
+      // Матчим по guestId, паспорту ИЛИ имени — т.к. старые/ручные регистрации
+      // могли быть созданы с другим guestId (id клиента) или вообще без него,
+      // и тогда по выселенному гостю продолжали идти алерты «истекает регистрация».
+      try {
+        const normP = (s) => (s || '').replace(/\s/g, '').toUpperCase();
+        const gPass = normP(guest.passport);
+        const toRemove = (cadastreRegs || []).filter(r => {
+          if (r.status !== 'active') return false;
+          if (guest.id && r.guestId === guest.id) return true;
+          if (gPass && normP(r.passport) === gPass) return true;
+          // По имени — только если у регистрации нет паспорта (нет сильного ключа)
+          if (!r.passport && guest.fullName && r.guestName === guest.fullName) return true;
+          return false;
+        });
+        const removedAt = new Date().toISOString();
+        for (const r of toRemove) {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', r.id), {
+            status: 'removed', removedAt, removedBy: 'auto_checkout',
+          });
         }
+      } catch (cadErr) {
+        console.warn('[checkout] Не удалось снять кадастр-регистрации:', cadErr.message);
       }
     } catch (e) {
       console.error('handleCheckOut error:', e);
