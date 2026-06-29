@@ -2,8 +2,10 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
-    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft, AlertTriangle
+    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft, AlertTriangle, Settings
 } from 'lucide-react';
+import EmehmonAccountsModal from './EmehmonAccountsModal';
+import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, getRegistrationWindow } from '../../utils/helpers';
@@ -278,7 +280,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -328,6 +330,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     });
     const [kppResetModal, setKppResetModal] = useState(false);
     const [kppResetDate, setKppResetDate] = useState('');
+    const [emehmonCfgOpen, setEmehmonCfgOpen] = useState(false);
     const [splitReturnDate, setSplitReturnDate] = useState(() => {
         const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().split('T')[0];
     });
@@ -967,6 +970,67 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                     </div>
                                 );
                             })()}
+
+                            {guest.country && window.electronAPI?.openEmehmon && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        {(() => {
+                                            // «Оформить (прибытие)» прячем, если уже зарегистрирован в e-mehmon
+                                            // или есть активная регистрация по кадастру.
+                                            const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
+                                            const hasCadastre = cadastreRegs.some(r =>
+                                                r.status !== 'removed' &&
+                                                (r.guestId === guest.id ||
+                                                 (r.passport && guest.passport && normP(r.passport) === normP(guest.passport))));
+                                            if (guest.emehmonReg || hasCadastre) return null;
+                                            return (
+                                                <button
+                                                    onClick={() => { openEmehmonArrival(guest); notify('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}
+                                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-bold hover:bg-indigo-100 transition-colors"
+                                                >
+                                                    🌐 Оформить (прибытие)
+                                                </button>
+                                            );
+                                        })()}
+                                        {(isAdmin || currentUser.login === 'fazliddin') && (
+                                            <button onClick={() => setEmehmonCfgOpen(true)} title="Доступы e-mehmon"
+                                                className="p-2.5 rounded-xl border border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                                                <Settings size={16} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    {isCheckedOut && (
+                                        <button
+                                            onClick={() => {
+                                                if (onEmehmonDepart) onEmehmonDepart(guest);
+                                                else { openEmehmonDeparture(guest); notify('Открываю e-mehmon — «Выселить» или «Печать»', 'info'); }
+                                            }}
+                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-bold hover:bg-rose-100 transition-colors"
+                                        >
+                                            ✈️ Вывести из e-mehmon (фон)
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {guest.country && !isBooking && (
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1">
+                                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                        <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600"
+                                            checked={!!guest.emehmonReg}
+                                            onChange={e => onUpdate(guest.id, { emehmonReg: e.target.checked, emehmonRegAt: e.target.checked ? new Date().toISOString() : '' })} />
+                                        Зарегистрирован в e-mehmon
+                                    </label>
+                                    {isCheckedOut && (
+                                        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                            <input type="checkbox" className="w-4 h-4 rounded accent-emerald-600"
+                                                checked={!!guest.emehmonOut}
+                                                onChange={e => onUpdate(guest.id, { emehmonOut: e.target.checked, emehmonOutAt: e.target.checked ? new Date().toISOString() : '' })} />
+                                            Выведен из e-mehmon
+                                        </label>
+                                    )}
+                                </div>
+                            )}
 
                             {isBooking ? (
                                 <div className="space-y-2">
@@ -1613,6 +1677,10 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
             onCancel={() => setConfirmDeleteOpen(false)}
             lang={lang}
         />
+
+        {emehmonCfgOpen && (
+            <EmehmonAccountsModal onClose={() => setEmehmonCfgOpen(false)} notify={notify} />
+        )}
 
         {kppResetModal && (
             <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">

@@ -8,6 +8,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isMaximized:  () => ipcRenderer.invoke('window-isMaximized'),
   fetchIcal:    (url) => ipcRenderer.invoke('fetch-ical', url),
 
+  // e-mehmon: открыть окно регистрации иностранца с автозаполнением
+  // (логин/пароль приходят в guest из облака; выбор по филиалу гостя)
+  openEmehmon:  (guest) => ipcRenderer.invoke('open-emehmon', guest),
+  // e-mehmon: фоновое выселение (возвращает статус: done/need_login/not_found/…)
+  emehmonDeparture: (guest) => ipcRenderer.invoke('emehmon-departure', guest),
+  // e-mehmon: проверка, активен ли гость в /listok (present/absent/need_login/…)
+  emehmonCheck: (guest) => ipcRenderer.invoke('emehmon-check', guest),
+  // e-mehmon: весь список /listok для синхронизации статусов регистрации
+  emehmonList: (payload) => ipcRenderer.invoke('emehmon-list', payload),
+
   // Pending payments (offline safety net)
   savePendingPayments: (data) => ipcRenderer.invoke('save-pending-payments', data),
   loadPendingPayments: ()     => ipcRenderer.invoke('load-pending-payments'),

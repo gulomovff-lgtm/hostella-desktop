@@ -6,6 +6,7 @@ const https = require('https');
 const http  = require('http');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -33,6 +34,8 @@ const UPDATE_IDLE_CHECK_INTERVAL_MS = 60 * 1000;
 const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.json');
 
 let mainWindow;
+let emehmonWindow = null;
+let departureWindow = null;
 let isDownloading = false;
 let isUpdateDownloaded = false;
 let isInstallingUpdate = false;
@@ -128,6 +131,185 @@ function createWindow() {
     }, 2 * 60 * 60 * 1000);
   }
 }
+
+// ─── e-mehmon: встроенное окно регистрации иностранцев ──────────────────────
+// Открывает дочернее окно с порталом e-mehmon в отдельной постоянной сессии
+// (логин/капча сохраняются) и инжектит автозаполнение. Логин/пароль приходят
+// в payload из облака (Firebase, выбор по филиалу гостя) — см. src/utils/emehmon.js.
+ipcMain.handle('open-emehmon', (_event, guest) => {
+  try {
+    const payload = guest || {};
+
+    if (emehmonWindow && !emehmonWindow.isDestroyed()) {
+      emehmonWindow.focus();
+      // окно переиспользуется — обновляем данные/кнопку под нового гостя
+      emehmonWindow.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      return true;
+    }
+    emehmonWindow = new BrowserWindow({
+      width: 1200,
+      height: 860,
+      parent: mainWindow,
+      title: 'e-mehmon — регистрация иностранцев',
+      autoHideMenuBar: true,
+      webPreferences: {
+        partition: 'persist:emehmon', // отдельная сессия с сохранением логина
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+      },
+    });
+    emehmonWindow.setMenuBarVisibility(false);
+    // Прибытие → create-page, убытие → /listok. Если не залогинен, портал уведёт
+    // на /login, после входа скрипт авто-редиректит на нужную страницу.
+    emehmonWindow.loadURL('https://emehmon.uz' + (payload.path || '/listok/create-page'));
+
+    const inject = () => {
+      emehmonWindow.webContents
+        .executeJavaScript(buildAutofillScript(payload))
+        .catch((err) => log.error('[emehmon] inject failed:', err.message));
+    };
+    emehmonWindow.webContents.on('did-finish-load', inject);
+    emehmonWindow.webContents.on('did-navigate', inject);
+    emehmonWindow.webContents.on('did-navigate-in-page', inject);
+    // После успешного сохранения листка скрипт выставляет title-сентинел — закрываем окно.
+    emehmonWindow.webContents.on('page-title-updated', (_e, title) => {
+      if (title && title.indexOf('__HOSTELLA_REG_DONE__') !== -1) {
+        if (emehmonWindow && !emehmonWindow.isDestroyed()) emehmonWindow.close();
+      }
+    });
+    emehmonWindow.on('closed', () => { emehmonWindow = null; });
+    return true;
+  } catch (e) {
+    log.error('[emehmon] open failed:', e.message);
+    return false;
+  }
+});
+
+// ─── e-mehmon: фоновое выселение ────────────────────────────────────────────
+// Гонит весь процесс убытия в СКРЫТОМ окне (та же сессия persist:emehmon, логин
+// сохранён): находит гостя, открывает модалку «Chiqish», заполняет TO‘LOV/тип/
+// печать и жмёт «Check-Out». Возвращает статус в рендер (см. emehmonAutofill.js).
+//  • print:true  → окно показывается, чтобы был виден диалог печати листа убытия;
+//  • проблема (вход/не найден/неоднозначно) → окно всплывает для ручного завершения.
+// Создаёт (или переиспользует) скрытое окно убытия в сессии persist:emehmon.
+function ensureDepartureWindow() {
+  if (departureWindow && !departureWindow.isDestroyed()) return departureWindow;
+  departureWindow = new BrowserWindow({
+    width: 1200,
+    height: 860,
+    parent: mainWindow,
+    show: false,
+    title: 'e-mehmon — убытие',
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: 'persist:emehmon', // та же сессия, что и окно прибытия
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+    },
+  });
+  departureWindow.setMenuBarVisibility(false);
+  departureWindow.on('closed', () => { departureWindow = null; });
+  // e-mehmon при печати открывает лист убытия отдельным окном — показываем его.
+  departureWindow.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      parent: mainWindow,
+      autoHideMenuBar: true,
+      webPreferences: { partition: 'persist:emehmon' },
+    },
+  }));
+  return departureWindow;
+}
+
+ipcMain.handle('emehmon-departure', async (_event, guest) => {
+  const payload = guest || {};
+  const wantVisible = !!payload.print;
+  try {
+    const win = ensureDepartureWindow();
+    // Свежая загрузка списка (фолбэк на /login, если не залогинен)
+    await win.loadURL('https://emehmon.uz/listok');
+    if (wantVisible) { win.show(); win.focus(); }
+
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildDepartureAutoScript(payload), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    const status = (result && result.status) || 'error';
+
+    const needsHuman = ['need_login', 'not_found', 'multiple', 'no_table',
+      'no_modal', 'no_button', 'no_checkout_btn', 'error'].includes(status);
+    if (needsHuman) {
+      // Показать окно и подмешать ручную панель убытия / автозаполнение логина.
+      win.show(); win.focus();
+      win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+    } else if (status === 'done' && !wantVisible) {
+      win.hide(); // успех в фоне — прячем (окно переиспользуется при след. выселении)
+    }
+
+    return result || { status };
+  } catch (e) {
+    log.error('[emehmon] departure failed:', e.message);
+    if (departureWindow && !departureWindow.isDestroyed()) { departureWindow.show(); }
+    return { status: 'error', message: e.message };
+  }
+});
+
+// ─── e-mehmon: проверка, выселен ли гость ────────────────────────────────────
+// «Готово» в плашке не должно ставиться «просто так»: проверяем в /listok (там
+// только активные). present → ещё не выселен; absent → уже в /listokout.
+// Всегда в фоне; окно показываем только если нужен вход.
+ipcMain.handle('emehmon-check', async (_event, guest) => {
+  const payload = guest || {};
+  try {
+    const win = ensureDepartureWindow();
+    await win.loadURL('https://emehmon.uz/listok');
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildDepartureCheckScript(payload), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    const status = (result && result.status) || 'error';
+    if (status === 'need_login') {
+      win.show(); win.focus();
+      win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+    } else {
+      win.hide(); // проверка всегда фоновая
+    }
+    return result || { status };
+  } catch (e) {
+    log.error('[emehmon] check failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
+
+// ─── e-mehmon: список зарегистрированных (фоновая синхронизация статусов) ─────
+// Загружает /listok текущего аккаунта и возвращает все строки. Окно показываем
+// только при необходимости входа; иначе всё в фоне.
+ipcMain.handle('emehmon-list', async (_event, payload) => {
+  const data = payload || {};
+  try {
+    const win = ensureDepartureWindow();
+    await win.loadURL('https://emehmon.uz/listok');
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildListFetchScript(), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    // Список — всегда фоновый: окно не показываем даже при need_login (вход
+    // выполняется через окна прибытия/убытия; сессия persist:emehmon общая).
+    win.hide();
+    return result || { status: (result && result.status) || 'error' };
+  } catch (e) {
+    log.error('[emehmon] list failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
 
 // IPC Handlers for window control
 ipcMain.handle('window-minimize', () => {

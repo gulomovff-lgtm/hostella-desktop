@@ -135,6 +135,8 @@ import ClientEditModal from './components/Modals/ClientEditModal';
 import CreateDebtModal from './components/Modals/CreateDebtModal';
 // --- Views ---
 import DashboardView from './components/Views/DashboardView';
+import EmehmonPendingBanner from './components/UI/EmehmonPendingBanner';
+import EmehmonDepartureModal from './components/Modals/EmehmonDepartureModal';
 import StaffView from './components/Views/StaffView';
 import TaskManager from './components/Views/TasksView';
 import DebtsView from './components/Views/DebtsView';
@@ -158,6 +160,7 @@ import { reportClientVersion } from './utils/clientTelemetry';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
+import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered } from './utils/emehmon';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
@@ -456,6 +459,12 @@ function App() {
     return () => clearInterval(id);
   }, []);
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
+  const [emehmonReminder, setEmehmonReminder] = useState(null);
+  const [emehmonDepart, setEmehmonDepart] = useState(null); // гость для фонового выселения
+  const [emehmonChecking, setEmehmonChecking] = useState(null); // id гостя на проверке «Готово»
+  const [emehmonArrivalPrompt, setEmehmonArrivalPrompt] = useState(null); // предложение оформить прибытие
+  const [emehmonSyncing, setEmehmonSyncing] = useState(false); // идёт фоновая синхронизация статусов
+  const emehmonSyncBusy = useRef(false);
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenseModalCategory, setExpenseModalCategory] = useState('');
@@ -1074,6 +1083,141 @@ function App() {
     }
   }, [currentUser]);
 
+  // e-mehmon: отметки «зарегистрирован/выведен» на госте
+  const handleEmehmonFlag = useCallback(async (guestId, updates) => {
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updates);
+    } catch (e) {
+      showNotification('Ошибка: ' + e.message, 'error');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // e-mehmon: открыть подтверждение фонового выселения. Если Electron недоступен
+  // (веб) — фолбэк на старое окно. Иначе показываем модалку EmehmonDepartureModal.
+  const handleEmehmonDepart = useCallback((guest) => {
+    if (!guest) return;
+    if (window.electronAPI?.emehmonDeparture) {
+      setEmehmonDepart(guest);
+    } else {
+      openEmehmonDeparture(guest);
+      showNotification('Открываю e-mehmon — «Выселить» или «Печать»', 'info');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Результат фонового выселения: помечаем «выведен», уведомляем, при проблеме —
+  // окно уже всплыло в Electron для ручного завершения.
+  const handleEmehmonDepartResult = useCallback((res) => {
+    const guest = emehmonDepart;
+    const status = res?.status;
+    if (status === 'done') {
+      if (guest?.id) handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() });
+      showNotification('Гость выселен из e-mehmon ✓', 'success');
+      setEmehmonDepart(null);
+      setEmehmonReminder(null);
+    } else if (status === 'submitted') {
+      showNotification('Check-Out нажат. Проверьте e-mehmon и отметьте «Выведен».', 'warning');
+      setEmehmonDepart(null);
+    } else if (status === 'need_login') {
+      showNotification('Войдите в e-mehmon (окно открыто), затем повторите выселение.', 'info');
+      setEmehmonDepart(null);
+    } else if (status === 'multiple') {
+      showNotification('Несколько совпадений в e-mehmon — завершите вручную в открытом окне.', 'warning');
+      setEmehmonDepart(null);
+    } else if (status === 'not_found') {
+      showNotification('Гость не найден в списке e-mehmon — завершите вручную в открытом окне.', 'error');
+      setEmehmonDepart(null);
+    } else {
+      showNotification('Не удалось выселить автоматически — завершите вручную в открытом окне.', 'error');
+      setEmehmonDepart(null);
+    }
+  }, [emehmonDepart, handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // «Готово»/«Уже выведен»: нельзя просто убрать плашку — сверяемся с e-mehmon.
+  // absent (нет в активном /listok) → ставим отметку; present (ещё активен) →
+  // отметку не даём, открываем окно выселения, чтобы не отмечали «просто так».
+  const handleEmehmonDone = useCallback(async (guest) => {
+    if (!guest) return;
+    if (!window.electronAPI?.emehmonCheck) {
+      handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() });
+      setEmehmonReminder(null);
+      return;
+    }
+    setEmehmonChecking(guest.id);
+    showNotification('Проверяю в e-mehmon…', 'info');
+    const res = await checkEmehmonActive(guest);
+    setEmehmonChecking(null);
+    const status = res?.status;
+    if (status === 'absent') {
+      handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() });
+      showNotification('Подтверждено: гость выселен в e-mehmon ✓', 'success');
+      setEmehmonReminder(null);
+    } else if (status === 'present') {
+      showNotification('Гость ещё активен в e-mehmon — сначала выселите', 'warning');
+      setEmehmonReminder(null);
+      setEmehmonDepart(guest);
+    } else if (status === 'need_login') {
+      showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
+    } else {
+      showNotification('Не удалось проверить e-mehmon — выселите вручную.', 'error');
+      setEmehmonReminder(null);
+      setEmehmonDepart(guest);
+    }
+  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Фоновая синхронизация статусов регистрации: тянем /listok текущего филиала и
+  // авто-ставим «Зарегистрирован» совпавшим активным иностранцам. НЕ снимаем —
+  // поэтому ложноотрицательные (другой филиал/аккаунт) безвредны.
+  const runEmehmonSync = useCallback(async (manual = false) => {
+    if (!window.electronAPI?.emehmonList) {
+      if (manual) showNotification('Доступно только в десктоп-приложении', 'info');
+      return;
+    }
+    if (emehmonSyncBusy.current) return;
+    emehmonSyncBusy.current = true;
+    if (manual) { setEmehmonSyncing(true); showNotification('Проверяю e-mehmon…', 'info'); }
+    try {
+      const hostelId = (currentUser.hostelId && currentUser.hostelId !== 'all')
+        ? currentUser.hostelId
+        : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1');
+      const res = await fetchEmehmonRegistered(hostelId);
+      if (res?.status === 'ok') {
+        const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
+        const pSet = new Set((res.rows || []).map(r => r.passport).filter(Boolean));
+        const nSet = new Set((res.rows || []).map(r => r.name).filter(Boolean));
+        // e-mehmon регистрирует всех гостей (в т.ч. граждан Узбекистана) — фильтр
+        // по гражданству НЕ применяем, сопоставляем по паспорту/ФИО.
+        const toMark = (guests || []).filter(g =>
+          g.status === 'active' && !g.emehmonReg &&
+          (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
+        const now = new Date().toISOString();
+        for (const g of toMark) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+              { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true });
+          } catch (_) { /* пропускаем */ }
+        }
+        if (manual) showNotification(`Синхронизация e-mehmon: отмечено новых — ${toMark.length}`, 'success');
+      } else if (res?.status === 'need_login') {
+        if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
+      } else {
+        if (manual) showNotification('Не удалось получить список e-mehmon.', 'error');
+      }
+    } finally {
+      emehmonSyncBusy.current = false;
+      if (manual) setEmehmonSyncing(false);
+    }
+  }, [guests, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Стабильный планировщик: старт через 8с после входа + каждые 6 часов.
+  const emehmonSyncRef = useRef(runEmehmonSync);
+  useEffect(() => { emehmonSyncRef.current = runEmehmonSync; }, [runEmehmonSync]);
+  useEffect(() => {
+    if (!window.electronAPI?.emehmonList || !currentUser) return;
+    const t = setTimeout(() => emehmonSyncRef.current(false), 8000);
+    const iv = setInterval(() => emehmonSyncRef.current(false), 6 * 60 * 60 * 1000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [currentUser]);
+
   const handleLogin = (user) => {
     const defEntry = DEFAULT_USERS.find(d => d.login === user.login);
     const enrichedUser = (defEntry?.canViewHostel1 && !user.canViewHostel1)
@@ -1155,6 +1299,8 @@ function App() {
     setGuestDetailsModal, setMoveGuestModal,
     setUndoStack, setUndoHistoryOpen,
     showNotification, isOnline,
+    setEmehmonReminder,
+    setEmehmonArrivalPrompt,
   });
 
   const {
@@ -2067,6 +2213,13 @@ return (
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
+                <EmehmonPendingBanner
+                    guests={filteredGuests}
+                    onDepart={(g) => handleEmehmonDepart(g)}
+                    onDone={(g) => handleEmehmonDone(g)}
+                    checkingId={emehmonChecking}
+                    onOpen={(g) => setGuestDetailsModal({ open: true, guest: g })}
+                />
                 <div ref={contentScrollRef}
                     onScroll={(e) => setShowScrollTop(e.currentTarget.scrollTop > 400)}
                     className={`app-content-scroll flex-1 overflow-y-auto overflow-x-hidden ${
@@ -2087,6 +2240,8 @@ return (
                         clients={clients}
                         onGuestClick={(client) => handleOpenClientHistory(client)}
                         registrations={filteredRegistrations}
+                        onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
+                        onMarkEmehmonOut={(id) => handleEmehmonFlag(id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() })}
                     />
                 )}
 
@@ -2247,6 +2402,8 @@ return (
                 {activeTab === 'registrations' && (
                     <RegistrationsView
                         registrations={filteredRegistrations}
+                        guests={filteredGuests}
+                        cadastreRegs={filteredCadastreRegs}
                         currentUser={currentUser}
                         lang={lang}
                         users={usersList}
@@ -2254,6 +2411,10 @@ return (
                         onRemove={handleRemoveFromEmehmon}
                         onExtend={handleExtendRegistration}
                         onDelete={handleDeleteRegistration}
+                        onSyncEmehmon={() => runEmehmonSync(true)}
+                        emehmonSyncing={emehmonSyncing}
+                        onRegisterEmehmon={(g) => { openEmehmonArrival(g); showNotification('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}
+                        onDepartEmehmon={handleEmehmonDepart}
                     />
                 )}
 
@@ -2566,8 +2727,9 @@ return (
                 onUpdate={handleGuestUpdate} 
                 onPayment={handlePayment} 
                 onSuperPayment={handleSuperPayment}
-                onCheckOut={handleCheckOut} 
-                onSplit={handleSplitGuest} 
+                onCheckOut={handleCheckOut}
+                onEmehmonDepart={handleEmehmonDepart}
+                onSplit={handleSplitGuest}
                 onOpenMove={() => setMoveGuestModal({ open: true, guest: guestDetailsModal.guest })} 
                 onDelete={handleDeleteGuest} 
                 notify={showNotification} 
@@ -2709,6 +2871,67 @@ return (
                 />
                 );
             })()}
+
+            {/* e-mehmon: напоминание вывести при выселении */}
+            {emehmonReminder && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+                        <div className="h-1.5 bg-amber-400 w-full" />
+                        <div className="p-6 space-y-4">
+                            <div className="flex items-start gap-3">
+                                <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center shrink-0 text-xl">🛫</div>
+                                <div>
+                                    <h3 className="font-black text-slate-800 text-base">Не забудьте вывести из e-mehmon</h3>
+                                    <p className="text-sm text-slate-500 mt-1"><b>{emehmonReminder.fullName}</b> выселен{emehmonReminder.roomNumber ? ` (ком. ${emehmonReminder.roomNumber})` : ''}. Оформите убытие в e-mehmon, затем отметьте.</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                {window.electronAPI?.openEmehmon && (
+                                    <button onClick={() => handleEmehmonDepart(emehmonReminder)}
+                                        className="w-full py-2.5 rounded-xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600">✈️ Вывести в e-mehmon</button>
+                                )}
+                                <button onClick={() => handleEmehmonDone(emehmonReminder)} disabled={emehmonChecking === emehmonReminder.id}
+                                    className="w-full py-2.5 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 disabled:opacity-50">{emehmonChecking === emehmonReminder.id ? 'Проверка в e-mehmon…' : '✓ Уже выведен'}</button>
+                                <button onClick={() => setEmehmonReminder(null)}
+                                    className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Позже (останется в списке)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {emehmonDepart && (
+                <EmehmonDepartureModal
+                    guest={emehmonDepart}
+                    onClose={() => setEmehmonDepart(null)}
+                    onResult={handleEmehmonDepartResult}
+                />
+            )}
+
+            {emehmonArrivalPrompt && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+                        <div className="h-1.5 bg-indigo-500 w-full" />
+                        <div className="p-6 space-y-4">
+                            <div className="flex items-start gap-3">
+                                <div className="w-11 h-11 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 text-xl">🌐</div>
+                                <div>
+                                    <h3 className="font-black text-slate-800 text-base">Оформить регистрацию в e-mehmon?</h3>
+                                    <p className="text-sm text-slate-500 mt-1"><b>{emehmonArrivalPrompt.fullName}</b>{emehmonArrivalPrompt.roomNumber ? ` · ком. ${emehmonArrivalPrompt.roomNumber}` : ''}{emehmonArrivalPrompt.country ? ` · ${emehmonArrivalPrompt.country}` : ''}</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <button onClick={() => { openEmehmonArrival(emehmonArrivalPrompt); showNotification('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); setEmehmonArrivalPrompt(null); }}
+                                    className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700">🌐 Оформить сейчас</button>
+                                <button onClick={() => { handleEmehmonFlag(emehmonArrivalPrompt.id, { emehmonSkip: true, emehmonSkipAt: new Date().toISOString() }); showNotification('Регистрация пропущена для этого гостя', 'info'); setEmehmonArrivalPrompt(null); }}
+                                    className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-600 font-bold text-sm hover:bg-slate-200">Пропустить (без регистрации)</button>
+                                <button onClick={() => setEmehmonArrivalPrompt(null)}
+                                    className="w-full py-2 rounded-xl border border-slate-200 text-slate-400 font-bold text-xs hover:bg-slate-50">Позже</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Лист в бухгалтерию (доступен всем, включая кассиров) */}
             <GroupReceiptModal

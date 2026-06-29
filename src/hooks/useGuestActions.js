@@ -34,6 +34,8 @@ export function useGuestActions(ctx) {
     setGuestDetailsModal, setMoveGuestModal,
     setUndoStack, setUndoHistoryOpen,
     showNotification, isOnline = true,
+    setEmehmonReminder,
+    setEmehmonArrivalPrompt,
   } = ctx;
 
   // ─── Internal helpers ────────────────────────────────────────────────────
@@ -272,6 +274,14 @@ export function useGuestActions(ctx) {
           guestId, paymentIds: checkinPaymentIds, roomId: formData.roomId, wasActive: true,
         });
         await upsertClient(formData);
+
+        // Предложить оформить регистрацию в e-mehmon (для всех гостей — e-mehmon
+        // регистрирует и граждан Узбекистана). Кассир может «Пропустить» — иногда
+        // регистрацию не делают ради экономии.
+        if (setEmehmonArrivalPrompt && window.electronAPI?.openEmehmon &&
+            newGuest.country && !newGuest.emehmonReg) {
+          setEmehmonArrivalPrompt({ id: guestId, ...newGuest });
+        }
       }
 
       setCheckInModal({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null });
@@ -401,6 +411,11 @@ export function useGuestActions(ctx) {
         }
       } catch (cadErr) {
         console.warn('[checkout] Не удалось снять кадастр-регистрации:', cadErr.message);
+      }
+
+      // Напоминание вывести из e-mehmon (если гость был зарегистрирован и ещё не выведен)
+      if (guest.emehmonReg && !guest.emehmonOut && setEmehmonReminder) {
+        setEmehmonReminder({ id: guest.id, fullName: guest.fullName, hostelId: guest.hostelId, roomNumber: guest.roomNumber, passport: guest.passport, country: guest.country });
       }
     } catch (e) {
       console.error('handleCheckOut error:', e);

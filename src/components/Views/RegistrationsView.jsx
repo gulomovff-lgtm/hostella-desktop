@@ -3,7 +3,7 @@ import {
     ClipboardCheck, Search, AlertTriangle, CheckCircle2, Clock,
     Trash2, RefreshCw, Plus, Calendar, Wallet, User, Phone,
     FileText, ChevronDown, ChevronUp, X, Download,
-    AlertCircle, UserX, CheckSquare
+    AlertCircle, UserX, CheckSquare, Eye, Plane
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -268,20 +268,152 @@ const RegCard = ({ reg, currentUser, lang, onRemove, onExtend, onDelete }) => {
     );
 };
 
+// ─── Статус проживающих в e-mehmon (информационная подвкладка) ────────────────
+// Чисто справочно: кто из активных иностранцев есть/нет в регистрации e-mehmon
+// и кто выселен, но ещё не выведен. Статус «есть» приходит из фоновой синхронизации
+// (guest.emehmonReg авто-ставится). Кнопка «Обновить» дёргает синхронизацию вручную.
+const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, syncing, onRegister, onDepart }) => {
+    const canEmehmon = !!window.electronAPI?.openEmehmon;
+    const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
+    const hasCadastre = (g) => cadastreRegs.some(r =>
+        r.status !== 'removed' &&
+        (r.guestId === g.id || (r.passport && g.passport && normP(r.passport) === normP(g.passport))));
+    const residents = useMemo(
+        () => guests.filter(g => g.status === 'active'),
+        [guests]);
+    const registered = useMemo(() => residents.filter(g => g.emehmonReg), [residents]);
+    const notRegistered = useMemo(() => residents.filter(g => !g.emehmonReg), [residents]);
+    const departedNotRemoved = useMemo(
+        () => guests.filter(g => g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut),
+        [guests]);
+
+    const Row = ({ g, badge }) => (
+        <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-100 px-3 py-2">
+            <Flag country={g.country} size={16} />
+            <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-slate-800 truncate">{g.fullName}</p>
+                <p className="text-[11px] text-slate-400">
+                    {g.roomNumber ? `ком. ${g.roomNumber}` : ''}{g.passport ? ` · ${g.passport}` : ''}{g.country ? ` · ${g.country}` : ''}
+                </p>
+            </div>
+            {badge}
+        </div>
+    );
+
+    const Section = ({ title, color, icon: Icon, list, renderBadge, empty }) => (
+        <div>
+            <div className={`flex items-center gap-2 mb-2 text-sm font-black text-${color}-700`}>
+                <Icon size={16} /> {title}
+                <span className={`px-1.5 py-0.5 rounded-full text-[11px] bg-${color}-100`}>{list.length}</span>
+            </div>
+            {list.length === 0 ? (
+                <p className="text-xs text-slate-400 italic px-1">{empty}</p>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                    {list.map(g => <Row key={g.id} g={g} badge={renderBadge ? renderBadge(g) : null} />)}
+                </div>
+            )}
+        </div>
+    );
+
+    return (
+        <div className="space-y-5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                    <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                        <Eye size={22} className="text-indigo-600" />
+                        {lang === 'ru' ? 'Статус в e-mehmon' : 'e-mehmon holati'}
+                    </h1>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                        {lang === 'ru' ? 'Кто из проживающих есть в регистрации e-mehmon' : 'Yashayotganlardan kim e-mehmonda ro\'yxatda'}
+                    </p>
+                </div>
+                {onSync && (
+                    <button onClick={onSync} disabled={syncing}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50">
+                        <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+                        {syncing ? (lang === 'ru' ? 'Проверка…' : 'Tekshirilmoqda…') : (lang === 'ru' ? 'Обновить' : 'Yangilash')}
+                    </button>
+                )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+                {[
+                    { label: lang === 'ru' ? 'В регистрации' : 'Ro\'yxatda', value: registered.length, color: 'emerald' },
+                    { label: lang === 'ru' ? 'Нет регистрации' : 'Ro\'yxatda yo\'q', value: notRegistered.length, color: 'amber' },
+                    { label: lang === 'ru' ? 'Выселен, не выведен' : 'Chiqgan, chiqarilmagan', value: departedNotRemoved.length, color: 'rose' },
+                ].map(({ label, value, color }) => (
+                    <div key={label} className={`bg-white rounded-xl border border-${color}-200 p-3 ring-1 ring-${color}-100`}>
+                        <p className={`text-2xl font-black text-${color}-600`}>{value}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-0.5">{label}</p>
+                    </div>
+                ))}
+            </div>
+
+            <Section
+                title={lang === 'ru' ? 'Без регистрации e-mehmon' : 'e-mehmonsiz'}
+                color="amber" icon={AlertCircle} list={notRegistered}
+                empty={lang === 'ru' ? 'Все проживающие зарегистрированы' : 'Hammasi ro\'yxatda'}
+                renderBadge={(g) => {
+                    const cad = hasCadastre(g);
+                    return (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {cad
+                                ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 flex items-center gap-1">🏠 {lang === 'ru' ? 'кадастр' : 'kadastr'}</span>
+                                : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{lang === 'ru' ? 'нет' : 'yo\'q'}</span>}
+                            {/* В кадастре — кнопку «Оформить» не показываем, пока он там */}
+                            {!cad && canEmehmon && onRegister && (
+                                <button onClick={() => onRegister(g)}
+                                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1">
+                                    <Plus size={11} /> {lang === 'ru' ? 'Оформить' : 'Ro\'yxat'}
+                                </button>
+                            )}
+                        </div>
+                    );
+                }}
+            />
+            <Section
+                title={lang === 'ru' ? 'Выселены, но не выведены' : 'Chiqgan, lekin chiqarilmagan'}
+                color="rose" icon={Plane} list={departedNotRemoved}
+                empty={lang === 'ru' ? 'Нет «хвостов» по убытию' : 'Yo\'q'}
+                renderBadge={(g) => (canEmehmon && onDepart)
+                    ? <button onClick={() => onDepart(g)}
+                        className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-1">
+                        <Plane size={11} /> {lang === 'ru' ? 'Вывести' : 'Chiqarish'}
+                      </button>
+                    : <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">{lang === 'ru' ? 'вывести' : 'chiqarish'}</span>}
+            />
+            <Section
+                title={lang === 'ru' ? 'В регистрации e-mehmon' : 'e-mehmonda ro\'yxatda'}
+                color="emerald" icon={CheckCircle2} list={registered}
+                empty={lang === 'ru' ? 'Пока никто не отмечен' : 'Hozircha yo\'q'}
+                renderBadge={() => <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">✓</span>}
+            />
+        </div>
+    );
+};
+
 // ─── Main View ────────────────────────────────────────────────────────────────
 const RegistrationsView = ({
     registrations = [],
+    guests = [],
+    cadastreRegs = [],
     currentUser,
     lang,
     onRemove,
     onExtend,
     onDelete,
     onOpenRegister,
+    onSyncEmehmon,
+    emehmonSyncing = false,
+    onRegisterEmehmon,
+    onDepartEmehmon,
     users = [],
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
+    const [subView, setSubView] = useState('registrations'); // 'registrations' | 'status'
     const [search, setSearch] = useState('');
     const [activeFilter, setActiveFilter] = useState('all');
     const [extendModal, setExtendModal] = useState(null);
@@ -339,6 +471,25 @@ const RegistrationsView = ({
     return (
         <div className="space-y-4">
 
+            {/* ── Подвкладки: Регистрации | Статус проживающих ── */}
+            <div className="flex gap-1.5">
+                {[
+                    { id: 'registrations', label: lang === 'ru' ? 'Регистрации' : 'Ro\'yxatlar' },
+                    { id: 'status', label: lang === 'ru' ? 'Статус проживающих' : 'Yashayotganlar holati' },
+                ].map(s => (
+                    <button key={s.id} onClick={() => setSubView(s.id)}
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
+                            subView === s.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}>
+                        {s.label}
+                    </button>
+                ))}
+            </div>
+
+            {subView === 'status' ? (
+                <EmehmonStatusPanel guests={guests} cadastreRegs={cadastreRegs} lang={lang} onSync={onSyncEmehmon} syncing={emehmonSyncing} onRegister={onRegisterEmehmon} onDepart={onDepartEmehmon} />
+            ) : (
+            <>
             {/* ── Top: header + add btn ── */}
             <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
@@ -481,6 +632,8 @@ const RegistrationsView = ({
                     onClose={() => setExtendModal(null)}
                     onSubmit={handleExtendSubmit}
                 />
+            )}
+            </>
             )}
         </div>
     );

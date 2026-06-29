@@ -109,7 +109,7 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 
 // ---------------------------------------------------------------------------
 
-const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [] }) => {
+const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [], onOpenGuest, onMarkEmehmonOut }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const [tab, setTab] = useState('overview');
     const [chartMode, setChartMode] = useState('income');
@@ -402,6 +402,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
     return (
         <div className="space-y-4 animate-in fade-in">
+            {/* Хвосты e-mehmon вынесены в глобальный баннер (EmehmonPendingBanner) — виден всем ролям на всех вкладках */}
             {/* Header */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3">

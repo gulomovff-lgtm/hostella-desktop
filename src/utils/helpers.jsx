@@ -1,6 +1,6 @@
 import React from 'react';
 import * as XLSX from 'xlsx';
-import { COUNTRY_MAP, COUNTRIES } from '../constants/countries';
+import { COUNTRY_MAP, COUNTRIES, COUNTRY_ISO3 } from '../constants/countries';
 
 // Renders a country flag using flag-icons CSS (works offline, SVG bundled)
 export const Flag = ({ code, size = 20 }) => {
@@ -55,6 +55,27 @@ export const getKppDeadline = (kppDate, windowDays = 10) => {
   const [y, m, d] = String(kppDate).slice(0, 10).split('-').map(Number);
   if (!y || !m || !d) return null;
   return new Date(y, m - 1, d + (windowDays - 1));
+};
+
+// Готовит данные гостя для автозаполнения e-mehmon (даты в формате дд.мм.гггг, код страны).
+// Заполняются только поля, которые знает Hostella; остальное портал ставит сам или выбирают вручную.
+export const buildEmehmonPayload = (guest = {}) => {
+  const toDmy = (iso) => {
+    if (!iso) return '';
+    const [y, m, d] = String(iso).slice(0, 10).split('-');
+    return (d && m && y) ? `${d}.${m}.${y}` : '';
+  };
+  return {
+    hostelId:          guest.hostelId || '',
+    guestName:         guest.fullName || '',
+    citizenCode:       COUNTRY_ISO3[guest.country] || '',
+    docType:           '1', // Паспорт
+    birthDate:         toDmy(guest.birthDate),
+    passport:          (guest.passport || '').replace(/\s/g, '').toUpperCase(),
+    passportIssueDate: toDmy(guest.passportIssueDate),
+    room:              guest.roomNumber || guest.room || guest.roomId || '',
+    days:              guest.days || '',
+  };
 };
 
 // Pure function: compute time-left label given a checkOutDate string and current ts
