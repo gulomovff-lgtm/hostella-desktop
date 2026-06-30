@@ -6,7 +6,7 @@ const https = require('https');
 const http  = require('http');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -35,6 +35,7 @@ const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.
 
 let mainWindow;
 let emehmonWindow = null;
+let arrivalPayload = null; // текущий payload окна прибытия (для авто-галочки на нужного гостя)
 let departureWindow = null;
 let isDownloading = false;
 let isUpdateDownloaded = false;
@@ -138,7 +139,8 @@ function createWindow() {
 // в payload из облака (Firebase, выбор по филиалу гостя) — см. src/utils/emehmon.js.
 ipcMain.handle('open-emehmon', (_event, guest) => {
   try {
-    const payload = guest || {};
+    arrivalPayload = guest || {};
+    const payload = arrivalPayload;
 
     if (emehmonWindow && !emehmonWindow.isDestroyed()) {
       emehmonWindow.focus();
@@ -166,19 +168,38 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
 
     const inject = () => {
       emehmonWindow.webContents
-        .executeJavaScript(buildAutofillScript(payload))
+        .executeJavaScript(buildAutofillScript(arrivalPayload || payload))
         .catch((err) => log.error('[emehmon] inject failed:', err.message));
     };
     emehmonWindow.webContents.on('did-finish-load', inject);
     emehmonWindow.webContents.on('did-navigate', inject);
     emehmonWindow.webContents.on('did-navigate-in-page', inject);
-    // После успешного сохранения листка скрипт выставляет title-сентинел — закрываем окно.
+    // Закрытие окна после успешной регистрации + авто-галочка «Зарегистрирован».
+    const finishArrival = () => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('emehmon-registered', {
+            guestId: (arrivalPayload && arrivalPayload.guestId) || '',
+            passport: (arrivalPayload && arrivalPayload.passport) || '',
+          });
+        }
+      } catch (e) { /* ignore */ }
+      if (emehmonWindow && !emehmonWindow.isDestroyed()) emehmonWindow.close();
+    };
+    // (1) сигнал из страницы (title-сентинел)
     emehmonWindow.webContents.on('page-title-updated', (_e, title) => {
-      if (title && title.indexOf('__HOSTELLA_REG_DONE__') !== -1) {
-        if (emehmonWindow && !emehmonWindow.isDestroyed()) emehmonWindow.close();
-      }
+      if (title && title.indexOf('__HOSTELLA_REG_DONE__') !== -1) finishArrival();
     });
-    emehmonWindow.on('closed', () => { emehmonWindow = null; });
+    // (2) НАДЁЖНЫЙ путь: main сам опрашивает окно на модалку успеха swal2 и закрывает.
+    const SUCCESS_CHECK = "(function(){try{var ic=document.querySelector('.swal2-popup .swal2-icon.swal2-success')||document.querySelector('.swal2-success.swal2-icon-show');var t=document.querySelector('.swal2-title');var ok=t&&/saqland|muvaffaqiyat|success|\\u0441\\u043e\\u0445\\u0440\\u0430\\u043d/i.test(t.textContent||'');return !!(ic&&ok);}catch(e){return false;}})()";
+    const arrivalTimer = setInterval(() => {
+      if (!emehmonWindow || emehmonWindow.isDestroyed()) { clearInterval(arrivalTimer); return; }
+      if (((arrivalPayload && arrivalPayload.mode) || '') === 'departure') return; // только прибытие
+      emehmonWindow.webContents.executeJavaScript(SUCCESS_CHECK, true)
+        .then((done) => { if (done) { clearInterval(arrivalTimer); finishArrival(); } })
+        .catch(() => {});
+    }, 500);
+    emehmonWindow.on('closed', () => { clearInterval(arrivalTimer); emehmonWindow = null; });
     return true;
   } catch (e) {
     log.error('[emehmon] open failed:', e.message);
@@ -283,6 +304,39 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
     return result || { status };
   } catch (e) {
     log.error('[emehmon] check failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
+
+// ─── e-mehmon: массовое выселение ────────────────────────────────────────────
+// Выделяет все совпавшие строки /listok и выселяет одной модалкой Chiqish.
+// print:true → окно показываем (диалог печати); иначе фон. Проблема → окно всплывает.
+ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
+  const data = payload || {};
+  const wantVisible = !!data.print;
+  try {
+    const win = ensureDepartureWindow();
+    await win.loadURL('https://emehmon.uz/listok');
+    if (wantVisible) { win.show(); win.focus(); }
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildDepartureBulkScript(data), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    const status = (result && result.status) || 'error';
+    const needsHuman = ['need_login', 'not_found', 'no_table', 'no_modal',
+      'no_button', 'no_checkout_btn', 'error'].includes(status);
+    if (needsHuman) {
+      win.show(); win.focus();
+      win.webContents.executeJavaScript(buildAutofillScript({ mode: 'departure' })).catch(() => {});
+    } else if (status === 'done' && !wantVisible) {
+      win.hide();
+    }
+    return result || { status };
+  } catch (e) {
+    log.error('[emehmon] bulk departure failed:', e.message);
+    if (departureWindow && !departureWindow.isDestroyed()) { departureWindow.show(); }
     return { status: 'error', message: e.message };
   }
 });

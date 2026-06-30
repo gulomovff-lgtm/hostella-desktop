@@ -36,6 +36,7 @@ export function useGuestActions(ctx) {
     showNotification, isOnline = true,
     setEmehmonReminder,
     setEmehmonArrivalPrompt,
+    onEmehmonDepart,
   } = ctx;
 
   // ─── Internal helpers ────────────────────────────────────────────────────
@@ -342,6 +343,12 @@ export function useGuestActions(ctx) {
         } : {}),
       });
 
+      // Сразу (без задержки) предлагаем вывод из e-mehmon, если гость зарегистрирован
+      // и ещё не выведен — окно выбора открывается прямо за подтверждением выселения.
+      if (onEmehmonDepart && guest.emehmonReg && !guest.emehmonOut && window.electronAPI?.emehmonDeparture) {
+        onEmehmonDepart(guest);
+      }
+
       // Sync to clients collection on checkout (don't increment visits — already counted on check-in)
       await upsertClient({ ...guest, checkOutDate: finalCheckOutDate }, { incrementVisits: false });
 
@@ -413,10 +420,6 @@ export function useGuestActions(ctx) {
         console.warn('[checkout] Не удалось снять кадастр-регистрации:', cadErr.message);
       }
 
-      // Напоминание вывести из e-mehmon (если гость был зарегистрирован и ещё не выведен)
-      if (guest.emehmonReg && !guest.emehmonOut && setEmehmonReminder) {
-        setEmehmonReminder({ id: guest.id, fullName: guest.fullName, hostelId: guest.hostelId, roomNumber: guest.roomNumber, passport: guest.passport, country: guest.country });
-      }
     } catch (e) {
       console.error('handleCheckOut error:', e);
       showNotification('Ошибка выселения: ' + e.message, 'error');

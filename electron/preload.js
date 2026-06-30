@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emehmonCheck: (guest) => ipcRenderer.invoke('emehmon-check', guest),
   // e-mehmon: весь список /listok для синхронизации статусов регистрации
   emehmonList: (payload) => ipcRenderer.invoke('emehmon-list', payload),
+  // e-mehmon: массовое выселение нескольких гостей одной модалкой
+  emehmonDepartureBulk: (payload) => ipcRenderer.invoke('emehmon-departure-bulk', payload),
+  // e-mehmon: уведомление об успешной регистрации прибытия (для авто-галочки)
+  onEmehmonRegistered: (cb) => ipcRenderer.on('emehmon-registered', (_e, data) => cb(data)),
 
   // Pending payments (offline safety net)
   savePendingPayments: (data) => ipcRenderer.invoke('save-pending-payments', data),

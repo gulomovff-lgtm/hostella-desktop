@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { X, Plane, Printer } from 'lucide-react';
-import { departEmehmonBackground } from '../../utils/emehmon';
 
-// Подтверждение перед фоновым выселением из e-mehmon.
-// Показывает гостя + TO‘LOV / тип оплаты / печать, затем гонит весь процесс
-// в скрытом окне (см. departEmehmonBackground). Печать → окно покажется с диалогом.
+// Подтверждение перед фоновым выселением из e-mehmon. Только собирает параметры
+// (TO‘LOV / тип оплаты / печать) и сразу закрывается — само выселение идёт в фоне
+// на уровне App (onConfirm), чтобы окно не висело с лоадером.
 const PAY_TYPES = [
   { value: '1', label: 'Boshqa (другое)' },
   { value: '2', label: 'Naqd pul (наличные)' },
@@ -14,18 +13,16 @@ const PAY_TYPES = [
   { value: '6', label: 'Shartnoma (договор)' },
 ];
 
-const EmehmonDepartureModal = ({ guest, onClose, onResult }) => {
+const EmehmonDepartureModal = ({ guests = [], onClose, onConfirm }) => {
+  const list = Array.isArray(guests) ? guests : [guests];
+  const bulk = list.length > 1;
+  const guest = list[0] || {};
   const [amount, setAmount] = useState('1');
   const [payType, setPayType] = useState('1');
   const [print, setPrint] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const busy = false;
 
-  const submit = async () => {
-    setBusy(true);
-    const res = await departEmehmonBackground(guest, { amount, payType, print });
-    setBusy(false);
-    onResult?.(res);
-  };
+  const submit = () => { onConfirm?.({ amount, payType, print }); };
 
   const inp = 'w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500';
 
@@ -34,20 +31,31 @@ const EmehmonDepartureModal = ({ guest, onClose, onResult }) => {
       <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2 font-black text-slate-800">
-            <Plane size={18} className="text-rose-600" /> Выселение из e-mehmon
+            <Plane size={18} className="text-rose-600" /> {bulk ? `Выселение из e-mehmon (${list.length})` : 'Выселение из e-mehmon'}
           </div>
           <button onClick={onClose} disabled={busy} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 disabled:opacity-40"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4">
-          <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
-            <div className="font-bold text-slate-800">{guest?.fullName}</div>
-            <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-              {guest?.roomNumber && <span>ком. {guest.roomNumber}</span>}
-              {guest?.passport && <span>{guest.passport}</span>}
-              {guest?.country && <span>{guest.country}</span>}
+          {bulk ? (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm max-h-40 overflow-y-auto space-y-1">
+              {list.map((g, i) => (
+                <div key={g.id || g.passport || i} className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 truncate">{g.fullName}</span>
+                  <span className="text-xs text-slate-400 shrink-0">{g.roomNumber ? `ком. ${g.roomNumber}` : ''}{g.passport ? ` · ${g.passport}` : ''}</span>
+                </div>
+              ))}
             </div>
-          </div>
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
+              <div className="font-bold text-slate-800">{guest?.fullName}</div>
+              <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                {guest?.roomNumber && <span>ком. {guest.roomNumber}</span>}
+                {guest?.passport && <span>{guest.passport}</span>}
+                {guest?.country && <span>{guest.country}</span>}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

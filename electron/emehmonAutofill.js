@@ -10,7 +10,25 @@ function buildAutofillScript(guest) {
     var GUEST = ${G};
     var $ = window.jQuery || window.$;
 
-    // После входа — авто-редирект на нужную страницу (прибытие → create-page, убытие → /listok)
+    // Прибытие: если мы УЖЕ были на create-page и теперь ушли с неё (после
+    // сохранения нажали OK → /listok, или закрыли) — регистрация завершена,
+    // закрываем окно и НЕ возвращаемся на создание.
+    try {
+      if (GUEST.mode !== 'departure') {
+        var _arr = sessionStorage.getItem('hostellaArrivedTarget') === '1';
+        var _onCreateNow = (location.pathname || '').indexOf('create-page') !== -1;
+        var _onLoginNow = (location.pathname || '').indexOf('login') !== -1;
+        if (_arr && !_onCreateNow && !_onLoginNow) {
+          document.title = '__HOSTELLA_REG_DONE__';
+          try { window.close(); } catch(e){}
+          return;
+        }
+      }
+    } catch(e){}
+
+    // После входа — авто-редирект на нужную страницу (прибытие → create-page, убытие → /listok).
+    // Редиректим только пока ни разу не достигли целевой страницы (иначе после
+    // сохранения возвращало бы на новую регистрацию).
     try {
       var _target = GUEST.path || '/listok/create-page';
       var _p = location.pathname || '';
@@ -18,11 +36,11 @@ function buildAutofillScript(guest) {
         ? (_p.replace(/\\/+$/, '') === '/listok')
         : (_p.indexOf('create-page') !== -1);
       if (sessionStorage.getItem('hostellaTarget') !== _target) {
-        sessionStorage.removeItem('hostellaGoTarget');
+        sessionStorage.removeItem('hostellaArrivedTarget');
         sessionStorage.setItem('hostellaTarget', _target);
       }
-      if (_p.indexOf('login') === -1 && !_onTarget && !sessionStorage.getItem('hostellaGoTarget')) {
-        sessionStorage.setItem('hostellaGoTarget', '1');
+      if (_onTarget) sessionStorage.setItem('hostellaArrivedTarget', '1');
+      if (_p.indexOf('login') === -1 && !_onTarget && !sessionStorage.getItem('hostellaArrivedTarget')) {
         location.href = 'https://emehmon.uz' + _target;
         return;
       }
@@ -218,18 +236,17 @@ function buildAutofillScript(guest) {
     if (GUEST.mode !== 'departure' && !window.__hostellaRegWatch) {
       window.__hostellaRegWatch = true;
       var _regWatch = setInterval(function(){
-        var okIcon = document.querySelector('.swal2-popup .swal2-icon.swal2-success');
-        var ttlEl = document.querySelector('.swal2-popup .swal2-title');
+        var okIcon = document.querySelector('.swal2-popup .swal2-icon.swal2-success, .swal2-success.swal2-icon-show');
+        var ttlEl = document.querySelector('.swal2-popup .swal2-title, .swal2-title');
         var saved = ttlEl && /saqland|сохран|success|muvaffaqiyat/i.test(ttlEl.textContent || '');
         if (okIcon && saved) {
           clearInterval(_regWatch);
           toast('Регистрация сохранена — закрываю окно…');
-          setTimeout(function(){
-            try { document.title = '__HOSTELLA_REG_DONE__'; } catch(e){}
-            try { window.close(); } catch(e){}
-          }, 1200);
+          // Сразу сигналим main (он закроет окно и поставит галочку), затем пробуем сами.
+          try { document.title = '__HOSTELLA_REG_DONE__'; } catch(e){}
+          setTimeout(function(){ try { window.close(); } catch(e){} }, 400);
         }
-      }, 600);
+      }, 350);
     }
 
     // Авто-вход при загрузке (форма может появиться с задержкой)
@@ -380,14 +397,86 @@ function buildListFetchScript() {
     if (!table) return { status: 'no_table' };
     try { table.page.len(-1).draw(false); } catch(e){} // показать все строки (клиентская пагинация)
     await sleep(300);
+    function dec(s){ return String(s||'').replace(/&#039;|&#39;/g, "'").replace(/&amp;/g, '&'); }
     var rows = [];
     table.rows().every(function(){
       var d = this.data() || {};
-      rows.push({ passport: norm(d.passport_numb || d.passport_full || d.passport), name: norm(d.guest || d.guestname) });
+      rows.push({
+        passport: norm(d.passport_numb || d.passport_full || d.passport),
+        name: norm(d.guest || d.guestname),
+        displayName: dec(d.guest || d.guestname || ''),
+        room: d.room || '',
+        days: d.wdays || '',
+        country: dec(d.ctzn || ''),
+        checkIn: d.check_in || d.dt || '',
+        regNumb: d.reg_numb || ''
+      });
     });
     return { status: 'ok', rows: rows };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript };
+// ── Массовое выселение: выделить все совпавшие строки и выселить разом ─────────
+// e-mehmon поддерживает множественный Check-Out (модалка Chiqish с несколькими
+// строками). Принимает { list:[{passport,name}], amount, payType, print }.
+//   done / submitted / not_found / no_modal / no_button / need_login / error
+function buildDepartureBulkScript(payload) {
+  const P = JSON.stringify(payload || {});
+  return `(async function(){
+  var DATA = ${P};
+  var LIST = DATA.list || [];
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
+  function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
+      return { status: 'need_login' };
+    }
+    function getTable(){ try { return ($ && $.fn && $.fn.DataTable) ? $('#listok-table').DataTable() : null; } catch(e){ return null; } }
+    var table = null;
+    for (var i=0;i<20 && !table;i++){ table = getTable(); if(!table){ await sleep(400); } }
+    if (!table) return { status: 'no_table' };
+    try { table.page.len(-1).draw(false); } catch(e){}
+    await sleep(300);
+    var targets = LIST.map(function(g){ return { p: norm(g.passport), n: norm(g.name) }; });
+    var selected = 0;
+    table.rows().every(function(){
+      var d = this.data() || {};
+      var rp = norm(d.passport_numb || d.passport_full || d.passport);
+      var rn = norm(d.guest || d.guestname);
+      var hit = targets.some(function(t){ return (t.p && rp && t.p===rp) || (t.n && rn && t.n===rn); });
+      if (hit) {
+        try { this.select(); } catch(e){}
+        $(this.node()).addClass('selected');
+        var cb = this.node().querySelector('input.row-select');
+        if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change',{bubbles:true})); }
+        selected++;
+      }
+    });
+    if (!selected) return { status: 'not_found', selected: 0, requested: LIST.length };
+    try { $('#checkout').trigger('click'); } catch(e){ return { status: 'no_checkout_btn', selected: selected }; }
+    function modalReady(){ return document.querySelector('.confirm input.payment-input') || document.querySelector('input.payment-input'); }
+    var ready = false;
+    for (var k=0;k<25;k++){ if (modalReady()){ ready = true; break; } await sleep(300); }
+    if (!ready) return { status: 'no_modal', selected: selected };
+    await sleep(200);
+    var amount = (DATA.amount != null && DATA.amount !== '') ? String(DATA.amount) : '1';
+    Array.prototype.forEach.call(document.querySelectorAll('input.payment-input'), function(el){ el.value = amount; try { if ($) $(el).val(amount); } catch(e){} fire(el); });
+    var payType = (DATA.payType != null && DATA.payType !== '') ? String(DATA.payType) : '1';
+    Array.prototype.forEach.call(document.querySelectorAll('select.paytp'), function(el){ el.value = payType; try { if ($) $(el).val(payType).trigger('change'); } catch(e){} fire(el); });
+    var pc = document.getElementById('printAll');
+    if (pc) { pc.checked = !!DATA.print; fire(pc); }
+    var btns = Array.prototype.slice.call(document.querySelectorAll('.app-modal-footer .btn-success, .modal-footer .btn-success, .modal-content .btn-success'));
+    var btn = btns.filter(function(b){ return /check\\s*-?\\s*out/i.test(b.textContent||''); })[0] || btns[0];
+    if (!btn) return { status: 'no_button', selected: selected };
+    btn.click();
+    function modalGone(){ return !document.querySelector('.confirm input.payment-input') && !document.querySelector('.modal.show input.payment-input'); }
+    for (var m=0;m<40;m++){ if (modalGone()){ return { status: 'done', selected: selected, requested: LIST.length }; } await sleep(400); }
+    return { status: 'submitted', selected: selected, requested: LIST.length };
+  } catch(e){ return { status: 'error', message: (e && e.message) || String(e) }; }
+})();`;
+}
+
+module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript };

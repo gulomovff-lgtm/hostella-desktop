@@ -4,7 +4,8 @@ import { ChevronDown, ChevronUp, Plane, Check } from 'lucide-react';
 // Глобальный баннер «хвостов» e-mehmon: гости, помеченные как зарегистрированные,
 // выселены, но ещё не выведены из e-mehmon (за последние 30 дней).
 // Виден на любой вкладке всем ролям — чтобы не забыть оформить убытие.
-const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingId = null }) => {
+const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingId = null, departingIds = null }) => {
+  const isDeparting = (id) => departingIds && typeof departingIds.has === 'function' && departingIds.has(id);
   const [open, setOpen] = useState(true);
 
   const pending = useMemo(() => {
@@ -37,9 +38,9 @@ const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingI
                 {g.checkOutDate && <span className="text-[11px] text-slate-400"> · выехал {new Date(g.checkOutDate).toLocaleDateString('ru-RU')}</span>}
               </button>
               {window.electronAPI?.openEmehmon && (
-                <button onClick={() => onDepart?.(g)}
-                  className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500 text-white text-xs font-bold hover:bg-rose-600">
-                  <Plane size={11} /> Вывести
+                <button onClick={() => onDepart?.(g)} disabled={isDeparting(g.id)}
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500 text-white text-xs font-bold hover:bg-rose-600 disabled:opacity-50">
+                  <Plane size={11} className={isDeparting(g.id) ? 'animate-pulse' : ''} /> {isDeparting(g.id) ? 'Вывожу…' : 'Вывести'}
                 </button>
               )}
               <button onClick={() => onDone?.(g)} disabled={checkingId === g.id}

@@ -280,7 +280,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
+const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     if (!guest) { onClose(); return null; }
 
@@ -999,17 +999,21 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                             </button>
                                         )}
                                     </div>
-                                    {isCheckedOut && (
-                                        <button
-                                            onClick={() => {
-                                                if (onEmehmonDepart) onEmehmonDepart(guest);
-                                                else { openEmehmonDeparture(guest); notify('Открываю e-mehmon — «Выселить» или «Печать»', 'info'); }
-                                            }}
-                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-bold hover:bg-rose-100 transition-colors"
-                                        >
-                                            ✈️ Вывести из e-mehmon (фон)
-                                        </button>
-                                    )}
+                                    {isCheckedOut && (() => {
+                                        const departing = emehmonDepartingIds && typeof emehmonDepartingIds.has === 'function' && emehmonDepartingIds.has(guest.id);
+                                        return (
+                                            <button
+                                                disabled={departing}
+                                                onClick={() => {
+                                                    if (onEmehmonDepart) onEmehmonDepart(guest);
+                                                    else { openEmehmonDeparture(guest); notify('Открываю e-mehmon — «Выселить» или «Печать»', 'info'); }
+                                                }}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-bold hover:bg-rose-100 transition-colors disabled:opacity-50"
+                                            >
+                                                {departing ? '⏳ Вывожу из e-mehmon…' : '✈️ Вывести из e-mehmon (фон)'}
+                                            </button>
+                                        );
+                                    })()}
                                 </div>
                             )}
 

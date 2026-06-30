@@ -272,23 +272,48 @@ const RegCard = ({ reg, currentUser, lang, onRemove, onExtend, onDelete }) => {
 // Чисто справочно: кто из активных иностранцев есть/нет в регистрации e-mehmon
 // и кто выселен, но ещё не выведен. Статус «есть» приходит из фоновой синхронизации
 // (guest.emehmonReg авто-ставится). Кнопка «Обновить» дёргает синхронизацию вручную.
-const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, syncing, onRegister, onDepart }) => {
+const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], emehmonList = [], emehmonHostelId = '', departingIds = null, lang, onSync, syncing, onRegister, onDepart }) => {
     const canEmehmon = !!window.electronAPI?.openEmehmon;
+    const isDeparting = (g) => departingIds && typeof departingIds.has === 'function' && g.id && departingIds.has(g.id);
     const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
+    const keyOf = (g) => g.id || ('o:' + (g.passport || g.fullName));
     const hasCadastre = (g) => cadastreRegs.some(r =>
         r.status !== 'removed' &&
         (r.guestId === g.id || (r.passport && g.passport && normP(r.passport) === normP(g.passport))));
-    const residents = useMemo(
-        () => guests.filter(g => g.status === 'active'),
-        [guests]);
+
+    const residents = useMemo(() => guests.filter(g => g.status === 'active'), [guests]);
     const registered = useMemo(() => residents.filter(g => g.emehmonReg), [residents]);
     const notRegistered = useMemo(() => residents.filter(g => !g.emehmonReg), [residents]);
     const departedNotRemoved = useMemo(
         () => guests.filter(g => g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut),
         [guests]);
 
-    const Row = ({ g, badge }) => (
+    // «Нет в системе»: строки e-mehmon, не совпавшие ни с одним гостем Hostella.
+    const orphans = useMemo(() => {
+        const pset = new Set(), nset = new Set();
+        guests.forEach(g => { if (g.passport) pset.add(normP(g.passport)); if (g.fullName) nset.add(normP(g.fullName)); });
+        return (emehmonList || [])
+            .filter(r => !((r.passport && pset.has(r.passport)) || (r.name && nset.has(r.name))))
+            .map(r => ({
+                passport: r.passport, fullName: r.displayName || r.name, country: r.country,
+                roomNumber: r.room, days: r.days, hostelId: emehmonHostelId, _orphan: true,
+            }));
+    }, [emehmonList, guests, emehmonHostelId]);
+
+    // Множественный выбор для выселения (хвосты + orphan'ы).
+    const [sel, setSel] = useState({});
+    const toggle = (g) => setSel(s => { const k = keyOf(g); const n = { ...s }; if (n[k]) delete n[k]; else n[k] = g; return n; });
+    const selectedGuests = useMemo(() => Object.values(sel), [sel]);
+    const removable = useMemo(() => [...departedNotRemoved, ...orphans], [departedNotRemoved, orphans]);
+    const allRemovableSelected = removable.length > 0 && removable.every(g => sel[keyOf(g)]);
+    const toggleAll = () => setSel(allRemovableSelected ? {} : removable.reduce((a, g) => (a[keyOf(g)] = g, a), {}));
+
+    const Row = ({ g, badge, selectable }) => (
         <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-100 px-3 py-2">
+            {selectable && canEmehmon && (
+                <input type="checkbox" className="w-4 h-4 rounded accent-rose-600 shrink-0"
+                    checked={!!sel[keyOf(g)]} onChange={() => toggle(g)} />
+            )}
             <Flag country={g.country} size={16} />
             <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-slate-800 truncate">{g.fullName}</p>
@@ -300,7 +325,7 @@ const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, sync
         </div>
     );
 
-    const Section = ({ title, color, icon: Icon, list, renderBadge, empty }) => (
+    const Section = ({ title, color, icon: Icon, list, renderBadge, empty, selectable }) => (
         <div>
             <div className={`flex items-center gap-2 mb-2 text-sm font-black text-${color}-700`}>
                 <Icon size={16} /> {title}
@@ -310,11 +335,18 @@ const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, sync
                 <p className="text-xs text-slate-400 italic px-1">{empty}</p>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                    {list.map(g => <Row key={g.id} g={g} badge={renderBadge ? renderBadge(g) : null} />)}
+                    {list.map(g => <Row key={keyOf(g)} g={g} selectable={selectable} badge={renderBadge ? renderBadge(g) : null} />)}
                 </div>
             )}
         </div>
     );
+
+    const departBtn = (g) => (canEmehmon && onDepart)
+        ? <button onClick={() => onDepart(g)} disabled={isDeparting(g)}
+            className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-1 disabled:opacity-50">
+            <Plane size={11} className={isDeparting(g) ? 'animate-pulse' : ''} /> {isDeparting(g) ? (lang === 'ru' ? 'Вывожу…' : '...') : (lang === 'ru' ? 'Вывести' : 'Chiqarish')}
+          </button>
+        : <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">{lang === 'ru' ? 'вывести' : 'chiqarish'}</span>;
 
     return (
         <div className="space-y-5">
@@ -337,11 +369,12 @@ const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, sync
                 )}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
                     { label: lang === 'ru' ? 'В регистрации' : 'Ro\'yxatda', value: registered.length, color: 'emerald' },
                     { label: lang === 'ru' ? 'Нет регистрации' : 'Ro\'yxatda yo\'q', value: notRegistered.length, color: 'amber' },
                     { label: lang === 'ru' ? 'Выселен, не выведен' : 'Chiqgan, chiqarilmagan', value: departedNotRemoved.length, color: 'rose' },
+                    { label: lang === 'ru' ? 'Нет в системе' : 'Tizimda yo\'q', value: orphans.length, color: 'slate' },
                 ].map(({ label, value, color }) => (
                     <div key={label} className={`bg-white rounded-xl border border-${color}-200 p-3 ring-1 ring-${color}-100`}>
                         <p className={`text-2xl font-black text-${color}-600`}>{value}</p>
@@ -349,6 +382,22 @@ const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, sync
                     </div>
                 ))}
             </div>
+
+            {/* Панель массового выселения */}
+            {canEmehmon && removable.length > 0 && (
+                <div className="flex items-center justify-between flex-wrap gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                    <label className="flex items-center gap-2 text-xs font-bold text-rose-700 cursor-pointer select-none">
+                        <input type="checkbox" className="w-4 h-4 rounded accent-rose-600" checked={allRemovableSelected} onChange={toggleAll} />
+                        {lang === 'ru' ? 'Выбрать всех для вывода' : 'Hammasini tanlash'}
+                    </label>
+                    <button
+                        onClick={() => { onDepart && onDepart(selectedGuests); }}
+                        disabled={selectedGuests.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-40">
+                        <Plane size={14} /> {lang === 'ru' ? `Выселить выбранных (${selectedGuests.length})` : `Tanlanganlarni chiqarish (${selectedGuests.length})`}
+                    </button>
+                </div>
+            )}
 
             <Section
                 title={lang === 'ru' ? 'Без регистрации e-mehmon' : 'e-mehmonsiz'}
@@ -361,7 +410,6 @@ const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, sync
                             {cad
                                 ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 flex items-center gap-1">🏠 {lang === 'ru' ? 'кадастр' : 'kadastr'}</span>
                                 : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{lang === 'ru' ? 'нет' : 'yo\'q'}</span>}
-                            {/* В кадастре — кнопку «Оформить» не показываем, пока он там */}
                             {!cad && canEmehmon && onRegister && (
                                 <button onClick={() => onRegister(g)}
                                     className="text-[10px] font-bold px-2 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1">
@@ -374,14 +422,15 @@ const EmehmonStatusPanel = ({ guests = [], cadastreRegs = [], lang, onSync, sync
             />
             <Section
                 title={lang === 'ru' ? 'Выселены, но не выведены' : 'Chiqgan, lekin chiqarilmagan'}
-                color="rose" icon={Plane} list={departedNotRemoved}
+                color="rose" icon={Plane} list={departedNotRemoved} selectable
                 empty={lang === 'ru' ? 'Нет «хвостов» по убытию' : 'Yo\'q'}
-                renderBadge={(g) => (canEmehmon && onDepart)
-                    ? <button onClick={() => onDepart(g)}
-                        className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-1">
-                        <Plane size={11} /> {lang === 'ru' ? 'Вывести' : 'Chiqarish'}
-                      </button>
-                    : <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">{lang === 'ru' ? 'вывести' : 'chiqarish'}</span>}
+                renderBadge={departBtn}
+            />
+            <Section
+                title={lang === 'ru' ? 'В e-mehmon, но нет в системе' : 'e-mehmonda bor, tizimda yo\'q'}
+                color="slate" icon={UserX} list={orphans} selectable
+                empty={lang === 'ru' ? 'Все совпали с гостями системы' : 'Hammasi mos keldi'}
+                renderBadge={departBtn}
             />
             <Section
                 title={lang === 'ru' ? 'В регистрации e-mehmon' : 'e-mehmonda ro\'yxatda'}
@@ -398,6 +447,9 @@ const RegistrationsView = ({
     registrations = [],
     guests = [],
     cadastreRegs = [],
+    emehmonList = [],
+    emehmonHostelId = '',
+    emehmonDepartingIds = null,
     currentUser,
     lang,
     onRemove,
@@ -487,7 +539,7 @@ const RegistrationsView = ({
             </div>
 
             {subView === 'status' ? (
-                <EmehmonStatusPanel guests={guests} cadastreRegs={cadastreRegs} lang={lang} onSync={onSyncEmehmon} syncing={emehmonSyncing} onRegister={onRegisterEmehmon} onDepart={onDepartEmehmon} />
+                <EmehmonStatusPanel guests={guests} cadastreRegs={cadastreRegs} emehmonList={emehmonList} emehmonHostelId={emehmonHostelId} departingIds={emehmonDepartingIds} lang={lang} onSync={onSyncEmehmon} syncing={emehmonSyncing} onRegister={onRegisterEmehmon} onDepart={onDepartEmehmon} />
             ) : (
             <>
             {/* ── Top: header + add btn ── */}

@@ -45,9 +45,11 @@ async function openWith(payload) {
   return true;
 }
 
-// Прибытие — окно на create-page с автозаполнением мастера
+// Прибытие — окно на create-page с автозаполнением мастера.
+// guestId/passport кладём в payload, чтобы после успешной регистрации main
+// мог сообщить рендеру и автоматически проставить «Зарегистрирован».
 export function openEmehmonArrival(guest) {
-  return openWith(buildEmehmonPayload(guest));
+  return openWith({ ...buildEmehmonPayload(guest), guestId: guest?.id || '' });
 }
 
 // Убытие/печать — окно на /listok, скрипт найдёт и выделит гостя
@@ -71,6 +73,30 @@ export async function departEmehmonBackground(guest, opts = {}) {
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {
     return await window.electronAPI.emehmonDeparture(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
+// Массовое выселение: список гостей одной операцией. Гости могут быть «orphan»
+// (есть в e-mehmon, нет в Hostella) — сопоставление по паспорту/ФИО.
+export async function departEmehmonBulk(guests, opts = {}) {
+  if (!window.electronAPI?.emehmonDepartureBulk) return { status: 'no_electron' };
+  const list = (guests || []).map(g => {
+    const p = buildEmehmonPayload(g);
+    return { passport: p.passport, name: g.fullName || g.guestName || '' };
+  });
+  const payload = {
+    list,
+    amount: opts.amount != null ? String(opts.amount) : '1',
+    payType: opts.payType != null ? String(opts.payType) : '1',
+    print: !!opts.print,
+  };
+  const hostelId = opts.hostelId || (guests[0] && guests[0].hostelId) || '';
+  const acc = await getEmehmonAccount(hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonDepartureBulk(payload);
   } catch (e) {
     return { status: 'error', message: e?.message || String(e) };
   }
