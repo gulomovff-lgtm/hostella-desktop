@@ -125,6 +125,25 @@ const applyVars = (html) => {
     return result;
 };
 
+// Экранирование значений, подставляемых в HTML-шаблон чека. Данные гостя могут
+// прийти из внешнего источника (веб-бронирование), поэтому ФИО/паспорт/коммент и
+// т.п. вставляем только как текст — иначе возможен stored-XSS при печати чека.
+const escHtmlValue = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// Разрешаем логотип только по http(s)/data:image-URL, всё остальное отбрасываем.
+const safeLogoUrl = (url) => {
+    const u = String(url || '').trim();
+    if (/^https?:\/\//i.test(u) || /^data:image\/(png|jpe?g|gif|webp|svg\+xml);/i.test(u)) {
+        return u.replace(/"/g, '&quot;');
+    }
+    return '';
+};
+
 export const applyGuestVars = (html, guest, room, staff, hostelSettings) => {
     const cfg = getConfig();
     const cur = cfg.currency || 'сум';
@@ -132,7 +151,8 @@ export const applyGuestVars = (html, guest, room, staff, hostelSettings) => {
     const hostelCfg = hostelSettings?.[room?.hostelId || 'hostel1'] || {};
     const totalPaid = (parseInt(guest.paidCash) || 0) + (parseInt(guest.paidCard) || 0) + (parseInt(guest.paidQR) || 0) + (parseInt(guest.amountPaid) || 0);
     const debt      = Math.max(0, (guest.totalPrice || 0) - totalPaid);
-    const logoHtml  = hostelCfg.logoUrl ? `<img src="${hostelCfg.logoUrl}" alt="logo"/>` : '';
+    const logoSrc   = safeLogoUrl(hostelCfg.logoUrl);
+    const logoHtml  = logoSrc ? `<img src="${logoSrc}" alt="logo"/>` : '';
     const footer    = (cfg.receiptFooter || 'Спасибо за визит!');
     const regNo     = guest.regNumber || guest.receiptNo || guest.id || '';
     const qrPayload = `${hostelCfg.name || ''} | ${guest.fullName || ''} | ${regNo}`;
@@ -166,8 +186,14 @@ export const applyGuestVars = (html, guest, room, staff, hostelSettings) => {
         '{{FOOTER}}':         footer,
         '{{QR}}':             qrHtml,
     };
+    // {{LOGO}} и {{QR}} — это заведомо безопасный HTML, собранный выше (src уже
+    // провалидирован). Все остальные значения экранируем как текст.
+    const RAW_HTML_KEYS = new Set(['{{LOGO}}', '{{QR}}']);
     let result = html;
-    Object.entries(vars).forEach(([k, v]) => { result = result.split(k).join(v); });
+    Object.entries(vars).forEach(([k, v]) => {
+        const safeVal = RAW_HTML_KEYS.has(k) ? v : escHtmlValue(v);
+        result = result.split(k).join(safeVal);
+    });
     return result;
 };
 

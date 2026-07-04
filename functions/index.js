@@ -1,6 +1,20 @@
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const vision = require("@google-cloud/vision");
+const crypto = require("crypto");
+
+// Экранирование пользовательских значений для Telegram HTML parse_mode.
+const escTgHtml = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+// Сравнение строк за константное время (защита от timing-атак).
+const safeEqual = (a, b) => {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+};
 
 // Load environment variables from .env.local (for local development)
 if (process.env.NODE_ENV !== 'production') {
@@ -417,33 +431,53 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
             return;
         }
 
+        // ── Валидация/нормализация входа (эндпоинт публичный, без auth) ──────────
+        const str = (v, max) => String(v ?? '').slice(0, max);
+        const ci = new Date(d.checkIn);
+        const co = new Date(d.checkOut);
+        if (isNaN(ci.getTime()) || isNaN(co.getTime())) {
+            res.status(400).json({ ok: false, error: 'invalid checkIn/checkOut date' });
+            return;
+        }
+        if (co <= ci) {
+            res.status(400).json({ ok: false, error: 'checkOut must be after checkIn' });
+            return;
+        }
+        const hostelId = d.hostelId === 'hostel2' ? 'hostel2' : 'hostel1';
+        const bedType  = d.bedType  === 'lower'   ? 'lower'   : 'upper';
+        const clampInt = (v, min, max, def) => {
+            const n = Math.floor(Number(v));
+            if (!Number.isFinite(n)) return def;
+            return Math.min(max, Math.max(min, n));
+        };
+
         const { getFirestore } = require('firebase-admin/firestore');
         const hostellaDb = getFirestore('hostella');
         const APP_ID = 'hostella-multi-v4';
 
-        const hostelLabel = d.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
-        const bedLabel    = d.bedType  === 'lower'   ? 'Нижнее место' : 'Верхнее место';
+        const hostelLabel = hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
+        const bedLabel    = bedType  === 'lower'   ? 'Нижнее место' : 'Верхнее место';
 
         const guestDoc = {
-            fullName:       d.fullName || '',
-            phone:          d.phone || '',
+            fullName:       str(d.fullName, 120),
+            phone:          str(d.phone, 32),
             status:         'booking',
-            hostelId:       d.hostelId || 'hostel1',
-            bedType:        d.bedType  || 'upper',
-            bedsCount:      Number(d.bedsCount) || 1,
-            checkInDate:    new Date(d.checkIn).toISOString(),
-            checkOutDate:   new Date(d.checkOut).toISOString(),
-            days:           Number(d.nights) || 1,
-            totalPrice:     Number(d.amount) || 0,
-            pricePerDay:    Number(d.pricePerDay) || 0,
+            hostelId,
+            bedType,
+            bedsCount:      clampInt(d.bedsCount, 1, 50, 1),
+            checkInDate:    ci.toISOString(),
+            checkOutDate:   co.toISOString(),
+            days:           clampInt(d.nights, 1, 365, 1),
+            totalPrice:     clampInt(d.amount, 0, 1e9, 0),
+            pricePerDay:    clampInt(d.pricePerDay, 0, 1e9, 0),
             paidCash:       0,
             paidCard:       0,
             paidQR:         0,
             amountPaid:     0,
-            comment:        d.comment || '',
-            paymentMethod:  d.paymentMethod || 'cash',
-            paymentStatus:  d.paymentStatus || 'pending',
-            mysqlBookingId: Number(d.mysqlBookingId) || 0,
+            comment:        str(d.comment, 500),
+            paymentMethod:  ['cash', 'payme', 'click'].includes(d.paymentMethod) ? d.paymentMethod : 'cash',
+            paymentStatus:  ['pending', 'paid'].includes(d.paymentStatus) ? d.paymentStatus : 'pending',
+            mysqlBookingId: clampInt(d.mysqlBookingId, 0, 1e12, 0),
             source:         'website',
             createdAt:      new Date().toISOString(),
             createdBy:      'website',
@@ -465,16 +499,16 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
                 );
 
                 if (recipients.length > 0) {
-                    const ci = new Date(d.checkIn).toLocaleDateString('ru');
-                    const co = new Date(d.checkOut).toLocaleDateString('ru');
+                    const ciStr = ci.toLocaleDateString('ru');
+                    const coStr = co.toLocaleDateString('ru');
                     const text = `🌐 <b>Онлайн-бронирование</b>\n`
-                        + `👤 ${guestDoc.fullName}\n`
-                        + `📞 ${guestDoc.phone}\n`
+                        + `👤 ${escTgHtml(guestDoc.fullName)}\n`
+                        + `📞 ${escTgHtml(guestDoc.phone)}\n`
                         + `🏨 ${hostelLabel} · ${bedLabel} × ${guestDoc.bedsCount}\n`
-                        + `📅 ${ci} → ${co} (${guestDoc.days} дн.)\n`
-                        + `💰 ${Number(d.amount).toLocaleString('ru')} сум · ${d.paymentMethod === 'cash' ? 'Наличные' : d.paymentMethod === 'payme' ? 'Payme' : 'Click'}\n`
-                        + `💬 ${guestDoc.comment || '—'}\n`
-                        + `🔖 MySQL #${d.mysqlBookingId || '—'}`;
+                        + `📅 ${ciStr} → ${coStr} (${guestDoc.days} дн.)\n`
+                        + `💰 ${guestDoc.totalPrice.toLocaleString('ru')} сум · ${guestDoc.paymentMethod === 'cash' ? 'Наличные' : guestDoc.paymentMethod === 'payme' ? 'Payme' : 'Click'}\n`
+                        + `💬 ${escTgHtml(guestDoc.comment || '—')}\n`
+                        + `🔖 MySQL #${guestDoc.mysqlBookingId || '—'}`;
 
                     await Promise.allSettled(recipients.map(r => {
                         const payload = { chat_id: r.telegramId, text, parse_mode: 'HTML' };
@@ -511,8 +545,8 @@ exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
         );
     }
 
-    // Compare passwords
-    if (submittedPassword === adminPassword) {
+    // Compare passwords (constant-time)
+    if (safeEqual(submittedPassword, adminPassword)) {
         return { success: true, message: 'Password accepted' };
     } else {
         throw new functions.https.HttpsError(
@@ -728,12 +762,12 @@ exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
   const hostelName = hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
   const lines = [
     '🔻 <b>Запрос на понижение цены</b>',
-    `👤 Гость: <b>${guestName || '—'}</b>`,
-    `🏨 ${hostelName} · комната ${roomNumber || '—'}`,
+    `👤 Гость: <b>${escTgHtml(guestName || '—')}</b>`,
+    `🏨 ${hostelName} · комната ${escTgHtml(roomNumber || '—')}`,
   ];
   if (Number(currentPrice) > 0) lines.push(`💵 Текущая цена: ${fmtMoneyRu(currentPrice)} сум/ночь`);
   lines.push(`🔻 Запрошенная: <b>${fmtMoneyRu(requestedPrice)} сум/ночь</b>`);
-  lines.push(`👷 Кассир: ${cashierName || '—'}`);
+  lines.push(`👷 Кассир: ${escTgHtml(cashierName || '—')}`);
   lines.push('');
   lines.push('Разрешить эту цену?');
   const text = lines.join('\n');
@@ -755,6 +789,24 @@ exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
 
 exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+  // ── Проверка секретного токена вебхука ────────────────────────────────────
+  // Без неё кто угодно, зная URL функции, может слать поддельные callback_query
+  // и «одобрять» снижение цен. Токен задаётся при setWebhook (secret_token=…)
+  // и приходит в заголовке X-Telegram-Bot-Api-Secret-Token.
+  // Настройте env TELEGRAM_WEBHOOK_SECRET и пересоздайте вебхук с тем же secret_token.
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expectedSecret) {
+    const gotSecret = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
+    if (gotSecret !== expectedSecret) {
+      console.warn('[telegramWebhook] rejected: bad secret token');
+      res.status(401).send('unauthorized');
+      return;
+    }
+  } else {
+    console.warn('[telegramWebhook] TELEGRAM_WEBHOOK_SECRET not set — webhook is UNPROTECTED');
+  }
+
   try {
     const update = req.body || {};
     const cb = update.callback_query;
@@ -810,7 +862,7 @@ exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
 
     await tgAnswerCallback(botToken, cb.id, action === 'approve' ? '✅ Одобрено' : '❌ Отклонено');
     if (cb.message) {
-      const tail = action === 'approve' ? `\n\n✅ <b>ОДОБРЕНО</b> · ${approver}` : `\n\n❌ <b>ОТКЛОНЕНО</b> · ${approver}`;
+      const tail = action === 'approve' ? `\n\n✅ <b>ОДОБРЕНО</b> · ${escTgHtml(approver)}` : `\n\n❌ <b>ОТКЛОНЕНО</b> · ${escTgHtml(approver)}`;
       await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

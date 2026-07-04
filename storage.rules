@@ -1,0 +1,38 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hostella — правила доступа Cloud Storage.
+// Как и в Firestore, различаем только наличие сессии (см. пояснение в firestore.rules).
+// Загрузки ограничены изображениями и размером, чтение — для авторизованных.
+//   Разверните: firebase deploy --only storage
+// ─────────────────────────────────────────────────────────────────────────────
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isImageUnder(maxBytes) {
+      return request.resource.size < maxBytes
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Фото к расходам.
+    match /expenses/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn() && isImageUnder(10 * 1024 * 1024);
+    }
+
+    // Логотипы/брендинг хостелов.
+    match /hostels/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn() && isImageUnder(5 * 1024 * 1024);
+    }
+
+    // Всё остальное — запрещено.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,9 +1,8 @@
 const electron = require('electron');
-const { app, BrowserWindow, ipcMain, powerMonitor } = electron;
+const { app, BrowserWindow, ipcMain, powerMonitor, shell } = electron;
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
-const http  = require('http');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript } = require('./emehmonAutofill');
@@ -100,10 +99,32 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      webSecurity: false,
+      webSecurity: true,
       backgroundThrottling: false,
       preload: path.join(__dirname, 'preload.js'),
     },
+  });
+
+  // ─── Блокировка внешней навигации главного окна ─────────────────────────────
+  // Приложение живёт по фикс. origin (localhost в dev / file:// в prod). Любые
+  // попытки увести окно на внешний URL блокируем; ссылки открываем в системном
+  // браузере, а не внутри приложения (защита от фишинга/подмены UI).
+  const isInternalUrl = (url) => {
+    try {
+      const u = new URL(url);
+      if (isDev) return u.host === 'localhost:5173';
+      return u.protocol === 'file:';
+    } catch { return false; }
+  };
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isInternalUrl(url)) {
+      event.preventDefault();
+      if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
+    }
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
   });
 
   if (isDev) {
@@ -420,15 +441,46 @@ ipcMain.handle('window-isMaximized', () => {
 });
 
 // ─── Booking.com iCal fetch (bypasses CORS from renderer) ───────────────────
+// SSRF-защита: только https, запрет обращений на localhost/приватные диапазоны
+// (иначе рендерер мог бы заставить main-процесс сканировать локальную сеть).
+const isBlockedIcalHost = (hostname) => {
+    const h = (hostname || '').toLowerCase();
+    if (!h) return true;
+    if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
+    if (h === '::1' || h === '0.0.0.0') return true;
+    // IPv4 приватные/loopback/link-local диапазоны
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m) {
+        const [a, b] = [parseInt(m[1], 10), parseInt(m[2], 10)];
+        if (a === 127 || a === 10 || a === 0) return true;
+        if (a === 169 && b === 254) return true;               // link-local
+        if (a === 192 && b === 168) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 100 && b >= 64 && b <= 127) return true;     // CGNAT
+    }
+    return false;
+};
+
+const validateIcalUrl = (raw) => {
+    let u;
+    try { u = new URL(raw); } catch { return null; }
+    if (u.protocol !== 'https:') return null;                  // только https
+    if (isBlockedIcalHost(u.hostname)) return null;
+    return u.toString();
+};
+
 ipcMain.handle('fetch-ical', (event, url) => {
     return new Promise((resolve, reject) => {
         const MAX_REDIRECTS = 5;
         const doGet = (target, redirectsLeft) => {
             if (redirectsLeft <= 0) { reject('Too many redirects'); return; }
-            const lib = target.startsWith('https') ? https : http;
-            lib.get(target, { headers: { 'User-Agent': 'Hostella/1.0' } }, (res) => {
+            const safe = validateIcalUrl(target);
+            if (!safe) { reject('Blocked or invalid iCal URL'); return; }
+            https.get(safe, { headers: { 'User-Agent': 'Hostella/1.0' } }, (res) => {
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    doGet(res.headers.location, redirectsLeft - 1);
+                    // Резолвим относительный Location и снова валидируем хост.
+                    const next = new URL(res.headers.location, safe).toString();
+                    doGet(next, redirectsLeft - 1);
                     return;
                 }
                 let data = '';

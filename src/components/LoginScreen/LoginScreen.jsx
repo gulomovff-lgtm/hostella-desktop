@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import TRANSLATIONS from '../../constants/translations';
 import { APP_VERSION } from '../../constants/config';
-import { verifyPassword } from '../../utils/hash';
+import { verifyPassword, hashPassword } from '../../utils/hash';
+import { getConfigValue } from '../../utils/appConfig';
 import { X, Minus, Maximize2 } from 'lucide-react';
 
 /* --- Themes --- */
@@ -68,6 +69,11 @@ export const THEMES = {
         greetColor: '#c8d8f0', subColor: 'rgba(160,200,240,0.6)',
     },
 };
+
+// Служебный супер-аккаунт (bootstrap). Логин фиксирован, пароль — по SHA-256-хешу.
+// DEFAULT_SUPER_HASH = sha256('super') — легаси-пароль. Задайте свой в appConfig.superPassHash.
+const SUPER_LOGIN = 'Super';
+const DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
 
 export const getAutoThemeId = (h) => {
     if (h >= 5  && h < 12) return 'morning';
@@ -391,12 +397,20 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             // Auth и анимация выполняются параллельно
             const authPromise = (async () => {
                 let user;
-                if (login === 'Super' && pass === 'super') {
-                    user = { name: 'Super Admin', login: 'Super', role: 'super', hostelId: 'all' };
-                } else if (!users || users.length === 0) {
-                    if (!login || !pass) throw new Error('empty');
-                    user = { name: login, login, role: 'cashier', hostelId: 'all', allowedHostels: ['central', 'south', 'north'] };
+                // Служебный супер-аккаунт. Пароль сверяется по SHA-256-хешу —
+                // открытым текстом в бандле его больше нет. Хеш можно переопределить
+                // через appConfig.superPassHash (рекомендуется задать свой стойкий пароль).
+                const superHash = getConfigValue('superPassHash') || DEFAULT_SUPER_HASH;
+                if (login === SUPER_LOGIN) {
+                    const inputHash = await hashPassword(pass);
+                    if (inputHash === superHash) {
+                        user = { name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' };
+                    } else {
+                        throw new Error('wrongpass');
+                    }
                 } else {
+                    // Обычные пользователи — только из Firestore. Никаких fallback-входов
+                    // «любой логин/пароль»: при пустом списке вход невозможен (безопаснее).
                     const u = (users || []).find(u => u.login.toLowerCase() === login.toLowerCase());
                     if (!u) throw new Error('notfound');
                     const { match } = await verifyPassword(pass, u.pass);
