@@ -27,20 +27,6 @@ const initials = (node) => {
 };
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) : '';
 
-/* ─── Top stat card (light) ───────────────────────────────────────── */
-const StatCard = ({ icon: Icon, value, label, sub, tint }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm min-w-[140px]">
-    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${tint}`}>
-      <Icon size={18} />
-    </div>
-    <div className="min-w-0">
-      <div className="text-xl font-black text-slate-800 leading-none">{value}</div>
-      <div className="text-[11px] text-slate-500 font-medium mt-1 leading-tight">{label}</div>
-      {sub && <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">{sub}</div>}
-    </div>
-  </div>
-);
-
 /* ─── Mini stepper ────────────────────────────────────────────────── */
 const Stepper = ({ value, setValue, min = 1, max = 999 }) => (
   <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden bg-white shrink-0">
@@ -298,42 +284,81 @@ const TreeBranch = ({ node, level = 0, selectedId, onSelect, settings, guests, h
   );
 };
 
-/* ─── List row (convenient flat view) ─────────────────────────────── */
+/* ─── List row v2: карточка с действиями прямо в строке ───────────── */
 const ListRow = ({ node, level, expanded, onToggle, settings, guests, handlers }) => {
   const col = lc(level);
   const hasBonus = (node.bonusDays || 0) > 0;
   const tiersCount = settings?.tiers?.length || 2;
   const made = node.referralsMade || 0;
+  const pct = tiersCount ? Math.min((made / tiersCount) * 100, 100) : 0;
+  const invited = (node.children || []).length;
 
   return (
-    <div className={`bg-white border rounded-2xl shadow-sm overflow-hidden transition-all ${expanded ? `${col.border} ring-1 ${col.ring}` : 'border-slate-200'}`}>
-      <button type="button" onClick={onToggle} className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-50 transition-colors">
-        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${col.grad} flex items-center justify-center text-white font-bold text-sm shrink-0`}>
-          {initials(node)}
+    <div className={`bg-white border rounded-2xl shadow-sm overflow-hidden transition-all duration-200
+        ${expanded ? `${col.border} ring-2 ${col.ring} shadow-md` : 'border-slate-200 hover:border-slate-300 hover:shadow-md'}`}>
+      <div className="flex items-center gap-3 p-3">
+        {/* Аватар + уровень */}
+        <div className="relative shrink-0">
+          <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${col.grad} flex items-center justify-center text-white font-bold text-sm`}>
+            {initials(node)}
+          </div>
+          <span className={`absolute -bottom-1 -right-1 text-[8px] font-black px-1 py-px rounded-md ${col.soft} ${col.text} border border-white`}>
+            ур.{level}
+          </span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="font-bold text-slate-800 text-sm truncate flex items-center gap-2">
+
+        {/* Имя + статус + прогресс */}
+        <button type="button" onClick={onToggle} className="flex-1 min-w-0 text-left group">
+          <div className="font-bold text-slate-800 text-sm truncate group-hover:text-teal-700 transition-colors">
             {getDisplayName(node)}
-            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${col.soft} ${col.text}`}>ур.{level}</span>
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
             {node.referralConfirmed
               ? <span className="text-emerald-600 font-medium inline-flex items-center gap-0.5"><CheckCircle2 size={10} /> подтверждён</span>
               : <span className="text-amber-600 font-medium inline-flex items-center gap-0.5"><Clock size={10} /> ожидает</span>}
-            <span>👥 {(node.children || []).length}</span>
-            <span>прогресс {made}/{tiersCount}</span>
+            <span>👥 {invited}</span>
           </div>
-        </div>
+          {/* Прогресс до бонуса */}
+          <div className="flex items-center gap-1.5 mt-1.5 max-w-[220px]">
+            <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: col.line }} />
+            </div>
+            <span className="text-[9px] font-bold text-slate-400 shrink-0">{made}/{tiersCount}</span>
+          </div>
+        </button>
+
+        {/* Бонус */}
         {hasBonus && (
-          <div className="text-right shrink-0">
-            <div className="text-[9px] font-bold text-amber-400 uppercase">Бонус</div>
-            <div className="text-lg font-black text-amber-500 leading-none flex items-center gap-0.5"><Gift size={13} /> {node.bonusDays}</div>
+          <div className="shrink-0 flex items-center gap-1 bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1.5">
+            <Gift size={13} className="text-amber-500" />
+            <span className="text-base font-black text-amber-600 leading-none">{node.bonusDays}</span>
+            <span className="text-[9px] font-bold text-amber-400">дн.</span>
           </div>
         )}
-        <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
+
+        {/* Инлайн-действия */}
+        <div className="shrink-0 flex items-center gap-1.5">
+          {!node.referralConfirmed && (
+            <button type="button" onClick={() => handlers.onConfirm(node.id)}
+              title={`Подтвердить ${settings?.minStayDays || 10} дней проживания`}
+              className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-all active:scale-95">
+              <CheckCircle2 size={13} /> <span className="hidden sm:inline">Подтвердить</span>
+            </button>
+          )}
+          <button type="button" onClick={() => handlers.onAddBonus?.(node.id, 1)}
+            title="Начислить 1 бонусный день"
+            className="flex items-center gap-0.5 px-2 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 text-[11px] font-bold transition-all active:scale-95">
+            <Gift size={12} /> +1
+          </button>
+          <button type="button" onClick={onToggle}
+            className={`p-2 rounded-xl transition-all ${expanded ? 'bg-slate-800 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'}`}>
+            <ChevronDown size={15} className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+      </div>
+
       {expanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-slate-100">
+        <div className="px-3 pb-3 pt-2 border-t border-slate-100 bg-slate-50/60">
           <NodeActions node={node} settings={settings} guests={guests} {...handlers} />
         </div>
       )}
@@ -468,21 +493,6 @@ const RulesCard = ({ settings }) => {
     </div>
   );
 };
-
-/* ─── Legend (light) ──────────────────────────────────────────────── */
-const Legend = () => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-2">Уровни вложенности</p>
-    <div className="grid grid-cols-1 gap-1">
-      {LEVEL_COLORS.map((c, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded-sm ${c.dot}`} />
-          <span className="text-[11px] text-slate-500">{c.label}</span>
-        </div>
-      ))}
-    </div>
-  </div>
-);
 
 /* ─── Settings Modal (light) ──────────────────────────────────────── */
 const SettingsModal = ({ settings, onClose, onSave, saving, patchSettings, addTier, updateTier, removeTier, moveTier, addRule, updateRule, removeRule }) => {
@@ -619,15 +629,6 @@ const SettingsModal = ({ settings, onClose, onSave, saving, patchSettings, addTi
   );
 };
 
-/* ─── Empty state ─────────────────────────────────────────────────── */
-const EmptyState = () => (
-  <div className="flex flex-col items-center justify-center py-20 text-center">
-    <span className="text-5xl mb-3">🌱</span>
-    <p className="text-slate-500 font-semibold text-sm">Пока нет участников</p>
-    <p className="text-slate-400 text-xs mt-1">Добавьте первого гостя через панель «Добавить участника»</p>
-  </div>
-);
-
 /* ─── Flatten tree for list view ──────────────────────────────────── */
 const flattenTree = (nodes) => {
   const out = [];
@@ -658,7 +659,9 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
   const [expandedId, setExpandedId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [view, setView] = useState('list');           // 'list' | 'tree'
-  const [mobilePanel, setMobilePanel] = useState(false); // mobile add panel sheet
+  const [addOpen, setAddOpen] = useState(false);      // модалка «Добавить участника»
+  const [infoOpen, setInfoOpen] = useState(false);    // модалка «Как работает»
+  const [statusFilter, setStatusFilter] = useState('all'); // all | bonus | pending | confirmed
   const [listSearch, setListSearch] = useState('');
   const [treeScale, setTreeScale] = useState(1);
 
@@ -680,12 +683,23 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
   const hasParticipants = nodes[0]?.children?.length > 0;
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
+  const allFlat = useMemo(() => flattenTree(nodes), [nodes]);
+  const filterCounts = useMemo(() => ({
+    all: allFlat.length,
+    bonus: allFlat.filter(({ node }) => (node.bonusDays || 0) > 0).length,
+    pending: allFlat.filter(({ node }) => !node.referralConfirmed).length,
+    confirmed: allFlat.filter(({ node }) => node.referralConfirmed).length,
+  }), [allFlat]);
+
   const flatList = useMemo(() => {
-    const list = flattenTree(nodes);
+    let list = allFlat;
+    if (statusFilter === 'bonus')     list = list.filter(({ node }) => (node.bonusDays || 0) > 0);
+    if (statusFilter === 'pending')   list = list.filter(({ node }) => !node.referralConfirmed);
+    if (statusFilter === 'confirmed') list = list.filter(({ node }) => node.referralConfirmed);
     const q = listSearch.trim().toLowerCase();
-    const filtered = q ? list.filter(({ node }) => getDisplayName(node).toLowerCase().includes(q)) : list;
-    return filtered.sort((a, b) => (b.node.bonusDays || 0) - (a.node.bonusDays || 0) || getDisplayName(a.node).localeCompare(getDisplayName(b.node)));
-  }, [nodes, listSearch]);
+    if (q) list = list.filter(({ node }) => getDisplayName(node).toLowerCase().includes(q));
+    return [...list].sort((a, b) => (b.node.bonusDays || 0) - (a.node.bonusDays || 0) || getDisplayName(a.node).localeCompare(getDisplayName(b.node)));
+  }, [allFlat, statusFilter, listSearch]);
 
   const clampScale = (s) => Math.min(2.5, Math.max(0.3, s));
   const handleCanvasWheel = useCallback((e) => {
@@ -711,134 +725,183 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
     ? (hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId)
     : null;
 
+  const FILTERS = [
+    { id: 'all',       label: 'Все',           count: filterCounts.all },
+    { id: 'bonus',     label: '🎁 С бонусами', count: filterCounts.bonus },
+    { id: 'pending',   label: '⏳ Ожидают',    count: filterCounts.pending },
+    { id: 'confirmed', label: '✓ Подтверждены', count: filterCounts.confirmed },
+  ];
+
   return (
     <div className="min-h-full bg-slate-50 flex flex-col">
-      {/* ── Header ── */}
-      <div className="shrink-0 px-4 md:px-6 pt-5 pb-4 bg-white border-b border-slate-200">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-xl font-black text-slate-800 flex items-center gap-2.5">
-              <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center text-lg shadow-sm shadow-teal-200">🎁</span>
-              {settings.programName}
-              {!settings.programActive && <span className="text-xs bg-rose-50 text-rose-500 border border-rose-200 px-2 py-0.5 rounded-full font-semibold">Выключена</span>}
-            </h1>
-            <p className="text-slate-400 text-xs mt-1 flex items-center gap-2">
-              Реферальная программа · привязана к базе клиентов
-              {hostelBadge && <span className="bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-semibold text-[10px]">{hostelBadge}</span>}
-            </p>
+      {/* ── Шапка: название + статы + действия ── */}
+      <div className="shrink-0 px-4 md:px-6 pt-4 pb-3 bg-white border-b border-slate-200">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center text-lg shadow-sm shadow-teal-200 shrink-0">🎁</span>
+            <div className="min-w-0">
+              <h1 className="text-lg font-black text-slate-800 leading-tight truncate flex items-center gap-2">
+                {settings.programName}
+                {!settings.programActive && <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-200 px-2 py-0.5 rounded-full font-semibold shrink-0">Выключена</span>}
+              </h1>
+              <p className="text-slate-400 text-[11px] flex items-center gap-1.5">
+                Реферальная программа
+                {hostelBadge && <span className="bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-px rounded-full font-semibold text-[9px]">{hostelBadge}</span>}
+              </p>
+            </div>
           </div>
-          {isAdmin && (
-            <button onClick={() => setShowSettings(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-600 text-slate-500 text-xs font-semibold transition-all shadow-sm">
-              <Settings size={14} /> Настройки
+
+          <div className="flex items-center gap-2">
+            <button onClick={() => setInfoOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-600 text-slate-500 text-xs font-semibold transition-all shadow-sm active:scale-95">
+              <Info size={14} /> <span className="hidden sm:inline">Как работает</span>
             </button>
-          )}
+            {isAdmin && (
+              <button onClick={() => setShowSettings(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-600 text-slate-500 text-xs font-semibold transition-all shadow-sm active:scale-95">
+                <Settings size={14} /> <span className="hidden sm:inline">Настройки</span>
+              </button>
+            )}
+            <button onClick={() => setAddOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-sm shadow-teal-200 transition-all active:scale-95 hover:-translate-y-px">
+              <UserPlus size={14} /> Участник
+            </button>
+          </div>
         </div>
 
-        {/* Stats */}
-        <div className="flex items-center gap-2.5 flex-wrap mt-4">
-          <StatCard icon={Users} value={stats.totalGuests} label="Участников" tint="bg-teal-50 text-teal-600" />
-          <StatCard icon={CheckCircle2} value={stats.confirmedGuests} label="Подтверждено"
-            sub={stats.pendingGuests > 0 ? `${stats.pendingGuests} ожидает` : null} tint="bg-emerald-50 text-emerald-600" />
-          <StatCard icon={Gift} value={stats.totalBonusPending} label="Бонусов доступно"
-            sub={stats.totalBonusUsed > 0 ? `${stats.totalBonusUsed} использовано` : null} tint="bg-amber-50 text-amber-600" />
-          <StatCard icon={Award} value={stats.totalBonusEarned} label="Заработано всего" tint="bg-violet-50 text-violet-600" />
+        {/* Статы — компактные чипы */}
+        <div className="flex items-center gap-2 flex-wrap mt-3">
+          {[
+            { icon: Users,        value: stats.totalGuests,      label: 'участников',       tint: 'bg-teal-50 text-teal-700 border-teal-200' },
+            { icon: CheckCircle2, value: stats.confirmedGuests,  label: 'подтверждено',      tint: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            { icon: Clock,        value: stats.pendingGuests,    label: 'ожидают',           tint: 'bg-amber-50 text-amber-700 border-amber-200' },
+            { icon: Gift,         value: stats.totalBonusPending, label: 'бонусов доступно', tint: 'bg-orange-50 text-orange-700 border-orange-200' },
+            { icon: Award,        value: stats.totalBonusEarned, label: 'заработано',        tint: 'bg-violet-50 text-violet-700 border-violet-200' },
+          ].map(({ icon: Icon, value, label, tint }) => (
+            <div key={label} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold ${tint}`}>
+              <Icon size={13} />
+              <span className="font-black">{value}</span>
+              <span className="opacity-70 font-medium hidden sm:inline">{label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* ── Body ── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar (desktop) */}
-        <div className="hidden md:flex w-72 shrink-0 border-r border-slate-200 p-4 flex-col gap-4 overflow-y-auto bg-white/60">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-            <p className="text-xs font-bold text-slate-700 mb-3 flex items-center gap-1.5"><UserPlus size={14} className="text-teal-500" /> Добавить участника</p>
-            <AddPanel participantList={participantList} nonParticipants={nonParticipants} onAddNew={addReferralClient} onLinkExisting={linkExistingClient} />
+      {/* ── Тулбар: фильтры + поиск + вид ── */}
+      <div className="shrink-0 px-4 md:px-6 py-2.5 flex items-center gap-2 flex-wrap border-b border-slate-200 bg-white/80 backdrop-blur-sm">
+        {view === 'list' && (
+          <div className="flex items-center bg-slate-100/80 rounded-xl p-1 gap-0.5 overflow-x-auto scrollbar-hide">
+            {FILTERS.map(f => (
+              <button key={f.id} onClick={() => setStatusFilter(f.id)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all active:scale-95
+                  ${statusFilter === f.id ? 'bg-white text-teal-700 shadow-sm ring-1 ring-slate-200/80' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'}`}>
+                {f.label}
+                <span className={`text-[9px] px-1 py-px rounded-full font-black ${statusFilter === f.id ? 'bg-teal-50 text-teal-600' : 'bg-slate-200 text-slate-500'}`}>{f.count}</span>
+              </button>
+            ))}
           </div>
-          <RulesCard settings={settings} />
-          {view === 'tree' && <Legend />}
-        </div>
+        )}
 
-        {/* Main content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Toolbar */}
-          <div className="shrink-0 px-4 md:px-6 py-3 flex items-center gap-2 flex-wrap border-b border-slate-200 bg-white/80 backdrop-blur-sm">
-            <div className="flex rounded-xl overflow-hidden border border-slate-200 bg-slate-100 p-1 gap-1">
-              {[['list', 'Список', ListIcon], ['tree', 'Дерево', Network]].map(([v, label, Icon]) => (
-                <button key={v} onClick={() => setView(v)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${view === v ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400'}`}>
-                  <Icon size={13} /> {label}
-                </button>
+        {view === 'list' && (
+          <div className="relative flex-1 min-w-[140px] max-w-xs">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={listSearch} onChange={e => setListSearch(e.target.value)} placeholder="Поиск…"
+              className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 transition" />
+          </div>
+        )}
+
+        {view === 'tree' && (
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm">
+            <button onClick={() => setTreeScale(s => clampScale(s - 0.1))} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"><ZoomOut size={13} /></button>
+            <span className="text-[11px] font-bold text-slate-500 w-10 text-center">{Math.round(treeScale * 100)}%</span>
+            <button onClick={() => setTreeScale(s => clampScale(s + 0.1))} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"><ZoomIn size={13} /></button>
+            {treeScale !== 1 && <button onClick={() => setTreeScale(1)} className="ml-1 px-2 h-6 flex items-center rounded-lg hover:bg-slate-100 text-slate-400 text-[10px]">Сброс</button>}
+          </div>
+        )}
+        {view === 'tree' && (
+          <div className="hidden md:flex items-center gap-2.5 px-2">
+            {LEVEL_COLORS.map((c, i) => (
+              <span key={i} className="flex items-center gap-1 text-[10px] text-slate-400">
+                <span className={`w-2 h-2 rounded-sm ${c.dot}`} /> {i === 0 ? 'корень' : `ур.${i}`}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="ml-auto flex rounded-xl overflow-hidden border border-slate-200 bg-slate-100 p-1 gap-1">
+          {[['list', 'Список', ListIcon], ['tree', 'Дерево', Network]].map(([v, label, Icon]) => (
+            <button key={v} onClick={() => setView(v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${view === v ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400'}`}>
+              <Icon size={13} /> <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Контент ── */}
+      <div ref={canvasRef} onTouchMove={view === 'tree' ? handleTouchMove : undefined} onTouchEnd={view === 'tree' ? handleTouchEnd : undefined}
+        style={view === 'tree' ? { touchAction: 'pan-x pan-y' } : undefined}
+        className="flex-1 overflow-auto p-4 md:p-6">
+        {!hasParticipants ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <span className="text-5xl mb-3">🌱</span>
+            <p className="text-slate-500 font-semibold text-sm">Пока нет участников</p>
+            <button onClick={() => setAddOpen(true)}
+              className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold shadow-sm shadow-teal-200 transition-all active:scale-95">
+              <UserPlus size={15} /> Добавить первого участника
+            </button>
+          </div>
+        ) : view === 'list' ? (
+          <div className="max-w-3xl mx-auto space-y-2">
+            {flatList.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-10">Ничего не найдено</p>
+            ) : flatList.map(({ node, level }) => (
+              <ListRow key={node.id} node={node} level={level}
+                expanded={expandedId === node.id}
+                onToggle={() => setExpandedId(id => id === node.id ? null : node.id)}
+                settings={settings} guests={guests} handlers={handlers} />
+            ))}
+          </div>
+        ) : (
+          <div style={{ transform: `scale(${treeScale})`, transformOrigin: 'top left', transition: 'transform 0.1s ease-out' }}>
+            <div className="flex items-start gap-10 flex-wrap pb-16">
+              {nodes.map(root => (
+                <TreeBranch key={root.id} node={root} level={0}
+                  selectedId={selectedId} onSelect={setSelectedId}
+                  settings={settings} guests={guests} handlers={handlers} />
               ))}
             </div>
-
-            {view === 'list' && (
-              <div className="relative flex-1 min-w-[160px] max-w-xs">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input value={listSearch} onChange={e => setListSearch(e.target.value)} placeholder="Поиск участника…"
-                  className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 transition" />
-              </div>
-            )}
-            {view === 'tree' && (
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm">
-                <button onClick={() => setTreeScale(s => clampScale(s - 0.1))} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"><ZoomOut size={13} /></button>
-                <span className="text-[11px] font-bold text-slate-500 w-10 text-center">{Math.round(treeScale * 100)}%</span>
-                <button onClick={() => setTreeScale(s => clampScale(s + 0.1))} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"><ZoomIn size={13} /></button>
-                {treeScale !== 1 && <button onClick={() => setTreeScale(1)} className="ml-1 px-2 h-6 flex items-center rounded-lg hover:bg-slate-100 text-slate-400 text-[10px]">Сброс</button>}
-              </div>
-            )}
-
-            {/* Mobile add button */}
-            <button onClick={() => setMobilePanel(true)}
-              className="md:hidden ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-600 text-white text-xs font-bold shadow-sm active:scale-95">
-              <UserPlus size={14} /> Добавить
-            </button>
+            <span className="text-[10px] text-slate-400 block mt-2">Ctrl+колесо / щипок — масштаб</span>
           </div>
-
-          {/* Content scroll area */}
-          <div ref={canvasRef} onTouchMove={view === 'tree' ? handleTouchMove : undefined} onTouchEnd={view === 'tree' ? handleTouchEnd : undefined}
-            style={view === 'tree' ? { touchAction: 'pan-x pan-y' } : undefined}
-            className="flex-1 overflow-auto p-4 md:p-6">
-            {!hasParticipants ? (
-              <EmptyState />
-            ) : view === 'list' ? (
-              <div className="max-w-2xl mx-auto space-y-2.5">
-                {flatList.length === 0 ? (
-                  <p className="text-center text-slate-400 text-sm py-10">Ничего не найдено</p>
-                ) : flatList.map(({ node, level }) => (
-                  <ListRow key={node.id} node={node} level={level}
-                    expanded={expandedId === node.id}
-                    onToggle={() => setExpandedId(id => id === node.id ? null : node.id)}
-                    settings={settings} guests={guests} handlers={handlers} />
-                ))}
-              </div>
-            ) : (
-              <div style={{ transform: `scale(${treeScale})`, transformOrigin: 'top left', transition: 'transform 0.1s ease-out' }}>
-                <div className="flex items-start gap-10 flex-wrap pb-16">
-                  {nodes.map(root => (
-                    <TreeBranch key={root.id} node={root} level={0}
-                      selectedId={selectedId} onSelect={setSelectedId}
-                      settings={settings} guests={guests} handlers={handlers} />
-                  ))}
-                </div>
-                <span className="text-[10px] text-slate-400 block mt-2">Ctrl+колесо / щипок — масштаб</span>
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Mobile add panel sheet */}
-      {mobilePanel && (
-        <div className="modal-centered md:hidden fixed inset-0 z-[150] flex items-center justify-center p-3 pb-[84px] bg-slate-900/50 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && setMobilePanel(false)}>
-          <div className="w-full max-w-md bg-white rounded-2xl p-4 space-y-4 max-h-[80vh] overflow-y-auto shadow-2xl">
+      {/* ── Модалка «Добавить участника» ── */}
+      {addOpen && (
+        <div className="modal-centered fixed inset-0 z-[150] flex items-center justify-center p-3 pb-[84px] sm:pb-4 bg-slate-900/50 backdrop-blur-sm"
+          onClick={e => e.target === e.currentTarget && setAddOpen(false)}>
+          <div className="w-full max-w-md bg-white rounded-3xl p-5 space-y-4 max-h-[85vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><UserPlus size={15} className="text-teal-500" /> Добавить участника</p>
-              <button onClick={() => setMobilePanel(false)} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400"><X size={18} /></button>
+              <button onClick={() => setAddOpen(false)} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400"><X size={18} /></button>
             </div>
             <AddPanel participantList={participantList} nonParticipants={nonParticipants}
               onAddNew={(n, r) => { addReferralClient(n, r); }}
-              onLinkExisting={(c, r) => { linkExistingClient(c, r); setMobilePanel(false); }} />
-            <RulesCard settings={settings} />
+              onLinkExisting={(c, r) => { linkExistingClient(c, r); setAddOpen(false); }} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка «Как работает» ── */}
+      {infoOpen && (
+        <div className="modal-centered fixed inset-0 z-[150] flex items-center justify-center p-3 pb-[84px] sm:pb-4 bg-slate-900/50 backdrop-blur-sm"
+          onClick={e => e.target === e.currentTarget && setInfoOpen(false)}>
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto">
+            <div className="relative">
+              <button onClick={() => setInfoOpen(false)}
+                className="absolute top-3 right-3 z-10 p-1.5 rounded-xl hover:bg-slate-100 text-slate-400"><X size={18} /></button>
+              <RulesCard settings={settings} />
+            </div>
           </div>
         </div>
       )}

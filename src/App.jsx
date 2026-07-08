@@ -160,7 +160,8 @@ import { reportClientVersion } from './utils/clientTelemetry';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
-import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered, departEmehmonBackground, departEmehmonBulk } from './utils/emehmon';
+import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered, departEmehmonBackground, departEmehmonBulk, autoRegisterArrival } from './utils/emehmon';
+import { minNightPrice } from './utils/pricing';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
@@ -1228,6 +1229,38 @@ function App() {
               { emehmonOut: true, emehmonOutAt: now, emehmonOutAuto: true });
           } catch (_) { /* пропускаем */ }
         }
+        // ── АВТО-ВЫВОД ПО ИСТЕЧЕНИИ СРОКА ────────────────────────────────────
+        // Регистрации (журнал), у которых срок вышел, а статус ещё active:
+        //  • есть в /listok → выселяем в фоне одной операцией → помечаем removed;
+        //  • нет в /listok → уже выведен → просто помечаем removed.
+        const expiredActive = (registrations || []).filter(r =>
+          r.status === 'active' && r.hostelId === hostelId && r.endDate &&
+          new Date(r.endDate + 'T23:59:59').getTime() < Date.now());
+        if (expiredActive.length > 0) {
+          const inListok = expiredActive.filter(r =>
+            (r.passport && pSet.has(norm(r.passport))) || (r.fullName && nSet.has(norm(r.fullName))));
+          const absent = expiredActive.filter(r => !inListok.includes(r));
+          const markRemoved = async (r, by) => {
+            try {
+              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', r.id),
+                { status: 'removed', removedAt: new Date().toISOString(), removedBy: by });
+            } catch (_) { /* пропускаем */ }
+          };
+          for (const r of absent) await markRemoved(r, 'auto_expiry_absent');
+          if (inListok.length > 0 && window.electronAPI?.emehmonDepartureBulk) {
+            const dep = await departEmehmonBulk(
+              inListok.map(r => ({ fullName: r.fullName, passport: r.passport, hostelId })),
+              { hostelId });
+            if (dep?.status === 'done' || dep?.status === 'submitted') {
+              for (const r of inListok) await markRemoved(r, 'auto_expiry');
+              showNotification(`⏰ Срок истёк — авто-выведено из e-mehmon: ${inListok.length}`, 'success');
+            } else if (manual) {
+              showNotification('Авто-вывод истёкших не удался — выведите вручную.', 'warning');
+            }
+          } else if (absent.length > 0 && manual) {
+            showNotification(`Истёкшие регистрации закрыты: ${absent.length} (уже выведены из e-mehmon)`, 'info');
+          }
+        }
         if (manual) showNotification(`Синхронизация e-mehmon: отмечено ${toMark.length}, выведено ${toMarkOut.length}`, 'success');
       } else if (res?.status === 'need_login') {
         if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
@@ -1238,7 +1271,7 @@ function App() {
       emehmonSyncBusy.current = false;
       if (manual) setEmehmonSyncing(false);
     }
-  }, [guests, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [guests, registrations, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Стабильный планировщик: старт через 8с после входа + каждые 6 часов.
   const emehmonSyncRef = useRef(runEmehmonSync);
@@ -1249,6 +1282,32 @@ function App() {
     const iv = setInterval(() => emehmonSyncRef.current(false), 6 * 60 * 60 * 1000);
     return () => { clearTimeout(t); clearInterval(iv); };
   }, [currentUser]);
+
+  // Полная авто-регистрация прибытия (граждане Узбекистана) в фоне.
+  const emehmonAutoBusy = useRef(new Set()); // guestId в процессе — защита от дубля листка
+  const handleEmehmonAutoArrival = useCallback(async (guest) => {
+    if (!guest || !window.electronAPI?.emehmonArrivalAuto) return;
+    if (guest.id && emehmonAutoBusy.current.has(guest.id)) return; // уже регистрируется
+    if (guest.id) emehmonAutoBusy.current.add(guest.id);
+    showNotification(`Регистрирую ${guest.fullName} в e-mehmon (авто)…`, 'info');
+    const res = await autoRegisterArrival(guest);
+    if (guest.id) emehmonAutoBusy.current.delete(guest.id);
+    const st = res?.status;
+    if (st === 'done') {
+      handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true });
+      showNotification(`${guest.fullName} — зарегистрирован в e-mehmon ✓`, 'success');
+    } else if (st === 'need_login') {
+      showNotification('Войдите в e-mehmon (окно открыто) — затем регистрация продолжится.', 'info');
+    } else if (st === 'not_found') {
+      showNotification(`${guest.fullName}: нет в госбазе — завершите регистрацию вручную (окно открыто).`, 'warning');
+    } else if (st === 'no_room') {
+      showNotification(`${guest.fullName}: комната не совпала с e-mehmon — завершите вручную (окно открыто).`, 'warning');
+    } else if (st === 'no_electron') {
+      /* веб — пропускаем */
+    } else {
+      showNotification(`${guest.fullName}: авто-регистрация не завершена — проверьте окно e-mehmon.`, 'error');
+    }
+  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Успешная регистрация прибытия в e-mehmon → авто-галочка «Зарегистрирован».
   const guestsRef = useRef(guests);
@@ -1356,6 +1415,7 @@ function App() {
     setEmehmonReminder,
     setEmehmonArrivalPrompt,
     onEmehmonDepart: handleEmehmonDepart,
+    onEmehmonAutoArrival: handleEmehmonAutoArrival,
   });
 
   const {
@@ -2020,19 +2080,20 @@ const filterByHostel = (items) => {
     }
   };
 
-  // Перевод существующего гостя на стандартный тариф 70 000 без перезаселения
-  const handleUpgradeToStandardTariff = async (guest) => {
+  // Перевод существующего гостя на стандартный тариф (минимум по комнате) без перезаселения
+  const handleUpgradeToStandardTariff = async (guest, price) => {
     if (!guest?.id) return;
     const days = parseInt(guest.days) || 0;
+    const newPrice = parseInt(price) || minNightPrice(guest.hostelId, guest.roomNumber, guest.checkInDate ? new Date(guest.checkInDate) : new Date());
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
-        pricePerNight: 70000,
-        totalPrice: 70000 * days,
+        pricePerNight: newPrice,
+        totalPrice: newPrice * days,
         tariff: 'standard',
         nonRefundable: false,
       });
-      logAction(currentUser, 'tariff_upgrade_70k', { guestId: guest.id, days });
-      showNotification('✅ Гость переведён на тариф 70 000', 'success');
+      logAction(currentUser, 'tariff_upgrade_std', { guestId: guest.id, days, price: newPrice });
+      showNotification(`✅ Гость переведён на тариф ${newPrice.toLocaleString()}`, 'success');
     } catch (e) {
       showNotification(e.message, 'error');
     }
@@ -2847,6 +2908,7 @@ return (
                 currentUser={currentUser}
                 initialCategory={expenseModalCategory}
                 usersList={usersList}
+                selectedHostelFilter={selectedHostelFilter}
             />
         )}
         
@@ -3022,7 +3084,7 @@ return (
             {undoStack.length > 0 && (
                 <button
                     onClick={() => setUndoHistoryOpen(true)}
-                    className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg font-black text-sm transition-all"
+                    className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-white rounded-full shadow-lg shadow-amber-500/40 hover:shadow-xl hover:shadow-amber-500/50 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 font-black text-sm transition-all duration-200"
                     style={{ WebkitAppRegion: 'no-drag', ...(navPos === 'bottom' ? { bottom: 72 } : {}) }}
                 >
                     <span className="text-base">↩</span>

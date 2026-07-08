@@ -991,9 +991,9 @@ const RoomsView = ({
                             <button
                                 key={key}
                                 onClick={() => setFilter(key)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-200
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-200 active:scale-95
                                     ${filter === key
-                                        ? 'bg-white text-indigo-700 shadow-sm shadow-slate-200/80'
+                                        ? 'bg-white text-indigo-700 shadow-sm shadow-slate-300/60 ring-1 ring-slate-200/80'
                                         : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'
                                     }`}
                             >

@@ -21,6 +21,25 @@ export const DEFAULT_APP_CONFIG = {
     errorAlertChatId: '7029598539',
     // Кому уходят запросы на понижение цены (Telegram chat_id, можно несколько)
     priceApprovalChatIds: ['6953132612'],
+    // Отдельный бот одобрения цены: свой токен (пусто = общий TELEGRAM_BOT_TOKEN функции)
+    priceBotToken: '',
+    // Ценообразование: минимумы по комнатам/филиалам, пакеты, сезоны (по датам).
+    // Пусто/отсутствует → работают старые дефолты (70000 / пакет 65000 / 10 дней).
+    pricing: {
+        packageMinDays: 10,
+        packagePrice: 65000,               // общий фикс пакета (fallback)
+        base: {
+            hostel1: { default: 70000, rooms: { '1': 65000, '2': 65000, '3': 70000, '4': 60000, '5': 70000, '6': 70000, '7': 80000 } },
+            hostel2: { default: 65000, rooms: {} },
+        },
+        package: {                         // цена пакета по комнатам (0/пусто = packagePrice)
+            hostel1: { default: 0, rooms: {} },
+            hostel2: { default: 0, rooms: {} },
+        },
+        // Сезоны по датам (MM-DD). Активный сезон переопределяет base/package/packageMinDays.
+        // [{ id, name, from:'06-01', to:'08-31', base:{hostel1:{default,rooms},hostel2:{…}}, package:{…}, packageMinDays }]
+        seasons: [],
+    },
     // Финансы
     defaultUsdRate: '',          // курс USD по умолчанию в модалке расхода
     registrationDailyRate: '',   // ставка регистрации (кадастр) по умолчанию

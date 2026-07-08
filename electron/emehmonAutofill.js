@@ -479,4 +479,102 @@ function buildDepartureBulkScript(payload) {
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript };
+// ── Полный авто-мастер прибытия для граждан Узбекистана ───────────────────────
+// Прогоняет весь мастер /listok/create-page без кассира: шаг 1 (UZB + паспорт +
+// ДР → сервер подтягивает данные из госбазы) → шаг 2 (авто) → шаг 3 (дни, комната,
+// тип визита, оплата, сумма, тип гостя) → Saqlash. Любой сбой → безопасный стоп.
+//   done / need_login / not_found / no_room / no_form / step2_failed /
+//   check_timeout / no_submit / submit_unconfirmed / error
+function buildAutoArrivalScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var G = ${G};
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function byId(id){ return document.getElementById(id); }
+  function vis(el){ return !!(el && el.offsetParent !== null); }
+  function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+  function setInput(id, val){ var el=byId(id); if(!el) return false; el.value = (val==null?'':val); try{ if($) $(el).val(el.value); }catch(e){} fire(el); return true; }
+  function setSelect(id, val){ var el=byId(id); if(!el) return false; el.value=String(val); try{ if($) $(el).val(String(val)).trigger('change'); }catch(e){} fire(el); return true; }
+  function activeTab(){ var a=document.querySelector('#myTab .nav-link.active'); return a? a.id : ''; }
+  function notFound(){
+    var nodes = document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup');
+    for (var i=0;i<nodes.length;i++){ if (/topilmadi/i.test(nodes[i].textContent||'')) return true; }
+    return false;
+  }
+  async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
+
+  try {
+    if ((location.pathname||'').indexOf('login')!==-1 || document.querySelector('input[type=password]')) return { status:'need_login' };
+
+    // 1) ждём форму шага 1
+    if (!(await waitFor(function(){ return byId('passportNumber') && byId('id_citizen'); }, 30, 400))) return { status:'no_form' };
+    await sleep(300);
+
+    // 2) шаг 1: гражданство UZB (173), паспорт, дата рождения → «Keyingi»
+    setSelect('id_citizen', '173');
+    setSelect('id_passporttype', G.docType || '1');
+    setInput('datebirth', G.birthDate);
+    setInput('passportNumber', (G.passport||'').toUpperCase());
+    await sleep(500);
+    var fcb = byId('formCheckButton');
+    if (!fcb) return { status:'no_form' };
+    fcb.removeAttribute('disabled');
+    fcb.click();
+
+    // 3) ждём: general-info активна ИЛИ «не найден»
+    if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
+    if (notFound()) return { status:'not_found' };
+    await sleep(600);
+
+    // 4) general-info авто-заполнена → «Keyingi» → additional-info
+    var g2 = document.querySelector('#general-info button[onclick*=additional-info-tab]');
+    if (g2) g2.click();
+    if (!(await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 30, 400))) return { status:'step2_failed' };
+    await sleep(300);
+
+    // 5) additional-info: дни → (комнаты грузятся AJAX) → комната по номеру
+    setInput('wdays', G.days || '1');
+    await sleep(700);
+    var room = String(G.room||'').trim(), roomOk=false;
+    if (room) {
+      roomOk = await waitFor(function(){
+        var sel = byId('propiska'); if(!sel) return false;
+        var opt = Array.prototype.filter.call(sel.options, function(o){ return o.value && String(o.value)===room; })[0];
+        if (opt){ setSelect('propiska', opt.value); return true; }
+        return false;
+      }, 12, 700);
+    }
+    if (!roomOk) return { status:'no_room' };
+    setSelect('id_visittype', '5');  // Boshqa
+    setSelect('payed', '2');         // To'liq to'langan
+    setInput('amount', G.amount || '1');
+    setSelect('id_guest', '4');      // Boshqa
+    await sleep(300);
+
+    var addBtn = document.querySelector('#additional-info button[onclick*=children-info-tab]');
+    if (addBtn) addBtn.click();
+    await waitFor(function(){ return activeTab()==='children-info-tab'; }, 20, 400);
+    await sleep(200);
+    var childBtn = document.querySelector('#children-info button[onclick*=guest-info-tab]');
+    if (childBtn) childBtn.click();
+    await waitFor(function(){ return activeTab()==='guest-info-tab' || byId('submitForm'); }, 20, 400);
+    await sleep(300);
+
+    // 6) Saqlash
+    var sub = byId('submitForm');
+    if (!sub) return { status:'no_submit' };
+    sub.click();
+
+    // 7) ждём успех swal2 «Muvaffaqiyatli saqlandi»
+    var done = await waitFor(function(){
+      var ic = document.querySelector('.swal2-popup .swal2-icon.swal2-success');
+      var t = document.querySelector('.swal2-title');
+      return !!(ic && t && /saqland|muvaffaqiyat/i.test(t.textContent||''));
+    }, 50, 500);
+    return { status: done ? 'done' : 'submit_unconfirmed' };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+
+module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript, buildAutoArrivalScript };

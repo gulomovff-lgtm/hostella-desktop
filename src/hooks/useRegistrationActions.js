@@ -5,6 +5,7 @@ import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestor
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
+import { openEmehmonArrival } from '../utils/emehmon';
 
 export function useRegistrationActions({
   currentUser, selectedHostelFilter, lang,
@@ -45,6 +46,30 @@ export function useRegistrationActions({
         lang === 'ru' ? 'Гость зарегистрирован в E-mehmon!' : "Mehmon E-mehmon'da ro'yxatga olindi!",
         'success'
       );
+
+      // Открываем стандартное окно регистрации e-mehmon с автозаполнением из формы.
+      // Комнату (нужна на шаге 3 мастера) берём у совпадающего активного гостя.
+      if (window.electronAPI?.openEmehmon) {
+        const norm0 = (s) => (s || '').replace(/\s/g, '').toUpperCase();
+        const match = (guests || []).find(g =>
+          g.status === 'active' && g.passport && formData.passport &&
+          norm0(g.passport) === norm0(formData.passport));
+        openEmehmonArrival({
+          id: match?.id || '',
+          fullName: formData.fullName,
+          passport: formData.passport,
+          birthDate: formData.birthDate,
+          passportIssueDate: formData.passportIssueDate,
+          country: formData.country,
+          days: formData.days,
+          roomNumber: match?.roomNumber || '',
+          hostelId: targetHostelId,
+        });
+        showNotification(
+          lang === 'ru' ? 'Открываю e-mehmon — нажмите «Заполнить из Hostella»' : 'E-mehmon ochilmoqda',
+          'info'
+        );
+      }
 
       // Автоматически подтверждаем kppRegistered у совпадающего активного гостя
       if (formData.passport) {

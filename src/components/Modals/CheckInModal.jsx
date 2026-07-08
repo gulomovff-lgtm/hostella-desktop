@@ -4,6 +4,7 @@ import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
+import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice } from '../../utils/pricing';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
@@ -30,6 +31,9 @@ const getStayDetails = (checkInDateTime, days) => {
  */
 const getRoomPrice = (room, bedId) => {
     if (!room) return 0;
+    // Приоритет — цена из настроек 💵 Цены (единая по комнате). Нет конфига → старая логика.
+    const cfg = configuredNightPrice(room.hostelId, room.number);
+    if (cfg != null) return cfg;
     const lower = parseInt(room.prices?.lower) || parseInt(room.price) || 0;
     const upper = parseInt(room.prices?.upper);
     if (!upper || upper === lower) return lower;
@@ -43,10 +47,8 @@ const EXTRA_BED_ID = 'extra';
 
 const isExtraBed = (bedId) => String(bedId || '').toLowerCase() === EXTRA_BED_ID;
 
-// ── Тарифы заселения ──
-const MIN_NIGHT_PRICE  = 70000;  // минимальная цена обычного размещения (сум/ночь)
-const PACKAGE_PRICE    = 65000;  // фикс. цена пакетного тарифа (сум/ночь)
-const PACKAGE_MIN_DAYS = 10;     // минимум дней для пакетного тарифа
+// ── Тарифы заселения ── (значения вычисляются по комнате/филиалу/дате внутри
+//    компонента через utils/pricing; ниже — только легаси-фолбэки для справки)
 
 // --- MRZ Parser (Machine Readable Zone) ---
 const parseMRZ = (raw) => {
@@ -208,6 +210,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         passportPhoto: '',
         status: 'active'
     });
+
+    // ── Динамические тарифы: минимум и пакет по комнате/филиалу/дате заезда ──
+    const _curRoom = allRooms.find(r => r.id === formData.roomId) || safeInitialRoom;
+    const _roomHostel = _curRoom?.hostelId || currentUser?.hostelId || 'hostel1';
+    const _priceDate = formData.checkInDate ? new Date(formData.checkInDate) : new Date();
+    const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate);
+    const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
+    const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
 
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -712,11 +722,17 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                         value={formData.roomId}
                                         onChange={handleRoomSelect}
                                         options={allRooms.map(r => {
-                                            const lower = parseInt(r.prices?.lower) || parseInt(r.price) || 0;
-                                            const upper = parseInt(r.prices?.upper);
-                                            const priceStr = upper && upper !== lower
-                                                ? `↓${lower.toLocaleString()} / ↑${upper.toLocaleString()} сум`
-                                                : `${lower.toLocaleString()} сум`;
+                                            const cfg = configuredNightPrice(r.hostelId, r.number);
+                                            let priceStr;
+                                            if (cfg != null) {
+                                                priceStr = `${cfg.toLocaleString()} сум`;
+                                            } else {
+                                                const lower = parseInt(r.prices?.lower) || parseInt(r.price) || 0;
+                                                const upper = parseInt(r.prices?.upper);
+                                                priceStr = upper && upper !== lower
+                                                    ? `↓${lower.toLocaleString()} / ↑${upper.toLocaleString()} сум`
+                                                    : `${lower.toLocaleString()} сум`;
+                                            }
                                             return { value: r.id, label: `№${r.number} · ${r.capacity} ${t('kpiBeds')} · ${priceStr}` };
                                         })}
                                     />
@@ -726,9 +742,10 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     if (!_room) return null;
                                     const _cap  = parseInt(_room.capacity) || 1;
                                     const _mid  = Math.ceil(_cap / 2);
-                                    const _pLow = parseInt(_room.prices?.lower) || parseInt(_room.price) || 0;
-                                    const _pUp  = parseInt(_room.prices?.upper);
-                                    const _hasTiers = _pUp && _pUp !== _pLow && _cap > 1;
+                                    const _cfg  = configuredNightPrice(_room.hostelId, _room.number);
+                                    const _pLow = _cfg != null ? _cfg : (parseInt(_room.prices?.lower) || parseInt(_room.price) || 0);
+                                    const _pUp  = _cfg != null ? _cfg : parseInt(_room.prices?.upper);
+                                    const _hasTiers = _cfg == null && _pUp && _pUp !== _pLow && _cap > 1;
                                     const lowerBeds = availableBeds.filter(b => parseInt(b.id) <= _mid);
                                     const upperBeds = availableBeds.filter(b => parseInt(b.id) >  _mid);
                                     const BedBtn = ({ bed }) => (

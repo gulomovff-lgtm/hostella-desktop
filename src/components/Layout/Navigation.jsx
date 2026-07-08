@@ -345,17 +345,19 @@ const Navigation = ({
         <span style={{
             position: 'absolute',
             [position === 'right' ? 'right' : 'left']: 0,
-            top: 0, bottom: 0, width: 3,
-            borderRadius: position === 'right' ? '3px 0 0 3px' : '0 3px 3px 0',
-            background: '#e88c40',
+            top: '18%', bottom: '18%', width: 3,
+            borderRadius: 3,
+            background: 'linear-gradient(180deg,#f5b574,#e88c40)',
+            boxShadow: '0 0 10px rgba(232,140,64,0.7)',
         }}/>
     ) : (
         <span style={{
             position: 'absolute',
             [position === 'bottom' ? 'top' : 'bottom']: 0,
-            left: 0, right: 0, height: 3,
-            background: '#e88c40',
-            borderRadius: position === 'bottom' ? '0 0 3px 3px' : '3px 3px 0 0',
+            left: '16%', right: '16%', height: 3,
+            background: 'linear-gradient(90deg,#f5b574,#e88c40)',
+            borderRadius: 3,
+            boxShadow: '0 0 10px rgba(232,140,64,0.7)',
         }}/>
     );
 
@@ -384,8 +386,10 @@ const Navigation = ({
                 <Icon size={isHoriz ? 20 : indent ? 20 : 24} strokeWidth={act ? 2.5 : 2}/>
                 <span className="nav-lbl" style={{ fontSize: indent ? 8 : 9 }}>{item.label}</span>
                 {(item.badge ?? 0) > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                    <span className="absolute top-1 right-1 flex items-center justify-center"
                         style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
+                            minWidth: 16, height: 16, padding: '0 3px', borderRadius: 8,
+                            border: '2px solid var(--nav-bg)', boxSizing: 'content-box',
                             animation: item.glow ? 'booking-pulse 1.5s ease-in-out infinite' : 'none' }}>
                         {item.badge}
                     </span>
@@ -581,8 +585,14 @@ const Navigation = ({
                 .dsb:focus,.dsb-btn:focus{outline:none!important;box-shadow:none!important}
                 @keyframes booking-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,140,64,0.8)}50%{box-shadow:0 0 0 6px rgba(232,140,64,0)}}
                 @keyframes checkin-border{0%,100%{box-shadow:0 0 0 0 rgba(20,184,166,0.55)}50%{box-shadow:0 0 0 4px rgba(20,184,166,0)}}
-                .nav-item{padding-top:9px;padding-bottom:9px;position:relative}
+                .nav-item{padding-top:9px;padding-bottom:9px;position:relative;transition:all .18s cubic-bezier(.4,0,.2,1)}
+                .nav-item svg{transition:transform .18s cubic-bezier(.4,0,.2,1)}
+                .nav-item:hover svg{transform:translateY(-1px)}
+                .nav-item:active svg{transform:scale(.92)}
                 .nav-lbl{font-size:9px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:72px}
+                .dsb-btn{transition:all .18s cubic-bezier(.4,0,.2,1)!important}
+                .dsb-btn:hover{transform:translateY(-1.5px)}
+                .dsb-btn:active{transform:translateY(0) scale(.96)}
                 @media(max-height:680px){.nav-item{padding-top:3px!important;padding-bottom:3px!important}}
                 @media(max-height:540px){.nav-lbl{display:none!important}.nav-item{padding-top:2px!important;padding-bottom:2px!important}}
             `}</style>
@@ -622,6 +632,7 @@ const Navigation = ({
                                 gap: 4, background: checkinOpen ? 'linear-gradient(160deg,#0f9688,#0d7a6e)' : 'rgba(20,184,166,0.18)',
                                 color: checkinOpen ? '#fff' : '#5eead4',
                                 border: `1.5px solid ${checkinOpen ? 'rgba(94,234,212,0.5)' : 'rgba(20,184,166,0.3)'}`,
+                                boxShadow: '0 2px 10px rgba(20,184,166,0.18), inset 0 1px 0 rgba(255,255,255,0.07)',
                                 animation: 'none',
                             }}
                             onMouseOver={e => { e.currentTarget.style.background = 'linear-gradient(160deg,#0f9688,#0d7a6e)'; e.currentTarget.style.color = '#fff'; }}
@@ -637,6 +648,7 @@ const Navigation = ({
                             ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '7px 4px 5px', width: '100%' }),
                             gap: 3, background: 'rgba(234,179,8,0.14)', color: '#fde047',
                             border: '1px solid rgba(234,179,8,0.22)',
+                            boxShadow: '0 2px 10px rgba(234,179,8,0.12), inset 0 1px 0 rgba(255,255,255,0.06)',
                         }}
                         onMouseOver={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.32)'; e.currentTarget.style.color = '#fff'; }}
                         onMouseOut={e  => { e.currentTarget.style.background = 'rgba(234,179,8,0.14)'; e.currentTarget.style.color = '#fde047'; }}
@@ -651,6 +663,7 @@ const Navigation = ({
                                 ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '7px 4px 5px', width: '100%' }),
                                 gap: 3, background: 'rgba(239,68,68,0.14)', color: '#fca5a5',
                                 border: '1px solid rgba(239,68,68,0.22)',
+                                boxShadow: '0 2px 10px rgba(239,68,68,0.12), inset 0 1px 0 rgba(255,255,255,0.06)',
                             }}
                             onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.32)'; e.currentTarget.style.color = '#fff'; }}
                             onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.color = '#fca5a5'; }}

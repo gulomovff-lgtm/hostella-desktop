@@ -5,7 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript, buildAutoArrivalScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -36,6 +36,8 @@ let mainWindow;
 let emehmonWindow = null;
 let arrivalPayload = null; // текущий payload окна прибытия (для авто-галочки на нужного гостя)
 let departureWindow = null;
+let autoArrivalWindow = null;
+let autoArrivalChain = Promise.resolve(); // сериализация авто-регистраций (по одной за раз)
 let isDownloading = false;
 let isUpdateDownloaded = false;
 let isInstallingUpdate = false;
@@ -327,6 +329,57 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
     log.error('[emehmon] check failed:', e.message);
     return { status: 'error', message: e.message };
   }
+});
+
+// ─── e-mehmon: полная авто-регистрация прибытия (граждане Узбекистана) ────────
+// Скрытое окно, полный прогон мастера. Успех → прячем + возвращаем done.
+// Любой сбой → показываем окно кассиру с ручным автозаполнением. Регистрации
+// сериализованы (autoArrivalChain), чтобы не гонять несколько сразу.
+function ensureAutoArrivalWindow() {
+  if (autoArrivalWindow && !autoArrivalWindow.isDestroyed()) return autoArrivalWindow;
+  autoArrivalWindow = new BrowserWindow({
+    width: 1200, height: 860, parent: mainWindow, show: false,
+    title: 'e-mehmon — авто-регистрация',
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: 'persist:emehmon',
+      contextIsolation: true, nodeIntegration: false, webSecurity: true,
+    },
+  });
+  autoArrivalWindow.setMenuBarVisibility(false);
+  autoArrivalWindow.on('closed', () => { autoArrivalWindow = null; });
+  return autoArrivalWindow;
+}
+
+async function runAutoArrival(payload) {
+  const win = ensureAutoArrivalWindow();
+  await win.loadURL('https://emehmon.uz/listok/create-page');
+  let result;
+  try {
+    result = await win.webContents.executeJavaScript(buildAutoArrivalScript(payload), true);
+  } catch (e) {
+    result = { status: 'error', message: e.message };
+  }
+  const status = (result && result.status) || 'error';
+  if (status === 'done') {
+    win.hide();
+  } else {
+    // Проблема — окно кассиру + привычная ручная кнопка «Заполнить из Hostella».
+    win.show(); win.focus();
+    win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+  }
+  return result || { status };
+}
+
+ipcMain.handle('emehmon-arrival-auto', (_event, guest) => {
+  const payload = guest || {};
+  const run = autoArrivalChain.then(() => runAutoArrival(payload).catch((e) => {
+    log.error('[emehmon] auto-arrival failed:', e.message);
+    if (autoArrivalWindow && !autoArrivalWindow.isDestroyed()) autoArrivalWindow.show();
+    return { status: 'error', message: e.message };
+  }));
+  autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
+  return run;
 });
 
 // ─── e-mehmon: массовое выселение ────────────────────────────────────────────

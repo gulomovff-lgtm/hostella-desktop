@@ -37,6 +37,7 @@ export function useGuestActions(ctx) {
     setEmehmonReminder,
     setEmehmonArrivalPrompt,
     onEmehmonDepart,
+    onEmehmonAutoArrival,
   } = ctx;
 
   // ─── Internal helpers ────────────────────────────────────────────────────
@@ -276,12 +277,17 @@ export function useGuestActions(ctx) {
         });
         await upsertClient(formData);
 
-        // Предложить оформить регистрацию в e-mehmon (для всех гостей — e-mehmon
-        // регистрирует и граждан Узбекистана). Кассир может «Пропустить» — иногда
-        // регистрацию не делают ради экономии.
-        if (setEmehmonArrivalPrompt && window.electronAPI?.openEmehmon &&
-            newGuest.country && !newGuest.emehmonReg) {
-          setEmehmonArrivalPrompt({ id: guestId, ...newGuest });
+        // e-mehmon: граждан Узбекистана регистрируем ПОЛНОСТЬЮ авто, но только
+        // ПОСЛЕ ОПЛАТЫ (totalPaid > 0). Заселение в долг → регистрация запустится
+        // при первой оплате (см. handlePayment). Иностранцы — предлагаем мастер.
+        if (window.electronAPI?.openEmehmon && newGuest.country && !newGuest.emehmonReg) {
+          if (newGuest.country === 'Узбекистан') {
+            if (totalPaid > 0 && onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
+              onEmehmonAutoArrival({ id: guestId, ...newGuest });
+            }
+          } else if (setEmehmonArrivalPrompt) {
+            setEmehmonArrivalPrompt({ id: guestId, ...newGuest });
+          }
         }
       }
 
@@ -469,6 +475,13 @@ export function useGuestActions(ctx) {
           } else {
             enqueueTelegram(payMsg, 'paymentAdded');
           }
+        }
+        // Авто-регистрация e-mehmon (граждане Узбекистана) — по факту первой оплаты
+        // (заселение было в долг → регистрируем сейчас). emehmonSkip уважаем.
+        if (g && g.status === 'active' && g.country === 'Узбекистан' &&
+            !g.emehmonReg && !g.emehmonSkip &&
+            onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
+          onEmehmonAutoArrival(g);
         }
       }
       setGuestDetailsModal({ open: false, guest: null });

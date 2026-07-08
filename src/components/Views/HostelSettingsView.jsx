@@ -14,6 +14,7 @@ import { getConfig, saveAppConfig, DEFAULT_APP_CONFIG } from '../../utils/appCon
 import { sendTelegramMessage } from '../../utils/telegram';
 import { APP_VERSION } from '../../constants/config';
 import { getDeviceId } from '../../utils/clientTelemetry';
+import PricingSettingsPanel from './PricingSettingsPanel';
 
 const inputClass = "w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
 const labelClass = "block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide";
@@ -481,6 +482,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     { id: 'hostels',  label: '🏨 Хостелы' },
                     { id: 'general',  label: '⚙️ Общие' },
                     { id: 'finance',  label: '💰 Финансы и смены' },
+                    { id: 'pricing',  label: '💵 Цены' },
                     { id: 'notify',   label: '🔔 Уведомления' },
                     { id: 'templates', label: '📄 Шаблоны' },
                     { id: 'data',     label: '💾 Данные' },
@@ -654,6 +656,11 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>Персональные категории и архив у каждого хостела остаются прежними.</span></div>
                 </div>
               </div>
+            )}
+
+            {/* ── Цены ── */}
+            {tab === 'pricing' && (
+                <PricingSettingsPanel notify={notify} />
             )}
 
             {/* ── Уведомления ── */}

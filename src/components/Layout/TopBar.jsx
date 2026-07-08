@@ -32,24 +32,32 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
 
                 {/* Search button */}
                 <button onClick={onOpenSearch} title="Поиск (Ctrl+K)"
-                    className="flex items-center gap-2.5 px-4 py-1.5 text-xs font-bold transition-all"
-                    style={{...btnBase, WebkitAppRegion:'no-drag', background:'transparent', color:'var(--nav-muted)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:6, outline:'none'}}
-                    onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff';}}
-                    onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}>
+                    className="flex items-center gap-2.5 px-4 py-1.5 text-xs font-bold"
+                    style={{...btnBase, transition:'all .18s cubic-bezier(.4,0,.2,1)', WebkitAppRegion:'no-drag',
+                        background:'rgba(255,255,255,0.06)', color:'var(--nav-muted)',
+                        border:'1px solid rgba(255,255,255,0.12)', borderRadius:10, outline:'none'}}
+                    onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.12)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.25)'; e.currentTarget.style.color='#fff';}}
+                    onMouseOut={e=>{e.currentTarget.style.background='rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.12)'; e.currentTarget.style.color='var(--nav-muted)';}}>
                     <Search size={15}/>
                     <span>{t('search').replace('...','').trim()}</span>
-                    <span style={{fontSize:10, opacity:0.45, marginLeft:4}}>Ctrl+K</span>
+                    <span style={{fontSize:10, fontWeight:700, marginLeft:4, padding:'1px 6px', borderRadius:5,
+                        background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.12)',
+                        color:'inherit', opacity:0.7, letterSpacing:'0.02em'}}>Ctrl+K</span>
                 </button>
 
-                {/* Hostel switcher */}
+                {/* Hostel switcher — segmented control */}
                 {availableHostels?.length > 0 && (
-                    <div className="flex rounded-lg overflow-hidden" style={{WebkitAppRegion:'no-drag', border:'1px solid rgba(255,255,255,0.15)'}}>
+                    <div className="flex" style={{WebkitAppRegion:'no-drag', gap:3, padding:3, borderRadius:12,
+                        background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)'}}>
                         {availableHostels.map(hid => (
                             <button key={hid} onClick={() => setSelectedHostelFilter(hid)}
-                                className="px-4 py-1.5 text-xs font-bold transition-all"
+                                className="px-4 py-1.5 text-xs font-bold"
                                 style={selectedHostelFilter === hid
-                                    ? {background:'#e88c40', color:'#fff', outline:'none'}
-                                    : {...btnBase, background:'transparent', color:'var(--nav-muted)', outline:'none'}}
+                                    ? {background:'linear-gradient(160deg,#f09a4e,#e07f33)', color:'#fff', outline:'none', border:'none',
+                                       borderRadius:9, cursor:'default', boxShadow:'0 2px 10px rgba(232,140,64,0.45), inset 0 1px 0 rgba(255,255,255,0.25)',
+                                       transition:'all .18s cubic-bezier(.4,0,.2,1)'}
+                                    : {...btnBase, transition:'all .18s cubic-bezier(.4,0,.2,1)', background:'transparent',
+                                       color:'var(--nav-muted)', outline:'none', border:'none', borderRadius:9}}
                                 onMouseOver={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff'; }}}
                                 onMouseOut={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)'; }}}>
                                 {hostels[hid]?.name}
@@ -62,19 +70,25 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
                 <div className="flex-1" style={{WebkitAppRegion:'drag'}}/>
 
                 {/* Window controls */}
-                <div className="flex items-center gap-0 shrink-0" style={{WebkitAppRegion:'no-drag'}}>
-                    <button onClick={handleMinimize} className="p-2 hover:bg-black hover:bg-opacity-20 transition-colors"
-                        style={{background:'transparent', border:'none', color:'var(--nav-muted)', cursor:'pointer', outline:'none'}}
+                <div className="flex items-center gap-1 shrink-0" style={{WebkitAppRegion:'no-drag'}}>
+                    <button onClick={handleMinimize} className="p-2 transition-colors"
+                        style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
+                        onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff';}}
+                        onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}
                         title="Свернуть">
                         <Minus size={18}/>
                     </button>
-                    <button onClick={handleMaximize} className="p-2 hover:bg-black hover:bg-opacity-20 transition-colors"
-                        style={{background:'transparent', border:'none', color:'var(--nav-muted)', cursor:'pointer', outline:'none'}}
+                    <button onClick={handleMaximize} className="p-2 transition-colors"
+                        style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
+                        onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff';}}
+                        onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}
                         title="Развернуть">
-                        <Square size={18}/>
+                        <Square size={16}/>
                     </button>
-                    <button onClick={handleClose} className="p-2 hover:bg-red-600 transition-colors"
-                        style={{background:'transparent', border:'none', color:'var(--nav-muted)', cursor:'pointer', outline:'none'}}
+                    <button onClick={handleClose} className="p-2 transition-colors"
+                        style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
+                        onMouseOver={e=>{e.currentTarget.style.background='#dc2626'; e.currentTarget.style.color='#fff';}}
+                        onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}
                         title="Закрыть">
                         <X size={18}/>
                     </button>

@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emehmonDepartureBulk: (payload) => ipcRenderer.invoke('emehmon-departure-bulk', payload),
   // e-mehmon: уведомление об успешной регистрации прибытия (для авто-галочки)
   onEmehmonRegistered: (cb) => ipcRenderer.on('emehmon-registered', (_e, data) => cb(data)),
+  // e-mehmon: полная авто-регистрация прибытия (граждане Узбекистана)
+  emehmonArrivalAuto: (guest) => ipcRenderer.invoke('emehmon-arrival-auto', guest),
 
   // Pending payments (offline safety net)
   savePendingPayments: (data) => ipcRenderer.invoke('save-pending-payments', data),

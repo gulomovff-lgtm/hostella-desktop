@@ -52,10 +52,11 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
         fullName: '',
         passport: '',
         birthDate: '',
+        passportIssueDate: '',
         country: 'Узбекистан',
         phone: '',
         startDate: todayStr,
-        days: '30',
+        days: '',            // вводится вручную — без значения по умолчанию
         paidCash: '',
         paidCard: '',
         paidQR: '',
@@ -110,14 +111,30 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
             notify(lang === 'ru' ? 'Заполните номер паспорта' : 'Pasport raqamini to\'ldiring', 'error');
             return;
         }
+        if (!form.birthDate) {
+            notify(lang === 'ru' ? 'Укажите дату рождения' : 'Tug\'ilgan sanani kiriting', 'error');
+            return;
+        }
+        if (!form.passportIssueDate) {
+            notify(lang === 'ru' ? 'Укажите дату выдачи паспорта' : 'Pasport berilgan sanani kiriting', 'error');
+            return;
+        }
+        if (!(parseInt(form.days) >= 1)) {
+            notify(lang === 'ru' ? 'Введите количество дней' : 'Kunlar sonini kiriting', 'error');
+            return;
+        }
         if (!endDate) {
             notify(lang === 'ru' ? 'Укажите дату начала и количество дней' : 'Boshlanish sanasi va kunlarni ko\'rsating', 'error');
+            return;
+        }
+        if (totalPaid <= 0) {
+            notify(lang === 'ru' ? 'Укажите оплату — сумма не может быть 0' : 'To\'lovni kiriting — summa 0 bo\'lishi mumkin emas', 'error');
             return;
         }
         onSubmit({
             ...form,
             endDate,
-            days: parseInt(form.days) || 30,
+            days: parseInt(form.days),
             paidCash: Number(form.paidCash) || 0,
             paidCard: Number(form.paidCard) || 0,
             paidQR: Number(form.paidQR) || 0,
@@ -208,12 +225,21 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                                 />
                             </div>
                             <div>
-                                <label className={lbl}>{t('birthDate')}</label>
+                                <label className={lbl}>{t('birthDate')} *</label>
                                 <input
                                     type="date"
                                     className={inp}
                                     value={form.birthDate}
                                     onChange={e => set('birthDate', e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className={lbl}>{lang === 'ru' ? 'Дата выдачи паспорта' : 'Pasport berilgan sana'} *</label>
+                                <input
+                                    type="date"
+                                    className={inp}
+                                    value={form.passportIssueDate}
+                                    onChange={e => set('passportIssueDate', e.target.value)}
                                 />
                             </div>
                             <div>
@@ -257,7 +283,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                             </div>
                             <div>
                                 <label className={lbl.replace('slate-400', 'indigo-500')}>
-                                    {lang === 'ru' ? 'Дней' : 'Kun'}
+                                    {lang === 'ru' ? 'Дней' : 'Kun'} *
                                 </label>
                                 <input
                                     type="number"
@@ -266,6 +292,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                                     onChange={e => set('days', e.target.value)}
                                     min="1"
                                     max="365"
+                                    placeholder={lang === 'ru' ? 'введите' : 'kiriting'}
                                 />
                             </div>
                             <div>
@@ -298,7 +325,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                     {/* ── Оплата ── */}
                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                            {lang === 'ru' ? 'Оплата в кассу' : 'Kassa to\'lovi'}
+                            {lang === 'ru' ? 'Оплата в кассу * (обязательно, не 0)' : 'Kassa to\'lovi * (majburiy, 0 emas)'}
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                             <div>

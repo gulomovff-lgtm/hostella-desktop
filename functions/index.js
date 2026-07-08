@@ -748,11 +748,26 @@ async function tgAnswerCallback(botToken, cbId, text) {
   } catch (e) { console.error('answerCallbackQuery', e.message); }
 }
 
+// Токен бота одобрения цены: настраиваемый в приложении (settings/appConfig.priceBotToken),
+// с fallback на общий TELEGRAM_BOT_TOKEN. Используется и для отправки, и для вебхука.
+async function getPriceBotToken() {
+  let token = process.env.TELEGRAM_BOT_TOKEN;
+  try {
+    const { getFirestore } = require('firebase-admin/firestore');
+    const hostellaDb = getFirestore('hostella');
+    const APP_ID = 'hostella-multi-v4';
+    const snap = await hostellaDb.doc(`artifacts/${APP_ID}/public/data/settings/appConfig`).get();
+    const pbt = snap.exists ? (snap.data() || {}).priceBotToken : '';
+    if (pbt && String(pbt).trim()) token = String(pbt).trim();
+  } catch (e) { /* fallback на env */ }
+  return token;
+}
+
 exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Требуется авторизация');
   }
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const botToken = await getPriceBotToken();
   if (!botToken) throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
 
   const { requestId, guestName, roomNumber, hostelId, cashierName, currentPrice, requestedPrice, chatIds } = data || {};
@@ -788,7 +803,8 @@ exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
 });
 
 exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  // Вебхук обрабатывает только pricereq-колбэки → используем токен бота цены.
+  const botToken = await getPriceBotToken();
 
   // ── Проверка секретного токена вебхука ────────────────────────────────────
   // Без неё кто угодно, зная URL функции, может слать поддельные callback_query

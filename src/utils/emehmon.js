@@ -52,6 +52,20 @@ export function openEmehmonArrival(guest) {
   return openWith({ ...buildEmehmonPayload(guest), guestId: guest?.id || '' });
 }
 
+// Полная авто-регистрация прибытия (граждане Узбекистана) — всё в фоне.
+//   done / need_login / not_found / no_room / … | no_electron
+export async function autoRegisterArrival(guest) {
+  if (!window.electronAPI?.emehmonArrivalAuto) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', amount: '1' };
+  const acc = await getEmehmonAccount(payload.hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonArrivalAuto(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
 // Убытие/печать — окно на /listok, скрипт найдёт и выделит гостя
 export function openEmehmonDeparture(guest) {
   return openWith({ ...buildEmehmonPayload(guest), mode: 'departure', path: '/listok' });

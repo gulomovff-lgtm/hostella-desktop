@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
+import { minNightPrice, packageMinDays } from '../../utils/pricing';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, getRegistrationWindow } from '../../utils/helpers';
@@ -365,9 +366,11 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const daysStayed = Math.min(Math.max(1, Math.ceil((today - checkIn)/(1000*60*60*24))), parseInt(guest.days));
     const actualCost = daysStayed * parseInt(guest.pricePerNight);
     const balance    = totalPaid - actualCost;
-    // Тарифные правила: цена ниже 70 000 = пакет/скидка → продление только пакетом (от 10 дней)
-    const MIN_NIGHT_PRICE = 70000;
-    const PACKAGE_MIN_DAYS = 10;
+    // Тарифные правила: цена ниже минимума комнаты = пакет/скидка → продление
+    // только пакетом. Минимум и мин.дни — по комнате/филиалу/дате заезда (utils/pricing).
+    const _priceDate = guest.checkInDate ? new Date(guest.checkInDate) : new Date();
+    const MIN_NIGHT_PRICE = minNightPrice(guest.hostelId, guest.roomNumber, _priceDate);
+    const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
     const guestRate = parseInt(guest.pricePerNight) || 0;
     const isBelowMinRate = guestRate > 0 && guestRate < MIN_NIGHT_PRICE;
     // Понижение цены одобрено: флаг на госте ИЛИ паспорт в списке разрешённых
@@ -497,12 +500,12 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const handleUpgrade = () => {
         if (!onUpgradeTariff) return;
         const days = parseInt(guest.days) || 0;
-        const newTotal = 70000 * days;
+        const newTotal = MIN_NIGHT_PRICE * days;
         const extra = Math.max(0, newTotal - totalPaid);
-        const msg = `Перевести гостя на тариф 70 000 сум/ночь?\n\nСумма за ${days} дн.: ${newTotal.toLocaleString()} сум.`
+        const msg = `Перевести гостя на тариф ${MIN_NIGHT_PRICE.toLocaleString()} сум/ночь?\n\nСумма за ${days} дн.: ${newTotal.toLocaleString()} сум.`
             + (extra > 0 ? `\nДоплата за уже прожитые дни: ${extra.toLocaleString()} сум.` : '');
         if (window.confirm(msg)) {
-            onUpgradeTariff(guest);
+            onUpgradeTariff(guest, MIN_NIGHT_PRICE);
             onClose();
         }
     };
@@ -1057,7 +1060,7 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                                 </div>
                                 {isBelowMinRate && onUpgradeTariff && (
                                     <button onClick={handleUpgrade} className="w-full mt-2 py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 flex items-center justify-center gap-1.5">
-                                        ⬆️ Перейти на тариф 70 000
+                                        ⬆️ Перейти на тариф {MIN_NIGHT_PRICE.toLocaleString()}
                                     </button>
                                 )}
                                 </>
