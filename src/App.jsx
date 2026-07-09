@@ -1261,6 +1261,50 @@ function App() {
             showNotification(`Истёкшие регистрации закрыты: ${absent.length} (уже выведены из e-mehmon)`, 'info');
           }
         }
+
+        // ── АВТО-ДОБОР «ЗАБЫТЫХ» МЕСТНЫХ ────────────────────────────────────
+        // Активные граждане Узбекистана с оплатой, без e-mehmon/кадастра и без
+        // прежней ошибки — регистрируем сами, ТИХО (окно не показываем).
+        // Ошибка госбазы → пометка «ошибка в паспортных данных» на госте,
+        // повторов не делаем, пока данные не исправят (пометка снимается при
+        // редактировании паспорта/ДР). До 3 гостей за цикл (цикл каждые 5 мин).
+        if (window.electronAPI?.emehmonArrivalAuto) {
+          const paidOf = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+          const inCad = (g) => (cadastreRegs || []).some(r =>
+            r.status !== 'removed' &&
+            (r.guestId === g.id || (r.passport && g.passport && norm(r.passport) === norm(g.passport))));
+          const candidates = (guests || []).filter(g =>
+            g.status === 'active' && g.country === 'Узбекистан' &&
+            !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
+            g.hostelId === hostelId && paidOf(g) > 0 &&
+            !(pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))) &&
+            !inCad(g) && !emehmonAutoBusy.current.has(g.id)
+          ).slice(0, 3);
+          for (const g of candidates) {
+            emehmonAutoBusy.current.add(g.id);
+            try {
+              const reg = await autoRegisterArrival(g, { silent: true });
+              const st = reg?.status;
+              if (st === 'done') {
+                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+                  { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true, emehmonRegError: deleteField() });
+                showNotification(`${g.fullName} — зарегистрирован в e-mehmon (авто) ✓`, 'success');
+              } else if (st === 'not_found') {
+                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+                  { emehmonRegError: 'Ошибка в паспортных данных — нужно исправить', emehmonRegErrorAt: new Date().toISOString() });
+                showNotification(`⚠️ ${g.fullName}: не найден в госбазе — проверьте паспорт и дату рождения`, 'warning');
+              } else if (st === 'no_room') {
+                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+                  { emehmonRegError: 'Комната не совпала с e-mehmon — проверьте номер', emehmonRegErrorAt: new Date().toISOString() });
+              } else if (st === 'need_login') {
+                break; // без входа продолжать нет смысла — попробуем в следующем цикле
+              }
+              // прочие сбои (таймаут/сеть) — без пометки, повтор в следующем цикле
+            } catch (_) { /* пропускаем */ } finally {
+              emehmonAutoBusy.current.delete(g.id);
+            }
+          }
+        }
         if (manual) showNotification(`Синхронизация e-mehmon: отмечено ${toMark.length}, выведено ${toMarkOut.length}`, 'success');
       } else if (res?.status === 'need_login') {
         if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
@@ -1271,7 +1315,7 @@ function App() {
       emehmonSyncBusy.current = false;
       if (manual) setEmehmonSyncing(false);
     }
-  }, [guests, registrations, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [guests, registrations, cadastreRegs, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Стабильный планировщик: старт через 8с после входа + каждые 6 часов.
   const emehmonSyncRef = useRef(runEmehmonSync);
@@ -1279,7 +1323,7 @@ function App() {
   useEffect(() => {
     if (!window.electronAPI?.emehmonList || !currentUser) return;
     const t = setTimeout(() => emehmonSyncRef.current(false), 8000);
-    const iv = setInterval(() => emehmonSyncRef.current(false), 6 * 60 * 60 * 1000);
+    const iv = setInterval(() => emehmonSyncRef.current(false), 5 * 60 * 1000); // каждые 5 минут
     return () => { clearTimeout(t); clearInterval(iv); };
   }, [currentUser]);
 
@@ -1294,7 +1338,7 @@ function App() {
     if (guest.id) emehmonAutoBusy.current.delete(guest.id);
     const st = res?.status;
     if (st === 'done') {
-      handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true });
+      handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true, emehmonRegError: deleteField() });
       showNotification(`${guest.fullName} — зарегистрирован в e-mehmon ✓`, 'success');
     } else if (st === 'need_login') {
       showNotification('Войдите в e-mehmon (окно открыто) — затем регистрация продолжится.', 'info');
@@ -1480,10 +1524,12 @@ function App() {
       if (!g.kppDate || !g.country || g.country === 'Узбекистан') return;
       if (g.kppRegistered) return;
       // День прибытия = 1. Срок без регистрации зависит от гражданства (дедлайн = regWindow).
-      // Шлём в день дедлайна и на следующий день (просрочка).
+      // Шлём КАЖДЫЙ день начиная с дня дедлайна, пока не зарегистрируют (kppRegistered).
+      // Раньше слали только 2 дня — пропустил их (приложение закрыто) и гость терялся.
+      // Дубли исключены: ключ alertsLog уникален на гостя+день (kpp_id_dayN_дата).
       const regWindow = getRegistrationWindow(g.country);
       const days = getKppDayNumber(g.kppDate);
-      if (days !== regWindow && days !== regWindow + 1) return;
+      if (days < regWindow) return;
       const key = `kpp_${g.id}_day${days}_${today}`;
       const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
       const room = rooms.find(r => r.id === g.roomId);

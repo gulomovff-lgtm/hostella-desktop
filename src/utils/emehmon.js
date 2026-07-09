@@ -54,9 +54,10 @@ export function openEmehmonArrival(guest) {
 
 // Полная авто-регистрация прибытия (граждане Узбекистана) — всё в фоне.
 //   done / need_login / not_found / no_room / … | no_electron
-export async function autoRegisterArrival(guest) {
+// opts.silent — при сбое НЕ показывать окно кассиру (для фоновых попыток).
+export async function autoRegisterArrival(guest, opts = {}) {
   if (!window.electronAPI?.emehmonArrivalAuto) return { status: 'no_electron' };
-  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', amount: '1' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', amount: '1', silent: !!opts.silent };
   const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {

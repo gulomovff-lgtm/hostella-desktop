@@ -811,6 +811,14 @@ export function useGuestActions(ctx) {
   const handleGuestUpdate = async (id, d) => {
     // Strip undefined values — Firestore rejects them
     d = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== undefined));
+    // Исправили паспортные данные → снимаем пометку «ошибка в паспортных данных»,
+    // авто-регистрация e-mehmon попробует снова в ближайшем цикле (каждые 5 мин).
+    const g0 = guests.find(x => x.id === id);
+    if (g0?.emehmonRegError &&
+        ['passport', 'birthDate', 'passportIssueDate', 'fullName', 'roomNumber'].some(k => d[k] !== undefined)) {
+      d.emehmonRegError = deleteField();
+      d.emehmonRegErrorAt = deleteField();
+    }
     // Логируем изменение цены, если pricePerNight поменялась
     if (d.pricePerNight !== undefined) {
       const g = guests.find(x => x.id === id);

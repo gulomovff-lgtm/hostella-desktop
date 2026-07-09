@@ -480,13 +480,16 @@ const RegistrationsView = ({
                 {screen === 'register' && (
                     <>
                         <ScreenHeader emoji="📝" title="Оформить регистрацию" />
+                        <p className="text-sm text-slate-400 -mt-1 mb-3">Местных система регистрирует сама (проверка каждые 5 минут). Здесь остаются иностранцы и гости с ошибками в данных.</p>
                         {needRegister.length === 0 ? <AllDone text="Все проживающие оформлены" /> : (
                             <div className="space-y-2">
                                 {needRegister.map(g => (
                                     <PersonRow key={g.id}
+                                        tone={g.emehmonRegError ? 'rose' : 'white'}
                                         flag={<Flag country={g.country} />}
                                         name={g.fullName}
                                         line2={guestLine(g)}
+                                        line3={g.emehmonRegError ? <span className="text-rose-600">⚠️ {g.emehmonRegError}</span> : null}
                                         actions={canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>
                                                 <Plus size={16} /> Оформить

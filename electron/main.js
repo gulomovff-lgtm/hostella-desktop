@@ -363,6 +363,10 @@ async function runAutoArrival(payload) {
   const status = (result && result.status) || 'error';
   if (status === 'done') {
     win.hide();
+  } else if (payload.silent) {
+    // Тихая фоновая попытка (авто-добор «забытых» местных) — окно НЕ показываем,
+    // статус вернётся рендеру, он поставит пометку об ошибке на госте.
+    win.hide();
   } else {
     // Проблема — окно кассиру + привычная ручная кнопка «Заполнить из Hostella».
     win.show(); win.focus();
