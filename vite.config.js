@@ -25,6 +25,7 @@ export default defineConfig({
       input: {
         main:    './index.html',
         booking: './booking.html',
+        beta:    './beta.html',
       },
       output: {
         manualChunks: {
