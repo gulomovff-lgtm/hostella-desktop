@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
-import { X, Camera, Trash2, ChevronLeft, CalendarClock, Plus } from 'lucide-react';
+import { X, Camera, Trash2, ChevronLeft, CalendarClock, Plus, Banknote } from 'lucide-react';
+import CategoryIcon from '../../utils/categoryIcon';
 import { fmtSum } from '../../utils/helpers';
 import { getConfig } from '../../utils/appConfig';
 import TRANSLATIONS from '../../constants/translations';
@@ -306,8 +307,10 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                     <ChevronLeft size={18}/>
                                 </button>
                             ) : (
-                                <div style={{ width: 42, height: 42, borderRadius: 13, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                                    {step === 2 && catMeta ? catMeta.icon : '💸'}
+                                <div style={{ width: 42, height: 42, borderRadius: 13, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#5eead4' }}>
+                                    {step === 2 && catMeta
+                                        ? <CategoryIcon cat={catMeta.key} emoji={catMeta.icon} size={20} color="#5eead4" />
+                                        : <Banknote size={20} color="#5eead4" />}
                                 </div>
                             )}
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -346,7 +349,9 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                             borderRadius: 16, padding: '16px 6px 12px',
                                             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
                                         }}>
-                                        <span style={{ width: 44, height: 44, borderRadius: 14, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{c.icon}</span>
+                                        <span style={{ width: 44, height: 44, borderRadius: 14, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>
+                                            <CategoryIcon cat={c.key} emoji={c.icon} size={22} color={c.text} />
+                                        </span>
                                         <span style={{ fontSize: 11, lineHeight: 1.25, textAlign: 'center', fontWeight: 700, color: isDark ? '#9ecdd0' : '#475569' }}>{c.key}</span>
                                     </button>
                                 ))}

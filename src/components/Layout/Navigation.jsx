@@ -370,7 +370,7 @@ const Navigation = ({
             <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className="dsb nav-item relative flex flex-col items-center justify-center transition-all"
+                className={`dsb nav-item hov-soft ${act ? 'act' : ''} relative flex flex-col items-center justify-center transition-all`}
                 style={{
                     ...(isHoriz
                         ? { height: '100%', padding: '0 10px', minWidth: 64 }
@@ -379,8 +379,6 @@ const Navigation = ({
                     color: act ? '#f5b574' : 'var(--nav-muted)',
                     outline: 'none', border: 'none', flexShrink: 0,
                 }}
-                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
-                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
             >
                 {act && <ActiveBar/>}
                 <Icon size={isHoriz ? 20 : indent ? 20 : 24} strokeWidth={act ? 2.5 : 2}/>
@@ -418,14 +416,12 @@ const Navigation = ({
             <div key={folder.id}>
                 <button
                     onClick={() => toggleFolder(folder.id)}
-                    className="dsb nav-item relative flex flex-col items-center justify-center w-full transition-all"
+                    className="dsb nav-item hov-soft6 relative flex flex-col items-center justify-center w-full transition-all"
                     style={{
                         background: hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent',
                         color: hasActive ? '#f5b574' : 'var(--nav-muted)',
                         outline: 'none', border: 'none', flexShrink: 0,
                     }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#c8d8da'; }}
-                    onMouseOut={e  => { e.currentTarget.style.background = hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent'; e.currentTarget.style.color = hasActive ? '#f5b574' : 'var(--nav-muted)'; }}
                 >
                     <div style={{ position: 'relative', display: 'inline-flex' }}>
                         <FolderIconComp size={22} strokeWidth={2}/>
@@ -489,7 +485,7 @@ const Navigation = ({
         if (hiddenSet.has(item.id)) return null;
         return (
             <button key={item.id} onClick={() => setActiveTab(item.id)}
-                className="dsb"
+                className={`dsb hov-soft ${act ? 'act' : ''}`}
                 style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                     padding: '8px 12px', position: 'relative', border: 'none', borderRadius: 10,
@@ -497,8 +493,6 @@ const Navigation = ({
                     color: act ? '#f5b574' : 'var(--nav-muted)',
                     cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left', flexShrink: 0,
                 }}
-                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
-                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = act ? 'rgba(232,140,64,0.12)' : 'transparent'; e.currentTarget.style.color = act ? '#f5b574' : 'var(--nav-muted)'; } }}
             >
                 {act && <span style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background:'#e88c40', borderRadius:'0 3px 3px 0' }}/>}
                 <Icon size={16} strokeWidth={act ? 2.5 : 2} style={{ flexShrink: 0 }}/>
@@ -527,7 +521,7 @@ const Navigation = ({
         return (
             <div key={folder.id} style={{ marginBottom: 2 }}>
                 <button onClick={() => toggleFolder(folder.id)}
-                    className="dsb"
+                    className="dsb hov-soft6"
                     style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                         padding: '7px 12px', border: 'none', borderRadius: 10,
@@ -535,8 +529,6 @@ const Navigation = ({
                         color: hasActive ? '#f5b574' : 'var(--nav-muted)',
                         cursor: 'pointer', transition: 'all 0.15s',
                     }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#c8d8da'; }}
-                    onMouseOut={e  => { e.currentTarget.style.background = hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent'; e.currentTarget.style.color = hasActive ? '#f5b574' : 'var(--nav-muted)'; }}
                 >
                     <FolderIconComp size={16} strokeWidth={2} style={{ flexShrink: 0 }}/>
                     <span style={{ fontSize: 12, fontWeight: 600, flex: 1, textAlign: 'left' }}>{folder.label}</span>
@@ -590,6 +582,17 @@ const Navigation = ({
                 .nav-item:hover svg{transform:translateY(-1px)}
                 .nav-item:active svg{transform:scale(.92)}
                 .nav-lbl{font-size:10px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:74px}
+                /* Hover через CSS вместо onMouseOver-мутаций (не «залипает», меньше кода) */
+                .hov-soft:not(.act):hover{background:rgba(255,255,255,0.05)!important;color:#c8d8da!important}
+                .hov-soft6:hover{background:rgba(255,255,255,0.06)!important;color:#c8d8da!important}
+                .hov-teal:hover{background:linear-gradient(160deg,#0f9688,#0d7a6e)!important;color:#fff!important}
+                .hov-amber:hover{background:rgba(234,179,8,0.32)!important;color:#fff!important}
+                .hov-red:hover{background:rgba(239,68,68,0.32)!important;color:#fff!important}
+                .hov-row:not(.act):hover{background:rgba(255,255,255,0.08)!important}
+                .hov-row-strong:hover{background:rgba(255,255,255,0.1)!important}
+                .hov-indigo:hover{background:rgba(165,180,252,0.1)!important}
+                .hov-danger:hover{background:rgba(239,68,68,0.15)!important}
+                .hov-accent:hover{background:#d4773a!important}
                 .dsb-btn{transition:all .18s cubic-bezier(.4,0,.2,1)!important}
                 .dsb-btn:hover{transform:translateY(-1.5px)}
                 .dsb-btn:active{transform:translateY(0) scale(.96)}
@@ -626,7 +629,7 @@ const Navigation = ({
                 }}>
                     {canCheckin && (
                         <button ref={checkinBtnRef} onClick={handleCheckinToggle}
-                            className="dsb-btn flex flex-col items-center justify-center rounded-2xl"
+                            className="dsb-btn hov-teal flex flex-col items-center justify-center rounded-2xl"
                             style={{ ...btnBase,
                                 ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '9px 4px 7px', width: '100%' }),
                                 gap: 4, background: checkinOpen ? 'linear-gradient(160deg,#0f9688,#0d7a6e)' : 'rgba(20,184,166,0.18)',
@@ -635,38 +638,32 @@ const Navigation = ({
                                 boxShadow: '0 2px 10px rgba(20,184,166,0.18), inset 0 1px 0 rgba(255,255,255,0.07)',
                                 animation: 'none',
                             }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'linear-gradient(160deg,#0f9688,#0d7a6e)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { if (!checkinOpen) { e.currentTarget.style.background = 'rgba(20,184,166,0.18)'; e.currentTarget.style.color = '#5eead4'; } }}
                         >
                             <UserPlus size={isHoriz ? 16 : 18} strokeWidth={2.5}/>
                             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('checkin')}</span>
                         </button>
                     )}
                     <button onClick={onOpenExpense}
-                        className="dsb-btn flex flex-col items-center justify-center rounded-xl"
+                        className="dsb-btn hov-amber flex flex-col items-center justify-center rounded-xl"
                         style={{ ...btnBase,
                             ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '7px 4px 5px', width: '100%' }),
                             gap: 3, background: 'rgba(234,179,8,0.14)', color: '#fde047',
                             border: '1px solid rgba(234,179,8,0.22)',
                             boxShadow: '0 2px 10px rgba(234,179,8,0.12), inset 0 1px 0 rgba(255,255,255,0.06)',
                         }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.32)'; e.currentTarget.style.color = '#fff'; }}
-                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(234,179,8,0.14)'; e.currentTarget.style.color = '#fde047'; }}
                     >
                         <Wallet size={isHoriz ? 14 : 16} strokeWidth={2.5}/>
                         <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('expense')}</span>
                     </button>
                     {canCheckin && (
                         <button onClick={onOpenShift}
-                            className="dsb-btn flex flex-col items-center justify-center rounded-xl"
+                            className="dsb-btn hov-red flex flex-col items-center justify-center rounded-xl"
                             style={{ ...btnBase,
                                 ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '7px 4px 5px', width: '100%' }),
                                 gap: 3, background: 'rgba(239,68,68,0.14)', color: '#fca5a5',
                                 border: '1px solid rgba(239,68,68,0.22)',
                                 boxShadow: '0 2px 10px rgba(239,68,68,0.12), inset 0 1px 0 rgba(255,255,255,0.06)',
                             }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.32)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.color = '#fca5a5'; }}
                         >
                             <Power size={isHoriz ? 14 : 16} strokeWidth={2.5}/>
                             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('shift')}</span>
@@ -691,10 +688,8 @@ const Navigation = ({
                                 { label: 'Лист в бухгалтерию',  Icon: FileText,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenGroupReceipt?.(); } },
                             ].map(({ label, Icon, color, action }) => (
                                 <button key={label} onClick={action}
-                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
+                                    className="hov-row w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
                                     style={{ color, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s' }}
-                                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                                    onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                                 >
                                     <Icon size={15} strokeWidth={2}/>
                                     <span style={{ fontWeight: 600 }}>{label}</span>
@@ -718,7 +713,7 @@ const Navigation = ({
                 flexShrink: 0,
             }}>
                 <button ref={profileBtnRef} onClick={handleProfileToggle}
-                    className="flex items-center justify-center transition-all"
+                    className={`hov-row ${profileOpen ? 'act' : ''} flex items-center justify-center transition-all`}
                     style={{ ...btnBase,
                         ...(isHoriz
                             ? { width: 54, height: 56, flexDirection: 'row' }
@@ -728,8 +723,6 @@ const Navigation = ({
                         display: 'flex',
                         background: profileOpen ? 'rgba(255,255,255,0.12)' : 'transparent',
                     }}
-                    onMouseOver={e => { if (!profileOpen) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                    onMouseOut={e  => { if (!profileOpen) e.currentTarget.style.background = 'transparent'; }}
                 >
                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-black"
                          style={{ background: '#e88c40', color: '#fff', flexShrink: 0 }}>
@@ -796,28 +789,22 @@ const Navigation = ({
                         )}
                         <button
                             onClick={() => { setProfileOpen(false); setCustomizeOpen(true); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
+                            className="hov-indigo w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
                             style={{ color: '#a5b4fc', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)', outline: 'none', transition: 'background .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(165,180,252,0.1)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
                             <SlidersHorizontal size={15}/> Настроить меню
                         </button>
                         <button
                             onClick={() => { setProfileOpen(false); onOpenChangePassword(); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
+                            className="hov-row w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
                             style={{ color: '#c9e8ea', background: 'transparent', border: 'none', outline: 'none', transition: 'background .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
                             <Lock size={15}/> {t('changePassword')}
                         </button>
                         <button
                             onClick={() => { setProfileOpen(false); onLogout(); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left border-t"
+                            className="hov-danger w-full flex items-center gap-3 px-5 py-3 text-sm text-left border-t"
                             style={{ color: '#fca5a5', background: 'transparent', borderColor: 'rgba(255,255,255,0.08)', outline: 'none', transition: 'background .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
                             <LogOut size={15}/> {t('logout')}
                         </button>
@@ -1170,17 +1157,15 @@ const Navigation = ({
                                     folders: currentUser?.role === 'cashier' ? DEFAULT_CASHIER_FOLDERS : null,
                                     navOrder: currentUser?.role === 'cashier' ? DEFAULT_CASHIER_ORDER : null,
                                 })}
+                                className="hov-row-strong"
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'rgba(158,205,208,0.7)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-                                onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-                                onMouseOut={e  => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                             >
                                 <RotateCcw size={13}/> Сбросить
                             </button>
                             <button
                                 onClick={() => setCustomizeOpen(false)}
+                                className="hov-accent"
                                 style={{ flex: 1, padding: '9px', borderRadius: 10, background: '#e88c40', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                                onMouseOver={e => { e.currentTarget.style.background = '#d4773a'; }}
-                                onMouseOut={e  => { e.currentTarget.style.background = '#e88c40'; }}
                             >
                                 Готово
                             </button>

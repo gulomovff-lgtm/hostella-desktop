@@ -5,6 +5,7 @@ import {
     ArrowRightLeft, FileText, Save, Loader2, Archive, ArchiveRestore, Wallet,
     Home, Lightbulb, Briefcase, Coins, ShoppingCart, Landmark, ClipboardList,
     Globe, Megaphone, Flame, Zap, Droplets, Wrench, Package, RotateCcw,
+    Calendar, CalendarDays, Banknote,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { getConfig } from '../../utils/appConfig';
@@ -700,18 +701,18 @@ export default function ExpensesView({
             {/* ── KPI row (модерн) ── */}
             <div className="grid grid-cols-3 gap-3">
                 {[
-                    { icon: '📅', label: 'Этот месяц', value: thisMonth, valColor: '#b45309', chipBg: '#fef3c7', circle: 'rgba(245,158,11,0.12)',
+                    { Icon: Calendar, iconClr: '#b45309', label: 'Этот месяц', value: thisMonth, valColor: '#b45309', chipBg: '#fef3c7', circle: 'rgba(245,158,11,0.12)',
                       badge: monthDiff !== null ? { up: monthDiff > 0, pct: Math.abs(monthDiff) } : null, sub: null },
-                    { icon: '📆', label: 'Прошлый месяц', value: prevMonth, valColor: '#334155', chipBg: '#f1f5f9', circle: 'rgba(148,163,184,0.14)',
+                    { Icon: CalendarDays, iconClr: '#475569', label: 'Прошлый месяц', value: prevMonth, valColor: '#334155', chipBg: '#f1f5f9', circle: 'rgba(148,163,184,0.14)',
                       badge: null, sub: `${prevMonthExp.length} записей` },
-                    { icon: '💸', label: 'Всего', value: totalAll, valColor: '#e11d48', chipBg: '#ffe4e6', circle: 'rgba(244,63,94,0.12)',
+                    { Icon: Banknote, iconClr: '#e11d48', label: 'Всего', value: totalAll, valColor: '#e11d48', chipBg: '#ffe4e6', circle: 'rgba(244,63,94,0.12)',
                       badge: null, sub: `${cats.length} категорий` },
                 ].map(c => (
                     <div key={c.label} className="relative bg-white rounded-2xl border border-slate-200 shadow-sm p-4 overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
                         <div className="absolute -right-5 -top-5 w-20 h-20 rounded-full" style={{ background: isDark ? 'rgba(148,163,184,0.1)' : c.circle }} />
                         <div className="relative">
                             <div className="flex items-center justify-between mb-3">
-                                <span className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shadow-sm" style={{ background: isDark ? 'rgba(148,163,184,0.15)' : c.chipBg }}>{c.icon}</span>
+                                <span className="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm" style={{ background: isDark ? 'rgba(148,163,184,0.15)' : c.chipBg }}><c.Icon size={18} strokeWidth={2.2} style={{ color: isDark ? '#94a3b8' : c.iconClr }} /></span>
                                 {c.badge ? (
                                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${c.badge.up ? 'bg-rose-50 text-rose-600' : 'bg-teal-50 text-teal-600'}`}>
                                         {c.badge.up ? '↑' : '↓'} {c.badge.pct}%
@@ -1106,7 +1107,7 @@ export default function ExpensesView({
                         )}
                         {expenseCatFilter !== 'Все' && (
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold shrink-0" style={{ background: catBg(getCat(expenseCatFilter)), color: catClr(getCat(expenseCatFilter)) }}>
-                                {getCat(expenseCatFilter).icon} {expenseCatFilter}
+                                <CatIcon cat={expenseCatFilter} size={14} color={catClr(getCat(expenseCatFilter))} /> {expenseCatFilter}
                                 <button onClick={() => setExpenseCatFilter('Все')} className="ml-1 opacity-60 hover:opacity-100">✕</button>
                             </div>
                         )}
@@ -1333,7 +1334,7 @@ export default function ExpensesView({
                             </div>
                             <div>
                                 <h3 className="font-bold text-slate-800">Удалить расход?</h3>
-                                <p className="text-sm text-slate-500">{getCat(confirmDeleteExp.category).icon} {confirmDeleteExp.category} · {fmt(confirmDeleteExp.amount)} сум</p>
+                                <p className="text-sm text-slate-500 flex items-center gap-1.5"><CatIcon cat={confirmDeleteExp.category} size={14} /> {confirmDeleteExp.category} · {fmt(confirmDeleteExp.amount)} сум</p>
                             </div>
                         </div>
                         {confirmDeleteExp.comment && <p className="text-sm text-slate-500 mb-3 truncate">💬 {confirmDeleteExp.comment}</p>}
