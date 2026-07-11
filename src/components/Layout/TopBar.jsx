@@ -70,21 +70,21 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
 
                 {/* Window controls */}
                 <div className="flex items-center gap-1 shrink-0" style={{WebkitAppRegion:'no-drag'}}>
-                    <button onClick={handleMinimize} className="p-2 transition-colors"
+                    <button onClick={handleMinimize} aria-label="Свернуть окно" className="p-2 transition-colors"
                         style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
                         onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff';}}
                         onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}
                         title="Свернуть">
                         <Minus size={18}/>
                     </button>
-                    <button onClick={handleMaximize} className="p-2 transition-colors"
+                    <button onClick={handleMaximize} aria-label="Развернуть окно" className="p-2 transition-colors"
                         style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
                         onMouseOver={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff';}}
                         onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}
                         title="Развернуть">
                         <Square size={16}/>
                     </button>
-                    <button onClick={handleClose} className="p-2 transition-colors"
+                    <button onClick={handleClose} aria-label="Закрыть окно" className="p-2 transition-colors"
                         style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
                         onMouseOver={e=>{e.currentTarget.style.background='#dc2626'; e.currentTarget.style.color='#fff';}}
                         onMouseOut={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)';}}

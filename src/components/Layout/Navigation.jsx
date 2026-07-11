@@ -7,7 +7,7 @@ import {
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
     Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
     SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
-    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck,
+    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
@@ -41,8 +41,8 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
 ];
 
 const APP_THEMES = [
-    { id: 'green', emoji: '🌿', label: 'Светлая' },
-    { id: 'dark',  emoji: '🌙', label: 'Тёмная'  },
+    { id: 'green', Icon: Sun,  label: 'Светлая' },
+    { id: 'dark',  Icon: Moon, label: 'Тёмная'  },
 ];
 
 const POSITIONS = [
@@ -384,7 +384,7 @@ const Navigation = ({
             >
                 {act && <ActiveBar/>}
                 <Icon size={isHoriz ? 20 : indent ? 20 : 24} strokeWidth={act ? 2.5 : 2}/>
-                <span className="nav-lbl" style={{ fontSize: indent ? 8 : 9 }}>{item.label}</span>
+                <span className="nav-lbl" style={{ fontSize: indent ? 9 : 10 }}>{item.label}</span>
                 {(item.badge ?? 0) > 0 && (
                     <span className="absolute top-1 right-1 flex items-center justify-center"
                         style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
@@ -440,7 +440,7 @@ const Navigation = ({
                             }}>{totalBadge}</span>
                         )}
                     </div>
-                    <span className="nav-lbl" style={{ fontSize: 8 }}>{folder.label}</span>
+                    <span className="nav-lbl" style={{ fontSize: 9 }}>{folder.label}</span>
                     <span style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', opacity: 0.35 }}>
                         {open ? <ChevronDown size={10}/> : <ChevronRight size={10}/>}
                     </span>
@@ -582,14 +582,14 @@ const Navigation = ({
         <>
         <div className={`hidden md:flex shrink-0 overflow-hidden ${isHoriz ? 'flex-row' : 'flex-col'}`} style={{...outerStyle, padding: 0, margin: 0}}>
             <style>{`
-                .dsb:focus,.dsb-btn:focus{outline:none!important;box-shadow:none!important}
+                .dsb:focus:not(:focus-visible),.dsb-btn:focus:not(:focus-visible){outline:none!important;box-shadow:none!important}
                 @keyframes booking-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,140,64,0.8)}50%{box-shadow:0 0 0 6px rgba(232,140,64,0)}}
                 @keyframes checkin-border{0%,100%{box-shadow:0 0 0 0 rgba(20,184,166,0.55)}50%{box-shadow:0 0 0 4px rgba(20,184,166,0)}}
                 .nav-item{padding-top:9px;padding-bottom:9px;position:relative;transition:all .18s cubic-bezier(.4,0,.2,1)}
                 .nav-item svg{transition:transform .18s cubic-bezier(.4,0,.2,1)}
                 .nav-item:hover svg{transform:translateY(-1px)}
                 .nav-item:active svg{transform:scale(.92)}
-                .nav-lbl{font-size:9px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:72px}
+                .nav-lbl{font-size:10px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:74px}
                 .dsb-btn{transition:all .18s cubic-bezier(.4,0,.2,1)!important}
                 .dsb-btn:hover{transform:translateY(-1.5px)}
                 .dsb-btn:active{transform:translateY(0) scale(.96)}
@@ -788,7 +788,7 @@ const Navigation = ({
                                         <button key={th.id} onClick={() => setAppTheme(th.id)}
                                             className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1"
                                             style={appTheme === th.id ? { background: '#e88c40', color: '#fff' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
-                                            <span>{th.emoji}</span><span>{th.label}</span>
+                                            <th.Icon size={13}/><span>{th.label}</span>
                                         </button>
                                     ))}
                                 </div>

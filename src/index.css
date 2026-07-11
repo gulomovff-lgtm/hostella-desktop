@@ -61,8 +61,8 @@
 [data-theme="dark"] .text-slate-800        { color: #e2e8f0 !important; }
 [data-theme="dark"] .text-slate-700        { color: #cbd5e1 !important; }
 [data-theme="dark"] .text-slate-600        { color: #94a3b8 !important; }
-[data-theme="dark"] .text-slate-500        { color: #64748b !important; }
-[data-theme="dark"] .text-slate-400        { color: #475569 !important; }
+[data-theme="dark"] .text-slate-500        { color: #8496ab !important; } /* было #64748b — контраст 3.07 → 4.83 */
+[data-theme="dark"] .text-slate-400        { color: #7d8da3 !important; } /* было #475569 — контраст 1.93 → 4.33 */
 [data-theme="dark"] .text-gray-900         { color: #f1f5f9 !important; }
 [data-theme="dark"] .text-gray-800         { color: #e2e8f0 !important; }
 [data-theme="dark"] .text-gray-700         { color: #cbd5e1 !important; }
@@ -220,7 +220,7 @@
 [data-theme="dark"] .text-blue-700            { color: #93c5fd !important; }
 [data-theme="dark"] .text-green-700           { color: #86efac !important; }
 [data-theme="dark"] .text-purple-900          { color: #d8b4fe !important; }
-[data-theme="dark"] .text-slate-300           { color: #475569 !important; }
+[data-theme="dark"] .text-slate-300           { color: #64748b !important; }
 [data-theme="dark"] .text-slate-200           { color: #334155 !important; }
 
 /* ── Hover-состояния для цветных фонов ── */
@@ -277,10 +277,35 @@ button {
   cursor: pointer;
   transition: border-color 0.25s;
 }
-button:focus,
-button:focus-visible {
+/* Фокус мышью не показываем, клавиатурный (Tab) — показываем всегда.
+   !important нужен, чтобы перебить инлайновые outline:'none' в компонентах. */
+button:focus:not(:focus-visible) {
   outline: none;
 }
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid #e88c40 !important;
+  outline-offset: 2px;
+}
+
+/* Уважение системной настройки «без анимации» */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Контраст вторичного текста (аудит: slate-400 на белом был 2.56:1 при норме 4.5) ──
+   Переопределяем светлую тему: 400 → цвет slate-500 (4.76:1), 300 → цвет slate-400.
+   Тёмная тема ниже перебивает эти правила своими !important. */
+.text-slate-400 { color: #64748b; }
+.text-slate-300 { color: #94a3b8; }
 
 /* ── Custom scrollbar ── */
 ::-webkit-scrollbar {
