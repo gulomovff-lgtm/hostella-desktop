@@ -137,21 +137,25 @@ const BigBtn = ({ onClick, color, children, disabled }) => {
 };
 
 // ─── Строка человека: крупное имя + понятная инфа + одна-две больших кнопки ──
-const PersonRow = ({ flag, name, line2, line3, actions, tone = 'white' }) => {
+// onClick — открыть карточку гостя (как в «Номерах»); имя подсвечивается при наведении.
+const PersonRow = ({ flag, name, line2, line3, actions, tone = 'white', onClick }) => {
     const tones = {
         white:   'bg-white border-slate-200',
         rose:    'bg-rose-50/60 border-rose-200',
         amber:   'bg-amber-50/60 border-amber-200',
         emerald: 'bg-emerald-50/40 border-emerald-200',
     };
+    const Info = onClick ? 'button' : 'div';
     return (
-        <div className={`flex items-center gap-3 border rounded-2xl px-4 py-3 shadow-sm ${tones[tone]}`}>
+        <div className={`flex items-center gap-3 border rounded-2xl px-4 py-3 shadow-sm transition-all ${tones[tone]} ${onClick ? 'hover:shadow-md hover:border-indigo-300' : ''}`}>
             <div className="shrink-0">{flag}</div>
-            <div className="flex-1 min-w-0">
-                <p className="text-[15px] font-black text-slate-800 truncate">{name}</p>
+            <Info onClick={onClick} className={`flex-1 min-w-0 text-left ${onClick ? 'cursor-pointer group' : ''}`} type={onClick ? 'button' : undefined}>
+                <p className={`text-[15px] font-black text-slate-800 truncate ${onClick ? 'group-hover:text-indigo-700 transition-colors' : ''}`}>
+                    {name}{onClick && <span className="ml-1.5 text-[11px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">открыть →</span>}
+                </p>
                 {line2 && <p className="text-sm text-slate-500 truncate mt-0.5">{line2}</p>}
                 {line3 && <p className="text-sm font-semibold truncate mt-0.5">{line3}</p>}
-            </div>
+            </Info>
             <div className="shrink-0 flex items-center gap-2">{actions}</div>
         </div>
     );
@@ -189,6 +193,7 @@ const RegistrationsView = ({
     emehmonSyncing = false,
     onRegisterEmehmon,
     onDepartEmehmon,
+    onOpenGuest,
     users = [],
 }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
@@ -213,7 +218,8 @@ const RegistrationsView = ({
     const expiredRegs  = useMemo(() => enriched.filter(r => r.computedStatus === 'expired'), [enriched]);
     const expiringRegs = useMemo(() => enriched.filter(r => r.computedStatus === 'expiring'), [enriched]);
 
-    const residents = useMemo(() => guests.filter(g => g.status === 'active'), [guests]);
+    // Долговые записи (DEBT_ONLY) — не реальные проживающие, из статуса e-mehmon исключаем.
+    const residents = useMemo(() => guests.filter(g => g.status === 'active' && g.roomId !== 'DEBT_ONLY'), [guests]);
     const registered = useMemo(() => residents.filter(g => g.emehmonReg), [residents]);
     // Нужно оформить: активные, без e-mehmon и без кадастра (кадастр = уже зарегистрирован по-другому)
     const needRegister = useMemo(() => residents.filter(g => !g.emehmonReg && !hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
@@ -432,6 +438,7 @@ const RegistrationsView = ({
                                                     flag={<Flag country={g.country} />}
                                                     name={g.fullName}
                                                     line2={guestLine(g)}
+                                                    onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                                     actions={departBtn(g)} />
                                             ))}
                                         </div>
@@ -490,6 +497,7 @@ const RegistrationsView = ({
                                         name={g.fullName}
                                         line2={guestLine(g)}
                                         line3={g.emehmonRegError ? <span className="text-rose-600">⚠️ {g.emehmonRegError}</span> : null}
+                                        onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                         actions={canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>
                                                 <Plus size={16} /> Оформить
@@ -536,6 +544,7 @@ const RegistrationsView = ({
                                             flag={<Flag country={g.country} />}
                                             name={g.fullName}
                                             line2={guestLine(g)}
+                                            onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                             actions={<CheckCircle2 size={22} className="text-emerald-500" />} />
                                     ))}
                                 </div>
@@ -550,6 +559,7 @@ const RegistrationsView = ({
                                             flag={<Flag country={g.country} />}
                                             name={g.fullName}
                                             line2={guestLine(g)}
+                                            onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                             actions={<span className="text-sm font-black text-indigo-600">🏠 кадастр</span>} />
                                     ))}
                                 </div>

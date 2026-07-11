@@ -1207,14 +1207,28 @@ function App() {
         const nSet = new Set((res.rows || []).map(r => r.name).filter(Boolean));
         // e-mehmon регистрирует всех гостей (в т.ч. граждан Узбекистана) — фильтр
         // по гражданству НЕ применяем, сопоставляем по паспорту/ФИО.
-        const toMark = (guests || []).filter(g =>
-          g.status === 'active' && !g.emehmonReg &&
-          (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
+        // Долговые записи (roomId==='DEBT_ONLY') — не гости в комнате, из логики исключаем.
+        const isReal = (g) => g.roomId !== 'DEBT_ONLY';
         const now = new Date().toISOString();
+        const toMark = (guests || []).filter(g =>
+          g.status === 'active' && isReal(g) && !g.emehmonReg &&
+          (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
         for (const g of toMark) {
           try {
             await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
               { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true });
+          } catch (_) { /* пропускаем */ }
+        }
+        // Сверка «зарегистрирован»: активный гость своего филиала помечен emehmonReg,
+        // но его НЕТ в /listok → регистрация истекла/снята. Снимаем флаг, чтобы счётчик
+        // в системе совпадал с сайтом e-mehmon, а гость попал в «Оформить».
+        const toUnmark = (guests || []).filter(g =>
+          g.status === 'active' && isReal(g) && g.emehmonReg && g.hostelId === hostelId &&
+          !((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))));
+        for (const g of toUnmark) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+              { emehmonReg: false, emehmonRegAt: deleteField(), emehmonRegAuto: deleteField() });
           } catch (_) { /* пропускаем */ }
         }
         // Авто-подтверждение вывода: выселенный гость, зарегистрированный в e-mehmon,
@@ -1274,7 +1288,7 @@ function App() {
             r.status !== 'removed' &&
             (r.guestId === g.id || (r.passport && g.passport && norm(r.passport) === norm(g.passport))));
           const candidates = (guests || []).filter(g =>
-            g.status === 'active' && g.country === 'Узбекистан' &&
+            g.status === 'active' && isReal(g) && g.country === 'Узбекистан' &&
             !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
             g.hostelId === hostelId && paidOf(g) > 0 &&
             !(pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))) &&
@@ -2581,6 +2595,7 @@ return (
                         emehmonSyncing={emehmonSyncing}
                         onRegisterEmehmon={(g) => { openEmehmonArrival(g); showNotification('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}
                         onDepartEmehmon={handleEmehmonDepart}
+                        onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                     />
                 )}
 
@@ -3130,7 +3145,7 @@ return (
             {undoStack.length > 0 && (
                 <button
                     onClick={() => setUndoHistoryOpen(true)}
-                    className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-white rounded-full shadow-lg shadow-amber-500/40 hover:shadow-xl hover:shadow-amber-500/50 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 font-black text-sm transition-all duration-200"
+                    className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg active:scale-95 font-black text-sm transition-all duration-150"
                     style={{ WebkitAppRegion: 'no-drag', ...(navPos === 'bottom' ? { bottom: 72 } : {}) }}
                 >
                     <span className="text-base">↩</span>

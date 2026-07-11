@@ -53,10 +53,9 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
                             <button key={hid} onClick={() => setSelectedHostelFilter(hid)}
                                 className="px-4 py-1.5 text-xs font-bold"
                                 style={selectedHostelFilter === hid
-                                    ? {background:'linear-gradient(160deg,#f09a4e,#e07f33)', color:'#fff', outline:'none', border:'none',
-                                       borderRadius:9, cursor:'default', boxShadow:'0 2px 10px rgba(232,140,64,0.45), inset 0 1px 0 rgba(255,255,255,0.25)',
-                                       transition:'all .18s cubic-bezier(.4,0,.2,1)'}
-                                    : {...btnBase, transition:'all .18s cubic-bezier(.4,0,.2,1)', background:'transparent',
+                                    ? {background:'#e88c40', color:'#fff', outline:'none', border:'none',
+                                       borderRadius:9, cursor:'default', transition:'background .15s, color .15s'}
+                                    : {...btnBase, transition:'background .15s, color .15s', background:'transparent',
                                        color:'var(--nav-muted)', outline:'none', border:'none', borderRadius:9}}
                                 onMouseOver={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='rgba(255,255,255,0.1)'; e.currentTarget.style.color='#fff'; }}}
                                 onMouseOut={e=>{ if(selectedHostelFilter!==hid){ e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--nav-muted)'; }}}>
