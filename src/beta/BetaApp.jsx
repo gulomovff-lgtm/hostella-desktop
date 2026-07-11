@@ -16,6 +16,7 @@ import { HOSTELS, getTotalPaid } from '../utils/helpers';
 import ExpenseModal from '../components/Modals/ExpenseModal';
 import CheckInModal from '../components/Modals/CheckInModal';
 import ShiftClosingModal from '../components/Modals/ShiftClosingModal';
+import ChangePasswordModal from '../components/Modals/ChangePasswordModal';
 
 import SmartNav from './components/SmartNav';
 import TodayView from './components/TodayView';
@@ -26,6 +27,7 @@ import GuestsBeta from './components/GuestsBeta';
 import MoneyBeta from './components/MoneyBeta';
 import GuestCardModal from './components/GuestCardModal';
 import PayDebtModal from './components/PayDebtModal';
+import ProfileView from './components/ProfileView';
 
 const SESSION_KEY = 'hostella_beta_user_v1';
 const THEME_KEY = 'hostella_beta_theme';
@@ -149,6 +151,7 @@ const BetaApp = () => {
     const [payModal, setPayModal] = useState(null); // гость, по которому принимаем оплату
     const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null });
     const [shiftModal, setShiftModal] = useState(false);
+    const [changePassOpen, setChangePassOpen] = useState(false);
     const [, setUndoStack] = useState([]); // хуки пишут сюда; UI отмены — в основном приложении
 
     useEffect(() => {
@@ -250,7 +253,7 @@ const BetaApp = () => {
     }, [openCheckIn]);
 
     // ── Закрытие смены: тот же handleEndShift, что и в основном приложении ──
-    const { handleEndShift } = useShiftActions({
+    const { handleEndShift, handleChangePassword } = useShiftActions({
         currentUser: currentUser || {}, setCurrentUser,
         usersList, shifts, payments,
         showNotification: showToast,
@@ -359,6 +362,9 @@ const BetaApp = () => {
     const currentCheckInHour = hostelConfig?.[hostelKey]?.checkInHour ?? 14;
     const currentCheckOutHour = hostelConfig?.[hostelKey]?.checkOutHour ?? 12;
 
+    const myShiftActive = !!(shifts || []).find(s =>
+        !s.endTime && (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login)));
+
     const screenProps = {
         rooms: fRooms, guests: fGuests, payments: fPayments, expenses: fExpenses, shifts,
         currentUser, currentHostelId: hostelFilter,
@@ -372,7 +378,7 @@ const BetaApp = () => {
         inMainApp,
     };
 
-    const known = ['today', 'rooms', 'clients', 'expenses'];
+    const known = ['today', 'rooms', 'clients', 'expenses', 'profile'];
 
     return (
         <div className="beta-root h-screen flex flex-col overflow-hidden" style={{ background: theme === 'dark' ? '#0b1416' : '#f1f5f9' }}>
@@ -401,18 +407,33 @@ const BetaApp = () => {
                     onOpenExpense={openExpense}
                     onOpenCheckIn={() => openCheckIn()}
                     onOpenShift={openShift}
-                    onLogout={handleLogout}
-                    setLang={() => {}}
-                    appTheme={theme}
-                    setAppTheme={setTheme}
-                    onSwitchToClassic={() => { window.location.href = '/'; }}
-                    switchLabel="Основное приложение"
+                    onOpenProfile={() => setActiveTab('profile')}
+                    shiftActive={myShiftActive}
+                    hostelName={currentUser.hostelId === 'all' ? 'Все хостелы' : (HOSTELS[currentUser.hostelId]?.name || '')}
                 />
                 <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
                     {activeTab === 'today' && <TodayView {...screenProps} />}
                     {activeTab === 'rooms' && <RoomsBeta {...screenProps} />}
                     {activeTab === 'clients' && <GuestsBeta {...screenProps} registrationsAlertCount={registrationsAlertCount} />}
                     {activeTab === 'expenses' && <MoneyBeta {...screenProps} />}
+                    {activeTab === 'profile' && (
+                        <ProfileView
+                            currentUser={currentUser}
+                            hostels={HOSTELS}
+                            shifts={shifts}
+                            payments={payments}
+                            expenses={expenses}
+                            guests={guests}
+                            usersList={usersList}
+                            rooms={rooms}
+                            theme={theme}
+                            setTheme={setTheme}
+                            onChangePassword={() => setChangePassOpen(true)}
+                            onOpenShift={openShift}
+                            onLogout={handleLogout}
+                            inMainApp={inMainApp}
+                        />
+                    )}
                     {!known.includes(activeTab) && (
                         <div className="max-w-xl mx-auto mt-16 text-center">
                             <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-orange-50 text-orange-500 flex items-center justify-center">
@@ -465,6 +486,16 @@ const BetaApp = () => {
                     currentUser={currentUser}
                     checkInHour={currentCheckInHour}
                     checkOutHour={currentCheckOutHour}
+                />
+            )}
+
+            {changePassOpen && (
+                <ChangePasswordModal
+                    currentUser={currentUser}
+                    users={usersList}
+                    onClose={() => setChangePassOpen(false)}
+                    onChangePassword={handleChangePassword}
+                    lang="ru"
                 />
             )}
 
