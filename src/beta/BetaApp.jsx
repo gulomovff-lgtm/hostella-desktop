@@ -13,7 +13,7 @@ import { sendTelegramMessage } from '../utils/telegram';
 import { verifyPassword, hashPassword } from '../utils/hash';
 import { loadAppConfig, getConfigValue } from '../utils/appConfig';
 import { HOSTELS, getTotalPaid } from '../utils/helpers';
-import ExpenseModal from '../components/Modals/ExpenseModal';
+import ExpenseBetaModal from './components/ExpenseBetaModal';
 import CheckInModal from '../components/Modals/CheckInModal';
 import ShiftClosingModal from '../components/Modals/ShiftClosingModal';
 import ChangePasswordModal from '../components/Modals/ChangePasswordModal';
@@ -29,6 +29,7 @@ import GuestCardModal from './components/GuestCardModal';
 import PayDebtModal from './components/PayDebtModal';
 import ProfileView from './components/ProfileView';
 import MobileNavBeta from './components/MobileNavBeta';
+import DebtsBeta from './components/DebtsBeta';
 
 const SESSION_KEY = 'hostella_beta_user_v1';
 const THEME_KEY = 'hostella_beta_theme';
@@ -405,7 +406,7 @@ const BetaApp = () => {
         inMainApp,
     };
 
-    const known = ['today', 'rooms', 'clients', 'expenses', 'profile'];
+    const known = ['today', 'rooms', 'clients', 'expenses', 'profile', 'debts'];
 
     return (
         <div className="beta-root h-screen flex flex-col overflow-hidden" style={{ background: theme === 'dark' ? '#0b1416' : '#f1f5f9' }}>
@@ -443,6 +444,7 @@ const BetaApp = () => {
                     {activeTab === 'rooms' && <RoomsBeta {...screenProps} />}
                     {activeTab === 'clients' && <GuestsBeta {...screenProps} registrationsAlertCount={registrationsAlertCount} />}
                     {activeTab === 'expenses' && <MoneyBeta {...screenProps} />}
+                    {activeTab === 'debts' && <DebtsBeta {...screenProps} />}
                     {activeTab === 'profile' && (
                         <ProfileView
                             currentUser={currentUser}
@@ -550,13 +552,9 @@ const BetaApp = () => {
             )}
 
             {expenseModal && (
-                <ExpenseModal
+                <ExpenseBetaModal
                     onClose={() => setExpenseModal(false)}
                     onSubmit={handleAddExpense}
-                    lang="ru"
-                    currentUser={currentUser}
-                    usersList={usersList}
-                    selectedHostelFilter={hostelFilter}
                 />
             )}
 
