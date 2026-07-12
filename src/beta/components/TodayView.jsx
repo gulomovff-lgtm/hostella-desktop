@@ -44,6 +44,44 @@ const STRIPE = {
     good:   'bg-emerald-400',
 };
 
+// Живая цифра: плавный count-up при изменении значения (reduced-motion → мгновенно)
+const useCountUp = (target, dur = 550) => {
+    const [v, setV] = React.useState(target);
+    const prev = React.useRef(target);
+    React.useEffect(() => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { prev.current = target; setV(target); return; }
+        const from = prev.current;
+        prev.current = target;
+        if (from === target) return;
+        const t0 = performance.now();
+        let raf;
+        const step = (t) => {
+            const k = Math.min(1, (t - t0) / dur);
+            setV(Math.round(from + (target - from) * (1 - Math.pow(1 - k, 3))));
+            if (k < 1) raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [target, dur]);
+    return v;
+};
+
+const KpiTile = ({ k, onGoTab }) => {
+    const v = useCountUp(k.raw);
+    const Icon = k.icon;
+    return (
+        <button onClick={() => k.tab && onGoTab?.(k.tab)}
+            className={`text-left bg-white rounded-2xl border border-slate-200 p-3.5 transition-all ${k.tab ? 'hover:border-slate-300 hover:shadow-sm cursor-pointer' : 'cursor-default'}`}>
+            <div className="flex items-center gap-2 mb-1.5">
+                <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${KPI_COLORS[k.color]}`}><Icon size={15} /></span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{k.label}</span>
+            </div>
+            <div className="text-xl font-black text-slate-800 tabular-nums">{k.fmt(v)}</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">{k.sub}</div>
+        </button>
+    );
+};
+
 const KPI_COLORS = {
     indigo:  'bg-indigo-50 text-indigo-600',
     emerald: 'bg-emerald-50 text-emerald-600',
@@ -302,11 +340,11 @@ const TodayView = ({
     const dateLabel = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
 
     const kpis = [
-        { label: 'Гостей сейчас', value: data.activeCount, sub: data.arrivalsCount > 0 ? `+${data.arrivalsCount} ожидается` : 'заездов не ожидается', icon: Users, color: 'indigo', tab: 'clients' },
-        { label: 'Загрузка', value: `${data.occupancyPct}%`, sub: `${data.occupiedBeds} из ${data.totalBeds} мест`, icon: BedDouble, color: data.occupancyPct >= 80 ? 'emerald' : 'amber', tab: 'rooms' },
-        { label: 'Доход сегодня', value: fmtMoney(data.incomeToday), sub: 'UZS', icon: TrendingUp, color: 'emerald', tab: null },
-        { label: 'Долги', value: fmtMoney(data.totalDebt), sub: `${data.debtorsCount} должн.`, icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'purple', tab: 'debts' },
-        { label: 'E-mehmon', value: data.emehmonCount, sub: data.emehmonCount > 0 ? 'требуют действия' : 'всё отправлено', icon: ClipboardCheck, color: data.emehmonCount > 0 ? 'amber' : 'emerald', tab: 'registrations' },
+        { label: 'Гостей сейчас', raw: data.activeCount, fmt: (v) => v, sub: data.arrivalsCount > 0 ? `+${data.arrivalsCount} ожидается` : 'заездов не ожидается', icon: Users, color: 'indigo', tab: 'clients' },
+        { label: 'Загрузка', raw: data.occupancyPct, fmt: (v) => `${v}%`, sub: `${data.occupiedBeds} из ${data.totalBeds} мест`, icon: BedDouble, color: data.occupancyPct >= 80 ? 'emerald' : 'amber', tab: 'rooms' },
+        { label: 'Доход сегодня', raw: data.incomeToday, fmt: fmtMoney, sub: 'UZS', icon: TrendingUp, color: 'emerald', tab: null },
+        { label: 'Долги', raw: data.totalDebt, fmt: fmtMoney, sub: `${data.debtorsCount} должн.`, icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'purple', tab: 'debts' },
+        { label: 'E-mehmon', raw: data.emehmonCount, fmt: (v) => v, sub: data.emehmonCount > 0 ? 'требуют действия' : 'всё отправлено', icon: ClipboardCheck, color: data.emehmonCount > 0 ? 'amber' : 'emerald', tab: 'registrations' },
     ];
 
     const DOT = { emerald: 'bg-emerald-400', orange: 'bg-orange-400', slate: 'bg-slate-300', rose: 'bg-rose-400', indigo: 'bg-indigo-400' };
@@ -320,23 +358,9 @@ const TodayView = ({
             </div>
             <p className="text-sm text-slate-500 mb-5">Всё, что требует внимания сегодня — собрано ниже.</p>
 
-            {/* KPI */}
+            {/* KPI — живые цифры */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-                {kpis.map(k => {
-                    const Icon = k.icon;
-                    return (
-                        <button key={k.label}
-                            onClick={() => k.tab && onGoTab?.(k.tab)}
-                            className={`text-left bg-white rounded-2xl border border-slate-200 p-3.5 transition-all ${k.tab ? 'hover:border-slate-300 hover:shadow-sm cursor-pointer' : 'cursor-default'}`}>
-                            <div className="flex items-center gap-2 mb-1.5">
-                                <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${KPI_COLORS[k.color]}`}><Icon size={15}/></span>
-                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{k.label}</span>
-                            </div>
-                            <div className="text-xl font-black text-slate-800 tabular-nums">{k.value}</div>
-                            <div className="text-[11px] text-slate-400 mt-0.5">{k.sub}</div>
-                        </button>
-                    );
-                })}
+                {kpis.map(k => <KpiTile key={k.label} k={k} onGoTab={onGoTab} />)}
             </div>
 
             <div className="grid lg:grid-cols-[7fr_5fr] gap-4 items-start">

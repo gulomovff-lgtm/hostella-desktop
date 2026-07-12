@@ -51,6 +51,16 @@ const BetaStyles = () => (
         .beta-root button:not(:disabled){cursor:pointer}
         .beta-root button:focus-visible,.beta-root input:focus-visible,.beta-root textarea:focus-visible,.beta-root a:focus-visible{
             outline:2px solid #e88c40;outline-offset:2px;border-radius:8px}
+        /* Микро-отклик: нажатие кнопки (150-200мс, только transform) */
+        .beta-root button{transition:transform .12s ease}
+        .beta-root button:not(:disabled):active{transform:scale(.97)}
+        /* Появление экрана при переключении раздела */
+        @keyframes beta-screen-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+        .beta-screen{animation:beta-screen-in .22s cubic-bezier(.2,.8,.3,1) both}
+        /* Живое свечение на экране входа */
+        .beta-glow{position:absolute;width:440px;height:440px;border-radius:50%;filter:blur(90px);opacity:.32;pointer-events:none;
+            background:radial-gradient(circle,#e88c40 0%,transparent 65%);animation:beta-float 9s ease-in-out infinite alternate}
+        @keyframes beta-float{from{transform:translate(-35%,-25%) scale(1)}to{transform:translate(25%,15%) scale(1.18)}}
         @media (prefers-reduced-motion: reduce){
             .beta-root *,.beta-root *::before,.beta-root *::after{transition:none!important;animation:none!important}}
     `}</style>
@@ -101,9 +111,11 @@ const BetaLogin = ({ users, onLogin, usersReady }) => {
     };
 
     return (
-        <div className="beta-root min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--nav-bg)' }}>
+        <div className="beta-root relative overflow-hidden min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--nav-bg)' }}>
             <BetaStyles />
-            <form onSubmit={submit} className="w-full max-w-sm">
+            <div className="beta-glow" aria-hidden="true" style={{ top: '10%', left: '15%' }} />
+            <div className="beta-glow" aria-hidden="true" style={{ bottom: '5%', right: '10%', background: 'radial-gradient(circle,#14b8a6 0%,transparent 65%)', animationDelay: '-4s' }} />
+            <form onSubmit={submit} className="w-full max-w-sm relative z-10">
                 <div className="flex items-center justify-center gap-3 mb-2">
                     <div className="w-10 h-10 rounded-xl overflow-hidden">
                         <img src="https://hostella.uz/logo.png" alt="H" className="w-full h-full object-cover" />
@@ -507,7 +519,7 @@ const BetaApp = () => {
                     shiftActive={myShiftActive}
                     hostelName={currentUser.hostelId === 'all' ? 'Все хостелы' : (HOSTELS[currentUser.hostelId]?.name || '')}
                 />
-                <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
+                <main key={activeTab} className="beta-screen flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
                     {activeTab === 'today' && <TodayView {...screenProps} />}
                     {activeTab === 'rooms' && <RoomsBeta {...screenProps} />}
                     {activeTab === 'clients' && <GuestsBeta {...screenProps} key={guestsInitialFilter || 'default'} initialFilter={guestsInitialFilter} registrationsAlertCount={registrationsAlertCount} />}

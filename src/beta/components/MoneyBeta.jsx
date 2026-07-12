@@ -38,7 +38,31 @@ const MoneyBeta = ({ payments = [], expenses = [], onOpenExpense, onOpenShift })
             ...expToday.map(e => ({ t: e.date, kind: 'exp', label: e.description || e.category || 'Расход', amount: parseInt(e.amount) || 0 })),
         ].sort((a, b) => new Date(b.t) - new Date(a.t)).slice(0, 12);
 
-        return { incomeToday, expenseToday, byCash, byCard, byQR, byTransfer, feed, payCount: payToday.length, expCount: expToday.length };
+        // 7 дней: доход/расход по дням + сравнение недель (инкассацию не считаем доходом)
+        const realPay = payments.filter(p => p.type !== 'cash_to_terminal');
+        const days7 = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(Date.now() - i * 86400000);
+            const ds = getLocalDateString(d);
+            days7.push({
+                ds, day: d.getDate(), isToday: ds === todayStr,
+                inc: realPay.filter(p => ymd(p.date) === ds).reduce((s, p) => s + (parseInt(p.amount) || 0), 0),
+                exp: expenses.filter(e => ymd(e.date) === ds).reduce((s, e) => s + (parseInt(e.amount) || 0), 0),
+            });
+        }
+        const sumRange = (from, to) => { // дней назад: [from, to)
+            let s = 0;
+            for (let i = from; i < to; i++) {
+                const ds = getLocalDateString(new Date(Date.now() - i * 86400000));
+                s += realPay.filter(p => ymd(p.date) === ds).reduce((x, p) => x + (parseInt(p.amount) || 0), 0);
+            }
+            return s;
+        };
+        const week = sumRange(0, 7);
+        const prevWeek = sumRange(7, 14);
+        const weekDelta = prevWeek > 0 ? Math.round(((week - prevWeek) / prevWeek) * 100) : null;
+
+        return { incomeToday, expenseToday, byCash, byCard, byQR, byTransfer, feed, payCount: payToday.length, expCount: expToday.length, days7, week, weekDelta };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [payments, expenses, todayStr]);
 
@@ -82,6 +106,40 @@ const MoneyBeta = ({ payments = [], expenses = [], onOpenExpense, onOpenShift })
                     <div className="text-xl font-black text-slate-800 tabular-nums">{fmtMoney(data.incomeToday - data.expenseToday)}</div>
                     <div className="text-[11px] text-slate-400 mt-0.5">доход − расходы за день</div>
                 </div>
+            </div>
+
+            {/* Неделя: доход/расход по дням */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+                <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-500">Последние 7 дней</span>
+                    <span className="text-[11px] text-slate-400">
+                        неделя: <b className="text-slate-700 tabular-nums">{fmtMoney(data.week)}</b>
+                        {data.weekDelta !== null && (
+                            <span className={`ml-2 font-black ${data.weekDelta >= 0 ? 'text-emerald-500' : 'text-rose-400'}`}>
+                                {data.weekDelta >= 0 ? '↑' : '↓'} {Math.abs(data.weekDelta)}% к прошлой
+                            </span>
+                        )}
+                    </span>
+                </div>
+                {(() => {
+                    const max = Math.max(1, ...data.days7.flatMap(d => [d.inc, d.exp]));
+                    return (
+                        <div className="flex items-end gap-2" style={{ height: 88 }}>
+                            {data.days7.map(d => (
+                                <div key={d.ds} className="flex-1 flex flex-col items-center gap-1 min-w-0"
+                                    title={`${d.ds} · доход ${fmtMoney(d.inc)} · расход ${fmtMoney(d.exp)}`}>
+                                    <div className="w-full flex items-end justify-center gap-[3px]" style={{ height: 72 }}>
+                                        <div className={`w-[38%] rounded-t-md transition-all duration-300 ${d.isToday ? 'bg-emerald-500' : 'bg-emerald-300'}`}
+                                            style={{ height: d.inc > 0 ? Math.max(4, (d.inc / max) * 72) : 2 }} />
+                                        <div className="w-[38%] rounded-t-md bg-rose-300 transition-all duration-300"
+                                            style={{ height: d.exp > 0 ? Math.max(4, (d.exp / max) * 72) : 2 }} />
+                                    </div>
+                                    <span className={`text-[9px] tabular-nums leading-none ${d.isToday ? 'text-orange-500 font-black' : 'text-slate-300 font-bold'}`}>{d.day}</span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })()}
             </div>
 
             <div className="grid lg:grid-cols-2 gap-4 items-start">
