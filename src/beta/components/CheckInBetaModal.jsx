@@ -38,6 +38,15 @@ const Section = ({ icon: Icon, title, children, right }) => (
     </div>
 );
 
+// Доп. место сверх вместимости (bedId='extra' — как в основной форме)
+const ExtraChip = ({ selected, onClick }) => (
+    <button onClick={onClick} title="Доп. гость сверх вместимости комнаты"
+        className={`min-w-[52px] px-2 py-1.5 rounded-lg text-[11px] font-black border transition-all ${
+            selected ? 'bg-purple-500 text-white border-purple-500' : 'bg-purple-50 text-purple-600 border-purple-200 hover:border-purple-400'}`}>
+        +доп
+    </button>
+);
+
 const Inp = (props) => (
     <input {...props}
         className={`w-full rounded-lg border border-slate-200 focus:border-orange-300 px-3 py-2 text-[13px] text-slate-700 outline-none transition-colors ${props.className || ''}`} />
@@ -241,7 +250,7 @@ const CheckInBetaModal = ({
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-black text-slate-800">Заселение</div>
                         <div className="text-[11px] text-slate-400">
-                            {room ? `Комната ${room.number}${f.bedId ? ` · место ${f.bedId}` : ''}` : 'выберите место'}
+                            {room ? `Комната ${room.number}${f.bedId === 'extra' ? ' · доп. место' : f.bedId ? ` · место ${f.bedId}` : ''}` : 'выберите место'}
                         </div>
                     </div>
                     <button onClick={() => inMainApp?.('Доп. место, KPP и нестандартные случаи')}
@@ -267,6 +276,7 @@ const CheckInBetaModal = ({
                         </div>
                         {room && (
                             <div className="flex flex-wrap gap-1.5">
+                                <ExtraChip selected={f.bedId === 'extra'} onClick={() => set({ bedId: 'extra' })} />
                                 {beds.map(b => {
                                     const sel = f.bedId === b.id;
                                     const limited = !b.occupied && b.maxFreeDays !== null;
@@ -323,6 +333,14 @@ const CheckInBetaModal = ({
                                 <datalist id="beta-countries">{COUNTRIES.map(c => <option key={c} value={c} />)}</datalist>
                             </div>
                             <Inp type="date" title="Дата рождения" value={f.birthDate} onChange={e => set({ birthDate: e.target.value })} />
+                            <div>
+                                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Паспорт выдан</span>
+                                <Inp type="date" value={f.passportIssueDate} onChange={e => set({ passportIssueDate: e.target.value })} />
+                            </div>
+                            <div>
+                                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Дата КПП (иностранцы)</span>
+                                <Inp type="date" value={f.kppDate} onChange={e => set({ kppDate: e.target.value })} />
+                            </div>
                         </div>
                         {blacklist && (
                             <div className={`mt-2 flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold ${
@@ -351,12 +369,12 @@ const CheckInBetaModal = ({
                                 <span className="text-[10px] font-bold text-slate-400">сум/ночь</span>
                             </div>
                         </div>
-                        <label className="flex items-center gap-2 mt-2.5 cursor-pointer">
-                            <input type="checkbox" checked={f.tariff === 'package'}
+                        <label className={`flex items-center gap-2 mt-2.5 ${room ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}>
+                            <input type="checkbox" disabled={!room} checked={f.tariff === 'package'}
                                 onChange={e => set({ tariff: e.target.checked ? 'package' : 'standard' })}
                                 className="accent-orange-500" />
                             <span className="text-[12px] font-semibold text-slate-600">
-                                Пакетный тариф · {fmtMoney(PKG_PRICE)}/ночь, от {PKG_MIN_DAYS} дней, невозвратный
+                                Пакетный тариф{room ? ` · ${fmtMoney(PKG_PRICE)}/ночь` : ''} · от {PKG_MIN_DAYS} дней, невозвратный
                             </span>
                         </label>
                         {priceBelowMin && (

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { LogOut, Copy, X, DollarSign, CreditCard, Smartphone, Lock, CheckCircle, AlertTriangle, RotateCcw } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { computeShiftReport, buildShiftTelegramMsg, buildShiftReportText } from '../../utils/shiftReport';
 
 const MODAL_STYLE = `
     @keyframes scm-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -11,86 +12,20 @@ const MODAL_STYLE = `
 
 const ShiftClosingModal = ({ user, payments = [], expenses = [], onClose, onLogout, notify, onEndShift, lang, sendTelegramMessage }) => {
     const t = useCallback((k) => TRANSLATIONS[lang][k], [lang]);
-    const shiftStart = user.lastShiftEnd || '1970-01-01T00:00:00.000Z';
     const [confirming, setConfirming] = useState(false);
     const isDark = useMemo(() => document.documentElement.dataset.theme === 'dark', []);
 
-    const myPayments = useMemo(() => payments.filter(p => {
-        return ((p.staffId === user.id) || (p.staffId === user.login)) && p.date > shiftStart;
-    }), [payments, user.id, user.login, shiftStart]);
-
-    const myExpenses = useMemo(() => expenses.filter(e => {
-        return ((e.staffId === user.id) || (e.staffId === user.login)) && e.date > shiftStart && e.source !== 'cadastre';
-    }), [expenses, user.id, user.login, shiftStart]);
-
-    const income = useMemo(() => myPayments.reduce((acc, p) => {
-        acc.cash     += p.cash     !== undefined ? (parseInt(p.cash)     || 0) : (p.method === 'cash'     ? (parseInt(p.amount) || 0) : 0);
-        acc.card     += p.card     !== undefined ? (parseInt(p.card)     || 0) : (p.method === 'card'     ? (parseInt(p.amount) || 0) : 0);
-        acc.qr       += p.qr       !== undefined ? (parseInt(p.qr)       || 0) : (p.method === 'qr'       ? (parseInt(p.amount) || 0) : 0);
-        const t = p.transfer !== undefined ? (parseInt(p.transfer) || 0) : (p.method === 'transfer' ? (parseInt(p.amount) || 0) : 0);
-        acc.transfer += t;
-        if (t > 0 && p.transferTo) acc.transferByEntity[p.transferTo] = (acc.transferByEntity[p.transferTo] || 0) + t;
-        return acc;
-    }, { cash: 0, card: 0, qr: 0, transfer: 0, transferByEntity: {} }), [myPayments]);
-
-    const { totalRefunds, totalExpenses, cashboxExpenses } = useMemo(() => myExpenses.reduce((acc, e) => {
-        const amt = parseInt(e.amount) || 0;
-        acc.totalExpenses += amt;
-        if (e.category === '\u0412\u043e\u0437\u0432\u0440\u0430\u0442') acc.totalRefunds += amt;
-        if (!e.skipCashbox) acc.cashboxExpenses += amt;
-        return acc;
-    }, { totalRefunds: 0, totalExpenses: 0, cashboxExpenses: 0 }), [myExpenses]);
-
-    const totalRevenue = income.cash + income.card + income.qr + income.transfer;
-    const cashInHand = income.cash - cashboxExpenses;
+    // Расчёт сверки — общий с бетой (utils/shiftReport), логика не менялась
+    const report = useMemo(() => computeShiftReport(user, payments, expenses), [user, payments, expenses]);
+    const { income, totalRefunds, cashboxExpenses, totalRevenue, cashInHand } = report;
 
     const handleEndShiftWithNotify = useCallback(() => {
-        const transferEntries = Object.entries(income.transferByEntity || {});
-        const transferLine = income.transfer > 0
-            ? (transferEntries.length > 0
-                ? transferEntries.map(([entity, amt]) => `\n🏦 ${entity}: ${amt.toLocaleString()}`).join('')
-                : `\n🏦 Перечисление: ${income.transfer.toLocaleString()}`)
-            : '';
-        const refundLine = totalRefunds > 0 ? `\n🔄 Возврат: -${totalRefunds.toLocaleString()}` : '';
-        const msg = `<b>🔒 Закрытие смены</b>\nКассир: ${user.name}\n---\n💵 Наличные: ${income.cash.toLocaleString()}\n💳 Терминал: ${income.card.toLocaleString()}\n📱 QR: ${income.qr.toLocaleString()}${transferLine}\n---\n<b>✅ ИТОГО: ${totalRevenue.toLocaleString()}</b>${refundLine}\n🔴 Расходы: ${cashboxExpenses.toLocaleString()}\n<b>💰 В КАССЕ: ${cashInHand.toLocaleString()}</b>`;
-        sendTelegramMessage(msg, 'shiftEnd');
+        sendTelegramMessage(buildShiftTelegramMsg(user, report), 'shiftEnd');
         onEndShift();
-    }, [user, income, totalRevenue, totalRefunds, cashboxExpenses, cashInHand, sendTelegramMessage, onEndShift]);
+    }, [user, report, sendTelegramMessage, onEndShift]);
 
     const copyReport = useCallback(async () => {
-        const pad = (val, len) => String(val).padStart(len, ' ');
-        const line = '\u2500'.repeat(30);
-        const date = new Date().toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const nonRefundExpenses = cashboxExpenses - totalRefunds;
-
-        const parts = [
-            `\uD83D\uDD12 \u0417\u0410\u041a\u0420\u042b\u0422\u0418\u0415 \u0421\u041c\u0415\u041d\u042b`,
-            `\uD83D\uDC64 \u041a\u0430\u0441\u0441\u0438\u0440: ${user.name}`,
-            `\uD83D\uDCC5 ${date}`,
-            line,
-            `\uD83D\uDCC8 \u041f\u041e\u0421\u0422\u0423\u041f\u041b\u0415\u041d\u0418\u042f`,
-            `\uD83D\uDCB5 \u041d\u0430\u043b\u0438\u0447\u043d\u044b\u0435:   ${pad(income.cash.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-            `\uD83D\uDCB3 \u0422\u0435\u0440\u043c\u0438\u043d\u0430\u043b:   ${pad(income.card.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-            `\uD83D\uDCF1 QR-\u043a\u043e\u0434:     ${pad(income.qr.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-            ...(income.transfer > 0 ? (Object.entries(income.transferByEntity || {}).length > 0
-                ? Object.entries(income.transferByEntity).map(([entity, amt]) => `\uD83C\uDFE6 ${entity}: ${pad(amt.toLocaleString() + ' \u0441\u0443\u043c', 18)}`)
-                : [`\uD83C\uDFE6 \u041f\u0435\u0440\u0435\u0447\u0438\u0441\u043b\u0435\u043d\u0438\u0435: ${pad(income.transfer.toLocaleString() + ' \u0441\u0443\u043c', 18)}`]) : []),
-            line,
-            `\u2705 \u0418\u0442\u043e\u0433\u043e:      ${pad(totalRevenue.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-        ];
-
-        if (totalRefunds > 0 || nonRefundExpenses > 0) {
-            parts.push(line);
-            parts.push(`\u2796 \u0412\u042b\u0427\u0415\u0422\u042b`);
-            if (totalRefunds > 0)      parts.push(`\uD83D\uDD04 \u0412\u043e\u0437\u0432\u0440\u0430\u0442:    ${pad('-' + totalRefunds.toLocaleString() + ' \u0441\u0443\u043c', 18)}`);
-            if (nonRefundExpenses > 0) parts.push(`\uD83D\uDD34 \u0420\u0430\u0441\u0445\u043e\u0434\u044b:    ${pad('-' + nonRefundExpenses.toLocaleString() + ' \u0441\u0443\u043c', 18)}`);
-        }
-
-        parts.push(line);
-        parts.push(`\uD83D\uDCB0 \u0412 \u041a\u0410\u0421\u0421\u0415:     ${pad(cashInHand.toLocaleString() + ' \u0441\u0443\u043c', 18)}`);
-        parts.push(line);
-
-        const text = parts.join('\n');
+        const text = buildShiftReportText(user, report);
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
@@ -106,7 +41,7 @@ const ShiftClosingModal = ({ user, payments = [], expenses = [], onClose, onLogo
                 document.body.removeChild(el);
             }
         } catch { notify('\u041e\u0448\u0438\u0431\u043a\u0430 \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f', 'error'); }
-    }, [user, income, totalRevenue, totalRefunds, cashboxExpenses, cashInHand, notify]);
+    }, [user, report, notify]);
 
     return (
         <>

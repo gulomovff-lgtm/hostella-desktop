@@ -15,7 +15,9 @@ import { loadAppConfig, getConfigValue } from '../utils/appConfig';
 import { HOSTELS, getTotalPaid } from '../utils/helpers';
 import ExpenseBetaModal from './components/ExpenseBetaModal';
 import CheckInBetaModal from './components/CheckInBetaModal';
-import ShiftClosingModal from '../components/Modals/ShiftClosingModal';
+import ShiftCloseBeta from './components/ShiftCloseBeta';
+import ExtendBetaModal from './components/ExtendBetaModal';
+import CheckOutBetaModal from './components/CheckOutBetaModal';
 import ChangePasswordModal from '../components/Modals/ChangePasswordModal';
 
 import SmartNav from './components/SmartNav';
@@ -155,6 +157,8 @@ const BetaApp = () => {
     const [shiftModal, setShiftModal] = useState(false);
     const [changePassOpen, setChangePassOpen] = useState(false);
     const [undoStack, setUndoStack] = useState([]); // родные хуки кладут сюда отменяемые действия
+    const [extendModal, setExtendModal] = useState(null);   // гость для продления
+    const [checkoutModal, setCheckoutModal] = useState(null); // гость для выселения
 
     useEffect(() => {
         loadAppConfig().catch(() => {});
@@ -224,7 +228,7 @@ const BetaApp = () => {
     // ── Приём оплаты: тот же handlePayment, что и в основном приложении.
     // Ненужные бете сеттеры — заглушки; закрытие карточки гостя пробрасываем.
     const noop = () => {};
-    const { handlePayment, handleCheckInSubmit, handleUndo } = useGuestActions({
+    const { handlePayment, handleCheckInSubmit, handleUndo, handleExtendGuest, handleCheckOut } = useGuestActions({
         currentUser: currentUser || {},
         rooms, guests, clients, cadastreRegs,
         selectedHostelFilter: hostelFilter, lang: 'ru',
@@ -536,16 +540,31 @@ const BetaApp = () => {
             )}
 
             {shiftModal && (
-                <ShiftClosingModal
+                <ShiftCloseBeta
                     user={usersList.find(u => u.id === currentUser.id) || currentUser}
                     payments={payments}
                     expenses={fExpenses}
                     onClose={() => setShiftModal(false)}
                     onEndShift={handleEndShift}
-                    onLogout={handleLogout}
                     notify={showToast}
-                    lang="ru"
                     sendTelegramMessage={sendTelegramMessage}
+                />
+            )}
+
+            {extendModal && (
+                <ExtendBetaModal
+                    guest={extendModal}
+                    onSubmit={handleExtendGuest}
+                    onClose={() => setExtendModal(null)}
+                />
+            )}
+
+            {checkoutModal && (
+                <CheckOutBetaModal
+                    guest={checkoutModal}
+                    onSubmit={(g, final) => handleCheckOut(g, final)}
+                    onClose={() => setCheckoutModal(null)}
+                    onPayDebt={openPayDebt}
                 />
             )}
 
@@ -559,7 +578,9 @@ const BetaApp = () => {
             {guestCard && (
                 <GuestCardModal guest={guestCard} rooms={rooms} payments={payments}
                     onClose={() => setGuestCard(null)} inMainApp={inMainApp}
-                    onPayDebt={openPayDebt} />
+                    onPayDebt={openPayDebt}
+                    onExtend={(g) => { setGuestCard(null); setExtendModal(g); }}
+                    onCheckOut={(g) => { setGuestCard(null); setCheckoutModal(g); }} />
             )}
 
             {payModal && (

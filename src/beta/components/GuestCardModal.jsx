@@ -33,7 +33,7 @@ const METHOD_META = [
     { key: 'paidBalance', pkey: 'balance', label: 'Бонусы', icon: Coins, cls: 'text-amber-600' },
 ];
 
-const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainApp, onPayDebt }) => {
+const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainApp, onPayDebt, onExtend, onCheckOut }) => {
     const now = new Date();
     const room = rooms.find(r => r.id === g.roomId);
     const paid = getTotalPaid(g);
@@ -190,17 +190,32 @@ const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainAp
                 </div>
 
                 {/* Действия */}
-                <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-shrink-0">
+                <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex flex-col gap-2 flex-shrink-0">
                     {debt > 0 && onPayDebt && (
                         <button onClick={() => onPayDebt(g)}
-                            className="flex-1 py-2.5 rounded-xl text-xs font-black text-white bg-orange-500 hover:bg-orange-600 transition-colors">
+                            className="w-full py-2.5 rounded-xl text-xs font-black text-white bg-orange-500 hover:bg-orange-600 transition-colors">
                             Принять оплату · {fmtMoney(debt)}
                         </button>
                     )}
-                    <button onClick={() => inMainApp('Продление, переселение и выселение')}
-                        className={`${debt > 0 && onPayDebt ? '' : 'flex-1 '}flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-colors`}>
-                        <ExternalLink size={12} /> Ещё действия
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {g.status === 'active' && onExtend && (
+                            <button onClick={() => onExtend(g)}
+                                className="flex-1 py-2.5 rounded-xl text-xs font-black text-white bg-indigo-500 hover:bg-indigo-600 transition-colors">
+                                Продлить
+                            </button>
+                        )}
+                        {g.status === 'active' && onCheckOut && (
+                            <button onClick={() => onCheckOut(g)}
+                                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-rose-500 border border-rose-200 bg-white hover:bg-rose-50 transition-colors">
+                                Выселить
+                            </button>
+                        )}
+                        <button onClick={() => inMainApp('Переселение, разделение и правка полей гостя')}
+                            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-colors"
+                            title="Переселение и другие действия — в основном приложении">
+                            <ExternalLink size={12} /> Ещё
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
