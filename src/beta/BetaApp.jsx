@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, arrayUnion } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
@@ -16,6 +16,8 @@ import { HOSTELS, getTotalPaid } from '../utils/helpers';
 import ExpenseBetaModal from './components/ExpenseBetaModal';
 import CheckInBetaModal from './components/CheckInBetaModal';
 import ShiftCloseBeta from './components/ShiftCloseBeta';
+import GroupCheckInModal from '../components/Modals/GroupCheckInModal';
+import RoomRentalModal from '../components/Modals/RoomRentalModal';
 import ExtendBetaModal from './components/ExtendBetaModal';
 import CheckOutBetaModal from './components/CheckOutBetaModal';
 import ChangePasswordModal from '../components/Modals/ChangePasswordModal';
@@ -159,6 +161,8 @@ const BetaApp = () => {
     const [undoStack, setUndoStack] = useState([]); // родные хуки кладут сюда отменяемые действия
     const [extendModal, setExtendModal] = useState(null);   // гость для продления
     const [checkoutModal, setCheckoutModal] = useState(null); // гость для выселения
+    const [groupCheckInModal, setGroupCheckInModal] = useState(false);
+    const [rentalModal, setRentalModal] = useState(false);
 
     useEffect(() => {
         loadAppConfig().catch(() => {});
@@ -300,6 +304,48 @@ const BetaApp = () => {
         setShiftModal(true);
     }, [currentUser, showToast]);
 
+    // ── Аренда комнаты: копия handleRentRoom/logRentalPayments из App.jsx ──
+    // (платежи аренды попадают в кассу/смену; undo type 'rental' поддержан родным handleUndo)
+    const pushUndoItem = (item) => setUndoStack(prev =>
+        [{ ...item, id: Date.now(), timestamp: new Date().toISOString() }, ...prev].slice(0, 5));
+
+    const logRentalPayments = async (room, { cash = 0, card = 0, qr = 0 } = {}, tenantName = '') => {
+        const date = new Date().toISOString();
+        const rHostelId = room?.hostelId || currentUser?.hostelId || null;
+        const staffId = currentUser?.id || currentUser?.login || '';
+        const comment = `Аренда №${room?.number || ''}${tenantName ? ' · ' + tenantName : ''}`;
+        const mk = (amount, method) => ({ staffId, amount: Number(amount) || 0, method, date, hostelId: rHostelId, comment, rentalRoomId: room?.id || null });
+        const items = [];
+        if (Number(cash) > 0) items.push(mk(cash, 'cash'));
+        if (Number(card) > 0) items.push(mk(card, 'card'));
+        if (Number(qr) > 0) items.push(mk(qr, 'qr'));
+        const ids = [];
+        for (const it of items) {
+            try { const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), it); ids.push(ref.id); }
+            catch (e) { console.error('[rental payment]', e.message); }
+        }
+        return ids;
+    };
+
+    const handleRentRoom = async (roomId, rentalData) => {
+        try {
+            const room = fRooms.find(r => r.id === roomId);
+            const snap = { roomId: room?.id, prevRental: room?.rental || null, prevRentalHistory: room?.rentalHistory ?? null };
+            const updates = { rental: rentalData };
+            if (room?.rental?.active && room.rental.tenantName) {
+                updates.rentalHistory = arrayUnion({ ...room.rental, closedAt: new Date().toISOString() });
+            }
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', roomId), updates);
+            const paymentIds = await logRentalPayments(room, { cash: rentalData.paidCash, card: rentalData.paidCard, qr: rentalData.paidQR }, rentalData.tenantName);
+            pushUndoItem({ type: 'rental', ...snap, paymentIds, label: `Сдача в аренду · Комната №${room?.number || ''}` });
+            showToast(`Комната №${room?.number || ''} сдана в аренду`, 'success');
+            logAction(currentUser, 'room_rental', { roomId, tenantName: rentalData.tenantName });
+            setRentalModal(false);
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    };
+
     // Запрос на понижение цены до заселения — копия handleCheckinPriceRequest из App.jsx
     const handleCheckinPriceRequest = async ({ guestName, passport, roomNumber, hostelId, requestedPrice }) => {
         const price = parseInt(requestedPrice) || 0;
@@ -407,6 +453,8 @@ const BetaApp = () => {
         onPayDebt: openPayDebt,
         onCheckInBooking: openCheckInBooking,
         onCheckInBed: isCashierUser ? (room, bedId) => openCheckIn({ room, bedId }) : null,
+        onGroupCheckIn: isCashierUser ? () => setGroupCheckInModal(true) : null,
+        onRental: isCashierUser ? () => setRentalModal(true) : null,
         inMainApp,
     };
 
@@ -505,6 +553,8 @@ const BetaApp = () => {
                     onOpenGuest={(g) => { setGuestCard(g); setPaletteOpen(false); }}
                     onOpenExpense={() => { setPaletteOpen(false); openExpense(); }}
                     onOpenCheckIn={() => { setPaletteOpen(false); openCheckIn(); }}
+                    onGroupCheckIn={isCashierUser ? () => { setPaletteOpen(false); setGroupCheckInModal(true); } : null}
+                    onRental={isCashierUser ? () => { setPaletteOpen(false); setRentalModal(true); } : null}
                     inMainApp={(w) => { setPaletteOpen(false); inMainApp(w); }}
                 />
             )}
@@ -548,6 +598,32 @@ const BetaApp = () => {
                     onEndShift={handleEndShift}
                     notify={showToast}
                     sendTelegramMessage={sendTelegramMessage}
+                />
+            )}
+
+            {groupCheckInModal && (
+                <GroupCheckInModal
+                    allRooms={fRooms}
+                    guests={guests}
+                    onClose={() => setGroupCheckInModal(false)}
+                    onSubmitOne={handleCheckInSubmit}
+                    notify={showToast}
+                    lang="ru"
+                    currentUser={currentUser}
+                    checkInHour={currentCheckInHour}
+                    checkOutHour={currentCheckOutHour}
+                />
+            )}
+
+            {rentalModal && (
+                <RoomRentalModal
+                    allRooms={fRooms}
+                    guests={guests}
+                    onClose={() => setRentalModal(false)}
+                    onRent={handleRentRoom}
+                    notify={showToast}
+                    lang="ru"
+                    currentUser={currentUser}
                 />
             )}
 

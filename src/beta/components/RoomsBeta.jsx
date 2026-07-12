@@ -25,7 +25,7 @@ const stayLabel = (g, now, todayStr, ymd) => {
     return `до ${fmtShort(g.checkOutDate)} · ${nights} ${nights === 1 ? 'ночь' : nights < 5 ? 'ночи' : 'ночей'}`;
 };
 
-const RoomsBeta = ({ rooms = [], guests = [], onOpenGuest, inMainApp, onCheckInBed }) => {
+const RoomsBeta = ({ rooms = [], guests = [], onOpenGuest, inMainApp, onCheckInBed, onGroupCheckIn, onRental }) => {
     const [filter, setFilter] = useState('all');
     const [q, setQ] = useState('');
     const [hintHidden, setHintHidden] = useState(false);
@@ -148,6 +148,19 @@ const RoomsBeta = ({ rooms = [], guests = [], onOpenGuest, inMainApp, onCheckInB
                         {c.label}
                     </button>
                 ))}
+                {(onGroupCheckIn || onRental) && <span className="w-px h-5 bg-slate-200 mx-1" />}
+                {onGroupCheckIn && (
+                    <button onClick={onGroupCheckIn}
+                        className="px-3.5 py-1.5 rounded-full text-xs font-bold text-teal-600 bg-teal-50 border border-teal-200 hover:border-teal-400 transition-all">
+                        + Группа
+                    </button>
+                )}
+                {onRental && (
+                    <button onClick={onRental}
+                        className="px-3.5 py-1.5 rounded-full text-xs font-bold text-purple-600 bg-purple-50 border border-purple-200 hover:border-purple-400 transition-all">
+                        + Аренда комнаты
+                    </button>
+                )}
             </div>
 
             {visible.length === 0 && (
