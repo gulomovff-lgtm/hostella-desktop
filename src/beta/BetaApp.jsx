@@ -28,6 +28,7 @@ import MoneyBeta from './components/MoneyBeta';
 import GuestCardModal from './components/GuestCardModal';
 import PayDebtModal from './components/PayDebtModal';
 import ProfileView from './components/ProfileView';
+import MobileNavBeta from './components/MobileNavBeta';
 
 const SESSION_KEY = 'hostella_beta_user_v1';
 const THEME_KEY = 'hostella_beta_theme';
@@ -152,7 +153,7 @@ const BetaApp = () => {
     const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null });
     const [shiftModal, setShiftModal] = useState(false);
     const [changePassOpen, setChangePassOpen] = useState(false);
-    const [, setUndoStack] = useState([]); // хуки пишут сюда; UI отмены — в основном приложении
+    const [undoStack, setUndoStack] = useState([]); // родные хуки кладут сюда отменяемые действия
 
     useEffect(() => {
         loadAppConfig().catch(() => {});
@@ -222,7 +223,7 @@ const BetaApp = () => {
     // ── Приём оплаты: тот же handlePayment, что и в основном приложении.
     // Ненужные бете сеттеры — заглушки; закрытие карточки гостя пробрасываем.
     const noop = () => {};
-    const { handlePayment, handleCheckInSubmit } = useGuestActions({
+    const { handlePayment, handleCheckInSubmit, handleUndo } = useGuestActions({
         currentUser: currentUser || {},
         rooms, guests, clients, cadastreRegs,
         selectedHostelFilter: hostelFilter, lang: 'ru',
@@ -238,6 +239,32 @@ const BetaApp = () => {
         (g && g.status !== 'booking') ? Math.max(0, (g.totalPrice || 0) - getTotalPaid(g)) : 0, []);
 
     const openPayDebt = useCallback((g) => setPayModal(g), []);
+
+    // ── Отмена последнего действия (родной handleUndo) ──
+    const undoTop = undoStack[0] || null;
+    const [undoBusy, setUndoBusy] = useState(false);
+    useEffect(() => {
+        // чип отмены живёт 60 секунд, потом убираем сам элемент из стека
+        if (!undoTop) return;
+        const t = setTimeout(() => {
+            setUndoStack(prev => prev.filter(x => x.id !== undoTop.id));
+        }, 60000);
+        return () => clearTimeout(t);
+    }, [undoTop?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const runUndo = useCallback(async () => {
+        if (!undoTop || undoBusy) return;
+        setUndoBusy(true);
+        try {
+            await handleUndo(undoTop);
+            setUndoStack(prev => prev.filter(x => x.id !== undoTop.id));
+            showToast('Отменено: ' + (undoTop.label || ''), 'success');
+        } catch (e) {
+            showToast('Не удалось отменить: ' + (e.message || ''), 'error');
+        } finally {
+            setUndoBusy(false);
+        }
+    }, [undoTop, undoBusy, handleUndo, showToast]);
 
     // ── Заселение: как в основном — только кассир ──
     const openCheckIn = useCallback((payload = {}) => {
@@ -454,6 +481,14 @@ const BetaApp = () => {
                 </main>
             </div>
 
+            <MobileNavBeta
+                currentUser={currentUser}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                onOpenCheckIn={() => openCheckIn()}
+                badge={registrationsAlertCount + pendingBookingsCount}
+            />
+
             {paletteOpen && (
                 <CommandPalette
                     guests={fGuests}
@@ -463,6 +498,7 @@ const BetaApp = () => {
                     onGoTab={(t) => { setActiveTab(t); setPaletteOpen(false); }}
                     onOpenGuest={(g) => { setGuestCard(g); setPaletteOpen(false); }}
                     onOpenExpense={() => { setPaletteOpen(false); openExpense(); }}
+                    onOpenCheckIn={() => { setPaletteOpen(false); openCheckIn(); }}
                     inMainApp={(w) => { setPaletteOpen(false); inMainApp(w); }}
                 />
             )}
@@ -537,6 +573,23 @@ const BetaApp = () => {
                     onSubmit={(amounts) => handlePayment(payModal.id, amounts)}
                     onClose={() => setPayModal(null)}
                 />
+            )}
+
+            {undoTop && (
+                <div className="fixed bottom-6 right-5 z-[190] flex items-center gap-1 rounded-xl shadow-2xl overflow-hidden"
+                    style={{ background: '#1a3c40', border: '1px solid rgba(255,255,255,0.15)' }}>
+                    <button onClick={runUndo} disabled={undoBusy}
+                        className="flex items-center gap-2 pl-4 pr-3 py-2.5 text-xs font-bold text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+                        title={undoTop.label}>
+                        <span aria-hidden="true">↩</span>
+                        <span className="max-w-[200px] truncate">{undoBusy ? 'Отменяю…' : `Отменить: ${undoTop.label || 'действие'}`}</span>
+                    </button>
+                    <button onClick={() => setUndoStack(prev => prev.filter(x => x.id !== undoTop.id))}
+                        aria-label="Скрыть"
+                        className="px-2.5 py-2.5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-xs font-bold">
+                        ✕
+                    </button>
+                </div>
             )}
 
             {toast && (

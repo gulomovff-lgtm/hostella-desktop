@@ -60,6 +60,25 @@ const ProfileView = ({
             return sum + Math.max(0, end - new Date(s.startTime));
         }, 0);
 
+        // Прошлый месяц — для сравнения
+        const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevMonthPrefix = getLocalDateString(prevMonthDate).slice(0, 7);
+        const prevMonthSum = myPay
+            .filter(p => ymd(p.date).slice(0, 7) === prevMonthPrefix)
+            .reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
+
+        // Принято по дням — последние 14 дней
+        const days14 = [];
+        for (let i = 13; i >= 0; i--) {
+            const d = new Date(now.getTime() - i * 86400000);
+            const ds = getLocalDateString(d);
+            days14.push({
+                ds,
+                day: d.getDate(),
+                sum: myPay.filter(p => ymd(p.date) === ds).reduce((s, p) => s + (parseInt(p.amount) || 0), 0),
+            });
+        }
+
         // Принято за каждую из последних смен
         const recent = myShifts.slice(0, 5).map(s => {
             const st = new Date(s.startTime).getTime();
@@ -80,6 +99,8 @@ const ProfileView = ({
             monthSum: payMonth.reduce((s, p) => s + (parseInt(p.amount) || 0), 0),
             monthShiftCount: monthShifts.length,
             monthHours,
+            prevMonthSum,
+            days14,
             recent,
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,9 +171,41 @@ const ProfileView = ({
                     <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 ml-1">Мой месяц</div>
                     <div className="grid grid-cols-3 gap-3 mb-5">
                         <Kpi icon={CalendarDays} tone="bg-indigo-50 text-indigo-600" label="Смен" value={mine.monthShiftCount} sub={`${Math.round(mine.monthHours / 3600000)} часов`} />
-                        <Kpi icon={TrendingUp} tone="bg-emerald-50 text-emerald-600" label="Принято за месяц" value={fmtMoney(mine.monthSum)} sub="UZS" />
+                        <Kpi icon={TrendingUp} tone="bg-emerald-50 text-emerald-600" label="Принято за месяц" value={fmtMoney(mine.monthSum)}
+                            sub={mine.prevMonthSum > 0
+                                ? <>пред. {fmtMoney(mine.prevMonthSum)} · <span className={mine.monthSum >= mine.prevMonthSum ? 'text-emerald-500 font-bold' : 'text-rose-400 font-bold'}>
+                                    {mine.monthSum >= mine.prevMonthSum ? '+' : ''}{Math.round(((mine.monthSum - mine.prevMonthSum) / mine.prevMonthSum) * 100)}%</span></>
+                                : 'UZS'} />
                         <Kpi icon={ShieldCheck} tone="bg-amber-50 text-amber-600" label="Средняя смена"
                             value={mine.monthShiftCount ? fmtMoney(Math.round(mine.monthSum / mine.monthShiftCount)) : '—'} sub="сум за смену" />
+                    </div>
+
+                    {/* Принято по дням — последние 14 дней */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-5">
+                        <div className="flex items-baseline justify-between mb-3">
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-500">Принято по дням</span>
+                            <span className="text-[10px] text-slate-400">последние 14 дней</span>
+                        </div>
+                        {(() => {
+                            const max = Math.max(1, ...mine.days14.map(d => d.sum));
+                            return (
+                                <div className="flex items-end gap-1" style={{ height: 72 }}>
+                                    {mine.days14.map((d, i) => {
+                                        const isToday = i === mine.days14.length - 1;
+                                        const h = d.sum > 0 ? Math.max(4, Math.round((d.sum / max) * 64)) : 2;
+                                        return (
+                                            <div key={d.ds} className="flex-1 flex flex-col items-center gap-1 min-w-0"
+                                                title={`${d.ds}: ${fmtMoney(d.sum)} сум`}>
+                                                <div className={`w-full rounded-t-md transition-all duration-300 ${
+                                                    isToday ? 'bg-orange-500' : d.sum > 0 ? 'bg-orange-200' : 'bg-slate-100'}`}
+                                                    style={{ height: h }} />
+                                                <span className={`text-[8.5px] tabular-nums leading-none ${isToday ? 'text-orange-500 font-black' : 'text-slate-300 font-bold'}`}>{d.day}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     {mine.recent.length > 0 && (

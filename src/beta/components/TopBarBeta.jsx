@@ -31,8 +31,8 @@ const TopBarBeta = ({
             onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#fff'; }}
             onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'var(--nav-muted)'; }}>
             <Search size={14} />
-            <span>Гость, сумма или действие…</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px]"
+            <span className="hidden sm:inline">Гость, сумма или действие…</span>
+            <span className="hidden md:inline px-1.5 py-0.5 rounded text-[10px]"
                 style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', opacity: 0.7 }}>
                 Ctrl+K
             </span>

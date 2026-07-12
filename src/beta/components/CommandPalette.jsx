@@ -23,7 +23,8 @@ const SECTIONS = [
 const norm = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
 const fmtMoney = (n) => (n || 0).toLocaleString('ru-RU');
 
-const CommandPalette = ({ guests = [], payments = [], onClose, onGoTab, onOpenGuest, onOpenExpense, inMainApp }) => {
+const CommandPalette = ({ guests = [], payments = [], currentUser, onClose, onGoTab, onOpenGuest, onOpenExpense, onOpenCheckIn, inMainApp }) => {
+    const isCashier = currentUser?.role !== 'admin' && currentUser?.role !== 'super';
     const [q, setQ] = useState('');
     const inputRef = useRef(null);
 
@@ -124,6 +125,16 @@ const CommandPalette = ({ guests = [], payments = [], onClose, onGoTab, onOpenGu
             })),
         });
 
+        // Действия
+        const acts = [];
+        if (isCashier && 'заселить гость checkin новый заезд'.includes(query)) {
+            acts.push({ icon: User, title: 'Заселить гостя', why: 'откроется форма заселения', run: () => onOpenCheckIn?.() });
+        }
+        if ('расход записать expense деньги'.includes(query)) {
+            acts.push({ icon: Hash, title: 'Записать расход', why: 'откроется форма расхода', run: () => onOpenExpense?.() });
+        }
+        if (acts.length) out.push({ section: 'Действия', items: acts });
+
         // Разделы
         const sm = SECTIONS.filter(s => s.k.includes(query) || norm(s.label).includes(query));
         if (sm.length) out.push({
@@ -174,6 +185,9 @@ const CommandPalette = ({ guests = [], payments = [], onClose, onGoTab, onOpenGu
                                     {smart.map((it, i) => <Item key={i} it={it} accent />)}
                                 </>
                             )}
+                            <div className="px-4 pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Действия</div>
+                            {isCashier && <Item it={{ icon: User, title: 'Заселить гостя', why: 'форма заселения', run: () => onOpenCheckIn?.() }} accent />}
+                            <Item it={{ icon: Hash, title: 'Записать расход', why: 'или наберите сумму цифрами', run: () => onOpenExpense?.() }} accent />
                             <div className="px-4 pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Разделы</div>
                             {SECTIONS.slice(0, 4).map(s => (
                                 <Item key={s.id} it={{ icon: LayoutGrid, title: s.label, why: '', run: () => onGoTab(s.id) }} />
