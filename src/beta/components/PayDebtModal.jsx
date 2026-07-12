@@ -49,7 +49,8 @@ const PayDebtModal = ({ guest, debt = 0, onSubmit, onClose }) => {
         <div className="fixed inset-0 z-[170] flex items-center justify-center px-4"
             style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
             onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-            <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+            <div role="dialog" aria-modal="true" aria-label="Приём оплаты"
+                className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
 
                 {/* Шапка: кто и сколько должен */}
                 <div className="px-5 py-4 border-b border-slate-100">

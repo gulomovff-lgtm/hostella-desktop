@@ -25,9 +25,33 @@ const Pill = ({ tone, children }) => {
     return <span className={`inline-flex text-[10.5px] font-black px-2 py-0.5 rounded-full whitespace-nowrap ${TONES[tone]}`}>{children}</span>;
 };
 
-const GuestsBeta = ({ guests = [], onOpenGuest }) => {
+const GuestsBeta = ({ guests = [], clients = [], onOpenGuest, initialFilter }) => {
     const [q, setQ] = useState('');
-    const [filter, setFilter] = useState('active');
+    const [filter, setFilter] = useState(initialFilter || 'active');
+    const [copiedId, setCopiedId] = useState(null);
+
+    // «Вернуть клиентов»: постоянные (2+ визита), не в ЧС, не были 30+ дней.
+    // Скоринг: визиты × давность — сверху те, кого вероятнее вернуть.
+    const returnCandidates = useMemo(() => {
+        const now = Date.now();
+        return clients
+            .filter(c => (c.visits || 0) >= 2 && c.clientStatus !== 'blacklist' && c.lastVisit)
+            .map(c => {
+                const daysAgo = Math.floor((now - new Date(c.lastVisit).getTime()) / 86400000);
+                return { c, daysAgo, score: (c.visits || 0) * 10 - Math.min(daysAgo, 365) / 30 };
+            })
+            .filter(x => x.daysAgo >= 30 && x.daysAgo <= 365)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 50);
+    }, [clients]);
+
+    const copyPhone = async (c) => {
+        try {
+            await navigator.clipboard.writeText(c.phone || '');
+            setCopiedId(c.id);
+            setTimeout(() => setCopiedId(null), 1500);
+        } catch { /* ignore */ }
+    };
 
     const todayStr = getLocalDateString(new Date());
     const ymd = (d) => (d ? getLocalDateString(new Date(d)) : '');
@@ -71,6 +95,7 @@ const GuestsBeta = ({ guests = [], onOpenGuest }) => {
         { id: 'dep',     label: `Выезжают сегодня · ${counts.dep}` },
         { id: 'booking', label: `Брони · ${counts.booking}` },
         { id: 'all',     label: `Все · ${counts.all}` },
+        { id: 'return',  label: `✨ Вернуть · ${returnCandidates.length}` },
     ];
 
     return (
@@ -100,7 +125,45 @@ const GuestsBeta = ({ guests = [], onOpenGuest }) => {
                 ))}
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto">
+            {filter === 'return' && (
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden mb-4">
+                    <div className="px-4 py-3 border-b border-slate-100 bg-orange-50/50">
+                        <div className="text-xs font-black uppercase tracking-wider text-orange-600">Умный подбор: кого вернуть</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                            Постоянные гости (2+ визита), которые не были от месяца до года. Отсортированы по вероятности возврата — звоните сверху вниз.
+                        </div>
+                    </div>
+                    {returnCandidates.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-slate-400">Кандидатов пока нет — все постоянные гости были недавно.</div>
+                    ) : returnCandidates.map(({ c, daysAgo }) => (
+                        <div key={c.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50 transition-colors">
+                            <span className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 text-[11px] font-black flex items-center justify-center flex-shrink-0">
+                                {c.visits}×
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-[13.5px] font-bold text-slate-800 truncate">{c.fullName}</span>
+                                <span className="block text-[11px] text-slate-400">
+                                    был {daysAgo} дн. назад · {c.visits} визитов
+                                    {(parseInt(c.balance) || 0) > 0 ? ` · бонус ${(parseInt(c.balance)).toLocaleString('ru-RU')} — повод позвонить!` : ''}
+                                </span>
+                            </span>
+                            {c.phone ? (
+                                <>
+                                    <span className="text-[12px] font-bold text-slate-600 tabular-nums flex-shrink-0">{c.phone}</span>
+                                    <button onClick={() => copyPhone(c)}
+                                        className="flex-shrink-0 px-2.5 py-1.5 rounded-lg text-[10.5px] font-black text-orange-600 bg-orange-50 hover:bg-orange-100 border border-orange-200 transition-colors">
+                                        {copiedId === c.id ? '✓' : 'Копир.'}
+                                    </button>
+                                </>
+                            ) : (
+                                <span className="text-[11px] text-slate-300 flex-shrink-0">телефона нет</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className={`bg-white rounded-2xl border border-slate-200 overflow-x-auto ${filter === 'return' ? 'hidden' : ''}`}>
                 {visible.length === 0 ? (
                     <div className="px-4 py-10 text-center">
                         <div className="text-sm text-slate-400">Никого не нашлось — измените фильтр или запрос.</div>

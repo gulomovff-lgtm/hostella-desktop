@@ -243,7 +243,8 @@ const CheckInBetaModal = ({
         <div className="fixed inset-0 z-[170] flex items-center justify-center px-4"
             style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
             onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-            <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[94vh] flex flex-col">
+            <div role="dialog" aria-modal="true" aria-label="Заселение"
+                className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[94vh] flex flex-col">
 
                 <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
                     <span className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center"><BedDouble size={17} /></span>
@@ -326,13 +327,23 @@ const CheckInBetaModal = ({
                             )}
                         </div>
                         <div className="grid grid-cols-2 gap-2 mt-2">
-                            <Inp placeholder="Паспорт (AB1234567)" value={f.passport} onChange={e => set({ passport: e.target.value })} />
-                            <Inp placeholder="Телефон" value={f.phone} onChange={e => set({ phone: e.target.value })} />
                             <div>
-                                <Inp list="beta-countries" placeholder="Гражданство" value={f.country} onChange={e => set({ country: e.target.value })} />
+                                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Паспорт</span>
+                                <Inp placeholder="AB1234567" value={f.passport} onChange={e => set({ passport: e.target.value })} />
+                            </div>
+                            <div>
+                                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Телефон</span>
+                                <Inp placeholder="+998 …" value={f.phone} onChange={e => set({ phone: e.target.value })} />
+                            </div>
+                            <div>
+                                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Гражданство</span>
+                                <Inp list="beta-countries" value={f.country} onChange={e => set({ country: e.target.value })} />
                                 <datalist id="beta-countries">{COUNTRIES.map(c => <option key={c} value={c} />)}</datalist>
                             </div>
-                            <Inp type="date" title="Дата рождения" value={f.birthDate} onChange={e => set({ birthDate: e.target.value })} />
+                            <div>
+                                <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Дата рождения</span>
+                                <Inp type="date" value={f.birthDate} onChange={e => set({ birthDate: e.target.value })} />
+                            </div>
                             <div>
                                 <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 ml-1">Паспорт выдан</span>
                                 <Inp type="date" value={f.passportIssueDate} onChange={e => set({ passportIssueDate: e.target.value })} />

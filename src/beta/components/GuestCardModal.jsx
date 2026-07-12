@@ -33,7 +33,7 @@ const METHOD_META = [
     { key: 'paidBalance', pkey: 'balance', label: 'Бонусы', icon: Coins, cls: 'text-amber-600' },
 ];
 
-const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainApp, onPayDebt, onExtend, onCheckOut }) => {
+const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainApp, onPayDebt, onExtend, onCheckOut, onMove, onEdit }) => {
     const now = new Date();
     const room = rooms.find(r => r.id === g.roomId);
     const paid = getTotalPaid(g);
@@ -72,7 +72,8 @@ const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainAp
         <div className="fixed inset-0 z-[160] flex items-center justify-center px-4"
             style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
+            <div role="dialog" aria-modal="true" aria-label="Карточка гостя"
+                className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
 
                 {/* Шапка */}
                 <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
@@ -210,12 +211,19 @@ const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainAp
                                 Выселить
                             </button>
                         )}
-                        <button onClick={() => inMainApp('Переселение, разделение и правка полей гостя')}
-                            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-colors"
-                            title="Переселение и другие действия — в основном приложении">
-                            <ExternalLink size={12} /> Ещё
-                        </button>
+                        {onEdit && (
+                            <button onClick={() => onEdit(g)}
+                                className="px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-colors">
+                                Изменить
+                            </button>
+                        )}
                     </div>
+                    {g.status === 'active' && onMove && (
+                        <button onClick={() => onMove(g)}
+                            className="w-full py-2 rounded-xl text-[11.5px] font-bold text-slate-400 border border-dashed border-slate-200 bg-white hover:border-slate-300 hover:text-slate-600 transition-colors">
+                            Переселить на другое место →
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

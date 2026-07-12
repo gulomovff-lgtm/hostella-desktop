@@ -54,7 +54,8 @@ const ExpenseBetaModal = ({ onClose, onSubmit }) => {
         <div className="fixed inset-0 z-[170] flex items-center justify-center px-4"
             style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
             onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-            <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
+            <div role="dialog" aria-modal="true" aria-label="Новый расход"
+                className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
 
                 <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
                     <div className="min-w-0 flex-1">

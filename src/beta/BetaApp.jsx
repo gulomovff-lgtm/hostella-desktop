@@ -18,6 +18,9 @@ import CheckInBetaModal from './components/CheckInBetaModal';
 import ShiftCloseBeta from './components/ShiftCloseBeta';
 import GroupCheckInModal from '../components/Modals/GroupCheckInModal';
 import RoomRentalModal from '../components/Modals/RoomRentalModal';
+import MoveGuestModal from '../components/Modals/MoveGuestModal';
+import CalendarBeta from './components/CalendarBeta';
+import EditGuestBetaModal from './components/EditGuestBetaModal';
 import ExtendBetaModal from './components/ExtendBetaModal';
 import CheckOutBetaModal from './components/CheckOutBetaModal';
 import ChangePasswordModal from '../components/Modals/ChangePasswordModal';
@@ -163,6 +166,9 @@ const BetaApp = () => {
     const [checkoutModal, setCheckoutModal] = useState(null); // гость для выселения
     const [groupCheckInModal, setGroupCheckInModal] = useState(false);
     const [rentalModal, setRentalModal] = useState(false);
+    const [moveModal, setMoveModal] = useState(null);        // гость для переселения
+    const [editGuestModal, setEditGuestModal] = useState(null); // гость для правки данных
+    const [guestsInitialFilter, setGuestsInitialFilter] = useState(null);
 
     useEffect(() => {
         loadAppConfig().catch(() => {});
@@ -232,7 +238,7 @@ const BetaApp = () => {
     // ── Приём оплаты: тот же handlePayment, что и в основном приложении.
     // Ненужные бете сеттеры — заглушки; закрытие карточки гостя пробрасываем.
     const noop = () => {};
-    const { handlePayment, handleCheckInSubmit, handleUndo, handleExtendGuest, handleCheckOut } = useGuestActions({
+    const { handlePayment, handleCheckInSubmit, handleUndo, handleExtendGuest, handleCheckOut, handleMoveGuest, handleGuestUpdate } = useGuestActions({
         currentUser: currentUser || {},
         rooms, guests, clients, cadastreRegs,
         selectedHostelFilter: hostelFilter, lang: 'ru',
@@ -420,7 +426,15 @@ const BetaApp = () => {
                 e.preventDefault();
                 setPaletteOpen(o => !o);
             }
-            if (e.key === 'Escape') { setPaletteOpen(false); setGuestCard(null); }
+            if (e.key === 'Escape') {
+                // Esc закрывает любую открытую модалку беты (аудит: keyboard navigation)
+                setPaletteOpen(false); setGuestCard(null); setPayModal(null);
+                setExpenseModal(false); setShiftModal(false); setChangePassOpen(false);
+                setExtendModal(null); setCheckoutModal(null);
+                setGroupCheckInModal(false); setRentalModal(false);
+                setMoveModal(null); setEditGuestModal(null);
+                setCheckInModal(prev => (prev.open ? { open: false, room: null, bedId: null, date: null, client: null, bookingId: null } : prev));
+            }
         };
         document.addEventListener('keydown', h);
         return () => document.removeEventListener('keydown', h);
@@ -455,10 +469,12 @@ const BetaApp = () => {
         onCheckInBed: isCashierUser ? (room, bedId) => openCheckIn({ room, bedId }) : null,
         onGroupCheckIn: isCashierUser ? () => setGroupCheckInModal(true) : null,
         onRental: isCashierUser ? () => setRentalModal(true) : null,
+        clients,
+        onReturnClients: () => { setGuestsInitialFilter('return'); setActiveTab('clients'); },
         inMainApp,
     };
 
-    const known = ['today', 'rooms', 'clients', 'expenses', 'profile', 'debts'];
+    const known = ['today', 'rooms', 'clients', 'expenses', 'profile', 'debts', 'calendar'];
 
     return (
         <div className="beta-root h-screen flex flex-col overflow-hidden" style={{ background: theme === 'dark' ? '#0b1416' : '#f1f5f9' }}>
@@ -494,7 +510,15 @@ const BetaApp = () => {
                 <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
                     {activeTab === 'today' && <TodayView {...screenProps} />}
                     {activeTab === 'rooms' && <RoomsBeta {...screenProps} />}
-                    {activeTab === 'clients' && <GuestsBeta {...screenProps} registrationsAlertCount={registrationsAlertCount} />}
+                    {activeTab === 'clients' && <GuestsBeta {...screenProps} key={guestsInitialFilter || 'default'} initialFilter={guestsInitialFilter} registrationsAlertCount={registrationsAlertCount} />}
+                    {activeTab === 'calendar' && (
+                        <CalendarBeta
+                            rooms={fRooms}
+                            guests={fGuests}
+                            onOpenGuest={setGuestCard}
+                            onCheckInBedDate={isCashierUser ? (room, bed, date) => openCheckIn({ room, bedId: String(bed), date }) : null}
+                        />
+                    )}
                     {activeTab === 'expenses' && <MoneyBeta {...screenProps} />}
                     {activeTab === 'debts' && <DebtsBeta {...screenProps} />}
                     {activeTab === 'profile' && (
@@ -656,7 +680,29 @@ const BetaApp = () => {
                     onClose={() => setGuestCard(null)} inMainApp={inMainApp}
                     onPayDebt={openPayDebt}
                     onExtend={(g) => { setGuestCard(null); setExtendModal(g); }}
-                    onCheckOut={(g) => { setGuestCard(null); setCheckoutModal(g); }} />
+                    onCheckOut={(g) => { setGuestCard(null); setCheckoutModal(g); }}
+                    onMove={(g) => { setGuestCard(null); setMoveModal(g); }}
+                    onEdit={(g) => { setGuestCard(null); setEditGuestModal(g); }} />
+            )}
+
+            {moveModal && (
+                <MoveGuestModal
+                    guest={moveModal}
+                    allRooms={fRooms}
+                    guests={fGuests}
+                    onClose={() => setMoveModal(null)}
+                    onMove={handleMoveGuest}
+                    notify={showToast}
+                    lang="ru"
+                />
+            )}
+
+            {editGuestModal && (
+                <EditGuestBetaModal
+                    guest={editGuestModal}
+                    onSubmit={handleGuestUpdate}
+                    onClose={() => setEditGuestModal(null)}
+                />
             )}
 
             {payModal && (

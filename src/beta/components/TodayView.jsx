@@ -41,6 +41,7 @@ const STRIPE = {
     indigo: 'bg-indigo-400',
     teal:   'bg-teal-400',
     slate:  'bg-slate-300',
+    good:   'bg-emerald-400',
 };
 
 const KPI_COLORS = {
@@ -52,9 +53,9 @@ const KPI_COLORS = {
 };
 
 const TodayView = ({
-    rooms = [], guests = [], payments = [], expenses = [], shifts = [],
+    rooms = [], guests = [], payments = [], expenses = [], shifts = [], clients = [],
     currentUser, currentHostelId = 'all',
-    onOpenGuest, onGoTab, onOpenShift, onOpenCheckIn, onPayDebt, onCheckInBooking,
+    onOpenGuest, onGoTab, onOpenShift, onOpenCheckIn, onPayDebt, onCheckInBooking, onReturnClients,
 }) => {
     const now = new Date();
     const nowMs = now.getTime();
@@ -171,6 +172,20 @@ const TodayView = ({
             when: 'к расчётному часу',
             act: { label: 'Открыть гостя', fn: () => onOpenGuest?.(g) },
         }));
+        // Загрузка низкая → программа сама предлагает вернуть постоянных клиентов
+        if (occupancyPct < 50 && totalBeds > 0 && onReturnClients) {
+            const nowMs2 = Date.now();
+            const candidates = (clients || []).filter(c =>
+                (c.visits || 0) >= 2 && c.clientStatus !== 'blacklist' && c.lastVisit &&
+                (nowMs2 - new Date(c.lastVisit).getTime()) / 86400000 >= 30).length;
+            if (candidates > 0) queue.push({
+                key: 'return-clients', color: 'good',
+                title: `Загрузка ${occupancyPct}% — время вернуть постоянных гостей`,
+                why: `${candidates} проверенных клиентов давно не были. Список с телефонами — по кнопке.`,
+                when: 'подбор программы',
+                act: { label: 'Кого позвать', fn: () => onReturnClients() },
+            });
+        }
         if (isCashier && (now.getHours() > 19 || (now.getHours() === 19 && now.getMinutes() >= 30))) queue.unshift({
             key: 'shift', color: 'rose',
             title: 'Закрыть смену',
@@ -280,7 +295,7 @@ const TodayView = ({
             queue, events: pastEvents, future,
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rooms, guests, payments, expenses, shifts, currentHostelId, todayStr]);
+    }, [rooms, guests, payments, expenses, shifts, clients, currentHostelId, todayStr]);
 
     const hour = now.getHours();
     const greeting = hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
