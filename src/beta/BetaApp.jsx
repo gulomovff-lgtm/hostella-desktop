@@ -14,7 +14,7 @@ import { verifyPassword, hashPassword } from '../utils/hash';
 import { loadAppConfig, getConfigValue } from '../utils/appConfig';
 import { HOSTELS, getTotalPaid } from '../utils/helpers';
 import ExpenseBetaModal from './components/ExpenseBetaModal';
-import CheckInModal from '../components/Modals/CheckInModal';
+import CheckInBetaModal from './components/CheckInBetaModal';
 import ShiftClosingModal from '../components/Modals/ShiftClosingModal';
 import ChangePasswordModal from '../components/Modals/ChangePasswordModal';
 
@@ -506,24 +506,22 @@ const BetaApp = () => {
             )}
 
             {checkInModal.open && (
-                <CheckInModal
+                <CheckInBetaModal
                     initialRoom={checkInModal.room}
                     preSelectedBedId={checkInModal.bedId}
                     initialDate={checkInModal.date}
                     initialClient={checkInModal.client}
                     allRooms={fRooms}
                     guests={guests}
-                    clients={guests}
                     clientsDb={clients}
+                    hostelId={hostelKey}
+                    checkInHour={currentCheckInHour}
+                    checkOutHour={currentCheckOutHour}
                     onClose={() => setCheckInModal({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null })}
                     onSubmit={handleCheckInSubmit}
                     onCheckinPriceRequest={handleCheckinPriceRequest}
-                    priceWhitelist={priceWhitelist}
                     notify={showToast}
-                    lang="ru"
-                    currentUser={currentUser}
-                    checkInHour={currentCheckInHour}
-                    checkOutHour={currentCheckOutHour}
+                    inMainApp={inMainApp}
                 />
             )}
 
