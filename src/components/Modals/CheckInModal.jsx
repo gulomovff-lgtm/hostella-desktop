@@ -1145,6 +1145,16 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     {/* Step 3: Payment */}
                     {step === 3 && (
                         <div className="space-y-6 animate-in slide-in-from-right duration-200">
+                            {/* Залог, внесённый по брони до заселения — перенесётся автоматически */}
+                            {isFromBooking && !initialClient?.depositMoved && (Number(initialClient?.amountPaid) || 0) > 0 && (
+                                <div className="border rounded-xl p-4 flex items-center justify-between" style={{ background: '#ecfdf5', borderColor: '#a7f3d0' }}>
+                                    <div>
+                                        <div className="text-sm font-black text-emerald-700">💰 Залог по брони</div>
+                                        <div className="text-xs text-emerald-600 mt-0.5">Уже внесён и будет учтён автоматически — здесь вводите только доплату</div>
+                                    </div>
+                                    <span className="text-lg font-black text-emerald-700 shrink-0 ml-3">{Number(initialClient.amountPaid).toLocaleString()} сум</span>
+                                </div>
+                            )}
                             {currentUser?.role === 'admin' && (
                                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
                                     <p className="text-amber-700 font-bold text-sm">{t('adminNoPayment')}</p>

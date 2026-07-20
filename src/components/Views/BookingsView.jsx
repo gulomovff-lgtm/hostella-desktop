@@ -89,6 +89,24 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                     </div>
                 </div>
 
+                {(booking.beds || 1) > 1 && (
+                    <div className="col-span-2 flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg">
+                            <BedDouble size={12} /> Групповая бронь: {booking.beds} мест
+                        </span>
+                        {(booking.seatedCount || 0) > 0 && (
+                            <span className="text-xs font-bold text-indigo-600">заселено {booking.seatedCount} из {booking.beds} — каждого заселяйте отдельно</span>
+                        )}
+                    </div>
+                )}
+                {!booking.depositMoved && (Number(booking.amountPaid) || 0) > 0 && (
+                    <div className="col-span-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg">
+                            💰 Залог внесён: {Number(booking.amountPaid).toLocaleString()} сум
+                        </span>
+                    </div>
+                )}
+
                 {booking.country && (
                     <div className="col-span-2 flex items-center gap-2">
                         <Globe size={13} className="text-slate-400 flex-shrink-0" />
@@ -121,7 +139,7 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                                    transition-all active:scale-[0.98]"
                     >
                         <BedDouble size={14} strokeWidth={2.5} />
-                        {t('checkin')}
+                        {(booking.seatedCount || 0) > 0 ? `Заселить ${(booking.seatedCount || 0) + 1}-го из ${booking.beds}` : t('checkin')}
                         <ChevronRight size={13} strokeWidth={3} />
                     </button>
                     <button

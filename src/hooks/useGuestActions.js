@@ -135,6 +135,11 @@ export function useGuestActions(ctx) {
             amountPaid: increment(-rev),
           });
         }
+      } else if (item.type === 'activate_booking') {
+        // Заселение брони: возвращаем статус «бронь» и счётчик занятости комнаты
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { status: 'booking' });
+        if (item.roomId)
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', item.roomId), { occupied: increment(-1) });
       } else if (item.type === 'trim') {
         const trimRestore = {
           days: item.prevDays, totalPrice: item.prevTotalPrice, checkOutDate: item.prevCheckOut,
@@ -228,6 +233,21 @@ export function useGuestActions(ctx) {
         passportClean: formData.passport ? formData.passport.replace(/\s/g, '').toUpperCase() : '',
       };
 
+      // Залог по брони: гость мог внести предоплату до заселения (без паспорта).
+      // Переносим её в запись гостя (платёжные записи уже созданы при приёме залога,
+      // поэтому здесь только поля гостя — без новой записи в кассе).
+      const depCash = srcBooking && !srcBooking.depositMoved ? (Number(srcBooking.paidCash) || 0) : 0;
+      const depCard = srcBooking && !srcBooking.depositMoved ? (Number(srcBooking.paidCard) || 0) : 0;
+      const depQR   = srcBooking && !srcBooking.depositMoved ? (Number(srcBooking.paidQR)   || 0) : 0;
+      const depTotal = depCash + depCard + depQR;
+      if (depTotal > 0) {
+        newGuest.paidCash   = (Number(newGuest.paidCash) || 0) + depCash;
+        newGuest.paidCard   = (Number(newGuest.paidCard) || 0) + depCard;
+        newGuest.paidQR     = (Number(newGuest.paidQR)   || 0) + depQR;
+        newGuest.amountPaid = (Number(newGuest.amountPaid) || 0) + depTotal;
+        newGuest.depositFromBooking = depTotal; // след: сколько пришло залогом
+      }
+
       const docRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
       const guestId = docRef.id;
 
@@ -270,11 +290,26 @@ export function useGuestActions(ctx) {
       }
 
       if (checkInModal.bookingId) {
-        try { await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId)); } catch (_) {}
+        // Групповая бронь (несколько мест): заселяем по одному человеку, бронь
+        // живёт, пока не заселены все. Каждому — своя запись со своим паспортом.
+        const totalBeds = parseInt(srcBooking?.beds, 10) || 1;
+        const seated = (parseInt(srcBooking?.seatedCount, 10) || 0) + 1;
+        if (totalBeds > seated) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId), {
+              seatedCount: seated,
+              // залог перенесён первому заселённому — на брони обнуляем, чтобы не задвоить
+              ...(depTotal > 0 ? { paidCash: 0, paidCard: 0, paidQR: 0, amountPaid: 0, depositMoved: true } : {}),
+            });
+          } catch (_) {}
+          showNotification(`Заселён ${seated}-й из ${totalBeds} — бронь остаётся, заселите остальных так же`, 'info');
+        } else {
+          try { await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId)); } catch (_) {}
+        }
         // Обратная связь сайту: active = гость пришёл (checked_in), booking = бронь
-        // подтверждена с назначенным местом (confirmed). Гость получит Telegram-
-        // уведомление, статус на странице «Проверка брони» обновится.
-        if (srcBooking?.bookingCode) {
+        // подтверждена с назначенным местом (confirmed). Для группы шлём один раз —
+        // при первом заселённом. Гость получит Telegram-уведомление.
+        if (srcBooking?.bookingCode && seated === 1) {
           notifySiteBooking(srcBooking, formData.status === 'active' ? 'checked_in' : 'confirmed')
             .then(r => {
               if (r?.status === 'ok' && r.notified) {
@@ -307,11 +342,11 @@ export function useGuestActions(ctx) {
         await upsertClient(formData);
 
         // e-mehmon: граждан Узбекистана регистрируем ПОЛНОСТЬЮ авто, но только
-        // ПОСЛЕ ОПЛАТЫ (totalPaid > 0). Заселение в долг → регистрация запустится
-        // при первой оплате (см. handlePayment). Иностранцы — предлагаем мастер.
+        // ПОСЛЕ ОПЛАТЫ (новые деньги ИЛИ залог, внесённый по брони заранее).
+        // Заселение в долг → регистрация запустится при первой оплате (handlePayment).
         if (window.electronAPI?.openEmehmon && newGuest.country && !newGuest.emehmonReg) {
           if (newGuest.country === 'Узбекистан') {
-            if (totalPaid > 0 && onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
+            if ((totalPaid + depTotal) > 0 && onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
               onEmehmonAutoArrival({ id: guestId, ...newGuest });
             }
           } else if (setEmehmonArrivalPrompt) {
@@ -649,12 +684,41 @@ export function useGuestActions(ctx) {
   };
 
   const handleActivateBooking = async (guest) => {
+    // Групповая бронь (несколько мест): активировать одной записью нельзя —
+    // каждый человек заселяется отдельно со своим паспортом (кнопка «Заселить»
+    // в заявке ведёт через окно заселения по одному).
+    const bedsTotal = parseInt(guest.beds, 10) || 1;
+    if (bedsTotal - (parseInt(guest.seatedCount, 10) || 0) > 1) {
+      showNotification(`Групповая бронь (${bedsTotal} мест) — заселяйте каждого отдельно через «Заселить» в заявке`, 'error');
+      return false;
+    }
+    // У брони с сайта место не выбрано — активация без койки создаст «гостя без места»
+    if (!guest.roomId || !guest.bedId || guest.bedId === '-') {
+      showNotification('У брони не выбрано место — нажмите «Заселить» в заявке и выберите койку', 'error');
+      return false;
+    }
+    // Паспортные данные обязательны при фактическом заселении: бронь создаётся
+    // без них, но активировать её «вслепую» нельзя (e-mehmon, госучёт).
+    const passOk = (guest.passport || '').replace(/\s/g, '').length >= 5;
+    if (!passOk || !guest.birthDate) {
+      showNotification('Перед заселением дополните паспорт и дату рождения гостя', 'error');
+      return false;
+    }
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { status: 'active' });
     const r = rooms.find(i => i.id === guest.roomId);
     if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(1) });
     await upsertClient(guest);
+    // Отмена действия: вернуть статус «бронь» и счётчик занятости комнаты
+    pushUndo({
+      type: 'activate_booking',
+      label: `Заселение брони — ${guest.fullName}${guest.roomNumber ? ` (комн. ${guest.roomNumber})` : ''}`,
+      guestId: guest.id, roomId: r?.id || null,
+    });
+    // Бронь с сайта/бота: сообщаем «гость заселён» (сайт + Telegram гостю)
+    if (guest.bookingCode) notifySiteBooking(guest, 'checked_in');
     setGuestDetailsModal({ open: false, guest: null });
     showNotification('Activated');
+    return true;
   };
 
   const handleSplitGuest = async (orig, splitAfterDays, gapDays) => {

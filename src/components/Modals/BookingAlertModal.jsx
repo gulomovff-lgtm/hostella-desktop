@@ -53,7 +53,9 @@ const BookingAlertModal = ({ bookings = [], onAccept, onClose }) => {
                                 <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
                                     <span className="flex items-center gap-1.5 text-slate-600"><CalendarDays size={14} className="text-slate-400" /><b>{fmtDate(b.checkInDate)}</b>{b.days ? ` · ${b.days} дн.` : ''}</span>
                                     {b.beds > 0 && <span className="flex items-center gap-1.5 text-slate-600"><BedDouble size={14} className="text-slate-400" /><b>{b.beds}</b> мест{b.bedType ? ` (${b.bedType === 'upper' ? 'верх' : 'низ'})` : ''}</span>}
+                                    {(b.seatedCount || 0) > 0 && <span className="font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md text-xs">заселено {b.seatedCount} из {b.beds}</span>}
                                     {b.totalPrice > 0 && <span className="font-black text-slate-700">{Number(b.totalPrice).toLocaleString()} сум{b.channel === 'telegram' && <span className="ml-1 text-[10px] font-bold text-sky-600">договорная</span>}</span>}
+                                    {!b.depositMoved && (Number(b.amountPaid) || 0) > 0 && <span className="font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md text-xs">💰 залог {Number(b.amountPaid).toLocaleString()}</span>}
                                 </div>
                                 {b.comment && <div className="mt-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">💬 {b.comment}</div>}
                                 {/* Сводка переписки с ботом: что просил дополнительно, как говорить */}
@@ -67,7 +69,11 @@ const BookingAlertModal = ({ bookings = [], onAccept, onClose }) => {
                                 )}
                                 <button onClick={() => onAccept(b)}
                                     className="mt-3 w-full flex items-center justify-center gap-1.5 py-3 rounded-xl bg-[#1a3c40] hover:bg-[#2a5c60] text-white text-sm font-black transition-all active:scale-[0.98]">
-                                    <BedDouble size={15} strokeWidth={2.5} /> Подтвердить и выбрать место <ChevronRight size={14} strokeWidth={3} />
+                                    <BedDouble size={15} strokeWidth={2.5} />
+                                    {(b.seatedCount || 0) > 0
+                                        ? `Заселить следующего (${(b.seatedCount || 0) + 1} из ${b.beds})`
+                                        : 'Подтвердить и выбрать место'}
+                                    <ChevronRight size={14} strokeWidth={3} />
                                 </button>
                             </div>
                         </div>

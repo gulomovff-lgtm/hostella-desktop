@@ -1042,7 +1042,22 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
                             {isBooking ? (
                                 <div className="space-y-2">
                                     <div className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl text-amber-800 text-sm font-bold flex items-center gap-2"><Clock size={15}/> {t('bookingPending')}</div>
-                                    <button onClick={()=>onActivateBooking(guest)} className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold">{t('checkin')}</button>
+                                    <button onClick={() => {
+                                        // Бронь без паспорта/даты рождения: сначала дополнить данные
+                                        const passOk = (guest.passport || '').replace(/\s/g, '').length >= 5;
+                                        if (!passOk || !guest.birthDate) {
+                                            notify('Гость пришёл по брони — дополните паспорт и дату рождения', 'error');
+                                            setCurrentView('edit');
+                                            return;
+                                        }
+                                        onActivateBooking(guest);
+                                    }} className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold">{t('checkin')}</button>
+                                    {/* Залог: гость может внести предоплату по брони ДО заселения (без паспорта).
+                                        При заселении залог автоматически перенесётся в запись гостя. */}
+                                    <button onClick={()=>setCurrentView('pay')}
+                                        className="w-full py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-sm hover:bg-emerald-100 flex items-center justify-center gap-1.5">
+                                        💳 Принять залог{(guest.amountPaid || 0) > 0 ? ` (внесено ${Number(guest.amountPaid).toLocaleString()})` : ''}
+                                    </button>
                                     <div className="grid grid-cols-2 gap-2">
                                         <button onClick={()=>setCurrentView('moveDate')} className="py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-1"><Calendar size={14}/> {t('postpone')}</button>
                                         <button onClick={handleDelete} className="py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 flex items-center justify-center gap-1"><Trash2 size={14}/> {t('cancel')}</button>
