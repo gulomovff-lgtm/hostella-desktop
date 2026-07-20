@@ -181,6 +181,7 @@ import ExpenseModal from './components/Modals/ExpenseModal';
 import ReportsView from './components/Views/ReportsView';
 import GuestDetailsModal from './components/Modals/GuestDetailsModal';
 import MoveGuestModal from './components/Modals/MoveGuestModal';
+import BookingAlertModal from './components/Modals/BookingAlertModal';
 import RoomFormModal from './components/Modals/RoomFormModal';
 import ShiftClosingModal from './components/Modals/ShiftClosingModal';
 import BookingsView from './components/Views/BookingsView';
@@ -1798,6 +1799,27 @@ const filterByHostel = (items) => {
 
   const pendingBookingsCount = websiteBookings.length;
 
+  // 🔔 Большое окно-напоминание о необработанных бронях.
+  // Всплывает: (а) сразу при появлении новой брони, (б) каждые 6 часов, пока
+  // есть необработанные. Закрывается только вручную.
+  const [bookingAlertOpen, setBookingAlertOpen] = useState(false);
+  const BOOKING_ALERT_TS_KEY = 'hostella_booking_alert_closed_ts';
+  const closeBookingAlert = useCallback(() => {
+    localStorage.setItem(BOOKING_ALERT_TS_KEY, String(Date.now()));
+    setBookingAlertOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!currentUser) return;
+    const check = () => {
+      if (pendingBookingsCount === 0) { setBookingAlertOpen(false); return; }
+      const lastClosed = parseInt(localStorage.getItem(BOOKING_ALERT_TS_KEY) || '0');
+      if (Date.now() - lastClosed > 6 * 60 * 60 * 1000) setBookingAlertOpen(true);
+    };
+    const t = setTimeout(check, 7000);            // после загрузки данных
+    const iv = setInterval(check, 5 * 60 * 1000); // проверка каждые 5 минут
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [currentUser?.id, pendingBookingsCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 🔔 Уведомление при появлении новой брони с сайта
   // Храним уже замеченные ID в localStorage, чтобы не слать Telegram при Ctrl+R
   // (SEEN_BOOKINGS_KEY объявлен выше за пределами компонента)
@@ -1818,6 +1840,8 @@ const filterByHostel = (items) => {
       // Cloud Function createWebBooking (один раз на сервере при создании брони),
       // поэтому клиент НЕ шлёт — иначе дубли с каждого онлайн-устройства.
       showNotification(`🔔 Новая заявка с сайта! (всего: ${pendingBookingsCount})`, 'success');
+      // Новая бронь → большое окно сразу (не ждём 6-часовой таймер)
+      setBookingAlertOpen(true);
     }
 
     // Сохраняем актуальные ID (только pending-брони, чтобы сет не раздувался)
@@ -2905,8 +2929,17 @@ return (
             />
         )}
 
+        {/* Большое напоминание о необработанных бронях (закрыть только вручную) */}
+        {bookingAlertOpen && !checkInModal.open && (
+            <BookingAlertModal
+                bookings={websiteBookings}
+                onAccept={(b) => { closeBookingAlert(); handleAcceptBooking(b); }}
+                onClose={closeBookingAlert}
+            />
+        )}
+
         {checkInModal.open && (
-            <CheckInModal 
+            <CheckInModal
                 initialRoom={checkInModal.room}
                 preSelectedBedId={checkInModal.bedId}
                 initialDate={checkInModal.date}

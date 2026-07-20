@@ -579,7 +579,11 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
         const rate = parseInt(g.contractRate) || 0;
         const ss = scopeStats(g, ym);
         if (ym) {
-            const charged = rate * ss.pn;
+            // Доп. расходы месяца (по дате позиции; без даты — не попадают в месячный срез)
+            const extraScoped = (g.extraCharges || [])
+                .filter(c => c.date && mkey(c.date) === ym)
+                .reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
+            const charged = rate * ss.pn + extraScoped;
             return { id: g.id, name: g.name, members: g.members.length, memberNames: g.members.map(m => m.name), pn: ss.pn, rate, charged, paid: recPaid, paidCash, paidTransfer, paidCard, paidQR, debt: charged > 0 ? charged - recPaid : 0, period: ym, closed: !!g.closed, completed: !!g.completed, specs: ss.specs };
         }
         return { id: g.id, name: g.name, members: g.members.length, memberNames: g.members.map(m => m.name), pn: g.totalPersonNights, rate, charged: g.contractTotal, paid: g.amountPaid, paidCash, paidTransfer, paidCard, paidQR, debt: Math.max(0, g.debt), period: periodStr, closed: !!g.closed, completed: !!g.completed, specs: ss.specs };
@@ -1121,6 +1125,11 @@ const BrigadeReportModal = ({ group, onClose }) => {
         if (group.contractTotal > 0) {
             if (group.contractRate > 0) lines.push(`Ставка: ${fmt(group.contractRate)} сум/чс`);
             lines.push(`Чел-ночей: ${totalPersonNights} (участники ${memberPersonNights} + периоды ${Math.max(0, totalPersonNights - memberPersonNights)})`);
+            if ((group.extraTotal || 0) > 0) {
+                lines.push(`Проживание: ${fmt(group.rateTotal || 0)} сум`);
+                lines.push(`Доп. расходы: ${fmt(group.extraTotal)} сум`);
+                (group.extraCharges || []).forEach(c => lines.push(`  - ${c.name || 'Без названия'}: ${fmt(parseInt(c.amount, 10) || 0)} сум${c.date ? ` (${c.date})` : ''}`));
+            }
             lines.push(`Начислено: ${fmt(group.contractTotal)} сум`);
             lines.push(`Оплачено: ${fmt(group.amountPaid || 0)} сум`);
             if ((group.debt || 0) > 0) lines.push(`Долг: ${fmt(group.debt)} сум`);
@@ -1224,6 +1233,20 @@ const BrigadeReportModal = ({ group, onClose }) => {
                                                 <span className="text-[11px] font-normal" style={{ color: dk ? '#64748b' : '#94a3b8' }}> (участники {memberPersonNights} + периоды {Math.max(0, totalPersonNights - memberPersonNights)})</span>
                                             </span>
                                         </div>
+                                        {(group.extraTotal || 0) > 0 && (
+                                            <>
+                                                <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f8fafc'}` }}>
+                                                    <span className="text-sm" style={{ color: dk ? '#94a3b8' : '#64748b' }}>Проживание</span>
+                                                    <span className="text-sm font-bold" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmt(group.rateTotal || 0)} сум</span>
+                                                </div>
+                                                {(group.extraCharges || []).map(c => (
+                                                    <div key={c.id} className="flex justify-between items-center px-4 py-2" style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f8fafc'}` }}>
+                                                        <span className="text-[13px]" style={{ color: dk ? '#94a3b8' : '#64748b' }}>+ {c.name}{c.date ? ` · ${c.date.slice(5).split('-').reverse().join('.')}` : ''}</span>
+                                                        <span className="text-[13px] font-bold" style={{ color: '#d97706' }}>{fmt(parseInt(c.amount, 10) || 0)} сум</span>
+                                                    </div>
+                                                ))}
+                                            </>
+                                        )}
                                         <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f8fafc'}` }}>
                                             <span className="text-sm" style={{ color: dk ? '#94a3b8' : '#64748b' }}>Начислено</span>
                                             <span className="text-sm font-bold" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmt(group.contractTotal)} сум</span>
@@ -1385,6 +1408,8 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const [openWorkerGroups, setOpenWorkerGroups] = useState({});
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editEntryModal, setEditEntryModal] = useState(null); // { groupId, entryId } — попап редактирования периода
+    const [extraForm, setExtraForm] = useState(null); // { groupId, name, amount } — форма доп. расхода
+    const [transferModal, setTransferModal] = useState(null); // { group, targetId, amount, toArchive } — перенос сальдо
     const [mergeMode, setMergeMode] = useState(false);
     const [selectedGroupIds, setSelectedGroupIds] = useState(new Set());
     const [payingMergedGroups, setPayingMergedGroups] = useState(null);
@@ -1517,8 +1542,86 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const removeEntry = async (groupId, entryId) => {
         const group = contractGroups.find(g => g.id === groupId);
         if (!group) return;
+        const entry = (group.manualEntries || []).find(e => e.id === entryId);
+        if (!entry) return;
+        // Подтверждение: период влияет на начисление (чел-ночи × ставка)
+        const fmtD = (iso) => { if (!iso) return '?'; const [, m, d] = iso.split('-'); return `${parseInt(d)}.${m}`; };
+        const period = entry.checkIn && entry.checkOut
+            ? `${fmtD(entry.checkIn)} → ${fmtD(entry.checkOut)}`
+            : (entry.nights > 0 ? `${entry.nights} ночей` : 'без дат');
+        const people = (entry.workerGroups || []).reduce((s, wg) => s + (wg.specialty ? (parseInt(wg.count) || 0) : 0), 0)
+            || parseInt(entry.people, 10) || 0;
+        if (!window.confirm(`Удалить период проживания ${period}${people > 0 ? ` (${people} чел)` : ''}?\n\nНачисление по договору уменьшится.`)) return;
         const manualEntries = (group.manualEntries || []).filter(e => e.id !== entryId);
         await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+    };
+
+    // ── Доп. расходы договора: произвольные позиции (название + цена) ──
+    // Прибавляются к «Начислено» и попадают в долг/отчёты.
+    const addExtraCharge = async (groupId, name, amount) => {
+        const group = contractGroups.find(g => g.id === groupId);
+        const amt = parseInt(amount, 10) || 0;
+        if (!group || !name.trim() || amt === 0) return;
+        const charge = { id: `x-${Date.now()}`, name: name.trim(), amount: amt, date: new Date().toISOString().slice(0, 10) };
+        await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: [...(group.extraCharges || []), charge] });
+    };
+    const removeExtraCharge = async (groupId, chargeId) => {
+        const group = contractGroups.find(g => g.id === groupId);
+        if (!group) return;
+        const charge = (group.extraCharges || []).find(c => c.id === chargeId);
+        if (!charge) return;
+        const amtStr = `${Math.abs(parseInt(charge.amount, 10) || 0).toLocaleString()} сум`;
+        // Позиция переноса: удалять можно только ПАРОЙ — иначе сальдо «повисает».
+        const linkedId = charge.transferTo || charge.transferFrom;
+        if (linkedId) {
+            const partner = contractGroups.find(g => g.id === linkedId);
+            const dir = charge.transferTo ? `на «${partner?.name || '?'}»` : `с «${partner?.name || '?'}»`;
+            if (!window.confirm(`Это перенос ${dir} (${amtStr}).\n\nОтменить перенос ЦЕЛИКОМ? Парная позиция во втором договоре тоже удалится, и сальдо обоих договоров вернётся как до переноса.`)) return;
+            await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: (group.extraCharges || []).filter(c => c.id !== chargeId) });
+            if (partner) {
+                // Парную позицию ищем по pairId (новые переносы) или по связке id+сумма (старые)
+                const pair = (partner.extraCharges || []).find(c =>
+                    (charge.pairId && c.pairId === charge.pairId) ||
+                    ((c.transferFrom === groupId || c.transferTo === groupId) &&
+                     Math.abs(parseInt(c.amount, 10) || 0) === Math.abs(parseInt(charge.amount, 10) || 0)));
+                if (pair) {
+                    await updateDoc(doc(db, ...COLLECTION, partner.id),
+                        { extraCharges: (partner.extraCharges || []).filter(c => c.id !== pair.id) });
+                }
+            }
+            return;
+        }
+        // Обычный доп. расход — просим подтверждение (раньше удалялся мгновенно)
+        if (!window.confirm(`Удалить «${charge.name}» (${amtStr})?`)) return;
+        await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: (group.extraCharges || []).filter(c => c.id !== chargeId) });
+    };
+
+    // ── Перенос сальдо (долга или переплаты) на другой договор ──
+    // Реализовано парой доп. расходов (±сумма), а не платёжными записями — чтобы
+    // не искажать кассовые отчёты фиктивными деньгами. Сумма по двум договорам
+    // сохраняется, источник обнуляется и (опционально) уходит в архив.
+    const transferBalance = async (sourceDetailed, targetId, amount, toArchive) => {
+        const source = contractGroups.find(g => g.id === sourceDetailed.id);
+        const target = contractGroups.find(g => g.id === targetId);
+        const amt = parseInt(amount, 10) || 0;
+        if (!source || !target || amt <= 0 || source.id === target.id) return;
+        const isDebt = (sourceDetailed.contractTotal || 0) > (sourceDetailed.amountPaid || 0);
+        const today = new Date().toISOString().slice(0, 10);
+        const ts = Date.now();
+        // Долг: у источника снимаем начисление (−), цели добавляем (+).
+        // Переплата: источнику доначисляем (+) до оплаченного, цели — кредит (−).
+        const srcCharge = isDebt
+            ? { id: `x-${ts}`,   name: `Перенос долга на «${target.name}»`,       amount: -amt, date: today, transferTo: target.id,     pairId: ts }
+            : { id: `x-${ts}`,   name: `Перенос переплаты на «${target.name}»`,   amount:  amt, date: today, transferTo: target.id,     pairId: ts };
+        const tgtCharge = isDebt
+            ? { id: `x-${ts+1}`, name: `Долг с договора «${source.name}»`,        amount:  amt, date: today, transferFrom: source.id,   pairId: ts }
+            : { id: `x-${ts+1}`, name: `Переплата с договора «${source.name}»`,   amount: -amt, date: today, transferFrom: source.id,   pairId: ts };
+        await updateDoc(doc(db, ...COLLECTION, source.id), { extraCharges: [...(source.extraCharges || []), srcCharge] });
+        await updateDoc(doc(db, ...COLLECTION, target.id), { extraCharges: [...(target.extraCharges || []), tgtCharge] });
+        if (toArchive) {
+            await updateDoc(doc(db, ...COLLECTION, source.id),
+                { completed: true, completedAt: ts, closed: true, closedAt: ts });
+        }
     };
 
     const addWorkerGroup = async (groupId, entryId) => {
@@ -1587,7 +1690,11 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             const manualRoomNights   = entries.reduce((s, e) => s + e.roomNights, 0);
             const totalPersonNights  = autoPersonNights + manualPersonNights;
             const contractRate = parseInt(group.contractRate, 10) || 0;
-            const contractTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
+            const rateTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
+            // Доп. расходы: произвольные позиции с ценами (формула = contractFinancials.js)
+            const extraCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
+            const extraTotal = extraCharges.reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
+            const contractTotal = rateTotal + extraTotal;
             // Compute amountPaid from payment records first, fallback to group.amountPaid (legacy)
             const groupPayments = payments.filter(p => p.contractGroupId === group.id);
             const paidFromRecords = groupPayments.reduce((s, p) => {
@@ -1599,7 +1706,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             return {
                 ...group, members, manualEntries: entries,
                 autoPersonNights, manualPersonNights, manualRoomNights, totalPersonNights,
-                contractRate, contractTotal, amountPaid, debt,
+                contractRate, rateTotal, extraCharges, extraTotal, contractTotal, amountPaid, debt,
             };
         });
     }, [contractGroups, guestMap, payments]);
@@ -1687,6 +1794,72 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             {payingMergedGroups && (
                 <PaymentModal groups={payingMergedGroups} currentUser={currentUser} onClose={() => { setPayingMergedGroups(null); setMergeMode(false); setSelectedGroupIds(new Set()); }} />
             )}
+            {transferModal && (() => {
+                const src = transferModal.group;
+                const balance = (src.amountPaid || 0) - (src.contractTotal || 0);
+                const isDebt = balance < 0;
+                const maxAmt = Math.abs(balance);
+                const amt = parseInt(transferModal.amount, 10) || 0;
+                // Цели: активные договоры того же экрана, кроме источника
+                const targets = hostelGroups.filter(g => g.id !== src.id && !g.closed && !g.completed);
+                const canSubmit = transferModal.targetId && amt > 0 && amt <= maxAmt;
+                return (
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setTransferModal(null)}>
+                        <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-lg" style={{ background: 'rgba(251,191,36,0.15)' }}>⇄</div>
+                                <div className="min-w-0">
+                                    <h3 className="font-bold text-slate-800">Перелить {isDebt ? 'долг' : 'переплату'}</h3>
+                                    <p className="text-sm text-slate-500 truncate">с «{src.name}»</p>
+                                </div>
+                            </div>
+                            <div className={`rounded-xl px-4 py-3 mb-4 flex items-center justify-between ${isDebt ? 'bg-rose-50 border border-rose-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+                                <span className={`text-sm font-semibold ${isDebt ? 'text-rose-600' : 'text-emerald-600'}`}>{isDebt ? 'Долг по договору' : 'Переплата по договору'}</span>
+                                <span className={`text-sm font-black ${isDebt ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(maxAmt)} сум</span>
+                            </div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Куда перелить</label>
+                            <select value={transferModal.targetId}
+                                onChange={e => setTransferModal(m => ({ ...m, targetId: e.target.value }))}
+                                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white mb-3">
+                                <option value="">— выберите договор —</option>
+                                {targets.map(g => (
+                                    <option key={g.id} value={g.id}>
+                                        {g.name}{(g.debt || 0) > 0 ? ` (долг ${fmt(g.debt)})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Сумма</label>
+                            <input value={transferModal.amount} inputMode="numeric"
+                                onChange={e => setTransferModal(m => ({ ...m, amount: e.target.value.replace(/\D/g, '') }))}
+                                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 mb-1 font-mono" />
+                            {amt > maxAmt && <p className="text-xs text-rose-500 font-semibold mb-2">Максимум {fmt(maxAmt)} сум</p>}
+                            <label className="flex items-center gap-2 mt-3 mb-5 cursor-pointer select-none">
+                                <input type="checkbox" checked={transferModal.toArchive}
+                                    onChange={e => setTransferModal(m => ({ ...m, toArchive: e.target.checked }))}
+                                    className="w-4 h-4 accent-amber-500" />
+                                <span className="text-sm text-slate-600 font-medium">После переноса — завершить договор и убрать в архив</span>
+                            </label>
+                            {transferModal.toArchive && amt < maxAmt && (
+                                <p className="text-xs text-amber-600 font-semibold mb-3">⚠️ Переносится не вся сумма — в архив уйдёт договор с остатком {fmt(maxAmt - amt)} сум</p>
+                            )}
+                            <div className="flex gap-3">
+                                <button onClick={() => setTransferModal(null)}
+                                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                                    Отмена
+                                </button>
+                                <button disabled={!canSubmit}
+                                    onClick={async () => {
+                                        await transferBalance(src, transferModal.targetId, amt, transferModal.toArchive);
+                                        setTransferModal(null);
+                                    }}
+                                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-colors disabled:opacity-40">
+                                    Перелить{transferModal.toArchive ? ' и в архив' : ''}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
             {reportGroup && (
                 <BrigadeReportModal group={reportGroup} onClose={() => setReportGroup(null)} />
             )}
@@ -1894,7 +2067,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                     )}
                                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                         <span className="text-[11px]" style={{ color: 'rgba(94,234,212,0.5)' }}><b style={{ color: 'rgba(94,234,212,0.75)' }}>{group.members.length}</b> уч · <b style={{ color: '#5eead4' }}>{group.totalPersonNights.toLocaleString()}</b> чс</span>
-                                        {group.contractRate > 0 && <span className="text-[11px]" style={{ color: 'rgba(94,234,212,0.5)' }}><b style={{ color: 'rgba(94,234,212,0.75)' }}>{fmt(group.contractRate)}</b>/чс · <b style={{ color: '#e2f7f8' }}>{fmt(group.contractTotal)}</b>{group.amountPaid > 0 && <> · <b style={{ color: '#4ade80' }}>{fmt(group.amountPaid)}</b></>}</span>}
+                                        {group.contractTotal > 0 && <span className="text-[11px]" style={{ color: 'rgba(94,234,212,0.5)' }}>{group.contractRate > 0 && <><b style={{ color: 'rgba(94,234,212,0.75)' }}>{fmt(group.contractRate)}</b>/чс · </>}{group.extraTotal > 0 && <><b style={{ color: '#fbbf24' }}>+{fmt(group.extraTotal)}</b> доп · </>}<b style={{ color: '#e2f7f8' }}>{fmt(group.contractTotal)}</b>{group.amountPaid > 0 && <> · <b style={{ color: '#4ade80' }}>{fmt(group.amountPaid)}</b></>}</span>}
                                         {isAdmin && (
                                             <select value={group.hostelId || ''} onChange={e => updateGroup(group.id, { hostelId: e.target.value })}
                                                 className="text-[10px] rounded px-1 py-0.5 focus:outline-none"
@@ -1918,8 +2091,16 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                             {group.completed && !group.closed && (
                                                 <button onClick={() => toggleGroupClosed(group.id, true)} title="Убрать договор в архив" className="px-2 py-1.5 rounded-lg text-[10px] font-bold text-white flex items-center justify-center gap-1" style={{ background: '#6366f1' }}><Archive size={11} /> В архив</button>
                                             )}
+                                            {group.completed && !group.closed && (
+                                                <button onClick={() => updateGroup(group.id, { completed: false, completedAt: null })}
+                                                    title="Вернуть договор в работу — снова можно добавлять периоды, расходы и оплату"
+                                                    className="px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1"
+                                                    style={{ background: 'rgba(94,234,212,0.1)', color: '#5eead4' }}>
+                                                    <ArchiveRestore size={11} /> Возобновить
+                                                </button>
+                                            )}
                                             {group.closed && (
-                                                <button onClick={() => toggleGroupClosed(group.id, false)} title="Вернуть из архива" className="px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1" style={{ background: 'rgba(94,234,212,0.1)', color: '#5eead4' }}><ArchiveRestore size={11} /> Вернуть</button>
+                                                <button onClick={() => toggleGroupClosed(group.id, false)} title="Вернуть из архива (договор останется завершённым — дальше можно «Возобновить»)" className="px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1" style={{ background: 'rgba(94,234,212,0.1)', color: '#5eead4' }}><ArchiveRestore size={11} /> Вернуть</button>
                                             )}
                                             <button onClick={() => deleteGroup(group.id)} className="p-1.5 rounded transition-colors self-center" style={{ color: 'rgba(94,234,212,0.35)' }}
                                                 onMouseEnter={e => e.currentTarget.style.color='#f87171'} onMouseLeave={e => e.currentTarget.style.color='rgba(94,234,212,0.35)'}><Trash2 size={10} /></button>
@@ -1931,6 +2112,18 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                                 className="w-20 px-2 py-1.5 text-[10px] text-right rounded-lg focus:outline-none font-mono"
                                                 style={{ background: 'rgba(94,234,212,0.07)', border: '1px solid rgba(94,234,212,0.2)', color: '#5eead4' }} />
                                             <button onClick={() => setPayingGroup(group)} className="px-2 py-1.5 rounded-lg text-[10px] font-bold text-white" style={{ background: '#0f9688' }}>Оплатить</button>
+                                            {(() => {
+                                                const balance = (group.amountPaid || 0) - (group.contractTotal || 0);
+                                                if (balance === 0) return null;
+                                                return (
+                                                    <button onClick={() => setTransferModal({ group, targetId: '', amount: String(Math.abs(balance)), toArchive: true })}
+                                                        title={balance < 0 ? `Перелить долг ${fmt(-balance)} на другой договор` : `Перелить переплату ${fmt(balance)} на другой договор`}
+                                                        className="px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1"
+                                                        style={{ background: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>
+                                                        ⇄ Перелить
+                                                    </button>
+                                                );
+                                            })()}
                                             <div className="flex items-center justify-between gap-1">
                                                 <button onClick={() => setEditingGroup({ id: group.id, name: group.name })} className="p-1.5 rounded transition-colors" style={{ color: 'rgba(94,234,212,0.35)' }}
                                                     onMouseEnter={e => e.currentTarget.style.color='#5eead4'} onMouseLeave={e => e.currentTarget.style.color='rgba(94,234,212,0.35)'}><Edit2 size={10} /></button>
@@ -2164,6 +2357,73 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                         </button>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* ─ Доп. расходы (произвольные позиции: стирка, транспорт, питание…) ─ */}
+                            <div style={{ borderTop: '1px solid rgba(94,234,212,0.1)' }}>
+                                <div className="flex items-center justify-between px-3 py-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-medium" style={{ color: 'rgba(94,234,212,0.5)' }}>Доп. расходы</span>
+                                        {(group.extraCharges || []).length > 0 && (
+                                            <span className="text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(94,234,212,0.12)', color: '#5eead4' }}>{group.extraCharges.length}</span>
+                                        )}
+                                        {group.extraTotal > 0 && <span className="text-[9px] font-bold" style={{ color: '#fbbf24' }}>+{fmt(group.extraTotal)}</span>}
+                                    </div>
+                                </div>
+                                {(group.extraCharges || []).length > 0 && (
+                                    <div className="pb-1">
+                                        {group.extraCharges.map(charge => (
+                                            <div key={charge.id} className="flex items-center gap-2 px-3 py-1.5 border-b last:border-0 transition-colors"
+                                                style={{ borderColor: 'rgba(94,234,212,0.08)' }}
+                                                onMouseEnter={e => e.currentTarget.style.background='rgba(94,234,212,0.04)'}
+                                                onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                                                <span className="flex-1 min-w-0 text-[12px] truncate" style={{ color: '#e2f7f8' }}>{(charge.transferTo || charge.transferFrom) && <span style={{ color: '#fbbf24' }}>⇄ </span>}{charge.name}</span>
+                                                {charge.date && <span className="text-[9px] shrink-0" style={{ color: 'rgba(94,234,212,0.4)' }}>{charge.date.slice(5).split('-').reverse().join('.')}</span>}
+                                                <span className="text-[11px] font-bold shrink-0" style={{ color: '#fbbf24' }}>{fmt(parseInt(charge.amount, 10) || 0)}</span>
+                                                {!group.closed && !group.completed && (
+                                                    <button onClick={() => removeExtraCharge(group.id, charge.id)} className="p-0.5 rounded transition-colors shrink-0"
+                                                        style={{ color: 'rgba(94,234,212,0.3)' }}
+                                                        onMouseEnter={e => e.currentTarget.style.color='#f87171'} onMouseLeave={e => e.currentTarget.style.color='rgba(94,234,212,0.3)'}>
+                                                        <X size={9} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {!group.closed && !group.completed && (
+                                    <div className="px-3 pb-2">
+                                        {extraForm?.groupId === group.id ? (
+                                            <div className="flex items-center gap-1.5">
+                                                <input autoFocus value={extraForm.name}
+                                                    onChange={e => setExtraForm(f => ({ ...f, name: e.target.value }))}
+                                                    onKeyDown={e => { if (e.key === 'Enter') { addExtraCharge(group.id, extraForm.name, extraForm.amount); setExtraForm(null); } if (e.key === 'Escape') setExtraForm(null); }}
+                                                    placeholder="Название (стирка, транспорт…)"
+                                                    className="flex-1 min-w-0 px-2 py-1.5 text-[11px] rounded-lg focus:outline-none"
+                                                    style={{ border: '1px solid rgba(94,234,212,0.25)', background: 'rgba(94,234,212,0.07)', color: '#e2f7f8' }} />
+                                                <input value={extraForm.amount}
+                                                    onChange={e => setExtraForm(f => ({ ...f, amount: e.target.value.replace(/[^\d-]/g, '') }))}
+                                                    onKeyDown={e => { if (e.key === 'Enter') { addExtraCharge(group.id, extraForm.name, extraForm.amount); setExtraForm(null); } if (e.key === 'Escape') setExtraForm(null); }}
+                                                    placeholder="Сумма" inputMode="numeric"
+                                                    className="w-24 px-2 py-1.5 text-[11px] rounded-lg focus:outline-none text-right font-mono"
+                                                    style={{ border: '1px solid rgba(94,234,212,0.25)', background: 'rgba(94,234,212,0.07)', color: '#fbbf24' }} />
+                                                <button onClick={() => { addExtraCharge(group.id, extraForm.name, extraForm.amount); setExtraForm(null); }}
+                                                    disabled={!extraForm.name.trim() || !(parseInt(extraForm.amount, 10))}
+                                                    className="shrink-0 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-white disabled:opacity-40"
+                                                    style={{ background: '#0f9688' }}>OK</button>
+                                                <button onClick={() => setExtraForm(null)} className="shrink-0 p-1 rounded" style={{ color: 'rgba(94,234,212,0.4)' }}><X size={10} /></button>
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => setExtraForm({ groupId: group.id, name: '', amount: '' })}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-[10px] font-medium transition-colors"
+                                                style={{ borderColor: 'rgba(251,191,36,0.35)', color: '#d97706' }}
+                                                onMouseEnter={e => { e.currentTarget.style.background='rgba(251,191,36,0.07)'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.background=''; }}>
+                                                <Plus size={8} /> Добавить расход
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     );

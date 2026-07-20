@@ -3,7 +3,8 @@
  * ВАЖНО: формула должна совпадать с detailedGroups в ManualStayView,
  * иначе карточка договора и попап аренды покажут разные цифры.
  *
- * Начислено = ставка × человеко-ночи (авто-участники + ручные периоды).
+ * Начислено = ставка × человеко-ночи (авто-участники + ручные периоды)
+ *             + доп. расходы (extraCharges: произвольные позиции с ценой).
  * Оплачено  = сумма платежей по contractGroupId (фолбэк — group.amountPaid).
  * Долг      = начислено − оплачено (только если начислено > 0).
  */
@@ -47,7 +48,11 @@ export const computeContractFinancials = (group, guests = [], payments = []) => 
   const totalPersonNights = autoPersonNights + manualPersonNights;
 
   const contractRate = parseInt(group.contractRate, 10) || 0;
-  const contractTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
+  const rateTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
+  // Доп. расходы: произвольные позиции (стирка, транспорт, питание…) с ценами
+  const extraCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
+  const extraTotal = extraCharges.reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
+  const contractTotal = rateTotal + extraTotal;
 
   const groupPayments = payments.filter(p => p.contractGroupId === group.id);
   const paidFromRecords = groupPayments.reduce((s, p) => {
@@ -64,7 +69,7 @@ export const computeContractFinancials = (group, guests = [], payments = []) => 
 
   return {
     autoPersonNights, manualPersonNights, totalPersonNights,
-    contractRate, contractTotal,
+    contractRate, rateTotal, extraTotal, extraCharges, contractTotal,
     amountPaid, paidCash, paidTransfer, paidCard, paidQR,
     debt,
     memberCount: memberKeys.length,
