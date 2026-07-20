@@ -33,13 +33,25 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
             {/* Header stripe */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-[#1a3c40]/5 to-[#e88c40]/5 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#e88c40] uppercase tracking-wide bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
-                        <Globe size={10} />
-                        {t('fromWebsite')}
-                    </span>
+                    {/* Откуда бронь: сайт или Telegram-бот */}
+                    {booking.channel === 'telegram' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#229ED9] uppercase tracking-wide bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
+                            ✈️ Telegram
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#e88c40] uppercase tracking-wide bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                            <Globe size={10} />
+                            {t('fromWebsite')}
+                        </span>
+                    )}
                     <span className="text-[11px] font-bold text-slate-400">
                         {HOSTELS[booking.hostelId] || booking.hostelId}
                     </span>
+                    {booking.bookingCode && (
+                        <span className="text-[10px] font-black text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md font-mono">
+                            {booking.bookingCode}
+                        </span>
+                    )}
                 </div>
                 <span className="text-[11px] text-slate-400 font-medium">
                     {booking.createdAt
@@ -81,6 +93,20 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                     <div className="col-span-2 flex items-center gap-2">
                         <Globe size={13} className="text-slate-400 flex-shrink-0" />
                         <span className="text-sm font-medium text-slate-600">{booking.country}</span>
+                    </div>
+                )}
+                {booking.totalPrice > 0 && (
+                    <div className="col-span-2 flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Сумма</span>
+                        <span className="text-sm font-black text-slate-700">{Number(booking.totalPrice).toLocaleString()} сум</span>
+                        {booking.channel === 'telegram' && (
+                            <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md" title="Цена согласована в переписке с ботом">договорная</span>
+                        )}
+                    </div>
+                )}
+                {booking.comment && (
+                    <div className="col-span-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
+                        💬 {booking.comment}
                     </div>
                 )}
             </div>

@@ -468,6 +468,7 @@ function App() {
   const [emehmonList, setEmehmonList] = useState([]); // последний снимок /listok (для «нет в системе»)
   const [emehmonDepartingIds, setEmehmonDepartingIds] = useState(() => new Set()); // id гостей в процессе вывода (лоадер)
   const emehmonSyncBusy = useRef(false);
+  const emehmonNoRoomTried = useRef(new Set()); // id гостей, у кого авто-регистрация упёрлась в «нет комнаты» — не долбим каждый цикл
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenseModalCategory, setExpenseModalCategory] = useState('');
@@ -1110,6 +1111,24 @@ function App() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Тихий авто-вывод из e-mehmon (для переезда/сплита): выселяем в фоне и сразу
+  // помечаем «выведен», чтобы не висело напоминание «вывести из e-mehmon пока не
+  // обновлю». Если фон не смог (нужен вход) — оставляем как есть, плашка покажет
+  // это как обычный «хвост» для ручного вывода.
+  const handleEmehmonAutoDepart = useCallback(async (guest) => {
+    if (!guest || !guest.emehmonReg || !guest.id) return;
+    if (!window.electronAPI?.emehmonDeparture) return; // веб — тихо пропускаем
+    try {
+      const res = await departEmehmonBackground(guest, { hostelId: guest.hostelId });
+      if (res?.status === 'done' || res?.status === 'submitted') {
+        handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString(), emehmonOutAuto: true });
+        showNotification(`${guest.fullName} — выведен из e-mehmon (авто) ✓`, 'success');
+        setTimeout(() => { if (emehmonSyncRef.current) emehmonSyncRef.current(false); }, 1500);
+      }
+      // прочие статусы (need_login и т.п.) — не трогаем, останется в плашке «Вывести»
+    } catch (_) { /* пропускаем */ }
+  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Итог фонового выселения: помечаем «выведен», чистим лоадеры, обновляем список.
   const handleDepartOutcome = useCallback((res, list) => {
     const ids = (list || []).filter(g => g && g.id).map(g => g.id);
@@ -1210,6 +1229,17 @@ function App() {
         // Долговые записи (roomId==='DEBT_ONLY') — не гости в комнате, из логики исключаем.
         const isReal = (g) => g.roomId !== 'DEBT_ONLY';
         const now = new Date().toISOString();
+        // Чистим устаревшую пометку «Комната не совпала с e-mehmon» — она больше не
+        // выставляется (чаще всего это был ложный след от переезда со старой отметкой).
+        const toClearRoomErr = (guests || []).filter(g =>
+          g.status === 'active' && typeof g.emehmonRegError === 'string' &&
+          g.emehmonRegError.startsWith('Комната не совпала'));
+        for (const g of toClearRoomErr) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+              { emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField() });
+          } catch (_) { /* пропускаем */ }
+        }
         const toMark = (guests || []).filter(g =>
           g.status === 'active' && isReal(g) && !g.emehmonReg &&
           (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
@@ -1292,7 +1322,8 @@ function App() {
             !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
             g.hostelId === hostelId && paidOf(g) > 0 &&
             !(pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))) &&
-            !inCad(g) && !emehmonAutoBusy.current.has(g.id)
+            !inCad(g) && !emehmonAutoBusy.current.has(g.id) &&
+            !emehmonNoRoomTried.current.has(g.id)
           ).slice(0, 3);
           for (const g of candidates) {
             emehmonAutoBusy.current.add(g.id);
@@ -1308,8 +1339,10 @@ function App() {
                   { emehmonRegError: 'Ошибка в паспортных данных — нужно исправить', emehmonRegErrorAt: new Date().toISOString() });
                 showNotification(`⚠️ ${g.fullName}: не найден в госбазе — проверьте паспорт и дату рождения`, 'warning');
               } else if (st === 'no_room') {
-                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                  { emehmonRegError: 'Комната не совпала с e-mehmon — проверьте номер', emehmonRegErrorAt: new Date().toISOString() });
+                // Комнату не удалось сопоставить в e-mehmon. Ошибку гостю НЕ вешаем
+                // (просьба убрать её) — просто не повторяем в этой сессии, гость
+                // остаётся в «Оформить» для ручной регистрации.
+                emehmonNoRoomTried.current.add(g.id);
               } else if (st === 'need_login') {
                 break; // без входа продолжать нет смысла — попробуем в следующем цикле
               }
@@ -1474,6 +1507,7 @@ function App() {
     setEmehmonArrivalPrompt,
     onEmehmonDepart: handleEmehmonDepart,
     onEmehmonAutoArrival: handleEmehmonAutoArrival,
+    onEmehmonAutoDepart: handleEmehmonAutoDepart,
   });
 
   const {
@@ -2877,6 +2911,7 @@ return (
                 preSelectedBedId={checkInModal.bedId}
                 initialDate={checkInModal.date}
                 initialClient={checkInModal.client}
+                isFromBooking={!!checkInModal.bookingId}
                 allRooms={filteredRooms}
                 guests={guests}
                 clients={guests}

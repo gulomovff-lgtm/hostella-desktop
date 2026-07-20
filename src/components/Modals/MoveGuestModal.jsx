@@ -27,7 +27,12 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
 
     const handleMove = () => {
         if (!targetRoomId || !targetBedId) return notify("Выберите место", 'error');
-        
+        // Защита: перемещение в то же самое место — бессмысленно и раньше ошибочно
+        // запускало сплит (выселение + новая запись). Просто блокируем.
+        if (String(targetRoomId) === String(guest.roomId) && String(targetBedId) === String(guest.bedId)) {
+            return notify('Гость уже на этом месте — выберите другое', 'error');
+        }
+
         const conflicts = guests.filter(g => {
             if (String(g.roomId) !== String(targetRoomId)) return false;
             if (String(g.bedId) !== String(targetBedId)) return false;

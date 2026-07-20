@@ -177,7 +177,7 @@ const cyrToLat = (str) => str.toUpperCase().split('').map(ch => {
 }).join('');
 
 // --- Main Component ---
-const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
+const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, isFromBooking = false, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
     const t = (k) => TRANSLATIONS[lang][k];
 
     const safeInitialRoom = initialRoom || (allRooms.length > 0 ? allRooms[0] : null);
@@ -381,10 +381,22 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         // Гость со статусом active, заехавший сегодня (даже если расчётный час 14:00 ещё
         // не настал при раннем заезде), уже занимает кровать.
         const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
-        const occupiedIds = guests
-            .filter(g => g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday)
+        const debtOf = (g) => Math.max(0, (parseInt(g.totalPrice) || 0) -
+            (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0))));
+        const arrived = guests.filter(g =>
+            g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday);
+        // Текущие жильцы (срок не вышел) — койка занята
+        const occupants = {};
+        arrived
             .filter(g => { const out = new Date(g.checkOutDate); return !g.checkOutDate || now < out; })
-            .map(g => String(g.bedId));
+            .forEach(g => { occupants[String(g.bedId)] = g; });
+        // «Просроченные»: срок вышел, но гость НЕ выселен (возможно ещё в койке / не оплатил).
+        // Койка формально свободна, но кассир должен это ВИДЕТЬ перед подтверждением брони.
+        const expired = {};
+        arrived
+            .filter(g => g.checkOutDate && now >= new Date(g.checkOutDate) && !occupants[String(g.bedId)])
+            .forEach(g => { expired[String(g.bedId)] = g; });
+        const shortName = (g) => (g?.fullName || '').split(' ')[0] || '';
         return Array.from({ length: room.capacity || 0 }, (_, i) => {
             const id = String(i + 1);
             const nextConflict = guests
@@ -398,9 +410,17 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             const maxFreeDays = nextConflict
                 ? Math.max(0, Math.floor((new Date(nextConflict.checkInDate) - checkIn) / (1000 * 60 * 60 * 24)))
                 : null;
+            const occ = occupants[id] || null;
+            const exp = expired[id] || null;
             return {
                 id,
-                isOccupied: occupiedIds.includes(id),
+                isOccupied: !!occ,
+                occupantName: shortName(occ),
+                occupantDebt: occ ? debtOf(occ) : 0,
+                // Просроченный «жилец»: койка выбирается, но с предупреждением
+                expiredName: shortName(exp),
+                expiredDebt: exp ? debtOf(exp) : 0,
+                expiredSince: exp?.checkOutDate || null,
                 maxFreeDays,
                 nextGuestName: nextConflict?.fullName || null,
                 nextGuestDate: nextConflict?.checkInDate || null,
@@ -603,6 +623,19 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             notify(t('fillAllFields'), 'error');
             return;
         }
+        // Бронь с сайта/бота приходит без паспорта. При ФАКТИЧЕСКОМ заселении (гость
+        // пришёл) паспортные данные обязательны — просим дополнить.
+        if (status === 'active' && isFromBooking) {
+            const pass = (formData.passport || '').replace(/\s/g, '');
+            if (pass.length < 5 || !formData.birthDate) {
+                setStep(2);
+                setErrors(e => ({ ...e,
+                    passport: pass.length < 5 ? 'Дополните паспорт гостя' : '',
+                    birthDate: !formData.birthDate ? 'Укажите дату рождения' : '' }));
+                notify('Гость пришёл по брони — дополните паспортные данные (паспорт и дату рождения)', 'error');
+                return;
+            }
+        }
         // Правила тарифов (финальный контроль)
         if (formData.tariff === 'package') {
             if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) {
@@ -748,7 +781,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     const _hasTiers = _cfg == null && _pUp && _pUp !== _pLow && _cap > 1;
                                     const lowerBeds = availableBeds.filter(b => parseInt(b.id) <= _mid);
                                     const upperBeds = availableBeds.filter(b => parseInt(b.id) >  _mid);
-                                    const BedBtn = ({ bed }) => (
+                                    const BedBtn = ({ bed }) => {
+                                        const hasExpired = !bed.isOccupied && !!bed.expiredName;
+                                        const title =
+                                            bed.isOccupied ? `Занято: ${bed.occupantName}${bed.occupantDebt > 0 ? ` · долг ${bed.occupantDebt.toLocaleString()} сум` : ''}` :
+                                            hasExpired ? `⏰ Срок вышел: ${bed.expiredName} (выезд был ${new Date(bed.expiredSince).toLocaleDateString('ru')})${bed.expiredDebt > 0 ? ` · НЕ ОПЛАТИЛ ${bed.expiredDebt.toLocaleString()} сум` : ''} — сначала выселите/проверьте` :
+                                            bed.maxFreeDays != null ? `Свободно ${bed.maxFreeDays} дн. — потом ${bed.nextGuestName}` :
+                                            `Место ${bed.id}`;
+                                        return (
                                         <button
                                             onClick={() => {
                                                 if (!bed.isOccupied) {
@@ -757,27 +797,36 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 }
                                             }}
                                             disabled={bed.isOccupied}
-                                            title={
-                                                bed.isOccupied ? 'Занято' :
-                                                bed.maxFreeDays != null ? `Свободно ${bed.maxFreeDays} дн. — потом ${bed.nextGuestName}` :
-                                                `Место ${bed.id}`
-                                            }
-                                            className={`w-14 h-14 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all border-2
+                                            title={title}
+                                            className={`w-14 h-14 rounded-xl font-bold text-[10px] flex flex-col items-center justify-center gap-0 transition-all border-2 relative
                                                 ${formData.bedId === bed.id
                                                     ? 'bg-teal-600 text-white border-teal-600 shadow-md scale-105'
                                                     : bed.isOccupied
-                                                        ? 'bg-slate-100 text-slate-300 cursor-not-allowed border-slate-200'
-                                                        : bed.maxFreeDays != null
-                                                            ? 'bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-500 hover:bg-amber-100'
-                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-600'
+                                                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                                                        : hasExpired
+                                                            ? 'bg-rose-50 text-rose-700 border-rose-300 hover:border-rose-500 hover:bg-rose-100'
+                                                            : bed.maxFreeDays != null
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-500 hover:bg-amber-100'
+                                                                : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-600'
                                                 }`}>
-                                            <BedDouble size={15}/>
-                                            <span>{bed.id}</span>
-                                            {bed.maxFreeDays != null && !bed.isOccupied && (
+                                            {/* Индикатор долга у текущего/просроченного жильца */}
+                                            {((bed.isOccupied && bed.occupantDebt > 0) || (hasExpired && bed.expiredDebt > 0)) && (
+                                                <span className="absolute -top-1.5 -right-1.5 text-[10px] leading-none" title="Есть долг">💰</span>
+                                            )}
+                                            <BedDouble size={13}/>
+                                            <span className="text-xs font-bold leading-tight">{bed.id}</span>
+                                            {bed.isOccupied && (
+                                                <span className="text-[7px] font-black leading-none truncate max-w-[52px] px-0.5">{bed.occupantName}</span>
+                                            )}
+                                            {hasExpired && (
+                                                <span className="text-[7px] font-black leading-none truncate max-w-[52px] px-0.5">⏰{bed.expiredName}</span>
+                                            )}
+                                            {bed.maxFreeDays != null && !bed.isOccupied && !hasExpired && (
                                                 <span className="text-[8px] font-black leading-none">{bed.maxFreeDays}дн</span>
                                             )}
                                         </button>
-                                    );
+                                        );
+                                    };
                                     return (
                                         <div className="space-y-3 mt-1">
                                             {upperBeds.length > 0 && (
@@ -842,6 +891,24 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     );
                                 })()}
                             </div>
+                            {/* Просроченный жилец на выбранной койке — крупное предупреждение */}
+                            {(() => {
+                                const sel = availableBeds.find(b => b.id === formData.bedId);
+                                if (!sel || sel.isOccupied || !sel.expiredName) return null;
+                                return (
+                                    <div className="mt-3 p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2">
+                                        <span className="text-rose-500 text-lg shrink-0">⏰</span>
+                                        <div>
+                                            <div className="font-black text-rose-700 text-sm">На этом месте — гость с истёкшим сроком</div>
+                                            <div className="text-xs text-rose-600 mt-0.5">
+                                                <b>{sel.expiredName}</b> — выезд был {new Date(sel.expiredSince).toLocaleDateString('ru')}, но он ещё не выселен
+                                                {sel.expiredDebt > 0 && <> и <b>не оплатил {sel.expiredDebt.toLocaleString()} сум</b></>}.
+                                                Сначала разберитесь с ним (выселите/продлите), иначе будет два гостя на одной койке.
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             {/* Conflict warning after bed selection */}
                             {bedConflict && (
                                 <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-2">
@@ -861,6 +928,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     {/* Step 2: Guest data */}
                     {step === 2 && (
                         <div className="space-y-5 animate-in slide-in-from-right duration-200">
+                            {/* Заселение из брони: паспорт нужно дополнить */}
+                            {isFromBooking && (formData.passport || '').replace(/\s/g, '').length < 5 && (
+                                <div className="rounded-xl p-3 flex items-start gap-2 text-sm font-semibold bg-indigo-50 border border-indigo-200 text-indigo-700">
+                                    <span className="text-lg leading-none shrink-0">🌐</span>
+                                    <div>Бронь с сайта — паспортных данных ещё нет. Для заселения <b>дополните паспорт и дату рождения</b> (телефон уже сохранён).</div>
+                                </div>
+                            )}
                             {/* Blacklist / Warning banner */}
                             {blacklistWarning && (
                                 <div className={`rounded-xl p-3 flex items-start gap-2 text-sm font-semibold ${blacklistWarning.level === 'blacklist' ? 'bg-rose-50 border border-rose-300 text-rose-700' : 'bg-amber-50 border border-amber-300 text-amber-700'}`}>

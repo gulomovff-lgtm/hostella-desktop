@@ -27,8 +27,13 @@ const PAY_METHODS = [
     { key: 'paidTransfer', label: 'Перечисл.', icon: ArrowRightLeft, cls: 'text-sky-600', bg: 'bg-sky-50' },
 ];
 
-const Section = ({ icon: Icon, title, children, right }) => (
-    <div className="rounded-xl border border-slate-200 overflow-hidden">
+// Детерминированный цвет аватара по имени (единый визуальный язык беты)
+const AV = ['#e88c40', '#14b8a6', '#6366f1', '#f43f5e', '#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981'];
+const avatarColor = (s) => AV[[...(s || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
+const initials = (s) => (s || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+
+const Section = ({ icon: Icon, title, children, right, i = 0 }) => (
+    <div className="beta-rise rounded-xl border border-slate-200 overflow-hidden" style={{ animationDelay: `${Math.min(i * 55, 300)}ms` }}>
         <div className="flex items-center gap-2 px-3.5 py-2 border-b border-slate-100 bg-slate-50/60">
             <Icon size={13} className="text-slate-400" />
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">{title}</span>
@@ -240,17 +245,19 @@ const CheckInBetaModal = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[170] flex items-center justify-center px-4"
+        <div className="fixed inset-0 z-[170] flex items-center justify-center px-4 beta-fade"
             style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
             onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
             <div role="dialog" aria-modal="true" aria-label="Заселение"
-                className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[94vh] flex flex-col">
+                className="beta-pop w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[94vh] flex flex-col">
 
                 <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
-                    <span className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center"><BedDouble size={17} /></span>
+                    {f.fullName.trim()
+                        ? <span className="w-9 h-9 rounded-xl flex items-center justify-center text-[13px] font-black text-white flex-shrink-0" style={{ background: avatarColor(f.fullName) }}>{initials(f.fullName)}</span>
+                        : <span className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center flex-shrink-0"><BedDouble size={17} /></span>}
                     <div className="min-w-0 flex-1">
-                        <div className="text-sm font-black text-slate-800">Заселение</div>
-                        <div className="text-[11px] text-slate-400">
+                        <div className="text-sm font-black text-slate-800 truncate">{f.fullName.trim() || 'Заселение'}</div>
+                        <div className="text-[11px] text-slate-400 truncate">
                             {room ? `Комната ${room.number}${f.bedId === 'extra' ? ' · доп. место' : f.bedId ? ` · место ${f.bedId}` : ''}` : 'выберите место'}
                         </div>
                     </div>
@@ -267,7 +274,7 @@ const CheckInBetaModal = ({
                 <div className="overflow-y-auto px-5 py-4 flex flex-col gap-3.5">
 
                     {/* Место */}
-                    <Section icon={BedDouble} title="Место">
+                    <Section icon={BedDouble} title="Место" i={0}>
                         <div className="flex gap-2 mb-2.5">
                             <select value={f.roomId} onChange={e => set({ roomId: e.target.value, bedId: '' })}
                                 className="flex-1 rounded-lg border border-slate-200 focus:border-orange-300 px-3 py-2 text-[13px] text-slate-700 outline-none bg-white">
@@ -304,7 +311,7 @@ const CheckInBetaModal = ({
                     </Section>
 
                     {/* Гость */}
-                    <Section icon={User} title="Гость">
+                    <Section icon={User} title="Гость" i={1}>
                         <div className="relative">
                             <Inp placeholder="ФИО — начните вводить, база подскажет" value={f.fullName}
                                 onChange={e => { set({ fullName: e.target.value }); setShowSuggest(true); }}
@@ -365,7 +372,7 @@ const CheckInBetaModal = ({
                     </Section>
 
                     {/* Даты и цена */}
-                    <Section icon={CalendarDays} title="Даты и цена"
+                    <Section icon={CalendarDays} title="Даты и цена" i={2}
                         right={<span className="text-[10px] text-slate-400 normal-case font-semibold">выезд {checkOutPreview}</span>}>
                         <div className="flex flex-wrap items-center gap-2">
                             <Inp type="date" className="!w-auto" value={f.checkInDate} onChange={e => set({ checkInDate: e.target.value })} />
@@ -413,7 +420,7 @@ const CheckInBetaModal = ({
                     </Section>
 
                     {/* Оплата */}
-                    <Section icon={Wallet} title="Оплата сейчас"
+                    <Section icon={Wallet} title="Оплата сейчас" i={3}
                         right={<span className="text-[11px] font-black text-slate-700 tabular-nums normal-case">итого {fmtMoney(totalPrice)}</span>}>
                         <div className="grid grid-cols-2 gap-2">
                             {PAY_METHODS.map(({ key, label, icon: Icon, cls, bg }) => (
@@ -447,6 +454,12 @@ const CheckInBetaModal = ({
                                 {debt > 0 ? `в долг ${fmtMoney(debt)}` : totalPaid > 0 ? 'оплачено полностью ✓' : ''}
                             </span>
                         </div>
+                        {totalPrice > 0 && (
+                            <div className="mt-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <div className={`h-full rounded-full transition-all duration-300 ${debt > 0 ? 'bg-rose-400' : 'bg-emerald-400'}`}
+                                    style={{ width: `${Math.min(100, Math.round((totalPaid / totalPrice) * 100))}%` }} />
+                            </div>
+                        )}
                     </Section>
                 </div>
 

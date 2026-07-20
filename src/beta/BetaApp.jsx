@@ -57,6 +57,20 @@ const BetaStyles = () => (
         /* Появление экрана при переключении раздела */
         @keyframes beta-screen-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
         .beta-screen{animation:beta-screen-in .22s cubic-bezier(.2,.8,.3,1) both}
+        /* Появление модалки: мягкий «pop» */
+        @keyframes beta-pop{from{opacity:0;transform:scale(.965) translateY(10px)}to{opacity:1;transform:none}}
+        .beta-pop{animation:beta-pop .26s cubic-bezier(.2,.9,.3,1) both}
+        @keyframes beta-fade{from{opacity:0}to{opacity:1}}
+        .beta-fade{animation:beta-fade .2s ease both}
+        /* Каскадное появление карточек/строк (delay задаётся инлайном) */
+        @keyframes beta-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+        .beta-rise{animation:beta-rise .4s cubic-bezier(.2,.8,.3,1) both}
+        /* Рост прогресс-бара при появлении (внутренний слой width уже задан) */
+        @keyframes beta-fill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+        .beta-fill{transform-origin:left;animation:beta-fill .7s cubic-bezier(.2,.8,.3,1) both}
+        /* Пульс-точка «сейчас/внимание» */
+        @keyframes beta-ping{0%{transform:scale(1);opacity:.6}70%,100%{transform:scale(2.4);opacity:0}}
+        .beta-ping::after{content:'';position:absolute;inset:0;border-radius:inherit;background:currentColor;animation:beta-ping 1.8s cubic-bezier(0,0,.2,1) infinite}
         /* Живое свечение на экране входа */
         .beta-glow{position:absolute;width:440px;height:440px;border-radius:50%;filter:blur(90px);opacity:.32;pointer-events:none;
             background:radial-gradient(circle,#e88c40 0%,transparent 65%);animation:beta-float 9s ease-in-out infinite alternate}

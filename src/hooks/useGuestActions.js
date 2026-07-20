@@ -24,6 +24,7 @@ import { sendTelegramMessage } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { getStayDetails, getTotalPaid } from '../utils/helpers';
 import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
+import { notifySiteBooking } from '../utils/siteCallback';
 
 export function useGuestActions(ctx) {
   const {
@@ -38,6 +39,7 @@ export function useGuestActions(ctx) {
     setEmehmonArrivalPrompt,
     onEmehmonDepart,
     onEmehmonAutoArrival,
+    onEmehmonAutoDepart,
   } = ctx;
 
   // ─── Internal helpers ────────────────────────────────────────────────────
@@ -201,8 +203,22 @@ export function useGuestActions(ctx) {
         : currentUser.hostelId;
       const safeStaffId = currentUser.id || currentUser.login || 'unknown';
 
+      // Бронь с сайта/бота: переносим метаданные (код брони, канал, tg-чат гостя)
+      // в новую запись — для аналитики «откуда гость» и обратной связи с сайтом.
+      // Телефон гостя тоже не должен потеряться.
+      const srcBooking = checkInModal.bookingId ? (checkInModal.client || null) : null;
+      const bookingMeta = srcBooking ? {
+        bookingCode: srcBooking.bookingCode || '',
+        mysqlId:     srcBooking.mysqlId || 0,
+        tgChatId:    srcBooking.tgChatId || 0,
+        channel:     srcBooking.channel || 'site',
+        fromWebsite: true,
+        ...(!formData.phone && srcBooking.phone ? { phone: srcBooking.phone } : {}),
+      } : {};
+
       const newGuest = {
         ...formData,
+        ...bookingMeta,
         hostelId: targetHostelId,
         staffId: safeStaffId,
         checkInDate:  new Date(formData.checkInDate).toISOString(),
@@ -255,6 +271,19 @@ export function useGuestActions(ctx) {
 
       if (checkInModal.bookingId) {
         try { await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId)); } catch (_) {}
+        // Обратная связь сайту: active = гость пришёл (checked_in), booking = бронь
+        // подтверждена с назначенным местом (confirmed). Гость получит Telegram-
+        // уведомление, статус на странице «Проверка брони» обновится.
+        if (srcBooking?.bookingCode) {
+          notifySiteBooking(srcBooking, formData.status === 'active' ? 'checked_in' : 'confirmed')
+            .then(r => {
+              if (r?.status === 'ok' && r.notified) {
+                showNotification('Гость получил подтверждение в Telegram ✓', 'success');
+              } else if (r?.status === 'error') {
+                console.warn('[siteCallback]', r.message);
+              }
+            });
+        }
       }
 
       showNotification(lang === 'ru' ? 'Гость успешно заселен!' : 'Mehmon muvaffaqiyatli joylashtirildi!', 'success');
@@ -630,22 +659,29 @@ export function useGuestActions(ctx) {
 
   const handleSplitGuest = async (orig, splitAfterDays, gapDays) => {
     try {
-      const price = parseInt(orig.pricePerNight);
       const firstLegDays = parseInt(splitAfterDays);
       const gap = parseInt(gapDays);
       const totalOriginalDays = parseInt(orig.days);
       const remainingDays = totalOriginalDays - firstLegDays;
       if (remainingDays <= 0) return;
-      const totalPaid = orig.amountPaid || 0;
-      const ratio1 = firstLegDays / totalOriginalDays;
-      const ratio2 = remainingDays / totalOriginalDays;
+      const price = parseInt(orig.pricePerNight) || (totalOriginalDays > 0 ? Math.round((parseInt(orig.totalPrice) || 0) / totalOriginalDays) : 0);
+      // Оплата закрывает первую часть в первую очередь; остаток (долг) — на вторую,
+      // а не размазывается пропорционально (иначе появлялся «долг-хвост»).
+      const totalPaid = orig.amountPaid ?? ((orig.paidCash || 0) + (orig.paidCard || 0) + (orig.paidQR || 0));
+      const firstCost = firstLegDays * price;
+      const firstPaid = Math.min(totalPaid, firstCost);
+      const r1 = totalPaid > 0 ? firstPaid / totalPaid : 1;
+      const c1 = Math.round((orig.paidCash || 0) * r1);
+      const d1 = Math.round((orig.paidCard || 0) * r1);
+      const q1 = Math.round((orig.paidQR   || 0) * r1);
+      const c2 = (orig.paidCash || 0) - c1;
+      const d2 = (orig.paidCard || 0) - d1;
+      const q2 = (orig.paidQR   || 0) - q1;
       const stay1 = getStayDetails(orig.checkInDate, firstLegDays);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), {
         days: firstLegDays, totalPrice: firstLegDays * price,
-        amountPaid: Math.floor(totalPaid * ratio1),
-        paidCash: Math.floor((orig.paidCash || 0) * ratio1),
-        paidCard: Math.floor((orig.paidCard || 0) * ratio1),
-        paidQR:   Math.floor((orig.paidQR   || 0) * ratio1),
+        amountPaid: c1 + d1 + q1,
+        paidCash: c1, paidCard: d1, paidQR: q1,
         checkOutDate: stay1.end.toISOString(),
       });
       const secondStart = new Date(stay1.end);
@@ -657,16 +693,18 @@ export function useGuestActions(ctx) {
         ...orig, id: undefined,
         checkInDate: secondStart.toISOString(), checkOutDate: stay2.end.toISOString(),
         days: remainingDays, pricePerNight: price, totalPrice: remainingDays * price,
-        amountPaid: Math.floor(totalPaid * ratio2),
-        paidCash: Math.floor((orig.paidCash || 0) * ratio2),
-        paidCard: Math.floor((orig.paidCard || 0) * ratio2),
-        paidQR:   Math.floor((orig.paidQR   || 0) * ratio2),
+        amountPaid: c2 + d2 + q2,
+        paidCash: c2, paidCard: d2, paidQR: q2,
         // Если вторая часть начинается в будущем — ставим 'booking', чтобы авто-выселение
         // её не трогало и она не показывалась как просроченная.
         status: secondStart > nowForSplit ? 'booking' : 'active',
         checkInDateTime: null, checkIn: null,
       };
       delete newGuest.id;
+      // Вторая часть (после паузы) — новая регистрация в e-mehmon: сбрасываем отметки,
+      // система оформит её при наступлении даты возврата.
+      ['emehmonReg', 'emehmonRegAt', 'emehmonRegAuto', 'emehmonRegError', 'emehmonRegErrorAt',
+       'emehmonOut', 'emehmonOutAt', 'emehmonOutAuto'].forEach(k => { delete newGuest[k]; });
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
       showNotification('Split successful!');
     } catch (e) {
@@ -676,6 +714,12 @@ export function useGuestActions(ctx) {
   };
 
   const handleMoveGuest = async (g, rid, rnum, bid) => {
+    // То же самое место — ничего не делаем (иначе гость ошибочно «выселялся» сплитом)
+    if (String(rid) === String(g.roomId) && String(bid) === String(g.bedId)) {
+      setMoveGuestModal({ open: false, guest: null });
+      showNotification('Гость уже на этом месте', 'info');
+      return;
+    }
     try {
       const now = new Date();
       const todayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
@@ -707,21 +751,35 @@ export function useGuestActions(ctx) {
         return;
       }
 
-      // --- Финансовый сплит (пропорционально дням) ---
+      // --- Финансовый раздел оплаты ---
+      // Оплата закрывает УЖЕ ПРОЖИТЫЕ дни в первую очередь; остаток (то, что гость
+      // ещё должен) уходит на новую часть. Раньше делили пропорционально дням — из-за
+      // этого на выселенной старой записи появлялся «долг-хвост», а с новой части
+      // ошибочно списывалась часть оплаты, хотя долг за последние дни.
+      const price = parseInt(g.pricePerNight) || (totalDays > 0 ? Math.round((parseInt(g.totalPrice) || 0) / totalDays) : 0);
       const totalPaid = g.amountPaid ?? ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0));
-      const ratio1 = daysPassed / totalDays;
-      const ratio2 = remainingDays / totalDays;
-      const price = parseInt(g.pricePerNight) || 0;
+      const oldLegCost = daysPassed * price;
+      const oldPaid = Math.min(totalPaid, oldLegCost);
+      const r1 = totalPaid > 0 ? oldPaid / totalPaid : 1;
+      // Каждый метод оплаты делим по той же доле; новая часть = остаток (без потерь на округлении).
+      const oldCash = Math.round((g.paidCash || 0) * r1);
+      const oldCard = Math.round((g.paidCard || 0) * r1);
+      const oldQR   = Math.round((g.paidQR   || 0) * r1);
+      const newCash = (g.paidCash || 0) - oldCash;
+      const newCard = (g.paidCard || 0) - oldCard;
+      const newQR   = (g.paidQR   || 0) - oldQR;
+      const oldAmountPaid = oldCash + oldCard + oldQR;
+      const newAmountPaid = newCash + newCard + newQR;
 
       // --- 1. Обновляем старую запись: обрезаем до сегодня, выселяем ---
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
         days:        daysPassed,
         checkOutDate: todayNoon.toISOString(),
         totalPrice:  daysPassed * price,
-        amountPaid:  Math.floor(totalPaid * ratio1),
-        paidCash:    Math.floor((g.paidCash || 0) * ratio1),
-        paidCard:    Math.floor((g.paidCard || 0) * ratio1),
-        paidQR:      Math.floor((g.paidQR   || 0) * ratio1),
+        amountPaid:  oldAmountPaid,
+        paidCash:    oldCash,
+        paidCard:    oldCard,
+        paidQR:      oldQR,
         status:      'checked_out',
         // Убираем бонусный период из старой записи
         bonusCheckOutDate: null,
@@ -744,16 +802,27 @@ export function useGuestActions(ctx) {
         checkOutDate: originalCheckOut,
         days:         remainingDays,
         totalPrice:   remainingDays * price,
-        amountPaid:   Math.floor(totalPaid * ratio2),
-        paidCash:     Math.floor((g.paidCash || 0) * ratio2),
-        paidCard:     Math.floor((g.paidCard || 0) * ratio2),
-        paidQR:       Math.floor((g.paidQR   || 0) * ratio2),
+        amountPaid:   newAmountPaid,
+        paidCash:     newCash,
+        paidCard:     newCard,
+        paidQR:       newQR,
         status:       'active',
         checkInDateTime: null,
         movedFromRoom:   g.roomNumber || null, // для истории
       };
       delete newGuest.id;
+      // Новая часть = НОВАЯ регистрация в e-mehmon (другая комната). Сбрасываем все
+      // отметки: старую часть выведем из e-mehmon сами, а новую система зарегистрирует
+      // при наступлении даты (граждан Узбекистана — авто, остальных — в «Оформить»).
+      ['emehmonReg', 'emehmonRegAt', 'emehmonRegAuto', 'emehmonRegError', 'emehmonRegErrorAt',
+       'emehmonOut', 'emehmonOutAt', 'emehmonOutAuto'].forEach(k => { delete newGuest[k]; });
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
+
+      // Старую (выселенную) часть — тихий авто-вывод из e-mehmon в фоне, чтобы не
+      // висело напоминание «вывести из e-mehmon пока не обновлю».
+      if (g.emehmonReg && typeof onEmehmonAutoDepart === 'function') {
+        onEmehmonAutoDepart({ ...g, status: 'checked_out' });
+      }
 
       setMoveGuestModal({ open: false, guest: null });
       setGuestDetailsModal({ open: false, guest: null });
@@ -969,6 +1038,13 @@ export function useGuestActions(ctx) {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', booking.id));
       showNotification('Бронь отклонена');
+      // Сайту: отмена (место освободится в подсчёте доступности, гость получит
+      // вежливое уведомление в Telegram, статус на «Проверке брони» — «отменена»)
+      if (booking.bookingCode) {
+        notifySiteBooking(booking, 'cancelled').then(r => {
+          if (r?.status === 'ok' && r.notified) showNotification('Гость уведомлён об отмене в Telegram', 'info');
+        });
+      }
     } catch (e) {
       showNotification('Ошибка', 'error');
     }

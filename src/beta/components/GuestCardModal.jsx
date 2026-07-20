@@ -1,12 +1,33 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
-    X, BedDouble, Phone, ExternalLink, ClipboardCheck, Globe,
-    DollarSign, CreditCard, QrCode, ArrowRightLeft, Coins, CalendarDays,
+    X, BedDouble, Phone, ClipboardCheck, Globe,
+    DollarSign, CreditCard, QrCode, ArrowRightLeft, Coins, CalendarDays, LogIn, LogOut,
 } from 'lucide-react';
 
 const getTotalPaid = (g) => (typeof g.amountPaid === 'number'
     ? g.amountPaid
     : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0) + (g.paidTransfer || 0)));
+
+// Плавный счётчик для сумм в карточке
+const useCountUp = (target, dur = 600) => {
+    const [v, setV] = useState(0);
+    const prev = useRef(0);
+    useEffect(() => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { prev.current = target; setV(target); return; }
+        const from = prev.current;
+        prev.current = target;
+        const t0 = performance.now();
+        let raf;
+        const step = (t) => {
+            const k = Math.min(1, (t - t0) / dur);
+            setV(Math.round(from + (target - from) * (1 - Math.pow(1 - k, 3))));
+            if (k < 1) raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [target, dur]);
+    return v;
+};
 
 const fmtMoney = (n) => (n || 0).toLocaleString('ru-RU');
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) : '—');
@@ -67,13 +88,15 @@ const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainAp
         .filter(m => m.sum > 0);
 
     const payPct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+    const paidAnim = useCountUp(paid);
+    const debtAnim = useCountUp(debt);
 
     return (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center px-4"
+        <div className="fixed inset-0 z-[160] flex items-center justify-center px-4 beta-fade"
             style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
             <div role="dialog" aria-modal="true" aria-label="Карточка гостя"
-                className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
+                className="beta-pop w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
 
                 {/* Шапка */}
                 <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
@@ -120,22 +143,41 @@ const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainAp
                             )}
                             {stay && g.status === 'active' && (
                                 <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                                    <div className={`h-full rounded-full ${stay.expired ? 'bg-amber-400' : 'bg-teal-400'}`} style={{ width: `${stay.pct}%` }} />
+                                    <div className={`h-full rounded-full beta-fill ${stay.expired ? 'bg-amber-400' : 'bg-teal-400'}`} style={{ width: `${stay.pct}%` }} />
                                 </div>
                             )}
                         </div>
                     </div>
+
+                    {/* Таймлайн проживания: заезд → сегодня → выезд */}
+                    {stay && g.status === 'active' && (
+                        <div className="rounded-xl border border-slate-200 px-3.5 py-3">
+                            <div className="relative h-1 rounded-full bg-slate-100 mx-2">
+                                <div className={`absolute left-0 top-0 h-full rounded-full beta-fill ${stay.expired ? 'bg-amber-400' : 'bg-teal-400'}`} style={{ width: `${stay.pct}%` }} />
+                                {/* Метка «сейчас» */}
+                                <span className={`absolute -top-[3px] w-2.5 h-2.5 rounded-full border-2 border-white shadow ${stay.expired ? 'bg-amber-500' : 'bg-teal-500'}`}
+                                    style={{ left: `${stay.pct}%`, transform: 'translateX(-50%)' }} />
+                            </div>
+                            <div className="flex items-center justify-between mt-2 text-[10px] font-bold text-slate-500">
+                                <span className="inline-flex items-center gap-1"><LogIn size={11} className="text-teal-500" />{fmtDate(g.checkInDate)}</span>
+                                <span className="tabular-nums text-slate-400">
+                                    прожито {stay.passed} из {stay.nights} ноч.
+                                </span>
+                                <span className="inline-flex items-center gap-1">{fmtDate(g.checkOutDate)}<LogOut size={11} className={stay.expired ? 'text-amber-500' : 'text-slate-400'} /></span>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Оплата: прогресс + разбивка */}
                     <div className="rounded-xl border border-slate-200 p-3.5">
                         <div className="flex items-baseline justify-between mb-1.5">
                             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Оплата</span>
                             <span className="text-[13px] font-black tabular-nums text-slate-800">
-                                {fmtMoney(paid)} <span className="text-slate-300 font-bold">/ {fmtMoney(total)}</span>
+                                {fmtMoney(paidAnim)} <span className="text-slate-300 font-bold">/ {fmtMoney(total)}</span>
                             </span>
                         </div>
                         <div className="h-2 rounded-full bg-slate-100 overflow-hidden mb-2">
-                            <div className={`h-full rounded-full transition-all duration-300 ${debt > 0 ? 'bg-rose-400' : 'bg-emerald-400'}`}
+                            <div className={`h-full rounded-full beta-fill ${debt > 0 ? 'bg-rose-400' : 'bg-emerald-400'}`}
                                 style={{ width: `${payPct}%` }} />
                         </div>
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -147,7 +189,7 @@ const GuestCardModal = ({ guest: g, rooms = [], payments = [], onClose, inMainAp
                                     </span>
                                 ))}
                             </div>
-                            {debt > 0 && <span className="text-[11px] font-black text-rose-500">долг {fmtMoney(debt)}</span>}
+                            {debt > 0 && <span className="text-[11px] font-black text-rose-500 tabular-nums">долг {fmtMoney(debtAnim)}</span>}
                             {overpaid > 0 && <span className="text-[11px] font-black text-amber-600">переплата {fmtMoney(overpaid)}</span>}
                             {debt === 0 && overpaid === 0 && total > 0 && <span className="text-[11px] font-black text-emerald-600">оплачено полностью ✓</span>}
                         </div>

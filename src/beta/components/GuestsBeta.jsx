@@ -14,6 +14,11 @@ const fmtMoney = (n) => (n || 0).toLocaleString('ru-RU');
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : '—');
 const norm = (s) => (s || '').toString().toLowerCase();
 
+// Детерминированный цвет и инициалы аватара
+const AV = ['#e88c40', '#14b8a6', '#6366f1', '#f43f5e', '#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981'];
+const avatarColor = (s) => AV[[...(s || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
+const initials = (s) => (s || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+
 const Pill = ({ tone, children }) => {
     const TONES = {
         good:  'bg-emerald-50 text-emerald-600',
@@ -186,8 +191,16 @@ const GuestsBeta = ({ guests = [], clients = [], onOpenGuest, initialFilter }) =
                                 <tr key={g.id} onClick={() => onOpenGuest(g)}
                                     className="cursor-pointer hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-2.5 border-b border-slate-50">
-                                        <div className="text-[13.5px] font-bold text-slate-800">{g.fullName}</div>
-                                        <div className="text-[11px] text-slate-400">{[g.country, g.passport].filter(Boolean).join(' · ') || '—'}</div>
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="w-8 h-8 rounded-lg text-[11px] font-black text-white flex items-center justify-center flex-shrink-0"
+                                                style={{ background: avatarColor(g.fullName) }}>
+                                                {initials(g.fullName)}
+                                            </span>
+                                            <span className="min-w-0">
+                                                <span className="block text-[13.5px] font-bold text-slate-800 truncate">{g.fullName}</span>
+                                                <span className="block text-[11px] text-slate-400 truncate">{[g.country, g.passport].filter(Boolean).join(' · ') || '—'}</span>
+                                            </span>
+                                        </div>
                                     </td>
                                     <td className="px-4 py-2.5 border-b border-slate-50 text-[13px] tabular-nums text-slate-600 whitespace-nowrap">
                                         {g.roomNumber ? `${g.roomNumber}-${g.bedId ?? '?'}` : '—'}

@@ -40,6 +40,9 @@ export const DEFAULT_APP_CONFIG = {
         // [{ id, name, from:'06-01', to:'08-31', base:{hostel1:{default,rooms},hostel2:{…}}, package:{…}, packageMinDays }]
         seasons: [],
     },
+    // Интеграция с сайтом hostella.uz: обратная связь по броням (подтверждение/отмена)
+    siteCallbackUrl: 'https://hostella.uz/crm-callback.php',
+    siteCallbackKey: 'hst-cb-a81f37c2d94e',   // должен совпадать с CRM_CALLBACK_KEY на сайте
     // Финансы
     defaultUsdRate: '',          // курс USD по умолчанию в модалке расхода
     registrationDailyRate: '',   // ставка регистрации (кадастр) по умолчанию

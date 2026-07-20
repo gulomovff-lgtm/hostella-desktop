@@ -26,6 +26,8 @@ const getLocalDateString = (dateObj) => {
 
 const fmtMoney = (n) => (n || 0).toLocaleString('ru-RU');
 const fmtTime = (d) => d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '';
+const fmtDM = (d) => (d ? new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : '');
+const nightsWord = (n) => (n === 1 ? 'ночь' : n < 5 ? 'ночи' : 'ночей');
 
 const overdueLabel = (checkOut, now) => {
     const min = Math.floor((now - checkOut.getTime()) / 60000);
@@ -93,7 +95,7 @@ const KPI_COLORS = {
 const TodayView = ({
     rooms = [], guests = [], payments = [], expenses = [], shifts = [], clients = [],
     currentUser, currentHostelId = 'all',
-    onOpenGuest, onGoTab, onOpenShift, onOpenCheckIn, onPayDebt, onCheckInBooking, onReturnClients,
+    onOpenGuest, onGoTab, onOpenShift, onOpenCheckIn, onPayDebt, onCheckInBooking, onReturnClients, onCheckInBed,
 }) => {
     const now = new Date();
     const nowMs = now.getTime();
@@ -210,6 +212,35 @@ const TodayView = ({
             when: 'к расчётному часу',
             act: { label: 'Открыть гостя', fn: () => onOpenGuest?.(g) },
         }));
+        // Простои: место свободно сегодня, но впереди (≤7 дн) есть бронь/заезд — предложить закрыть
+        if (onCheckInBed) {
+            const soon = nowMs + 7 * 86400000;
+            const gapsToday = [];
+            relRooms.filter(r => !r.rental?.active).forEach(r => {
+                const cap = parseInt(r.capacity || 0);
+                for (let b = 1; b <= cap; b++) {
+                    const bedGuests = relGuests.filter(g => g.roomId === r.id && String(g.bedId) === String(b));
+                    const occupiedToday = bedGuests.some(g => g.status === 'active' &&
+                        parseDate(g.checkInDate) <= now && (!g.checkOutDate || parseDate(g.checkOutDate) > now));
+                    if (occupiedToday) continue;
+                    const next = bedGuests
+                        .filter(g => (g.status === 'booking' || g.status === 'active') && parseDate(g.checkInDate) > now)
+                        .sort((a, b2) => parseDate(a.checkInDate) - parseDate(b2.checkInDate))[0];
+                    if (next && parseDate(next.checkInDate).getTime() <= soon) {
+                        const nights = Math.max(1, Math.floor((parseDate(next.checkInDate) - now) / 86400000));
+                        gapsToday.push({ room: r, bed: b, nights, nextName: next.fullName, nextDate: next.checkInDate });
+                    }
+                }
+            });
+            gapsToday.sort((a, b) => a.nights - b.nights).slice(0, 3).forEach(g => queue.push({
+                key: `gap-${g.room.id}-${g.bed}`, color: 'teal',
+                title: `Простой: комн. ${g.room.number}, место ${g.bed} свободно ${g.nights} ${nightsWord(g.nights)}`,
+                why: `До заезда «${g.nextName}» (${fmtDM(g.nextDate)}) можно заселить на этот срок — место не простаивает`,
+                when: 'закрыть простой',
+                act: { label: 'Заселить', fn: () => onCheckInBed(g.room, g.bed) },
+            }));
+        }
+
         // Загрузка низкая → программа сама предлагает вернуть постоянных клиентов
         if (occupancyPct < 50 && totalBeds > 0 && onReturnClients) {
             const nowMs2 = Date.now();
