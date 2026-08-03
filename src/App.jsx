@@ -1550,6 +1550,7 @@ function App() {
   const { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
+    guests, clients,
     setExpenseModal, setUndoStack,
     showNotification, isOnline,
   });

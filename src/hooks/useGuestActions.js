@@ -118,7 +118,17 @@ export function useGuestActions(ctx) {
           paidCard: increment(-item.card),
           paidQR:   increment(-item.qr),
           amountPaid: increment(-(item.cash + item.card + item.qr)),
+          // Переплата, ушедшая на баланс этой оплатой, откатывается вместе с ней
+          ...(item.overpay > 0 ? { balanceCredited: increment(-item.overpay) } : {}),
         });
+        if (item.overpay > 0 && item.overpayClientId) {
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { balance: increment(-item.overpay) });
+        }
+        // Баланс, потраченный этой оплатой, возвращаем клиенту
+        if (item.balanceUsed > 0 && item.overpayClientId) {
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { balance: increment(item.balanceUsed) });
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { paidBalance: increment(-item.balanceUsed) });
+        }
       } else if (item.type === 'extend') {
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
           days: item.prevDays, totalPrice: item.prevTotalPrice,
@@ -386,7 +396,11 @@ export function useGuestActions(ctx) {
       setGuestDetailsModal({ open: false, guest: null });
       const paidTotal = getTotalPaid(guest);
       const rawOverpay = Math.max(0, paidTotal - (final.totalPrice || 0));
-      const alreadySettled = Math.max(0, Number(guest.refundSettledAmount || 0));
+      // Уже урегулировано: возвраты при прошлых выселениях (refundSettledAmount)
+      // И переплата, зачисленная на баланс во время проживания (balanceCredited).
+      // Без второго слагаемого одна и та же переплата уходила на баланс дважды.
+      const alreadySettled = Math.max(0, Number(guest.refundSettledAmount || 0))
+        + Math.max(0, Number(guest.balanceCredited || 0));
       const pendingRefund = Math.max(0, rawOverpay - alreadySettled);
 
       // Защита от двойного начисления: можно обработать только остаток непогашенной переплаты
@@ -509,28 +523,43 @@ export function useGuestActions(ctx) {
           hostelId: currentUser.hostelId, guestName: g?.fullName || '' });
       }
       const currentPaid = g ? (g.amountPaid || (g.paidCash||0) + (g.paidCard||0) + (g.paidQR||0)) : 0;
-      const overpay = total > 0 ? Math.max(0, currentPaid + total - (g?.totalPrice || 0)) : 0;
+      // ПЕРЕПЛАТА НЕ ЗАЧИСЛЯЕТСЯ НА БАЛАНС ВО ВРЕМЯ ПРОЖИВАНИЯ.
+      // Пока гость живёт, переплата — это предоплата за будущие дни: при продлении
+      // она гасит начисление. Раньше её сразу кидали на баланс, и деньги начинали
+      // существовать дважды (и как оплата гостя, и как баланс клиента), а при
+      // продлении/урезании/повторной доплате зачислялись снова и снова.
+      // На баланс переплата уходит только осознанно при выселении, где кассир
+      // выбирает «вернуть / оставить на балансе / смешанно».
+      const totalOverpay = Math.max(0, currentPaid + total - (g?.totalPrice || 0));
+      const overpay = 0;
       const guestUpdate = {
         paidCash: increment(cash), paidCard: increment(card), paidQR: increment(qr),
         ...(transfer > 0 ? { paidTransfer: increment(transfer) } : {}),
         amountPaid: increment(total),
       };
       if (balanceUsed > 0) guestUpdate.paidBalance = increment(balanceUsed);
+      const normStr = s => (s||'').replace(/\s/g,'').toUpperCase();
+      // Клиент строго по паспорту; по ФИО — только когда паспорта нет ни у кого
+      // из однофамильцев (иначе деньги уходили чужому человеку с тем же именем).
+      const clientRec = g ? (
+        (g.passport && clients.find(c => c.passport && normStr(c.passport) === normStr(g.passport))) ||
+        (!g.passport && (() => {
+          const sameName = clients.filter(c => g.fullName && normStr(c.fullName) === normStr(g.fullName));
+          return sameName.length === 1 ? sameName[0] : null;
+        })())
+      ) || null : null;
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), guestUpdate);
       const paymentIds = await logTransaction(guestId, amounts, safeStaffId);
-      const normStr = s => (s||'').replace(/\s/g,'').toUpperCase();
-      const clientRec = g ? clients.find(c =>
-        (c.passport && g.passport && normStr(c.passport) === normStr(g.passport)) ||
-        (g.fullName && normStr(c.fullName) === normStr(g.fullName))
-      ) : null;
       if (balanceUsed > 0 && clientRec) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
       }
-      if (overpay > 0 && clientRec) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(overpay) });
+      if (totalOverpay > 0) {
+        showNotification(`Переплата ${totalOverpay.toLocaleString()} сум — пойдёт в счёт продления либо будет возвращена при выселении`, 'info');
       }
       if (total > 0) {
-        pushUndo({ type: 'payment', label: `${total.toLocaleString()} сум — ${g?.fullName || guestId}`, guestId, paymentIds, cash, card, qr });
+        pushUndo({ type: 'payment', label: `${total.toLocaleString()} сум — ${g?.fullName || guestId}`,
+          guestId, paymentIds, cash, card, qr,
+          overpay, balanceUsed, overpayClientId: clientRec?.id || null });
         if (g) {
           const hostelLabel = g.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
           const payMsg = `💵 <b>Оплата принята</b>\n👤 ${g.fullName}\n🛏 ${hostelLabel} · Ком. ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;

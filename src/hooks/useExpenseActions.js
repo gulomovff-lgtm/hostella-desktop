@@ -31,6 +31,7 @@ export function buildExpenseComment(expense) {
 export function useExpenseActions({
   currentUser, selectedHostelFilter,
   expenses, usersList, lang,
+  guests = [], clients = [],
   setExpenseModal, setUndoStack,
   showNotification, isOnline = true,
 }) {
@@ -95,14 +96,37 @@ export function useExpenseActions({
     // чтобы при сбое платёж остался и его можно было попробовать снова
     if (type === 'income' && record.guestId && record.category !== 'registration') {
       try {
-        const cash  = Number(record.cash)   || 0;
-        const card  = Number(record.card)   || 0;
-        const qr    = Number(record.qr)     || 0;
-        const total = Number(record.amount) || (cash + card + qr);
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', record.guestId), {
+        const cash     = Number(record.cash)     || 0;
+        const card     = Number(record.card)     || 0;
+        const qr       = Number(record.qr)       || 0;
+        const transfer = Number(record.transfer) || 0;
+        const total = Number(record.amount) || (cash + card + qr + transfer);
+        const patch = {
           paidCash: increment(-cash), paidCard: increment(-card),
           paidQR: increment(-qr), amountPaid: increment(-total),
-        });
+          ...(transfer > 0 ? { paidTransfer: increment(-transfer) } : {}),
+        };
+
+        // Откат переплаты: если с этого гостя часть денег ушла на баланс клиента,
+        // после удаления платежа переплата уменьшилась — снимаем лишнее с баланса,
+        // иначе удалённый платёж «оставался» деньгами на балансе.
+        const g = guests.find(x => x.id === record.guestId);
+        const credited = Number(g?.balanceCredited) || 0;
+        if (credited > 0) {
+          const paidNow = (Number(g?.amountPaid) || 0) - total;
+          const overAfter = Math.max(0, paidNow - (Number(g?.totalPrice) || 0));
+          const clawback = Math.min(credited, Math.max(0, credited - overAfter));
+          if (clawback > 0) {
+            const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
+            const cli = (g.passport && clients.find(c => c.passport && norm(c.passport) === norm(g.passport))) || null;
+            if (cli) {
+              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', cli.id), { balance: increment(-clawback) });
+              showNotification(`С баланса клиента снята переплата ${clawback.toLocaleString()} сум`, 'info');
+            }
+            patch.balanceCredited = increment(-clawback);
+          }
+        }
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', record.guestId), patch);
       } catch (e) {
         console.warn('Не удалось обновить баланс гостя:', e.message);
       }

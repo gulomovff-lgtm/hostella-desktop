@@ -383,7 +383,10 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
     const packageOnly = isBelowMinRate && !isPriceApproved;
     // Невозвратный пакетный тариф: при выселении переплата не возвращается (пакет сгорает)
     const isNonRefundable = !!guest.nonRefundable || guest.tariff === 'package';
-    const alreadySettledRefund = Math.max(0, Number(guest.refundSettledAmount || 0));
+    // Учитываем и переплату, уже ушедшую на баланс во время проживания
+    // (balanceCredited) — иначе при выселении её предложат вернуть повторно.
+    const alreadySettledRefund = Math.max(0, Number(guest.refundSettledAmount || 0))
+        + Math.max(0, Number(guest.balanceCredited || 0));
     const refundableNow = isNonRefundable ? 0 : (balance > 0 ? Math.max(0, balance - alreadySettledRefund) : 0);
 
     // Для тарифа ниже 70 000 (без одобрения) продление только пакетом — минимум 10 дней
