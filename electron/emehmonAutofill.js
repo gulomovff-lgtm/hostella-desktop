@@ -153,7 +153,9 @@ function buildAutofillScript(guest) {
       if (GUEST.room) { fillRoomRetry(GUEST.room, 6); n++; }  // Номер/Комната (с повтором — список грузится с задержкой)
       if (fillSelectValue('id_visittype', '5')) n++;  // Тип визита — Другое
       if (fillSelectValue('payed', '2')) n++;         // Статус оплаты — Оплачен полностью
-      if (fillInput('amount', '1')) n++;              // Сумма оплаты — всегда 1
+      // Сумма оплаты: ставка зависит от гражданства (местные / иностранцы),
+      // задаётся в настройках приложения и приходит в GUEST.amount.
+      if (fillInput('amount', String(GUEST.amount || '1'))) n++;
       if (fillSelectValue('id_guest', '4')) n++;      // Тип гостя — Другое
       return n;
     }
@@ -417,6 +419,109 @@ function buildListFetchScript() {
 })();`;
 }
 
+// ── Турсбор: отчёт со страницы /tursborpays ───────────────────────────────────
+// Портал отдаёт данные через DataTables serverSide: GET /tursborpays/data
+//   tp:         HT — иностранцы, LT — местные, ST — самостоятельные туристы
+//   date_range: 'YYYY-MM-DD ~ YYYY-MM-DD'
+// Тянем все три типа за один проход и возвращаем строки + БРВ со страницы.
+// Поля строки: qty (гостей), lived (прожито суток), minsalary (БРВ),
+// percent (% БРВ), tursbor (ставка), tp_lived (начислено суток), real_tursbor (итого).
+function buildTursborFetchScript(payload) {
+  const P = JSON.stringify(payload || {});
+  return `(async function(){
+  var DATA = ${P};
+  var RANGE = DATA.range || '';
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
+      return { status: 'need_login' };
+    }
+    // Разбор чисел портала. Форматы на одной странице разные:
+    // «412,000.00» (запятая = разряды) и «110 000.00» (пробел = разряды),
+    // возможен и «1 234 567,00» (запятая = дробная часть). Определяем, какой
+    // разделитель дробный, по ПОСЛЕДНЕМУ вхождению, иначе сумма врала в 100 раз.
+    var num = function(v){
+      if (v == null) return 0;
+      if (typeof v === 'number') return isFinite(v) ? v : 0;
+      var s = String(v)
+        .replace(/<[^>]*>/g, '')          // html-обёртки
+        .replace(/&nbsp;|&#160;/g, ' ')
+        .replace(/[\\u00A0\\u202F\\u2009]/g, ' ') // неразрывные пробелы
+        .trim();
+      var neg = /^\\(.*\\)$/.test(s) || /^-/.test(s);   // (1 234) или -1234
+      s = s.replace(/[^0-9.,]/g, '');                 // валюта, буквы, пробелы
+      if (!s) return 0;
+      var lastDot = s.lastIndexOf('.'), lastComma = s.lastIndexOf(',');
+      var dec = Math.max(lastDot, lastComma);
+      if (dec === -1) {
+        s = s;                                        // целое без разделителей
+      } else {
+        var tail = s.length - dec - 1;
+        // Разделитель дробный, только если после него 1–2 цифры (копейки).
+        // «1,234» и «1.234» с тремя цифрами — это разряды, а не дробь.
+        if (tail >= 1 && tail <= 2) {
+          s = s.slice(0, dec).replace(/[.,]/g, '') + '.' + s.slice(dec + 1);
+        } else {
+          s = s.replace(/[.,]/g, '');
+        }
+      }
+      var n = parseFloat(s);
+      if (!isFinite(n)) return 0;
+      return neg ? -n : n;
+    };
+    var strip = function(v){ return String(v == null ? '' : v).replace(/<[^>]*>/g, '').replace(/&nbsp;/g,' ').trim(); };
+
+    async function fetchType(tp){
+      var url = '/tursborpays/data?draw=1&start=0&length=2000'
+              + '&tp=' + encodeURIComponent(tp)
+              + '&date_range=' + encodeURIComponent(RANGE);
+      var res = await fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      if (!res.ok) return { tp: tp, error: 'HTTP ' + res.status, rows: [] };
+      var j = await res.json();
+      var list = (j && j.data) || [];
+      var rows = list.map(function(d){
+        return {
+          hotel:    strip(d.hotel),
+          company:  strip(d.hotel_company),
+          inn:      strip(d.inn),
+          district: strip(d.district_name),
+          guests:   num(d.qty),          // кол-во гостей
+          lived:    num(d.lived),        // прожито суток
+          brv:      num(d.minsalary),    // БРВ
+          percent:  num(d.percent),      // % БРВ
+          rate:     num(d.tursbor),      // ставка турсбора
+          accrued:  num(d.tp_lived),     // начислено (сутки)
+          total:    num(d.real_tursbor), // итого к оплате, сум
+          // Сырые строки портала — чтобы расхождение было видно, а не гадалось
+          rawTotal:  strip(d.real_tursbor),
+          rawRate:   strip(d.tursbor),
+          rawGuests: strip(d.qty),
+          rawLived:  strip(d.lived),
+        };
+      });
+      return { tp: tp, rows: rows, recordsTotal: (j && j.recordsTotal) || rows.length };
+    }
+
+    var types = ['HT', 'LT', 'ST'];
+    var out = {};
+    for (var i = 0; i < types.length; i++) {
+      try { out[types[i]] = await fetchType(types[i]); }
+      catch (e) { out[types[i]] = { tp: types[i], error: (e && e.message) || String(e), rows: [] }; }
+    }
+
+    // БРВ и депозит — со страницы (если открыта именно /tursborpays)
+    var brvTxt = '', depTxt = '';
+    try {
+      var badge = document.querySelector('.card-title .badge');
+      if (badge) brvTxt = strip(badge.textContent);
+      var dep = document.querySelector('.hotel-info span');
+      if (dep) depTxt = strip(dep.textContent);
+    } catch(e){}
+
+    return { status: 'ok', range: RANGE, data: out, brvText: brvTxt, depositText: depTxt };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+
 // ── Массовое выселение: выделить все совпавшие строки и выселить разом ─────────
 // e-mehmon поддерживает множественный Check-Out (модалка Chiqish с несколькими
 // строками). Принимает { list:[{passport,name}], amount, payType, print }.
@@ -577,4 +682,4 @@ function buildAutoArrivalScript(guest) {
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript, buildAutoArrivalScript };
+module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript };

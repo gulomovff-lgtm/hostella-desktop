@@ -1,6 +1,7 @@
 import React from 'react';
 import * as XLSX from 'xlsx';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_ISO3 } from '../constants/countries';
+import { getConfig } from './appConfig';
 
 // Renders a country flag using flag-icons CSS (works offline, SVG bundled)
 export const Flag = ({ code, size = 20 }) => {
@@ -65,17 +66,32 @@ export const buildEmehmonPayload = (guest = {}) => {
     const [y, m, d] = String(iso).slice(0, 10).split('-');
     return (d && m && y) ? `${d}.${m}.${y}` : '';
   };
+  const citizenCode = COUNTRY_ISO3[guest.country] || '';
   return {
     hostelId:          guest.hostelId || '',
     guestName:         guest.fullName || '',
-    citizenCode:       COUNTRY_ISO3[guest.country] || '',
+    citizenCode,
     docType:           '1', // Паспорт
     birthDate:         toDmy(guest.birthDate),
     passport:          (guest.passport || '').replace(/\s/g, '').toUpperCase(),
     passportIssueDate: toDmy(guest.passportIssueDate),
     room:              guest.roomNumber || guest.room || guest.roomId || '',
     days:              guest.days || '',
+    // Сумма для поля «Сумма оплаты» в e-mehmon (налоговая отчётность):
+    // местным одна ставка, иностранцам другая. Настраивается в конфиге.
+    amount:            String(emehmonAmountFor(guest.country)),
   };
+};
+
+// Ставка, которую указываем в e-mehmon: местные / иностранцы.
+export const emehmonAmountFor = (country) => {
+  const cfg = getConfig() || {};
+  const isLocal = (COUNTRY_ISO3[country] || '') === 'UZB';
+  const local   = Number(cfg.emehmonAmountLocal);
+  const foreign = Number(cfg.emehmonAmountForeign);
+  return isLocal
+    ? (Number.isFinite(local)   && local   > 0 ? local   : 30000)
+    : (Number.isFinite(foreign) && foreign > 0 ? foreign : 50000);
 };
 
 // Pure function: compute time-left label given a checkOutDate string and current ts

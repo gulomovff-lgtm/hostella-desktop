@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, KeyRound, Check, ShieldCheck } from 'lucide-react';
-import { getEmehmonStatus, saveEmehmonAccounts } from '../../utils/emehmon';
+import { getEmehmonStatus, getEmehmonLogins, saveEmehmonAccounts } from '../../utils/emehmon';
 
 const HOSTELS = [
   { id: 'hostel1', label: 'Хостел №1' },
@@ -19,6 +19,12 @@ const EmehmonAccountsModal = ({ onClose, notify }) => {
 
   useEffect(() => {
     getEmehmonStatus().then(setStatus).catch(() => {});
+    // Подставляем сохранённые логины: чтобы сменить только пароль, логин
+    // повторно вводить не нужно (раньше при пустом логине ничего не сохранялось).
+    getEmehmonLogins().then(l => setForm(f => ({
+      hostel1: { ...f.hostel1, login: l.hostel1 || '' },
+      hostel2: { ...f.hostel2, login: l.hostel2 || '' },
+    }))).catch(() => {});
   }, []);
 
   const upd = (hid, key, val) => setForm(f => ({ ...f, [hid]: { ...f[hid], [key]: val } }));

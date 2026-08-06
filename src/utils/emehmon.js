@@ -57,7 +57,8 @@ export function openEmehmonArrival(guest) {
 // opts.silent — при сбое НЕ показывать окно кассиру (для фоновых попыток).
 export async function autoRegisterArrival(guest, opts = {}) {
   if (!window.electronAPI?.emehmonArrivalAuto) return { status: 'no_electron' };
-  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', amount: '1', silent: !!opts.silent };
+  // amount берём из payload (ставка по гражданству), раньше здесь жёстко стояла 1
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', silent: !!opts.silent };
   const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {
@@ -155,7 +156,37 @@ export async function saveEmehmonAccounts(accounts) {
     if (a.clear) { delete next[hid]; continue; }
     const login = (a.login || '').trim();
     const password = a.password || '';
-    if (login && password) next[hid] = { login, pw: enc(password) };
+    // ЧАСТИЧНОЕ обновление: раньше запись сохранялась только если заполнены ОБА
+    // поля, поэтому смена одного пароля (при пустом логине) молча не сохранялась.
+    // Теперь пустое поле = «оставить прежнее значение».
+    const prev = cur[hid] || {};
+    const finalLogin = login || prev.login || '';
+    const finalPw    = password ? enc(password) : (prev.pw || '');
+    if (finalLogin && finalPw) next[hid] = { login: finalLogin, pw: finalPw };
   }
   await setDoc(accDoc(), next);
+}
+
+// Турсбор: отчёт со страницы /tursborpays за период.
+// range — 'YYYY-MM-DD ~ YYYY-MM-DD' (формат портала). Возвращает
+// { status, data: { HT, LT, ST }, brvText, depositText } либо { status:'need_login'|'error' }.
+export async function fetchTursbor(range, hostelId) {
+  if (!window.electronAPI?.emehmonTursbor) return { status: 'no_electron' };
+  try {
+    return await window.electronAPI.emehmonTursbor({ range, hostelId });
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
+// Логины по филиалам (без паролей) — чтобы форма настроек показывала текущий
+// логин и его не нужно было вводить заново ради смены пароля.
+export async function getEmehmonLogins() {
+  try {
+    const snap = await getDoc(accDoc());
+    const d = snap.exists() ? snap.data() : {};
+    return { hostel1: d.hostel1?.login || '', hostel2: d.hostel2?.login || '' };
+  } catch {
+    return { hostel1: '', hostel2: '' };
+  }
 }

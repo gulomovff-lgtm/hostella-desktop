@@ -175,6 +175,302 @@ const AllDone = ({ text }) => (
     </div>
 );
 
+// ─── Итог задекларированных в e-mehmon сумм (сверка с налоговой) ─────────────
+// Считаем по гостям, у которых есть дата регистрации в e-mehmon. Сумма берётся
+// из emehmonAmount (что реально указали в портале). У старых записей поля нет —
+// тогда там стояла 1, показываем их отдельной строкой, чтобы итог был честным.
+const TaxTotals = ({ guests = [] }) => {
+    const [offset, setOffset] = useState(0); // 0 — текущий месяц, -1 — прошлый…
+    const [open, setOpen] = useState(false);
+
+    const period = useMemo(() => {
+        const d = new Date();
+        d.setDate(1); d.setHours(0, 0, 0, 0);
+        d.setMonth(d.getMonth() + offset);
+        const from = new Date(d);
+        const to = new Date(d); to.setMonth(to.getMonth() + 1);
+        return { from, to, label: from.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }) };
+    }, [offset]);
+
+    const stats = useMemo(() => {
+        const s = { local: 0, localSum: 0, foreign: 0, foreignSum: 0, legacy: 0, byHostel: {} };
+        (guests || []).forEach(g => {
+            if (!g.emehmonRegAt) return;
+            const t = new Date(g.emehmonRegAt);
+            if (!(t >= period.from && t < period.to)) return;
+            const amt = Number(g.emehmonAmount);
+            const isLocal = (g.country || '') === 'Узбекистан';
+            if (!Number.isFinite(amt) || amt <= 1) { s.legacy++; return; }
+            if (isLocal) { s.local++; s.localSum += amt; } else { s.foreign++; s.foreignSum += amt; }
+            const h = g.hostelId || '—';
+            s.byHostel[h] = (s.byHostel[h] || 0) + amt;
+        });
+        s.total = s.localSum + s.foreignSum;
+        s.count = s.local + s.foreign;
+        return s;
+    }, [guests, period]);
+
+    const fmt = n => Number(n || 0).toLocaleString('ru-RU');
+    const hostelName = h => h === 'hostel1' ? 'Хостел №1' : h === 'hostel2' ? 'Хостел №2' : h;
+
+    return (
+        <div className="mt-4 bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
+                <span className="text-2xl">🧾</span>
+                <div className="flex-1 min-w-0">
+                    <div className="text-sm font-black text-slate-800">Показано в e-mehmon за месяц</div>
+                    <div className="text-xs text-slate-400">Сумма по всем регистрациям — для сверки с налоговой</div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => setOffset(o => o - 1)} title="Предыдущий месяц"
+                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"><ChevronLeft size={16} /></button>
+                    <span className="text-xs font-black text-slate-600 min-w-[110px] text-center capitalize">{period.label}</span>
+                    <button onClick={() => setOffset(o => Math.min(0, o + 1))} disabled={offset >= 0} title="Следующий месяц"
+                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 disabled:opacity-30"><ChevronRight size={16} /></button>
+                </div>
+                <div className="text-right shrink-0 pl-2 border-l-2 border-slate-100">
+                    <div className="text-xl font-black text-emerald-600 tabular-nums">{fmt(stats.total)}</div>
+                    <div className="text-[11px] font-bold text-slate-400">{stats.count} регистр.</div>
+                </div>
+                <button onClick={() => setOpen(o => !o)}
+                    className="shrink-0 p-2 rounded-lg hover:bg-slate-100 text-slate-400">
+                    {open ? <ChevronLeft size={16} className="rotate-90" /> : <ChevronRight size={16} className="rotate-90" />}
+                </button>
+            </div>
+
+            {open && (
+                <div className="border-t border-slate-100 px-4 py-3 space-y-2 bg-slate-50/60">
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">🇺🇿 Местные — <b>{stats.local}</b> чел.</span>
+                        <span className="font-black text-slate-800 tabular-nums">{fmt(stats.localSum)} сум</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">🌍 Иностранцы — <b>{stats.foreign}</b> чел.</span>
+                        <span className="font-black text-slate-800 tabular-nums">{fmt(stats.foreignSum)} сум</span>
+                    </div>
+                    {Object.keys(stats.byHostel).length > 1 && (
+                        <div className="pt-2 border-t border-slate-200 space-y-1">
+                            {Object.entries(stats.byHostel).map(([h, sum]) => (
+                                <div key={h} className="flex items-center justify-between text-xs">
+                                    <span className="text-slate-500">{hostelName(h)}</span>
+                                    <span className="font-bold text-slate-600 tabular-nums">{fmt(sum)} сум</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <div className="flex items-center justify-between pt-2 border-t-2 border-slate-200 text-base">
+                        <span className="font-black text-slate-700">Итого за {period.label}</span>
+                        <span className="font-black text-emerald-600 tabular-nums">{fmt(stats.total)} сум</span>
+                    </div>
+                    {stats.legacy > 0 && (
+                        <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                            ⚠️ Ещё {stats.legacy} регистр. оформлены до перехода на новые ставки (в портале стояла сумма 1) — в итог не включены.
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─── Турсбор: отчёт с портала e-mehmon (/tursborpays) ────────────────────────
+// Портал считает сбор сам: гости × прожитые сутки × % от БРВ. Тянем готовые
+// цифры по трём типам (иностранцы / местные / самостоятельные) за период.
+const TURSBOR_TYPES = [
+    { key: 'HT', label: 'Иностранцы',      emoji: '🌍', portalLabel: 'Туристический сбор с иностранных граждан' },
+    { key: 'LT', label: 'Местные',         emoji: '🇺🇿', portalLabel: 'Туристический сбор с местных граждан' },
+    { key: 'ST', label: 'Самост. туристы', emoji: '🎒', portalLabel: 'Самостоятельные туристы' },
+];
+
+// Периоды — те же пресеты, что в daterangepicker портала
+const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+const TURSBOR_RANGES = [
+    { key: 'prevMonth', label: 'За прошлый месяц', calc: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 0)]; } },
+    { key: 'thisMonth', label: 'В этом месяце',    calc: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 0)]; } },
+    { key: 'last30',    label: '30 дней ранее',    calc: () => { const n = new Date(); const f = new Date(n); f.setDate(f.getDate() - 29); return [f, n]; } },
+    { key: 'last7',     label: '7 дней ранее',     calc: () => { const n = new Date(); const f = new Date(n); f.setDate(f.getDate() - 6); return [f, n]; } },
+    { key: 'thisYear',  label: 'За текущий год',   calc: () => { const n = new Date(); return [new Date(n.getFullYear(), 0, 1), n]; } },
+    { key: 'prevYear',  label: 'За прошедший год', calc: () => { const n = new Date(); return [new Date(n.getFullYear() - 1, 0, 1), new Date(n.getFullYear() - 1, 11, 31)]; } },
+    { key: 'custom',    label: 'Другой период',    calc: null },
+];
+
+const TursborPanel = ({ hostelId }) => {
+    const [rangeKey, setRangeKey] = useState('prevMonth'); // как на портале
+    const [customFrom, setCustomFrom] = useState('');
+    const [customTo, setCustomTo] = useState('');
+    const [typeKey, setTypeKey] = useState('all');         // фильтр «Тип» как на портале
+    const [res, setRes] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [open, setOpen] = useState(false);
+
+    const period = useMemo(() => {
+        if (rangeKey === 'custom') {
+            if (!customFrom || !customTo) return { range: '', label: 'выберите даты' };
+            return { range: `${customFrom} ~ ${customTo}`, label: `${customFrom} — ${customTo}` };
+        }
+        const preset = TURSBOR_RANGES.find(r => r.key === rangeKey) || TURSBOR_RANGES[0];
+        const [from, to] = preset.calc();
+        return { range: `${iso(from)} ~ ${iso(to)}`, label: preset.label };
+    }, [rangeKey, customFrom, customTo]);
+
+    const load = async () => {
+        if (!window.electronAPI?.emehmonTursbor) return;
+        if (!period.range) return;
+        setLoading(true);
+        try {
+            const { fetchTursbor } = await import('../../utils/emehmon');
+            // Филиал обязателен: у каждого своя сессия e-mehmon и свои цифры
+            setRes(await fetchTursbor(period.range, hostelId));
+        } catch (e) {
+            setRes({ status: 'error', message: e?.message || String(e) });
+        } finally {
+            setLoading(false);
+        }
+    };
+    // Смена фильтров сбрасывает результат — цифры не должны «отставать» от периода
+    const changeRange = (k) => { setRangeKey(k); setRes(null); };
+
+    const fmt = n => Number(n || 0).toLocaleString('ru-RU');
+    const sumOf = (tp) => (res?.data?.[tp]?.rows || []).reduce((s, r) => s + (r.total || 0), 0);
+    const guestsOf = (tp) => (res?.data?.[tp]?.rows || []).reduce((s, r) => s + (r.guests || 0), 0);
+    const livedOf = (tp) => (res?.data?.[tp]?.rows || []).reduce((s, r) => s + (r.lived || 0), 0);
+    const grand = res?.status === 'ok' ? TURSBOR_TYPES.reduce((s, t) => s + sumOf(t.key), 0) : 0;
+    // Какие типы показываем: «все» или один выбранный (фильтр как на портале)
+    const shownTypes = typeKey === 'all' ? TURSBOR_TYPES : TURSBOR_TYPES.filter(t => t.key === typeKey);
+    const shownTotal = res?.status === 'ok' ? shownTypes.reduce((s, t) => s + sumOf(t.key), 0) : 0;
+
+    if (!window.electronAPI?.emehmonTursbor) return null;
+
+    return (
+        <div className="mt-3 bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
+                <span className="text-2xl">🏛</span>
+                <div className="flex-1 min-w-0">
+                    <div className="text-sm font-black text-slate-800">Турсбор — к оплате</div>
+                    <div className="text-xs text-slate-400">Данные с портала e-mehmon за выбранный месяц</div>
+                </div>
+                {res?.status === 'ok' && (
+                    <div className="text-right shrink-0 pl-2 border-l-2 border-slate-100">
+                        <div className="text-xl font-black text-indigo-600 tabular-nums">{fmt(shownTotal)}</div>
+                        <div className="text-[11px] font-bold text-slate-400">сум к оплате</div>
+                    </div>
+                )}
+            </div>
+
+            {/* Фильтры — как на портале: Тип + Период */}
+            <div className="px-4 pb-3 flex items-end gap-3 flex-wrap border-t border-slate-100 pt-3">
+                <div className="min-w-[210px]">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">Тип</label>
+                    <select value={typeKey} onChange={e => setTypeKey(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500">
+                        <option value="all">Все типы (итого)</option>
+                        {TURSBOR_TYPES.map(t => <option key={t.key} value={t.key}>{t.portalLabel}</option>)}
+                    </select>
+                </div>
+                <div className="min-w-[180px]">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">Период</label>
+                    <select value={rangeKey} onChange={e => changeRange(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500">
+                        {TURSBOR_RANGES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                    </select>
+                </div>
+                {rangeKey === 'custom' && (
+                    <div className="flex items-end gap-2">
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">С</label>
+                            <input type="date" value={customFrom} onChange={e => { setCustomFrom(e.target.value); setRes(null); }}
+                                className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">По</label>
+                            <input type="date" value={customTo} onChange={e => { setCustomTo(e.target.value); setRes(null); }}
+                                className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500" />
+                        </div>
+                    </div>
+                )}
+                <button onClick={() => { setOpen(true); load(); }} disabled={loading || !period.range}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-sm transition-all active:scale-95 disabled:opacity-50">
+                    <Search size={15} className={loading ? 'animate-pulse' : ''} />
+                    {loading ? 'Загружаю…' : res ? 'Обновить' : 'Показать'}
+                </button>
+                {period.range && <span className="text-[11px] text-slate-400 pb-2">{period.range}</span>}
+            </div>
+
+            {open && res && (
+                <div className="border-t border-slate-100 px-4 py-3 bg-slate-50/60">
+                    {res.status === 'need_login' && (
+                        <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                            ⚠️ Нужен вход в e-mehmon. Откройте любую регистрацию или вывод, войдите — затем нажмите «Показать» снова.
+                        </div>
+                    )}
+                    {res.status === 'error' && (
+                        <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                            Не удалось получить данные: {res.message || 'ошибка портала'}
+                        </div>
+                    )}
+                    {res.status === 'ok' && (
+                        <div className="space-y-2">
+                            {res.brvText && <div className="text-[11px] text-slate-400">{res.brvText}</div>}
+                            {shownTypes.map(t => {
+                                const rows = res.data?.[t.key]?.rows || [];
+                                const err = res.data?.[t.key]?.error;
+                                return (
+                                    <div key={t.key} className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+                                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                                            <span className="text-sm font-black text-slate-700">{t.emoji} {t.label}</span>
+                                            {err ? <span className="text-xs text-rose-500">{err}</span> : (
+                                                <span className="text-base font-black text-slate-800 tabular-nums">{fmt(sumOf(t.key))} сум</span>
+                                            )}
+                                        </div>
+                                        {!err && rows.length > 0 && (
+                                            <>
+                                                <div className="text-xs text-slate-500 mt-1 flex gap-4 flex-wrap">
+                                                    <span>гостей: <b className="text-slate-700">{fmt(guestsOf(t.key))}</b></span>
+                                                    <span>суток: <b className="text-slate-700">{fmt(livedOf(t.key))}</b></span>
+                                                    {rows[0]?.rate > 0 && <span>ставка: <b className="text-slate-700">{fmt(rows[0].rate)}</b></span>}
+                                                    {rows.length > 1 && <span className="text-slate-400">строк: {rows.length}</span>}
+                                                </div>
+                                                {/* Как прислал портал — для сверки, если цифра выглядит не так */}
+                                                <details className="mt-1.5">
+                                                    <summary className="text-[11px] text-slate-400 cursor-pointer hover:text-slate-600">как в портале</summary>
+                                                    <div className="mt-1 space-y-0.5">
+                                                        {rows.map((r, i) => (
+                                                            <div key={i} className="text-[11px] text-slate-500 flex gap-2 flex-wrap border-b border-slate-100 pb-0.5">
+                                                                <span className="font-semibold text-slate-600">{r.hotel || r.company || '—'}</span>
+                                                                <span>гостей «{r.rawGuests}»</span>
+                                                                <span>суток «{r.rawLived}»</span>
+                                                                <span>итого «{r.rawTotal}»</span>
+                                                                <span className="text-slate-400">→ {fmt(r.total)}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </details>
+                                            </>
+                                        )}
+                                        {!err && rows.length === 0 && <div className="text-xs text-slate-400 mt-1">за период записей нет</div>}
+                                    </div>
+                                );
+                            })}
+                            <div className="flex items-center justify-between pt-2 border-t-2 border-slate-200 text-base">
+                                <span className="font-black text-slate-700">
+                                    Итого · {period.label}{typeKey !== 'all' && <span className="text-xs font-bold text-slate-400"> (только выбранный тип)</span>}
+                                </span>
+                                <span className="font-black text-indigo-600 tabular-nums">{fmt(shownTotal)} сум</span>
+                            </div>
+                            {typeKey !== 'all' && grand !== shownTotal && (
+                                <div className="text-xs text-slate-500 text-right">По всем типам: <b>{fmt(grand)} сум</b></div>
+                            )}
+                            {res.depositText && (
+                                <div className="text-xs text-slate-500 bg-slate-100 rounded-lg px-2.5 py-1.5">{res.depositText}</div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const RegistrationsView = ({
     registrations = [],
@@ -365,6 +661,12 @@ const RegistrationsView = ({
                                 hint="Зарегистрированы и проживают"
                                 disabled={registered.length + inCadastre.length === 0} />
                         </div>
+
+                        {/* Итог задекларированных сумм — сверка с налоговой */}
+                        <TaxTotals guests={guests} />
+
+                        {/* Турсбор к оплате — с портала e-mehmon (сессия своего филиала) */}
+                        <TursborPanel hostelId={emehmonHostelId} />
 
                         {/* Поиск по всем регистрациям */}
                         <div className="mt-6">

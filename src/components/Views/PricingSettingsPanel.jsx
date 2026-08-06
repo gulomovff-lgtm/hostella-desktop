@@ -91,6 +91,9 @@ const PricingSettingsPanel = ({ notify }) => {
         ...mkSet(s.base, s.packageMinDays ?? p.packageMinDays, s.packagePrice ?? p.packagePrice),
     })));
     const [saving, setSaving] = useState(false);
+    // Ставки, которые указываются в поле «Сумма оплаты» портала e-mehmon
+    const [emLocal, setEmLocal] = useState(String(cfg.emehmonAmountLocal ?? 30000));
+    const [emForeign, setEmForeign] = useState(String(cfg.emehmonAmountForeign ?? 50000));
 
     const addSeason = () => setSeasons(s => [...s, { id: newSeasonId(), open: true, name: '', from: '', to: '', ...mkSet(p.base, p.packageMinDays, p.packagePrice) }]);
     const updSeason = (id, patch) => setSeasons(s => s.map(x => x.id === id ? { ...x, ...patch } : x));
@@ -115,6 +118,8 @@ const PricingSettingsPanel = ({ notify }) => {
                 pricing,
                 priceBotToken: botToken.trim(),
                 priceApprovalChatIds: chatIds.split(',').map(x => x.trim()).filter(Boolean),
+                emehmonAmountLocal: parseInt(emLocal) || 30000,
+                emehmonAmountForeign: parseInt(emForeign) || 50000,
             });
             notify?.('Цены сохранены', 'success');
         } catch (e) {
@@ -137,6 +142,24 @@ const PricingSettingsPanel = ({ notify }) => {
                 <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase">Chat ID одобряющих</label>
                     <input className={inp} value={chatIds} onChange={e => setChatIds(e.target.value)} placeholder="6953132612, 7029598539" autoComplete="off" />
+                </div>
+            </div>
+
+            {/* Ставки e-mehmon (налоговая отчётность) */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                <div className="font-black text-slate-800 flex items-center gap-2">🧾 Суммы в e-mehmon</div>
+                <p className="text-xs text-slate-400">Что подставляется в поле «Сумма оплаты» при регистрации гостя в портале. Итог за месяц виден во вкладке E-mehmon — сверяйте с налоговой.</p>
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">🇺🇿 Граждане Узбекистана</label>
+                        <input className={inp} value={emLocal} inputMode="numeric"
+                            onChange={e => setEmLocal(e.target.value.replace(/\D/g, ''))} placeholder="30000" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">🌍 Иностранные граждане</label>
+                        <input className={inp} value={emForeign} inputMode="numeric"
+                            onChange={e => setEmForeign(e.target.value.replace(/\D/g, ''))} placeholder="50000" />
+                    </div>
                 </div>
             </div>
 

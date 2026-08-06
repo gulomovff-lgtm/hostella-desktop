@@ -158,6 +158,9 @@ export function useGuestActions(ctx) {
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), trimRestore);
       } else if (item.type === 'expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
+      } else if (item.type === 'expense_bulk') {
+        // Массовое добавление расходов — удаляем все созданные записи разом
+        (item.expenseIds || []).forEach(eid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', eid)));
       } else if (item.type === 'cadastre_expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', item.regId), {

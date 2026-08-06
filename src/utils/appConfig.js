@@ -40,6 +40,11 @@ export const DEFAULT_APP_CONFIG = {
         // [{ id, name, from:'06-01', to:'08-31', base:{hostel1:{default,rooms},hostel2:{…}}, package:{…}, packageMinDays }]
         seasons: [],
     },
+    // e-mehmon: какая сумма указывается в поле «Сумма оплаты» при регистрации.
+    // Влияет на налоговую отчётность — сумма по всем регистрациям за месяц
+    // должна совпадать с декларируемой. Раньше подставлялась 1.
+    emehmonAmountLocal: 30000,     // граждане Узбекистана
+    emehmonAmountForeign: 50000,   // иностранные граждане
     // Интеграция с сайтом hostella.uz: обратная связь по броням (подтверждение/отмена)
     siteCallbackUrl: 'https://hostella.uz/crm-callback.php',
     siteCallbackKey: 'hst-cb-a81f37c2d94e',   // должен совпадать с CRM_CALLBACK_KEY на сайте

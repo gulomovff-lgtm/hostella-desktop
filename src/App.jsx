@@ -39,6 +39,7 @@ import {
   getNormalizedCountry,
   getKppDayNumber,
   getRegistrationWindow,
+  emehmonAmountFor,
   Flag
 } from './utils/helpers';
 import { sendTelegramMessage } from './utils/telegram';
@@ -1247,7 +1248,8 @@ function App() {
         for (const g of toMark) {
           try {
             await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-              { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true });
+              { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
+                emehmonAmount: emehmonAmountFor(g.country) });
           } catch (_) { /* пропускаем */ }
         }
         // Сверка «зарегистрирован»: активный гость своего филиала помечен emehmonReg,
@@ -1333,7 +1335,8 @@ function App() {
               const st = reg?.status;
               if (st === 'done') {
                 await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                  { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true, emehmonRegError: deleteField() });
+                  { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
+                    emehmonRegError: deleteField(), emehmonAmount: emehmonAmountFor(g.country) });
                 showNotification(`${g.fullName} — зарегистрирован в e-mehmon (авто) ✓`, 'success');
               } else if (st === 'not_found') {
                 await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
@@ -1375,6 +1378,23 @@ function App() {
     return () => { clearTimeout(t); clearInterval(iv); };
   }, [currentUser]);
 
+  // Админ переключил филиал → сразу тянем список ЭТОГО филиала (у каждого своя
+  // сессия e-mehmon). Иначе на экране до 5 минут висели бы данные прошлого хостела.
+  const emehmonHostelRef = useRef(null);
+  useEffect(() => {
+    if (!window.electronAPI?.emehmonList || !currentUser) return;
+    const hid = (currentUser.hostelId && currentUser.hostelId !== 'all')
+      ? currentUser.hostelId
+      : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1');
+    if (emehmonHostelRef.current === hid) return;      // филиал не менялся
+    const first = emehmonHostelRef.current === null;
+    emehmonHostelRef.current = hid;
+    if (first) return;                                  // первый заход покрыт таймером выше
+    setEmehmonList([]);                                 // не показываем чужой список, пока грузится
+    const t = setTimeout(() => emehmonSyncRef.current(false), 400);
+    return () => clearTimeout(t);
+  }, [currentUser, selectedHostelFilter]);
+
   // Полная авто-регистрация прибытия (граждане Узбекистана) в фоне.
   const emehmonAutoBusy = useRef(new Set()); // guestId в процессе — защита от дубля листка
   const handleEmehmonAutoArrival = useCallback(async (guest) => {
@@ -1386,7 +1406,8 @@ function App() {
     if (guest.id) emehmonAutoBusy.current.delete(guest.id);
     const st = res?.status;
     if (st === 'done') {
-      handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true, emehmonRegError: deleteField() });
+      handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
+        emehmonRegError: deleteField(), emehmonAmount: emehmonAmountFor(guest.country) });
       showNotification(`${guest.fullName} — зарегистрирован в e-mehmon ✓`, 'success');
     } else if (st === 'need_login') {
       showNotification('Войдите в e-mehmon (окно открыто) — затем регистрация продолжится.', 'info');
@@ -1417,7 +1438,9 @@ function App() {
         id = g?.id;
       }
       if (id) {
-        handleEmehmonFlag(id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true });
+        const regGuest = (guestsRef.current || []).find(x => x.id === id);
+        handleEmehmonFlag(id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
+          emehmonAmount: emehmonAmountFor(regGuest?.country) });
         showNotification('Гость зарегистрирован в e-mehmon ✓', 'success');
       }
     });
@@ -1547,7 +1570,7 @@ function App() {
     setUndoStack,
   });
 
-  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
+  const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
     guests, clients,
@@ -2733,6 +2756,8 @@ return (
                         onAddRecurringAdvance={handleAddRecurringAdvance}
                         recurringAdvances={getRecurringAdvances()}
                         onUpdateExpense={handleUpdateExpense}
+                        onAddExpensesBulk={handleAddExpensesBulk}
+                        notify={showNotification}
                         selectedHostelFilter={selectedHostelFilter}
                     />
                 )}

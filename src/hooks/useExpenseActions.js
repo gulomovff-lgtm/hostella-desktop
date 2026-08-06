@@ -91,6 +91,69 @@ export function useExpenseActions({
     }
   };
 
+  /**
+   * Массовое добавление расходов одним числом (одной датой).
+   * items: [{ category, amount, comment }] — создаются одной пачкой:
+   * одно уведомление, одна запись в отмене, один свод в Telegram.
+   */
+  const handleAddExpensesBulk = async (items = [], dateIso) => {
+    const list = (items || [])
+      .map(i => ({ ...i, amount: Number(i.amount) || 0 }))
+      .filter(i => i.category && i.amount > 0);
+    if (!list.length) return { ok: 0 };
+
+    const isFazliddin = currentUser.login === 'fazliddin';
+    const hostelId = (currentUser.role === 'admin' || currentUser.role === 'super')
+      ? selectedHostelFilter
+      : isFazliddin
+        ? ((selectedHostelFilter && selectedHostelFilter !== 'all') ? selectedHostelFilter : currentUser.hostelId)
+        : currentUser.hostelId;
+    const date = dateIso || new Date().toISOString();
+    const ids = [];
+    let failed = 0;
+
+    for (const d of list) {
+      try {
+        const skipCashbox = !!d.skipCashbox || (isFazliddin && hostelId === 'hostel1');
+        const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
+          category: d.category,
+          amount: d.amount,
+          comment: buildExpenseComment(d),
+          hostelId,
+          staffId: currentUser.id || currentUser.login,
+          date,
+          skipCashbox,
+        });
+        ids.push(ref.id);
+        logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment, bulk: true });
+      } catch (e) {
+        failed++;
+        console.error('Ошибка массового расхода:', e);
+      }
+    }
+
+    const total = list.reduce((s, i) => s + i.amount, 0);
+    if (ids.length) {
+      pushUndo({
+        type: 'expense_bulk',
+        label: `Массовый расход: ${ids.length} шт. на ${total.toLocaleString()} сум`,
+        expenseIds: ids,
+      });
+      // Сводка в Telegram — одним сообщением вместо десятка
+      if (currentUser.role !== 'admin' && currentUser.role !== 'super') {
+        const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
+        const lines = list.map(i => `• ${i.category}: ${i.amount.toLocaleString()} сум${i.comment ? ' — ' + i.comment : ''}`).join('\n');
+        const tgMsg = `💳 <b>Расходы (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>Итого: ${total.toLocaleString()} сум</b>\n👤 Кассир: ${currentUser.name || currentUser.login}`;
+        if (isOnline) await sendTelegramMessage(tgMsg, 'expenseAdded');
+        else enqueueTelegram(tgMsg, 'expenseAdded');
+      }
+    }
+    showNotification(
+      failed ? `Добавлено ${ids.length}, ошибок ${failed}` : `Добавлено расходов: ${ids.length} на ${total.toLocaleString()} сум`,
+      failed ? 'warning' : 'success');
+    return { ok: ids.length, failed, total };
+  };
+
   const handleDeletePayment = async (id, type, record = {}) => {
     // Сначала корректируем баланс гостя, потом удаляем запись —
     // чтобы при сбое платёж остался и его можно было попробовать снова
@@ -322,5 +385,5 @@ export function useExpenseActions({
     }
   };
 
-  return { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense };
+  return { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense };
 }

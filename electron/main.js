@@ -5,7 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript, buildAutoArrivalScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -35,8 +35,9 @@ const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.
 let mainWindow;
 let emehmonWindow = null;
 let arrivalPayload = null; // текущий payload окна прибытия (для авто-галочки на нужного гостя)
-let departureWindow = null;
-let autoArrivalWindow = null;
+const departureWindows = {};   // partition -> скрытое окно убытия/списков
+const autoArrivalWindows = {}; // partition -> скрытое окно авто-регистрации
+let emehmonWindowPartition = null; // партиция открытого окна прибытия
 let autoArrivalChain = Promise.resolve(); // сериализация авто-регистраций (по одной за раз)
 let isDownloading = false;
 let isUpdateDownloaded = false;
@@ -156,6 +157,20 @@ function createWindow() {
   }
 }
 
+// ─── e-mehmon: сессия НА КАЖДЫЙ ФИЛИАЛ ────────────────────────────────────────
+// У каждого филиала свой аккаунт e-mehmon, а сессия в Electron — это одна «банка
+// с cookie». Раньше все окна жили в общей persist:emehmon, поэтому одновременно
+// мог быть залогинен только ОДИН аккаунт: кассир этого не замечал (он всегда в
+// своём филиале), а админ при переключении филиалов получал списки того хостела,
+// под которым портал залогинен последним. Отдельная партиция на филиал решает
+// это: оба аккаунта живут параллельно, переключение не требует перелогина.
+const emehmonPartition = (hostelId) => {
+  const id = String(hostelId || '').trim();
+  // Только известный формат идентификатора — имя партиции не должно зависеть
+  // от произвольной строки, пришедшей из рендерера.
+  return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? `persist:emehmon-${id}` : 'persist:emehmon';
+};
+
 // ─── e-mehmon: встроенное окно регистрации иностранцев ──────────────────────
 // Открывает дочернее окно с порталом e-mehmon в отдельной постоянной сессии
 // (логин/капча сохраняются) и инжектит автозаполнение. Логин/пароль приходят
@@ -165,12 +180,20 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
     arrivalPayload = guest || {};
     const payload = arrivalPayload;
 
+    const part = emehmonPartition(payload.hostelId);
+    // Партиция задаётся при создании окна: если гость из другого филиала —
+    // старое окно пересоздаём, иначе попадём в чужую сессию.
+    if (emehmonWindow && !emehmonWindow.isDestroyed() && emehmonWindowPartition !== part) {
+      try { emehmonWindow.destroy(); } catch (_) {}
+      emehmonWindow = null;
+    }
     if (emehmonWindow && !emehmonWindow.isDestroyed()) {
       emehmonWindow.focus();
       // окно переиспользуется — обновляем данные/кнопку под нового гостя
       emehmonWindow.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
       return true;
     }
+    emehmonWindowPartition = part;
     emehmonWindow = new BrowserWindow({
       width: 1200,
       height: 860,
@@ -178,7 +201,7 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
       title: 'e-mehmon — регистрация иностранцев',
       autoHideMenuBar: true,
       webPreferences: {
-        partition: 'persist:emehmon', // отдельная сессия с сохранением логина
+        partition: part, // сессия своего филиала (логин сохраняется отдельно)
         contextIsolation: true,
         nodeIntegration: false,
         webSecurity: true,
@@ -237,9 +260,13 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
 //  • print:true  → окно показывается, чтобы был виден диалог печати листа убытия;
 //  • проблема (вход/не найден/неоднозначно) → окно всплывает для ручного завершения.
 // Создаёт (или переиспользует) скрытое окно убытия в сессии persist:emehmon.
-function ensureDepartureWindow() {
-  if (departureWindow && !departureWindow.isDestroyed()) return departureWindow;
-  departureWindow = new BrowserWindow({
+// По одному скрытому окну на филиал — каждое в своей сессии, поэтому оба
+// аккаунта e-mehmon остаются залогинены и переключение филиала ничего не рвёт.
+function ensureDepartureWindow(hostelId) {
+  const part = emehmonPartition(hostelId);
+  const cur = departureWindows[part];
+  if (cur && !cur.isDestroyed()) return cur;
+  const win = new BrowserWindow({
     width: 1200,
     height: 860,
     parent: mainWindow,
@@ -247,31 +274,32 @@ function ensureDepartureWindow() {
     title: 'e-mehmon — убытие',
     autoHideMenuBar: true,
     webPreferences: {
-      partition: 'persist:emehmon', // та же сессия, что и окно прибытия
+      partition: part, // сессия своего филиала
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
     },
   });
-  departureWindow.setMenuBarVisibility(false);
-  departureWindow.on('closed', () => { departureWindow = null; });
+  win.setMenuBarVisibility(false);
+  win.on('closed', () => { delete departureWindows[part]; });
   // e-mehmon при печати открывает лист убытия отдельным окном — показываем его.
-  departureWindow.webContents.setWindowOpenHandler(() => ({
+  win.webContents.setWindowOpenHandler(() => ({
     action: 'allow',
     overrideBrowserWindowOptions: {
       parent: mainWindow,
       autoHideMenuBar: true,
-      webPreferences: { partition: 'persist:emehmon' },
+      webPreferences: { partition: part },
     },
   }));
-  return departureWindow;
+  departureWindows[part] = win;
+  return win;
 }
 
 ipcMain.handle('emehmon-departure', async (_event, guest) => {
   const payload = guest || {};
   const wantVisible = !!payload.print;
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(payload.hostelId);
     // Свежая загрузка списка (фолбэк на /login, если не залогинен)
     await win.loadURL('https://emehmon.uz/listok');
     if (wantVisible) { win.show(); win.focus(); }
@@ -297,7 +325,8 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
     return result || { status };
   } catch (e) {
     log.error('[emehmon] departure failed:', e.message);
-    if (departureWindow && !departureWindow.isDestroyed()) { departureWindow.show(); }
+    const w = departureWindows[emehmonPartition(payload.hostelId)];
+    if (w && !w.isDestroyed()) { w.show(); }
     return { status: 'error', message: e.message };
   }
 });
@@ -309,7 +338,7 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
 ipcMain.handle('emehmon-check', async (_event, guest) => {
   const payload = guest || {};
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(payload.hostelId);
     await win.loadURL('https://emehmon.uz/listok');
     let result;
     try {
@@ -335,24 +364,27 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
 // Скрытое окно, полный прогон мастера. Успех → прячем + возвращаем done.
 // Любой сбой → показываем окно кассиру с ручным автозаполнением. Регистрации
 // сериализованы (autoArrivalChain), чтобы не гонять несколько сразу.
-function ensureAutoArrivalWindow() {
-  if (autoArrivalWindow && !autoArrivalWindow.isDestroyed()) return autoArrivalWindow;
-  autoArrivalWindow = new BrowserWindow({
+function ensureAutoArrivalWindow(hostelId) {
+  const part = emehmonPartition(hostelId);
+  const cur = autoArrivalWindows[part];
+  if (cur && !cur.isDestroyed()) return cur;
+  const win = new BrowserWindow({
     width: 1200, height: 860, parent: mainWindow, show: false,
     title: 'e-mehmon — авто-регистрация',
     autoHideMenuBar: true,
     webPreferences: {
-      partition: 'persist:emehmon',
+      partition: part, // сессия своего филиала
       contextIsolation: true, nodeIntegration: false, webSecurity: true,
     },
   });
-  autoArrivalWindow.setMenuBarVisibility(false);
-  autoArrivalWindow.on('closed', () => { autoArrivalWindow = null; });
-  return autoArrivalWindow;
+  win.setMenuBarVisibility(false);
+  win.on('closed', () => { delete autoArrivalWindows[part]; });
+  autoArrivalWindows[part] = win;
+  return win;
 }
 
 async function runAutoArrival(payload) {
-  const win = ensureAutoArrivalWindow();
+  const win = ensureAutoArrivalWindow(payload && payload.hostelId);
   await win.loadURL('https://emehmon.uz/listok/create-page');
   let result;
   try {
@@ -379,7 +411,8 @@ ipcMain.handle('emehmon-arrival-auto', (_event, guest) => {
   const payload = guest || {};
   const run = autoArrivalChain.then(() => runAutoArrival(payload).catch((e) => {
     log.error('[emehmon] auto-arrival failed:', e.message);
-    if (autoArrivalWindow && !autoArrivalWindow.isDestroyed()) autoArrivalWindow.show();
+    const w = autoArrivalWindows[emehmonPartition(payload.hostelId)];
+    if (w && !w.isDestroyed()) w.show();
     return { status: 'error', message: e.message };
   }));
   autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
@@ -393,7 +426,7 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
   const data = payload || {};
   const wantVisible = !!data.print;
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(data.hostelId);
     await win.loadURL('https://emehmon.uz/listok');
     if (wantVisible) { win.show(); win.focus(); }
     let result;
@@ -414,7 +447,8 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
     return result || { status };
   } catch (e) {
     log.error('[emehmon] bulk departure failed:', e.message);
-    if (departureWindow && !departureWindow.isDestroyed()) { departureWindow.show(); }
+    const w = departureWindows[emehmonPartition(data.hostelId)];
+    if (w && !w.isDestroyed()) { w.show(); }
     return { status: 'error', message: e.message };
   }
 });
@@ -425,7 +459,7 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
 ipcMain.handle('emehmon-list', async (_event, payload) => {
   const data = payload || {};
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(data.hostelId);
     await win.loadURL('https://emehmon.uz/listok');
     let result;
     try {
@@ -439,6 +473,27 @@ ipcMain.handle('emehmon-list', async (_event, payload) => {
     return result || { status: (result && result.status) || 'error' };
   } catch (e) {
     log.error('[emehmon] list failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
+
+// Турсбор: отчёт с /tursborpays за период (фоново, как и список листков).
+// payload: { range: 'YYYY-MM-DD ~ YYYY-MM-DD', hostelId }
+ipcMain.handle('emehmon-tursbor', async (_event, payload) => {
+  const data = payload || {};
+  try {
+    const win = ensureDepartureWindow(data.hostelId);
+    await win.loadURL('https://emehmon.uz/tursborpays');
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildTursborFetchScript(data), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    win.hide();
+    return result || { status: 'error' };
+  } catch (e) {
+    log.error('[emehmon] tursbor failed:', e.message);
     return { status: 'error', message: e.message };
   }
 });

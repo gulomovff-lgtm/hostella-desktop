@@ -225,6 +225,8 @@ export default function ExpensesView({
     recurringAdvances = {},
     onBackfillComments,
     onUpdateExpense,
+    onAddExpensesBulk,
+    notify,
     currentUser,
     selectedHostelFilter,
     lang = 'ru',
@@ -434,6 +436,90 @@ export default function ExpensesView({
         }
         setMovingId(null); setMoveTarget(''); setMoveStaff('');
     }, [moveTarget, moveStaff, onEditExpenseCategory, onUpdateExpense]);
+
+    // ── Массовое добавление расходов одним числом ─────────────────────────────
+    const [bulkAddOpen, setBulkAddOpen] = useState(false);
+    const [bulkDate, setBulkDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [bulkRows, setBulkRows] = useState([{ id: 1, category: '', amount: '', comment: '' }]);
+    const [bulkAddBusy, setBulkAddBusy] = useState(false);
+    const bulkRowId = useRef(1);
+
+    const addBulkRow = () => setBulkRows(r => [...r, { id: ++bulkRowId.current, category: '', amount: '', comment: '' }]);
+    const updBulkRow = (id, patch) => setBulkRows(r => r.map(x => x.id === id ? { ...x, ...patch } : x));
+    const delBulkRow = (id) => setBulkRows(r => r.length > 1 ? r.filter(x => x.id !== id) : r);
+    const bulkAddTotal = useMemo(
+        () => bulkRows.reduce((s, r) => s + (parseInt(r.amount, 10) || 0), 0), [bulkRows]);
+    const bulkAddValid = bulkRows.filter(r => r.category && (parseInt(r.amount, 10) || 0) > 0);
+
+    const submitBulkAdd = async () => {
+        if (!bulkAddValid.length || bulkAddBusy) return;
+        setBulkAddBusy(true);
+        try {
+            // Дата одна на все записи — «одним числом»
+            const d = new Date(bulkDate + 'T12:00:00');
+            await onAddExpensesBulk?.(
+                bulkAddValid.map(r => ({ category: r.category, amount: parseInt(r.amount, 10), comment: r.comment })),
+                isNaN(d.getTime()) ? undefined : d.toISOString());
+            setBulkRows([{ id: ++bulkRowId.current, category: '', amount: '', comment: '' }]);
+            setBulkAddOpen(false);
+        } finally {
+            setBulkAddBusy(false);
+        }
+    };
+
+    // ── Массовое выделение и перенос ──────────────────────────────────────────
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(() => new Set());
+    const [bulkTarget, setBulkTarget] = useState('');
+    const [bulkStaff, setBulkStaff] = useState('');
+    const [bulkBusy, setBulkBusy] = useState(false);
+
+    const toggleSelected = useCallback((id) => {
+        setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    }, []);
+    const clearSelection = useCallback(() => { setSelectedIds(new Set()); setBulkTarget(''); setBulkStaff(''); }, []);
+    const exitSelectMode = useCallback(() => { setSelectMode(false); clearSelection(); }, [clearSelection]);
+
+    const selectedList = useMemo(
+        () => filteredExpenses.filter(e => selectedIds.has(e.id)),
+        [filteredExpenses, selectedIds]);
+    const selectedSum = useMemo(
+        () => selectedList.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+        [selectedList]);
+
+    // Выделить/снять все записи конкретной категории
+    const toggleCategorySelection = useCallback((catName, items) => {
+        const ids = items.map(e => e.id);
+        setSelectedIds(prev => {
+            const n = new Set(prev);
+            const allIn = ids.length > 0 && ids.every(id => n.has(id));
+            ids.forEach(id => allIn ? n.delete(id) : n.add(id));
+            return n;
+        });
+    }, []);
+
+    const handleBulkMove = useCallback(async () => {
+        if (!bulkTarget || selectedIds.size === 0 || bulkBusy) return;
+        if (bulkTarget === 'Зарплата' && !bulkStaff) return;
+        setBulkBusy(true);
+        let ok = 0, failed = 0;
+        for (const e of selectedList) {
+            try {
+                if (bulkTarget === 'Зарплата') {
+                    if (!onUpdateExpense) { failed++; continue; }
+                    await onUpdateExpense(e.id, { category: 'Зарплата', targetStaffId: bulkStaff });
+                } else if (onEditExpenseCategory) {
+                    await onEditExpenseCategory(e.id, bulkTarget);
+                } else { failed++; continue; }
+                ok++;
+            } catch { failed++; }
+        }
+        setBulkBusy(false);
+        clearSelection();
+        setSelectMode(false);
+        if (failed > 0) notify?.(`Перенесено ${ok}, не удалось ${failed}`, 'warning');
+        else notify?.(`Перенесено расходов: ${ok} → «${bulkTarget}»`, 'success');
+    }, [bulkTarget, bulkStaff, bulkBusy, selectedIds, selectedList, onEditExpenseCategory, onUpdateExpense, clearSelection, notify]);
 
     // ── List view helpers ─────────────────────────────────────────────────────
     const cats = useMemo(() => Array.from(new Set(filteredExpenses.filter(e => e.category !== 'Возврат').map(e => e.category).filter(Boolean))), [filteredExpenses]);
@@ -692,6 +778,19 @@ export default function ExpensesView({
                             <FileText size={15} /> Описания
                         </button>
                     )}
+                    {/* Выделение нескольких расходов для массового переноса */}
+                    <button onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+                        title="Выделить несколько расходов и перенести в другой раздел"
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                            selectMode ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                        <ArrowRightLeft size={15} /> {selectMode ? 'Отменить выделение' : 'Перенести'}
+                    </button>
+                    {onAddExpensesBulk && (
+                        <button onClick={() => setBulkAddOpen(true)} title="Добавить несколько расходов одной датой"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors">
+                            <ClipboardList size={15} /> Массово
+                        </button>
+                    )}
                     <button onClick={() => onAddExpense?.()} className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold bg-rose-500 hover:bg-rose-600 text-white shadow-sm shadow-rose-200 transition-colors">
                         <Plus size={16} /> {t('addExpense2')}
                     </button>
@@ -886,23 +985,30 @@ export default function ExpensesView({
                                                     const d = new Date(e.date);
                                                     const dateStr = `${d.getDate()} ${d.toLocaleDateString('ru', { month: 'short' })}`;
                                                     const isMovingThis = movingId === e.id;
+                                                    const isSel = selectedIds.has(e.id);
                                                     return (
                                                         <div key={e.id}>
-                                                            <div className="group flex items-center gap-1.5 py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors">
+                                                            <div className={`group flex items-center gap-1.5 py-1 px-1 rounded-lg transition-colors ${isSel ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
+                                                                {selectMode && (
+                                                                    <input type="checkbox" checked={isSel} onChange={() => toggleSelected(e.id)}
+                                                                        className="w-4 h-4 shrink-0 accent-indigo-600 cursor-pointer" />
+                                                                )}
                                                                 <span className="text-[11px] text-slate-400 shrink-0 w-10 tabular-nums">{dateStr}</span>
                                                                 <span className="flex-1 text-[12px] text-slate-600 truncate min-w-0">{e.comment || '—'}</span>
                                                                 <span className="text-[12px] font-black shrink-0 tabular-nums" style={{ color: catClr(m) }}>{fmt(e.amount)}</span>
-                                                                {onEditExpenseCategory && (
+                                                                {!selectMode && onEditExpenseCategory && (
                                                                     <button onClick={() => { setMovingId(isMovingThis ? null : e.id); setMoveTarget(''); setMoveStaff(''); }} title="Переместить"
                                                                         className={`w-5 h-5 shrink-0 flex items-center justify-center rounded transition-colors opacity-0 group-hover:opacity-100
                                                                             ${isMovingThis ? 'opacity-100 bg-indigo-100 text-indigo-600' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}>
                                                                         <ArrowRightLeft size={10} />
                                                                     </button>
                                                                 )}
-                                                                <button onClick={() => setConfirmDeleteExp(e)}
-                                                                    className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100">
-                                                                    <Trash2 size={10} />
-                                                                </button>
+                                                                {!selectMode && (
+                                                                    <button onClick={() => setConfirmDeleteExp(e)}
+                                                                        className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100">
+                                                                        <Trash2 size={10} />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                             {isMovingThis && <MoveForm expId={e.id} currentCat={cat} />}
                                                         </div>
@@ -1319,6 +1425,104 @@ export default function ExpensesView({
                             <button onClick={() => { handleArchiveCat(confirmArchiveCat); setConfirmArchiveCat(null); }}
                                 className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-colors">
                                 В архив
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Панель массового переноса (появляется при выделении) ── */}
+            {selectMode && selectedIds.size > 0 && (
+                <div className="sticky bottom-4 z-30 mt-4">
+                    <div className="mx-auto max-w-4xl bg-white rounded-2xl border-2 border-indigo-300 shadow-2xl px-4 py-3 flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-2 shrink-0">
+                            <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 font-black">{selectedIds.size}</div>
+                            <div>
+                                <div className="text-sm font-black text-slate-800">Выбрано расходов</div>
+                                <div className="text-xs text-slate-500 tabular-nums">на {fmt(selectedSum)} сум</div>
+                            </div>
+                        </div>
+                        <div className="flex-1 min-w-[180px]">
+                            <select value={bulkTarget} onChange={e => { setBulkTarget(e.target.value); setBulkStaff(''); }}
+                                className="w-full px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500">
+                                <option value="">— перенести в раздел —</option>
+                                {allCatNames.map(c => <option key={c} value={c}>{getCat(c).icon} {c}</option>)}
+                            </select>
+                        </div>
+                        {bulkTarget === 'Зарплата' && (
+                            <div className="min-w-[170px]">
+                                <select value={bulkStaff} onChange={e => setBulkStaff(e.target.value)}
+                                    className="w-full px-3 py-2 bg-white border-2 border-amber-300 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-amber-500">
+                                    <option value="">— кому засчитать —</option>
+                                    {usersList.map(u => <option key={u.id || u.login} value={u.id || u.login}>{u.name || u.login}</option>)}
+                                </select>
+                            </div>
+                        )}
+                        <button onClick={handleBulkMove}
+                            disabled={!bulkTarget || bulkBusy || (bulkTarget === 'Зарплата' && !bulkStaff)}
+                            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-sm transition-all active:scale-95 disabled:opacity-40">
+                            {bulkBusy ? 'Переношу…' : 'Перенести'}
+                        </button>
+                        <button onClick={exitSelectMode} className="p-2.5 rounded-xl text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Массовое добавление расходов одним числом ── */}
+            {bulkAddOpen && (
+                <div className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => !bulkAddBusy && setBulkAddOpen(false)}>
+                    <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+                            <div className="flex items-center gap-2 font-black text-slate-800">
+                                <ClipboardList size={18} className="text-rose-500" /> Массовое добавление расходов
+                            </div>
+                            <button onClick={() => setBulkAddOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
+                        </div>
+
+                        <div className="px-5 py-3 border-b border-slate-100 shrink-0 flex items-center gap-3 flex-wrap">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Дата (одна на все)</label>
+                                <input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)}
+                                    className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400" />
+                            </div>
+                            <div className="ml-auto text-right">
+                                <div className="text-[10px] font-black text-slate-400 uppercase">Итого</div>
+                                <div className="text-xl font-black text-rose-600 tabular-nums">{fmt(bulkAddTotal)} сум</div>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+                            {bulkRows.map((r, i) => (
+                                <div key={r.id} className="flex items-center gap-2">
+                                    <span className="text-xs font-black text-slate-300 w-5 shrink-0 text-right">{i + 1}</span>
+                                    <select value={r.category} onChange={e => updBulkRow(r.id, { category: e.target.value })}
+                                        className="w-[34%] px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400">
+                                        <option value="">— категория —</option>
+                                        {allCatNames.map(c => <option key={c} value={c}>{getCat(c).icon} {c}</option>)}
+                                    </select>
+                                    <input value={r.amount} inputMode="numeric" placeholder="Сумма"
+                                        onChange={e => updBulkRow(r.id, { amount: e.target.value.replace(/\D/g, '') })}
+                                        onKeyDown={e => { if (e.key === 'Enter' && i === bulkRows.length - 1) addBulkRow(); }}
+                                        className="w-[22%] px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-black text-right tabular-nums text-slate-800 outline-none focus:border-rose-400" />
+                                    <input value={r.comment} placeholder="Комментарий (необязательно)"
+                                        onChange={e => updBulkRow(r.id, { comment: e.target.value })}
+                                        className="flex-1 min-w-0 px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm text-slate-700 outline-none focus:border-rose-400" />
+                                    <button onClick={() => delBulkRow(r.id)} disabled={bulkRows.length === 1}
+                                        className="p-2 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 disabled:opacity-30 shrink-0"><Trash2 size={14} /></button>
+                                </div>
+                            ))}
+                            <button onClick={addBulkRow}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 text-sm font-bold hover:border-rose-400 hover:text-rose-500 transition-colors">
+                                <Plus size={14} /> Ещё строка
+                            </button>
+                        </div>
+
+                        <div className="flex gap-2 px-5 py-4 border-t border-slate-100 shrink-0">
+                            <button onClick={() => setBulkAddOpen(false)} disabled={bulkAddBusy}
+                                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                            <button onClick={submitBulkAdd} disabled={!bulkAddValid.length || bulkAddBusy}
+                                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
+                                <Check size={16} /> {bulkAddBusy ? 'Сохраняю…' : `Добавить ${bulkAddValid.length} шт.`}
                             </button>
                         </div>
                     </div>
