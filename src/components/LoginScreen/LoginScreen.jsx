@@ -5,6 +5,8 @@ import { APP_VERSION } from '../../constants/config';
 import { verifyPassword, hashPassword } from '../../utils/hash';
 import { getConfigValue } from '../../utils/appConfig';
 import { X, Minus, Maximize2 } from 'lucide-react';
+import AmbientCanvas from './AmbientCanvas';
+import CrossfadeBg from './CrossfadeBg';
 
 /* --- Themes --- */
 export const THEMES = {
@@ -491,10 +493,41 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             @keyframes waveA { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
             @keyframes waveB { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
             @keyframes waveC { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
-            .v7-bg    { animation: bgFade .9s ease both; }
-            .v7-form  { animation: fadeSlideRight .6s .1s ease both; }
-            .v7-brand { animation: fadeSlideUp .7s ease both; }
-            .v7-greet { animation: greetIn .4s ease both; }
+            /* Появление сцены по шагам, а не всё разом: сначала фон, следом
+               бренд, затем форма. Пружинистое замедление вместо линейного ease. */
+            .v7-bg    { animation: bgFade 1.1s cubic-bezier(.22,.61,.36,1) both; }
+            .v7-brand { animation: fadeSlideUp .78s .12s cubic-bezier(.16,1,.3,1) both; }
+            .v7-form  { animation: fadeSlideRight .72s .26s cubic-bezier(.16,1,.3,1) both; }
+            .v7-greet { animation: greetIn .5s cubic-bezier(.16,1,.3,1) both; }
+
+            /* Поля: мягкий подъём и подсветка при фокусе — видно, куда печатаешь */
+            .v7-login-input {
+                transition: border-color .22s ease, background-color .22s ease,
+                            box-shadow .28s ease, transform .18s cubic-bezier(.16,1,.3,1);
+            }
+            .v7-login-input:focus {
+                transform: translateY(-1px);
+                box-shadow: 0 6px 22px -8px rgba(0,0,0,.55);
+            }
+            /* Кнопка входа: бегущий блик по наведению.
+               Масштаб/яркость на hover уже делает framer-motion — CSS-трансформ
+               здесь не трогаем, иначе он будет спорить с инлайновым стилем. */
+            .v7-submit::after {
+                content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+                background:linear-gradient(105deg, transparent 38%, rgba(255,255,255,.26) 50%, transparent 62%);
+                transform:translateX(-130%); transition:transform .62s cubic-bezier(.22,.61,.36,1);
+            }
+            .v7-submit:hover:not(:disabled)::after { transform:translateX(130%); }
+
+            /* Уважаем системную настройку «меньше движения» */
+            @media (prefers-reduced-motion: reduce) {
+                .v7-bg, .v7-brand, .v7-form, .v7-greet,
+                .v7-wave-a, .v7-wave-b, .v7-wave-c, .v7-glint-text {
+                    animation: none !important;
+                }
+                .v7-login-input, .v7-submit { transition: none !important; }
+                .v7-submit::after { display: none; }
+            }
             .v7-glint-text {
                 background-size: 350% 100%;
                 -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
@@ -540,10 +573,11 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
         <div className="fixed inset-0 w-screen h-screen z-[100] overflow-hidden flex flex-col">
 
             {/* == ZOOMING BG LAYER == */}
+            {/* Слой БЕЗ key: пересоздание рвало картинку. Смену темы делает
+                CrossfadeBg — новый градиент проявляется поверх старого. */}
             <motion.div
-                key={themeKey}
                 className="v7-bg absolute inset-0"
-                style={{ background: theme.bg, transformOrigin: 'center center' }}
+                style={{ transformOrigin: 'center center' }}
                 animate={submitPhase === 'zooming'
                     ? { scale: 2.6, opacity: 0.08 }
                     : { scale: 1,   opacity: 1    }
@@ -553,6 +587,16 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     ease:     submitPhase === 'zooming' ? [0.55, 0, 1, 0.45] : 'easeOut',
                 }}
             >
+                {/* Градиент темы с перетеканием старого в новый */}
+                <CrossfadeBg background={theme.bg} className="absolute inset-0" />
+
+                {/* Мягкое переливание цвета поверх градиента (не свечение):
+                    цвета плавно перетекают вслед за темой, слой реагирует на курсор. */}
+                <AmbientCanvas
+                    colors={[theme.waveColor1, theme.waveColor2, theme.waveColor3]}
+                    intensity={theme.id === 'day' ? 0.55 : 0.8}
+                />
+
                 {/* Clouds */}
                 {clouds.map(cl => (
                     <div key={cl.id} style={{
@@ -1053,6 +1097,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                                                     <motion.button
                                                         type="submit"
+                                                        className="v7-submit"
                                                         whileHover={!isSubmitting ? { scale: 1.025, filter: 'brightness(1.15)', y: -1 } : {}}
                                                         whileTap={!isSubmitting ? { scale: 0.975 } : {}}
                                                         animate={{
