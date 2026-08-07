@@ -763,21 +763,26 @@ export function useGuestActions(ctx) {
       const price = parseInt(orig.pricePerNight) || (totalOriginalDays > 0 ? Math.round((parseInt(orig.totalPrice) || 0) / totalOriginalDays) : 0);
       // Оплата закрывает первую часть в первую очередь; остаток (долг) — на вторую,
       // а не размазывается пропорционально (иначе появлялся «долг-хвост»).
-      const totalPaid = orig.amountPaid ?? ((orig.paidCash || 0) + (orig.paidCard || 0) + (orig.paidQR || 0));
+      // Делим ВСЕ способы оплаты, включая перевод и баланс, иначе внесённые ими
+      // деньги пропадают и гость ошибочно оказывается в долгу.
+      const sCash = Number(orig.paidCash) || 0, sCard = Number(orig.paidCard) || 0;
+      const sQR = Number(orig.paidQR) || 0, sTr = Number(orig.paidTransfer) || 0;
+      const sBal = Number(orig.paidBalance) || 0;
+      const totalPaid = Math.max(Number(orig.amountPaid) || 0, sCash + sCard + sQR + sTr + sBal);
       const firstCost = firstLegDays * price;
       const firstPaid = Math.min(totalPaid, firstCost);
       const r1 = totalPaid > 0 ? firstPaid / totalPaid : 1;
-      const c1 = Math.round((orig.paidCash || 0) * r1);
-      const d1 = Math.round((orig.paidCard || 0) * r1);
-      const q1 = Math.round((orig.paidQR   || 0) * r1);
-      const c2 = (orig.paidCash || 0) - c1;
-      const d2 = (orig.paidCard || 0) - d1;
-      const q2 = (orig.paidQR   || 0) - q1;
+      const c1 = Math.round(sCash * r1), c2 = sCash - c1;
+      const d1 = Math.round(sCard * r1), d2 = sCard - d1;
+      const q1 = Math.round(sQR   * r1), q2 = sQR   - q1;
+      const t1 = Math.round(sTr   * r1), t2 = sTr   - t1;
+      const b1 = Math.round(sBal  * r1), b2 = sBal  - b1;
+      const paid1 = Math.round(totalPaid * r1), paid2 = totalPaid - paid1;
       const stay1 = getStayDetails(orig.checkInDate, firstLegDays);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), {
         days: firstLegDays, totalPrice: firstLegDays * price,
-        amountPaid: c1 + d1 + q1,
-        paidCash: c1, paidCard: d1, paidQR: q1,
+        amountPaid: paid1,
+        paidCash: c1, paidCard: d1, paidQR: q1, paidTransfer: t1, paidBalance: b1,
         checkOutDate: stay1.end.toISOString(),
       });
       const secondStart = new Date(stay1.end);
@@ -789,8 +794,8 @@ export function useGuestActions(ctx) {
         ...orig, id: undefined,
         checkInDate: secondStart.toISOString(), checkOutDate: stay2.end.toISOString(),
         days: remainingDays, pricePerNight: price, totalPrice: remainingDays * price,
-        amountPaid: c2 + d2 + q2,
-        paidCash: c2, paidCard: d2, paidQR: q2,
+        amountPaid: paid2,
+        paidCash: c2, paidCard: d2, paidQR: q2, paidTransfer: t2, paidBalance: b2,
         // Если вторая часть начинается в будущем — ставим 'booking', чтобы авто-выселение
         // её не трогало и она не показывалась как просроченная.
         status: secondStart > nowForSplit ? 'booking' : 'active',
@@ -853,19 +858,30 @@ export function useGuestActions(ctx) {
       // этого на выселенной старой записи появлялся «долг-хвост», а с новой части
       // ошибочно списывалась часть оплаты, хотя долг за последние дни.
       const price = parseInt(g.pricePerNight) || (totalDays > 0 ? Math.round((parseInt(g.totalPrice) || 0) / totalDays) : 0);
-      const totalPaid = g.amountPaid ?? ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0));
+      // ВСЕ способы оплаты, включая перевод и списание с баланса. Раньше делились
+      // только нал/карта/QR, а сумма бралась из amountPaid (где перевод и баланс
+      // учтены) — деньги, внесённые переводом или балансом, пропадали при переезде
+      // и гость ошибочно оказывался в долгу.
+      const mCash = Number(g.paidCash) || 0, mCard = Number(g.paidCard) || 0;
+      const mQR = Number(g.paidQR) || 0, mTr = Number(g.paidTransfer) || 0;
+      const mBal = Number(g.paidBalance) || 0;
+      const methodsSum = mCash + mCard + mQR + mTr + mBal;
+      // amountPaid — источник истины; если он расходится с суммой методов
+      // (легаси-записи), берём больший, чтобы деньги гостя не потерялись.
+      const totalPaid = Math.max(Number(g.amountPaid) || 0, methodsSum);
       const oldLegCost = daysPassed * price;
       const oldPaid = Math.min(totalPaid, oldLegCost);
       const r1 = totalPaid > 0 ? oldPaid / totalPaid : 1;
-      // Каждый метод оплаты делим по той же доле; новая часть = остаток (без потерь на округлении).
-      const oldCash = Math.round((g.paidCash || 0) * r1);
-      const oldCard = Math.round((g.paidCard || 0) * r1);
-      const oldQR   = Math.round((g.paidQR   || 0) * r1);
-      const newCash = (g.paidCash || 0) - oldCash;
-      const newCard = (g.paidCard || 0) - oldCard;
-      const newQR   = (g.paidQR   || 0) - oldQR;
-      const oldAmountPaid = oldCash + oldCard + oldQR;
-      const newAmountPaid = newCash + newCard + newQR;
+      // Каждый метод делим по той же доле; новая часть = остаток (без потерь на округлении).
+      const oldCash = Math.round(mCash * r1), newCash = mCash - oldCash;
+      const oldCard = Math.round(mCard * r1), newCard = mCard - oldCard;
+      const oldQR   = Math.round(mQR   * r1), newQR   = mQR   - oldQR;
+      const oldTr   = Math.round(mTr   * r1), newTr   = mTr   - oldTr;
+      const oldBal  = Math.round(mBal  * r1), newBal  = mBal  - oldBal;
+      // Итоги считаем от общей суммы, а не от суммы методов: остаток по методам
+      // может не покрыть amountPaid у легаси-записей без разбивки.
+      const oldAmountPaid = Math.round(totalPaid * r1);
+      const newAmountPaid = totalPaid - oldAmountPaid;
 
       // --- 1. Обновляем старую запись: обрезаем до сегодня, выселяем ---
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
@@ -876,6 +892,8 @@ export function useGuestActions(ctx) {
         paidCash:    oldCash,
         paidCard:    oldCard,
         paidQR:      oldQR,
+        paidTransfer: oldTr,
+        paidBalance:  oldBal,
         status:      'checked_out',
         // Убираем бонусный период из старой записи
         bonusCheckOutDate: null,
@@ -902,22 +920,37 @@ export function useGuestActions(ctx) {
         paidCash:     newCash,
         paidCard:     newCard,
         paidQR:       newQR,
+        paidTransfer: newTr,
+        paidBalance:  newBal,
         status:       'active',
         checkInDateTime: null,
         movedFromRoom:   g.roomNumber || null, // для истории
       };
       delete newGuest.id;
-      // Новая часть = НОВАЯ регистрация в e-mehmon (другая комната). Сбрасываем все
-      // отметки: старую часть выведем из e-mehmon сами, а новую система зарегистрирует
-      // при наступлении даты (граждан Узбекистана — авто, остальных — в «Оформить»).
-      ['emehmonReg', 'emehmonRegAt', 'emehmonRegAuto', 'emehmonRegError', 'emehmonRegErrorAt',
-       'emehmonOut', 'emehmonOutAt', 'emehmonOutAuto'].forEach(k => { delete newGuest[k]; });
+      // ПЕРЕЕЗД ВНУТРИ ХОСТЕЛА — НЕ новое прибытие для e-mehmon.
+      // Гость тот же, филиал тот же, регистрация в портале продолжает действовать:
+      // переносим отметки на новую запись и НЕ выводим старую часть из e-mehmon.
+      // Комната в портале может остаться прежней — это нормально, сверка по
+      // паспорту/ФИО, поэтому ставим emehmonRoomSkip: проверка комнаты игнорируется.
+      newGuest.movedWithin = true;
+      if (g.emehmonReg) {
+        newGuest.emehmonReg = true;
+        newGuest.emehmonRegAt = g.emehmonRegAt || new Date().toISOString();
+        newGuest.emehmonRoomSkip = true;   // не сверять номер комнаты с порталом
+        delete newGuest.emehmonOut;        // гость не убывал — отметку вывода снимаем
+        delete newGuest.emehmonOutAt;
+        delete newGuest.emehmonOutAuto;
+      }
+      ['emehmonRegError', 'emehmonRegErrorAt'].forEach(k => { delete newGuest[k]; });
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
 
-      // Старую (выселенную) часть — тихий авто-вывод из e-mehmon в фоне, чтобы не
-      // висело напоминание «вывести из e-mehmon пока не обновлю».
-      if (g.emehmonReg && typeof onEmehmonAutoDepart === 'function') {
-        onEmehmonAutoDepart({ ...g, status: 'checked_out' });
+      // Старую запись помечаем как «переехал», чтобы она не попадала в «вывести
+      // из e-mehmon»: физически гость остался в хостеле, выводить его не нужно.
+      if (g.emehmonReg) {
+        try {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+            { emehmonOut: true, emehmonOutAt: new Date().toISOString(), emehmonMovedOut: true });
+        } catch (_) { /* пропускаем */ }
       }
 
       setMoveGuestModal({ open: false, guest: null });
