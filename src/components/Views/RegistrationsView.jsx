@@ -40,6 +40,14 @@ const getDaysLeft = (endDate) => {
     return Math.ceil((end - Date.now()) / 86400000);
 };
 
+/** «только что» / «5 мин назад» / «в 14:30» — возраст снимка списка e-mehmon */
+const minutesAgo = (ts) => {
+    const min = Math.floor((Date.now() - ts) / 60000);
+    if (min < 1) return 'только что';
+    if (min < 60) return `${min} мин назад`;
+    return `в ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
 // ─── ExtendModal ─────────────────────────────────────────────────────────────
 const ExtendModal = ({ reg, onClose, onSubmit, lang }) => {
     const [days, setDays] = useState('30');
@@ -495,6 +503,7 @@ const RegistrationsView = ({
     onDepartEmehmon,
     onOpenGuest,
     users = [],
+    emehmonSnapshot = { status: 'none', at: null },
 }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     const canEmehmon = !!window.electronAPI?.openEmehmon;
@@ -530,25 +539,29 @@ const RegistrationsView = ({
     // НЕ живёт сейчас, нужно вывести: и незнакомые записи, и гости, которых уже
     // выселили. Раньше сверка шла со всеми гостями за всю историю, поэтому
     // выселенный «находился» в системе и в задачу не попадал вовсе.
-    const portalLoaded = (emehmonList || []).length > 0;
+    // Список получен именно из портала (а не «пусто, потому что не спросили»)
+    const portalLoaded = emehmonSnapshot?.status === 'ok';
 
     const livingByPassport = useMemo(() => new Set(residents.map(g => normP(g.passport)).filter(Boolean)), [residents]);
     const livingByName     = useMemo(() => new Set(residents.map(g => normP(g.fullName)).filter(Boolean)), [residents]);
 
-    const inPortalToRemove = useMemo(() => (emehmonList || [])
+    const inPortalToRemove = useMemo(() => (!portalLoaded ? [] : (emehmonList || [])
         .filter(r => !((r.passport && livingByPassport.has(normP(r.passport))) ||
                        (r.name && livingByName.has(normP(r.name)))))
         .map(r => {
-            // Нашего гостя отдаём целиком: у него есть id, комната и отметки e-mehmon
-            const known = guests.find(g => g.status === 'checked_out' &&
-                ((r.passport && g.passport && normP(g.passport) === normP(r.passport)) ||
-                 (r.name && g.fullName && normP(g.fullName) === normP(r.name))));
+            // Нашего гостя отдаём целиком: у него есть id, комната и отметки e-mehmon.
+            // Паспорт — надёжный ключ; по одному имени связываем, только если паспорта
+            // нет ни у нас, ни в портале, иначе полный тёзка из архива подменит человека.
+            const known = guests.find(g => g.status === 'checked_out' && (
+                (r.passport && g.passport && normP(g.passport) === normP(r.passport)) ||
+                (!r.passport && !g.passport && r.name && g.fullName && normP(g.fullName) === normP(r.name))
+            ));
             if (known) return { ...known, _inPortal: true };
             return {
                 passport: r.passport, fullName: r.displayName || r.name, country: r.country,
                 roomNumber: r.room, days: r.days, hostelId: emehmonHostelId, _orphan: true,
             };
-        }), [emehmonList, guests, livingByPassport, livingByName, emehmonHostelId]);
+        })), [portalLoaded, emehmonList, guests, livingByPassport, livingByName, emehmonHostelId]);
 
     const departedInPortal = useMemo(() => inPortalToRemove.filter(g => !g._orphan), [inPortalToRemove]);
     const orphans          = useMemo(() => inPortalToRemove.filter(g =>  g._orphan), [inPortalToRemove]);
@@ -756,6 +769,19 @@ const RegistrationsView = ({
                 {screen === 'remove' && (
                     <>
                         <ScreenHeader emoji="✈️" title="Вывести из E-mehmon" />
+                        {/* Откуда взят список — чтобы наши отметки не читались как данные портала */}
+                        {portalLoaded ? (
+                            <p className="text-sm text-slate-400 -mt-1 mb-3">
+                                ✅ По списку E-mehmon{emehmonSnapshot?.at ? `, обновлён ${minutesAgo(emehmonSnapshot.at)}` : ''}.
+                                Если только что вывели кого-то на портале вручную — нажмите «Обновить».
+                            </p>
+                        ) : (
+                            <p className="text-sm text-amber-600 -mt-1 mb-3">
+                                ⚠️ Список E-mehmon не получен{emehmonSnapshot?.status === 'need_login' ? ' — нужен вход в портал' : ''}.
+                                Показываю по нашим отметкам: часть этих гостей могла быть выведена вручную.
+                                Нажмите «Обновить», чтобы свериться с порталом.
+                            </p>
+                        )}
                         {archivedCount > 0 && (
                             <p className="text-sm text-slate-400 -mt-1 mb-3">
                                 🗄 Скрыто старых записей: {archivedCount} — прошло больше {STALE_TASK_DAYS} дн.
@@ -775,7 +801,9 @@ const RegistrationsView = ({
 
                                 {(departedInPortal.length + departedNotRemoved.length) > 0 && (
                                     <>
-                                        <GroupTitle emoji="🏠">Выселились из хостела — выведите их</GroupTitle>
+                                        <GroupTitle emoji="🏠">
+                                            {portalLoaded ? 'Выселились из хостела — выведите их' : 'Выселились — по нашим отметкам, сверьтесь с порталом'}
+                                        </GroupTitle>
                                         <div className="space-y-2">
                                             {[...departedInPortal, ...departedNotRemoved].map(g => (
                                                 <PersonRow key={g.id} tone="rose"

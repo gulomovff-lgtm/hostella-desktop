@@ -469,6 +469,9 @@ function App() {
   const [emehmonArrivalPrompt, setEmehmonArrivalPrompt] = useState(null); // предложение оформить прибытие
   const [emehmonSyncing, setEmehmonSyncing] = useState(false); // идёт фоновая синхронизация статусов
   const [emehmonList, setEmehmonList] = useState([]); // последний снимок /listok (для «нет в системе»)
+  // Состояние снимка: 'ok' — список получен, 'need_login' / 'error' — портал не ответил,
+  // 'none' — ещё не спрашивали. Нужно, чтобы экран не выдавал наши отметки за данные портала.
+  const [emehmonSnapshot, setEmehmonSnapshot] = useState({ status: 'none', at: null });
   const [emehmonDepartingIds, setEmehmonDepartingIds] = useState(() => new Set()); // id гостей в процессе вывода (лоадер)
   const emehmonSyncBusy = useRef(false);
   const emehmonNoRoomTried = useRef(new Set()); // id гостей, у кого авто-регистрация упёрлась в «нет комнаты» — не долбим каждый цикл
@@ -1255,6 +1258,7 @@ function App() {
       const res = await fetchEmehmonRegistered(hostelId);
       if (res?.status === 'ok') {
         setEmehmonList(res.rows || []);
+        setEmehmonSnapshot({ status: 'ok', at: Date.now() });
         const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
         const pSet = new Set((res.rows || []).map(r => r.passport).filter(Boolean));
         const nSet = new Set((res.rows || []).map(r => r.name).filter(Boolean));
@@ -1395,8 +1399,10 @@ function App() {
         }
         if (manual) showNotification(`Синхронизация e-mehmon: отмечено ${toMark.length}, выведено ${toMarkOut.length}`, 'success');
       } else if (res?.status === 'need_login') {
+        setEmehmonSnapshot({ status: 'need_login', at: Date.now() });
         if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
       } else {
+        setEmehmonSnapshot({ status: 'error', at: Date.now() });
         if (manual) showNotification('Не удалось получить список e-mehmon.', 'error');
       }
     } finally {
@@ -1428,6 +1434,7 @@ function App() {
     emehmonHostelRef.current = hid;
     if (first) return;                                  // первый заход покрыт таймером выше
     setEmehmonList([]);                                 // не показываем чужой список, пока грузится
+    setEmehmonSnapshot({ status: 'none', at: null });
     const t = setTimeout(() => emehmonSyncRef.current(false), 400);
     return () => clearTimeout(t);
   }, [currentUser, selectedHostelFilter]);
@@ -2718,6 +2725,7 @@ return (
                         guests={filteredGuests}
                         cadastreRegs={filteredCadastreRegs}
                         emehmonList={emehmonList}
+                        emehmonSnapshot={emehmonSnapshot}
                         emehmonDepartingIds={emehmonDepartingIds}
                         emehmonHostelId={(currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')}
                         currentUser={currentUser}
