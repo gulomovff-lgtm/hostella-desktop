@@ -504,6 +504,7 @@ const RegistrationsView = ({
     onOpenGuest,
     users = [],
     emehmonSnapshot = { status: 'none', at: null },
+    onEmehmonLogin,
 }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     const canEmehmon = !!window.electronAPI?.openEmehmon;
@@ -541,6 +542,8 @@ const RegistrationsView = ({
     // выселенный «находился» в системе и в задачу не попадал вовсе.
     // Список получен именно из портала (а не «пусто, потому что не спросили»)
     const portalLoaded = emehmonSnapshot?.status === 'ok';
+    // Сессии этого филиала нет — портал попросил вход (или не ответил)
+    const needsEmehmonLogin = emehmonSnapshot?.status === 'need_login' || emehmonSnapshot?.status === 'error';
 
     const livingByPassport = useMemo(() => new Set(residents.map(g => normP(g.passport)).filter(Boolean)), [residents]);
     const livingByName     = useMemo(() => new Set(residents.map(g => normP(g.fullName)).filter(Boolean)), [residents]);
@@ -673,7 +676,26 @@ const RegistrationsView = ({
                                 </span>
                                 <div>
                                     <h1 className="text-xl font-black text-slate-800">E-mehmon</h1>
-                                    <p className="text-sm text-slate-400">Регистрация гостей</p>
+                                    {/* Неприметная отметка сессии филиала: если входа нет —
+                                        рядом появляется маленькая кнопка «Войти» */}
+                                    <div className="flex items-center gap-1.5 text-sm text-slate-400">
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                            emehmonSyncing ? 'bg-indigo-400 animate-pulse'
+                                            : portalLoaded ? 'bg-emerald-400'
+                                            : needsEmehmonLogin ? 'bg-amber-400' : 'bg-slate-300'}`} />
+                                        <span>
+                                            {emehmonSyncing ? 'Проверяю…'
+                                                : portalLoaded ? `На связи${emehmonSnapshot?.at ? ` · ${minutesAgo(emehmonSnapshot.at)}` : ''}`
+                                                : needsEmehmonLogin ? 'Нет входа в портал'
+                                                : 'Регистрация гостей'}
+                                        </span>
+                                        {needsEmehmonLogin && onEmehmonLogin && (
+                                            <button onClick={onEmehmonLogin}
+                                                className="ml-0.5 px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black hover:bg-amber-100 transition-colors">
+                                                Войти
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -715,7 +737,9 @@ const RegistrationsView = ({
                         <TaxTotals guests={guests} />
 
                         {/* Турсбор к оплате — с портала e-mehmon (сессия своего филиала) */}
-                        <TursborPanel hostelId={emehmonHostelId} />
+                        {/* key по филиалу: при переключении панель перемонтируется, иначе
+                            на экране остаются цифры турсбора прошлого хостела */}
+                        <TursborPanel key={emehmonHostelId} hostelId={emehmonHostelId} />
 
                         {/* Поиск по всем регистрациям */}
                         <div className="mt-6">

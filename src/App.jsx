@@ -467,13 +467,26 @@ function App() {
   const [emehmonDepart, setEmehmonDepart] = useState(null); // гость для фонового выселения
   const [emehmonChecking, setEmehmonChecking] = useState(null); // id гостя на проверке «Готово»
   const [emehmonArrivalPrompt, setEmehmonArrivalPrompt] = useState(null); // предложение оформить прибытие
-  const [emehmonSyncing, setEmehmonSyncing] = useState(false); // идёт фоновая синхронизация статусов
-  const [emehmonList, setEmehmonList] = useState([]); // последний снимок /listok (для «нет в системе»)
-  // Состояние снимка: 'ok' — список получен, 'need_login' / 'error' — портал не ответил,
-  // 'none' — ещё не спрашивали. Нужно, чтобы экран не выдавал наши отметки за данные портала.
-  const [emehmonSnapshot, setEmehmonSnapshot] = useState({ status: 'none', at: null });
+  // Состояние e-mehmon — ОТДЕЛЬНОЕ на каждый филиал: у них разные сессии портала,
+  // и обновление одного не должно мешать другому (раньше общий флаг занятости не давал
+  // обновить второй хостел, пока шла сверка первого, а список подменялся при переключении).
+  //   { hostel1: { rows, status: 'none'|'ok'|'need_login'|'error', at, syncing } }
+  const [emehmonByHostel, setEmehmonByHostel] = useState({});
+  const patchEmehmon = useCallback((hostelId, patch) => {
+    setEmehmonByHostel(prev => ({ ...prev, [hostelId]: { ...(prev[hostelId] || {}), ...patch } }));
+  }, []);
+  // Филиал, с чьей сессией e-mehmon работаем сейчас (у кассира — свой, у админа — выбранный)
+  const emehmonHostelId = useMemo(() => (
+    (currentUser?.hostelId && currentUser.hostelId !== 'all')
+      ? currentUser.hostelId
+      : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')
+  ), [currentUser, selectedHostelFilter]);
+  const emehmonCur      = emehmonByHostel[emehmonHostelId] || {};
+  const emehmonList     = emehmonCur.rows || [];
+  const emehmonSnapshot = { status: emehmonCur.status || 'none', at: emehmonCur.at || null };
+  const emehmonSyncing  = !!emehmonCur.syncing;
   const [emehmonDepartingIds, setEmehmonDepartingIds] = useState(() => new Set()); // id гостей в процессе вывода (лоадер)
-  const emehmonSyncBusy = useRef(false);
+  const emehmonSyncBusy = useRef(new Set()); // филиалы, по которым сверка уже идёт
   const emehmonNoRoomTried = useRef(new Set()); // id гостей, у кого авто-регистрация упёрлась в «нет комнаты» — не долбим каждый цикл
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
@@ -1243,22 +1256,21 @@ function App() {
   // Фоновая синхронизация статусов регистрации: тянем /listok текущего филиала и
   // авто-ставим «Зарегистрирован» совпавшим активным иностранцам. НЕ снимаем —
   // поэтому ложноотрицательные (другой филиал/аккаунт) безвредны.
-  const runEmehmonSync = useCallback(async (manual = false) => {
+  const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null) => {
     if (!window.electronAPI?.emehmonList) {
       if (manual) showNotification('Доступно только в десктоп-приложении', 'info');
       return;
     }
-    if (emehmonSyncBusy.current) return;
-    emehmonSyncBusy.current = true;
-    if (manual) { setEmehmonSyncing(true); showNotification('Проверяю e-mehmon…', 'info'); }
+    const hostelId = hostelOverride || emehmonHostelId;
+    // Занятость считаем по филиалу: сверка одного хостела не блокирует второй
+    if (emehmonSyncBusy.current.has(hostelId)) return;
+    emehmonSyncBusy.current.add(hostelId);
+    patchEmehmon(hostelId, { syncing: true });
+    if (manual) showNotification(`Проверяю e-mehmon (${HOSTELS[hostelId]?.name || hostelId})…`, 'info');
     try {
-      const hostelId = (currentUser.hostelId && currentUser.hostelId !== 'all')
-        ? currentUser.hostelId
-        : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1');
       const res = await fetchEmehmonRegistered(hostelId);
       if (res?.status === 'ok') {
-        setEmehmonList(res.rows || []);
-        setEmehmonSnapshot({ status: 'ok', at: Date.now() });
+        patchEmehmon(hostelId, { rows: res.rows || [], status: 'ok', at: Date.now() });
         const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
         const pSet = new Set((res.rows || []).map(r => r.passport).filter(Boolean));
         const nSet = new Set((res.rows || []).map(r => r.name).filter(Boolean));
@@ -1364,7 +1376,7 @@ function App() {
           const candidates = (guests || []).filter(g =>
             g.status === 'active' && isReal(g) && g.country === 'Узбекистан' &&
             !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
-            g.hostelId === hostelId && paidOf(g) > 0 &&
+            sameHostel(g) && paidOf(g) > 0 &&
             !(pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))) &&
             !inCad(g) && !emehmonAutoBusy.current.has(g.id) &&
             !emehmonNoRoomTried.current.has(g.id)
@@ -1399,45 +1411,43 @@ function App() {
         }
         if (manual) showNotification(`Синхронизация e-mehmon: отмечено ${toMark.length}, выведено ${toMarkOut.length}`, 'success');
       } else if (res?.status === 'need_login') {
-        setEmehmonSnapshot({ status: 'need_login', at: Date.now() });
+        patchEmehmon(hostelId, { status: 'need_login', at: Date.now() });
         if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
       } else {
-        setEmehmonSnapshot({ status: 'error', at: Date.now() });
+        patchEmehmon(hostelId, { status: 'error', at: Date.now() });
         if (manual) showNotification('Не удалось получить список e-mehmon.', 'error');
       }
     } finally {
-      emehmonSyncBusy.current = false;
-      if (manual) setEmehmonSyncing(false);
+      emehmonSyncBusy.current.delete(hostelId);
+      patchEmehmon(hostelId, { syncing: false });
     }
-  }, [guests, registrations, cadastreRegs, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [guests, registrations, cadastreRegs, currentUser, selectedHostelFilter, emehmonHostelId, patchEmehmon]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Стабильный планировщик: старт через 8с после входа + каждые 6 часов.
+  // Стабильный планировщик: старт через 8с после входа + каждые 5 минут — по текущему филиалу.
   const emehmonSyncRef = useRef(runEmehmonSync);
   useEffect(() => { emehmonSyncRef.current = runEmehmonSync; }, [runEmehmonSync]);
+  const emehmonHostelIdRef = useRef(emehmonHostelId);
+  useEffect(() => { emehmonHostelIdRef.current = emehmonHostelId; }, [emehmonHostelId]);
   useEffect(() => {
     if (!window.electronAPI?.emehmonList || !currentUser) return;
-    const t = setTimeout(() => emehmonSyncRef.current(false), 8000);
-    const iv = setInterval(() => emehmonSyncRef.current(false), 5 * 60 * 1000); // каждые 5 минут
+    const run = () => emehmonSyncRef.current(false, emehmonHostelIdRef.current);
+    const t = setTimeout(run, 8000);
+    const iv = setInterval(run, 5 * 60 * 1000);
     return () => { clearTimeout(t); clearInterval(iv); };
   }, [currentUser]);
 
-  // Админ переключил филиал → сразу тянем список ЭТОГО филиала (у каждого своя
-  // сессия e-mehmon). Иначе на экране до 5 минут висели бы данные прошлого хостела.
-  const emehmonHostelRef = useRef(null);
+  // Переключили филиал → подтягиваем список ЭТОГО филиала. Чужой слот не трогаем:
+  // у каждого хостела свой снимок и своя занятость, поэтому переключение во время
+  // сверки первого не мешает обновить второй.
+  const FRESH_SNAPSHOT_MS = 2 * 60 * 1000;
   useEffect(() => {
     if (!window.electronAPI?.emehmonList || !currentUser) return;
-    const hid = (currentUser.hostelId && currentUser.hostelId !== 'all')
-      ? currentUser.hostelId
-      : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1');
-    if (emehmonHostelRef.current === hid) return;      // филиал не менялся
-    const first = emehmonHostelRef.current === null;
-    emehmonHostelRef.current = hid;
-    if (first) return;                                  // первый заход покрыт таймером выше
-    setEmehmonList([]);                                 // не показываем чужой список, пока грузится
-    setEmehmonSnapshot({ status: 'none', at: null });
-    const t = setTimeout(() => emehmonSyncRef.current(false), 400);
+    const slot = emehmonByHostel[emehmonHostelId];
+    if (slot?.syncing) return;                                   // уже обновляется
+    if (slot?.status === 'ok' && Date.now() - (slot.at || 0) < FRESH_SNAPSHOT_MS) return; // свежий
+    const t = setTimeout(() => emehmonSyncRef.current(false, emehmonHostelId), 400);
     return () => clearTimeout(t);
-  }, [currentUser, selectedHostelFilter]);
+  }, [currentUser, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Полная авто-регистрация прибытия (граждане Узбекистана) в фоне.
   const emehmonAutoBusy = useRef(new Set()); // guestId в процессе — защита от дубля листка
@@ -2727,7 +2737,7 @@ return (
                         emehmonList={emehmonList}
                         emehmonSnapshot={emehmonSnapshot}
                         emehmonDepartingIds={emehmonDepartingIds}
-                        emehmonHostelId={(currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')}
+                        emehmonHostelId={emehmonHostelId}
                         currentUser={currentUser}
                         lang={lang}
                         users={usersList}
@@ -2735,8 +2745,18 @@ return (
                         onRemove={handleRemoveFromEmehmon}
                         onExtend={handleExtendRegistration}
                         onDelete={handleDeleteRegistration}
-                        onSyncEmehmon={() => runEmehmonSync(true)}
+                        onSyncEmehmon={() => runEmehmonSync(true, emehmonHostelId)}
                         emehmonSyncing={emehmonSyncing}
+                        onEmehmonLogin={() => {
+                            // Открываем портал в сессии ИМЕННО этого филиала — main.js
+                            // пересоздаёт окно, если партиция принадлежит другому хостелу
+                            if (!window.electronAPI?.openEmehmon) {
+                                showNotification('Вход в e-mehmon доступен только в десктоп-приложении', 'info');
+                                return;
+                            }
+                            window.electronAPI.openEmehmon({ hostelId: emehmonHostelId });
+                            showNotification('Открываю e-mehmon — войдите и нажмите «Обновить»', 'info');
+                        }}
                         onRegisterEmehmon={(g) => { openEmehmonArrival(g); showNotification('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}
                         onDepartEmehmon={handleEmehmonDepart}
                         onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
