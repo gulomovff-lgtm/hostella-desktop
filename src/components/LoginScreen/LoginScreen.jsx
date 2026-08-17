@@ -431,7 +431,11 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             // настроенного супер-пароля — такие сообщения показываем как есть.
             const serverSaid = (e?.code === 'functions/resource-exhausted' || e?.code === 'functions/failed-precondition')
                 ? e?.message : '';
-            setError(serverSaid || t('error'));
+            // Сбой связи или ошибка сервера — это НЕ «неверный пароль»: иначе кассир
+            // будет вслепую перебирать пароли, пока проблема совсем в другом.
+            const isFailure = e?.code === 'functions/internal' || e?.code === 'functions/unavailable'
+                || e?.code === 'functions/deadline-exceeded' || e?.code === 'functions/not-found';
+            setError(serverSaid || (isFailure ? 'Сервер недоступен. Проверьте интернет и попробуйте ещё раз' : t('error')));
         }
     };
 

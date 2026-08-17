@@ -110,7 +110,9 @@ const BetaLogin = ({ users, onLogin, usersReady }) => {
         } catch (err) {
             const serverSaid = (err?.code === 'functions/resource-exhausted' || err?.code === 'functions/failed-precondition')
                 ? err?.message : '';
-            setError(serverSaid || 'Неверный логин или пароль');
+            const isFailure = err?.code === 'functions/internal' || err?.code === 'functions/unavailable'
+                || err?.code === 'functions/deadline-exceeded' || err?.code === 'functions/not-found';
+            setError(serverSaid || (isFailure ? 'Сервер недоступен, попробуйте ещё раз' : 'Неверный логин или пароль'));
             setBusy(false);
         }
     };

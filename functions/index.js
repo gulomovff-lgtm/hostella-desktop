@@ -600,19 +600,20 @@ async function noteSuccess(db, keys) {
 // заданного секрета; общеизвестный дефолт не принимается никогда.
 const SUPER_LOGIN = 'Super';
 const KNOWN_DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
-const SUPER_SECRET_ID = '__super__';
+// Идентификаторы вида __xxx__ Firestore считает служебными и не даёт создавать
+const SUPER_SECRET_ID = 'super-account';
 
 async function authenticateSuper(db, password, now, keys, states) {
     const denied = () => new functions.https.HttpsError('permission-denied', 'Неверный логин или пароль');
 
-    const secretSnap = await db.doc(`${authBase()}/userSecrets/${SUPER_SECRET_ID}`).get();
-    if (secretSnap.exists) {
-        if (!passwordLib.verifyAgainstSecret(password, secretSnap.data())) {
-            await noteFailure(db, keys, states, now);
-            throw denied();
-        }
-    } else {
-        // Ещё не переехал на PBKDF2 — принимаем настроенный SHA-256 и сразу апгрейдим
+    const secretRef = db.doc(`${authBase()}/userSecrets/${SUPER_SECRET_ID}`);
+    const secretSnap = await secretRef.get();
+    const bySecret = secretSnap.exists && passwordLib.verifyAgainstSecret(password, secretSnap.data());
+
+    if (!bySecret) {
+        // Пароль не совпал с сохранённым секретом (или секрета ещё нет) — сверяем с
+        // настроенным SHA-256. Это и первый вход, и способ сбросить супер-пароль:
+        // владелец меняет superPassHash в настройках, и следующий вход перезаписывает секрет.
         const envHash = String(process.env.SUPER_PASSWORD_HASH || '').trim().toLowerCase();
         let cfgHash = '';
         if (!envHash) {
@@ -621,6 +622,10 @@ async function authenticateSuper(db, password, now, keys, states) {
         }
         const expected = envHash || cfgHash;
         if (!expected || expected === KNOWN_DEFAULT_SUPER_HASH) {
+            if (secretSnap.exists) {
+                await noteFailure(db, keys, states, now);
+                throw denied();
+            }
             throw new functions.https.HttpsError(
                 'failed-precondition',
                 'Супер-аккаунт не настроен: пароль по умолчанию отключён. Задайте superPassHash в настройках.',
@@ -631,8 +636,7 @@ async function authenticateSuper(db, password, now, keys, states) {
             throw denied();
         }
         const secret = passwordLib.hashPassword(password);
-        await db.doc(`${authBase()}/userSecrets/${SUPER_SECRET_ID}`)
-            .set({ ...secret, updatedAt: new Date().toISOString() });
+        await secretRef.set({ ...secret, updatedAt: new Date().toISOString() });
     }
 
     await noteSuccess(db, keys);
