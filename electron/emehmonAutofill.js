@@ -584,6 +584,99 @@ function buildDepartureBulkScript(payload) {
 })();`;
 }
 
+// ── Пересчёт стоимости услуг в листках прибытия ───────────────────────────────
+// Портал ждёт сумму за фактическое проживание: 10 суток по 30 000 = 300 000.
+// Приложение считает суммы само (utils/emehmonAmount) и передаёт готовый список
+// { passport, name, amount }; здесь мы находим строки в /listok, отбираем те,
+// где сумма отличается, и отправляем их пачками через тот же эндпоинт, что и
+// пункт меню «Изменить статус оплаты» (POST /listok/status-payment).
+//   done / need_login / no_table / not_found / error
+function buildRecalcScript(payload) {
+  const P = JSON.stringify(payload || {});
+  return `(async function(){
+  var DATA = ${P};
+  var ITEMS = DATA.items || [];
+  var STATUS = String(DATA.paymentStatus || '2');   // 2 — оплачен полностью
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
+  // «30 000.00», «412,000.00», «1 234 567,00» → число. Дробным считаем ПОСЛЕДНИЙ
+  // разделитель, иначе сумма врёт в сто раз.
+  function money(v){
+    var s = String(v == null ? '' : v).replace(/[^0-9.,]/g, '');
+    if (!s) return NaN;
+    var lastDot = s.lastIndexOf('.'), lastCom = s.lastIndexOf(',');
+    var cut = Math.max(lastDot, lastCom);
+    if (cut > -1 && s.length - cut - 1 <= 2) {
+      s = s.slice(0, cut).replace(/[.,]/g, '') + '.' + s.slice(cut + 1);
+    } else {
+      s = s.replace(/[.,]/g, '');
+    }
+    var n = parseFloat(s);
+    return isFinite(n) ? n : NaN;
+  }
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
+      return { status: 'need_login' };
+    }
+    function getTable(){ try { return ($ && $.fn && $.fn.DataTable) ? $('#listok-table').DataTable() : null; } catch(e){ return null; } }
+    var table = null;
+    for (var i=0;i<20 && !table;i++){ table = getTable(); if(!table){ await sleep(400); } }
+    if (!table) return { status: 'no_table' };
+    try { table.page.len(-1).draw(false); } catch(e){}
+    await sleep(300);
+
+    var want = ITEMS.map(function(g){ return { p: norm(g.passport), n: norm(g.name), amount: Math.round(Number(g.amount)||0) }; })
+                    .filter(function(g){ return g.amount > 0 && (g.p || g.n); });
+    if (!want.length) return { status: 'done', updated: 0, matched: 0, skipped: 0 };
+
+    var byAmount = {};      // сумма → [id листка]
+    var matched = 0, skipped = 0;
+    table.rows().every(function(){
+      var d = this.data() || {};
+      var rp = norm(d.passport_numb || d.passport_full || d.passport);
+      var rn = norm(d.guest || d.guestname);
+      var hit = null;
+      for (var k=0;k<want.length;k++){
+        var t = want[k];
+        if ((t.p && rp && t.p === rp) || (t.n && rn && t.n === rn)) { hit = t; break; }
+      }
+      if (!hit || !d.id) return;
+      matched++;
+      var cur = money(d.amount);
+      if (isFinite(cur) && Math.round(cur) === hit.amount) { skipped++; return; }   // уже верная сумма
+      (byAmount[hit.amount] = byAmount[hit.amount] || []).push(d.id);
+    });
+
+    if (!matched) return { status: 'not_found', matched: 0, updated: 0, skipped: 0 };
+    var groups = Object.keys(byAmount);
+    if (!groups.length) return { status: 'done', updated: 0, matched: matched, skipped: skipped };
+
+    var token = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
+    var updated = 0, failed = 0, lastError = '';
+    for (var gi=0; gi<groups.length; gi++){
+      var amount = groups[gi];
+      var ids = byAmount[amount];
+      var res = await new Promise(function(resolve){
+        $.ajax({
+          url: '/listok/status-payment',
+          type: 'POST',
+          data: { _token: token, guest_ids: ids, paymentStatus: STATUS, payment: String(amount) },
+          success: function(r){ resolve(r || {}); },
+          error: function(xhr){ resolve({ status: 'error', message: (xhr && xhr.responseJSON && xhr.responseJSON.message) || ('HTTP ' + (xhr && xhr.status)) }); }
+        });
+      });
+      if (res && res.status === 'success') { updated += ids.length; }
+      else { failed += ids.length; lastError = (res && res.message) || lastError; }
+      await sleep(250);   // не долбим портал очередью
+    }
+    try { table.ajax.reload(null, false); } catch(e){}
+    return { status: failed && !updated ? 'error' : 'done',
+             updated: updated, failed: failed, matched: matched, skipped: skipped, message: lastError };
+  } catch(e){ return { status: 'error', message: (e && e.message) || String(e) }; }
+})();`;
+}
+
 // ── Полный авто-мастер прибытия для граждан Узбекистана ───────────────────────
 // Прогоняет весь мастер /listok/create-page без кассира: шаг 1 (UZB + паспорт +
 // ДР → сервер подтягивает данные из госбазы) → шаг 2 (авто) → шаг 3 (дни, комната,
@@ -682,4 +775,4 @@ function buildAutoArrivalScript(guest) {
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript };
+module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript };

@@ -5,7 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -473,6 +473,27 @@ ipcMain.handle('emehmon-list', async (_event, payload) => {
     return result || { status: (result && result.status) || 'error' };
   } catch (e) {
     log.error('[emehmon] list failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
+
+// Пересчёт стоимости услуг в листках прибытия (фоново, как и список).
+// payload: { hostelId, items: [{ passport, name, amount }], paymentStatus }
+ipcMain.handle('emehmon-recalc', async (_event, payload) => {
+  const data = payload || {};
+  try {
+    const win = ensureDepartureWindow(data.hostelId);
+    await win.loadURL('https://emehmon.uz/listok');
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildRecalcScript(data), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    win.hide();
+    return result || { status: 'error' };
+  } catch (e) {
+    log.error('[emehmon] recalc failed:', e.message);
     return { status: 'error', message: e.message };
   }
 });

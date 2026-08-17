@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
     ClipboardCheck, Search, CheckCircle2,
     Trash2, RefreshCw, Plus, X,
-    UserX, Plane, ChevronLeft, ChevronRight,
+    UserX, Plane, ChevronLeft, ChevronRight, Calculator,
 } from 'lucide-react';
 import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 
@@ -505,6 +505,7 @@ const RegistrationsView = ({
     users = [],
     emehmonSnapshot = { status: 'none', at: null },
     onEmehmonLogin,
+    onRecalcAmounts,
     canAct = true,   // false — чужой филиал открыт на просмотр: пишем в него ничего нельзя
 }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
@@ -710,6 +711,13 @@ const RegistrationsView = ({
                                         className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border-2 border-slate-200 hover:border-indigo-300 text-slate-600 text-sm font-black shadow-sm transition-all active:scale-95 disabled:opacity-50">
                                         <RefreshCw size={16} className={emehmonSyncing ? 'animate-spin' : ''} />
                                         {emehmonSyncing ? 'Проверяю…' : 'Обновить'}
+                                    </button>
+                                )}
+                                {canAct && onRecalcAmounts && (
+                                    <button onClick={onRecalcAmounts}
+                                        title="Поставить в e-mehmon стоимость за фактически прожитые сутки"
+                                        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border-2 border-slate-200 hover:border-emerald-300 text-slate-600 text-sm font-black shadow-sm transition-all active:scale-95">
+                                        <Calculator size={16} /> Суммы
                                     </button>
                                 )}
                                 {canAct && (

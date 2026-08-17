@@ -146,6 +146,22 @@ export async function fetchEmehmonRegistered(hostelId) {
   }
 }
 
+// Пересчитать стоимость услуг в листках прибытия.
+// items: [{ passport, name, amount }] — суммы считает приложение (utils/emehmonAmount).
+//   { status:'done', updated, matched, skipped } | need_login | not_found | error | no_electron
+export async function recalcEmehmonAmounts(items, hostelId) {
+  if (!window.electronAPI?.emehmonRecalc) return { status: 'no_electron' };
+  if (!items?.length) return { status: 'done', updated: 0, matched: 0, skipped: 0 };
+  const payload = { hostelId: hostelId || '', items, paymentStatus: '2' };
+  const acc = await getEmehmonAccount(hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonRecalc(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
 // Сохранить доступы. Пустой пароль не затирает существующий; clear:true удаляет филиал.
 export async function saveEmehmonAccounts(accounts) {
   const cur = await getDoc(accDoc()).then(s => (s.exists() ? s.data() : {})).catch(() => ({}));

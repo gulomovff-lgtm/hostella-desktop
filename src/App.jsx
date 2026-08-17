@@ -162,7 +162,8 @@ import { reportClientVersion } from './utils/clientTelemetry';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
-import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered, departEmehmonBackground, departEmehmonBulk, autoRegisterArrival } from './utils/emehmon';
+import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered, departEmehmonBackground, departEmehmonBulk, autoRegisterArrival, recalcEmehmonAmounts } from './utils/emehmon';
+import { emehmonAmountForStay } from './utils/emehmonAmount';
 import { minNightPrice } from './utils/pricing';
 import { useGuestActions }        from './hooks/useGuestActions';
 import { loadFromElectron, getQueue, clearQueue, isFreshTelegram } from './utils/offlineQueue';
@@ -1455,6 +1456,85 @@ function App() {
     const t = setTimeout(() => emehmonSyncRef.current(false, emehmonHostelId), 400);
     return () => clearTimeout(t);
   }, [currentUser, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Пересчёт стоимости услуг в e-mehmon ────────────────────────────────
+  // Портал ждёт сумму за фактическое проживание: 10 суток по 30 000 = 300 000.
+  // Раз в сутки (и по кнопке) пересчитываем её всем, кто ЖИВЁТ сейчас, и
+  // отправляем изменившиеся суммы в портал. Выехавших не трогаем: у них сумма
+  // зафиксирована при выписке.
+  const emehmonRecalcBusy = useRef(new Set());
+  const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = null) => {
+    if (!window.electronAPI?.emehmonRecalc) {
+      if (manual) showNotification('Доступно только в десктоп-приложении', 'info');
+      return;
+    }
+    const hostelId = hostelOverride || emehmonHostelId;
+    if (emehmonRecalcBusy.current.has(hostelId)) return;
+    emehmonRecalcBusy.current.add(hostelId);
+    try {
+      const now = Date.now();
+      const living = (guests || []).filter(g =>
+        g.status === 'active' && g.roomId !== 'DEBT_ONLY' &&
+        (g.hostelId || 'hostel1') === hostelId && g.emehmonReg && g.passport);
+
+      const items = living.map(g => ({
+        passport: g.passport,
+        name: g.fullName,
+        amount: emehmonAmountForStay(g, emehmonAmountFor(g.country), now),
+      })).filter(x => x.amount > 0);
+
+      if (!items.length) {
+        if (manual) showNotification('Некому пересчитывать: нет проживающих в e-mehmon', 'info');
+        return;
+      }
+      if (manual) showNotification(`Пересчитываю суммы в e-mehmon: ${items.length}…`, 'info');
+
+      const res = await recalcEmehmonAmounts(items, hostelId);
+      if (res?.status === 'done') {
+        localStorage.setItem(`emehmonRecalc_${hostelId}`, getLocalDateString(new Date()));
+        // Запоминаем отправленные суммы — по ним видно, что стоит в портале
+        for (const g of living) {
+          const amount = emehmonAmountForStay(g, emehmonAmountFor(g.country), now);
+          if (amount > 0 && g.emehmonAmount !== amount) {
+            try {
+              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
+                { emehmonAmount: amount, emehmonAmountAt: new Date().toISOString() });
+            } catch (_) { /* не критично: портал уже обновлён */ }
+          }
+        }
+        if (manual || res.updated > 0) {
+          showNotification(
+            res.updated > 0
+              ? `💰 Суммы в e-mehmon обновлены: ${res.updated}`
+              : 'Суммы в e-mehmon уже верные',
+            'success');
+        }
+        if (res.failed > 0) showNotification(`Часть сумм не обновилась: ${res.failed}`, 'warning');
+      } else if (res?.status === 'need_login' && manual) {
+        showNotification('Войдите в e-mehmon, затем повторите пересчёт.', 'info');
+      } else if (manual) {
+        showNotification('Не удалось пересчитать суммы: ' + (res?.message || res?.status || 'ошибка'), 'error');
+      }
+    } finally {
+      emehmonRecalcBusy.current.delete(hostelId);
+    }
+  }, [guests, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Раз в сутки после 9:00 (смена суток в отчётах) — тихо, по текущему филиалу
+  const emehmonRecalcRef = useRef(runEmehmonRecalc);
+  useEffect(() => { emehmonRecalcRef.current = runEmehmonRecalc; }, [runEmehmonRecalc]);
+  useEffect(() => {
+    if (!window.electronAPI?.emehmonRecalc || !currentUser || !isDataReady) return;
+    const tick = () => {
+      const hid = emehmonHostelIdRef.current;
+      if (new Date().getHours() < 9) return;                       // ждём начала суток
+      if (localStorage.getItem(`emehmonRecalc_${hid}`) === getLocalDateString(new Date())) return;
+      emehmonRecalcRef.current(false, hid);
+    };
+    const first = setTimeout(tick, 60 * 1000);        // через минуту после запуска
+    const iv = setInterval(tick, 30 * 60 * 1000);     // и раз в полчаса проверяем дату
+    return () => { clearTimeout(first); clearInterval(iv); };
+  }, [currentUser, isDataReady]);
 
   // Полная авто-регистрация прибытия (граждане Узбекистана) в фоне.
   const emehmonAutoBusy = useRef(new Set()); // guestId в процессе — защита от дубля листка
@@ -2755,6 +2835,7 @@ return (
                         onSyncEmehmon={() => runEmehmonSync(true, emehmonHostelId)}
                         emehmonSyncing={emehmonSyncing}
                         canAct={canPerformActions}
+                        onRecalcAmounts={() => runEmehmonRecalc(true, emehmonHostelId)}
                         onEmehmonLogin={() => {
                             // Открываем портал в сессии ИМЕННО этого филиала — main.js
                             // пересоздаёт окно, если партиция принадлежит другому хостелу
