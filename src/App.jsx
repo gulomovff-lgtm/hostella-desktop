@@ -1262,6 +1262,11 @@ function App() {
         // по гражданству НЕ применяем, сопоставляем по паспорту/ФИО.
         // Долговые записи (roomId==='DEBT_ONLY') — не гости в комнате, из логики исключаем.
         const isReal = (g) => g.roomId !== 'DEBT_ONLY';
+        // Список /listok принадлежит ОДНОМУ филиалу (у каждого своя сессия e-mehmon),
+        // поэтому и отметки ставим только гостям этого филиала. Без этой проверки
+        // список второго хостела помечал «зарегистрирован» гостей первого — и филиалы
+        // путались местами при переключении.
+        const sameHostel = (g) => (g.hostelId || 'hostel1') === hostelId;
         const now = new Date().toISOString();
         // Чистим устаревшую пометку «Комната не совпала с e-mehmon» — она больше не
         // выставляется (чаще всего это был ложный след от переезда со старой отметкой).
@@ -1275,7 +1280,7 @@ function App() {
           } catch (_) { /* пропускаем */ }
         }
         const toMark = (guests || []).filter(g =>
-          g.status === 'active' && isReal(g) && !g.emehmonReg &&
+          g.status === 'active' && isReal(g) && sameHostel(g) && !g.emehmonReg &&
           (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
         for (const g of toMark) {
           try {
@@ -1288,7 +1293,7 @@ function App() {
         // но его НЕТ в /listok → регистрация истекла/снята. Снимаем флаг, чтобы счётчик
         // в системе совпадал с сайтом e-mehmon, а гость попал в «Оформить».
         const toUnmark = (guests || []).filter(g =>
-          g.status === 'active' && isReal(g) && g.emehmonReg && g.hostelId === hostelId &&
+          g.status === 'active' && isReal(g) && g.emehmonReg && sameHostel(g) &&
           !((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))));
         for (const g of toUnmark) {
           try {
@@ -1300,7 +1305,7 @@ function App() {
         // которого в /listok уже НЕТ → выведен. Только для своего филиала (g.hostelId
         // === hostelId), чтобы чужой аккаунт не дал ложного «выведен».
         const toMarkOut = (guests || []).filter(g =>
-          g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && g.hostelId === hostelId &&
+          g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && sameHostel(g) &&
           !((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))));
         for (const g of toMarkOut) {
           try {

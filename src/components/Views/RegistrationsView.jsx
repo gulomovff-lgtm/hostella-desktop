@@ -525,33 +525,53 @@ const RegistrationsView = ({
     const needRegister = useMemo(() => residents.filter(g => !g.emehmonReg && !hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
     const inCadastre = useMemo(() => residents.filter(g => !g.emehmonReg && hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
 
-    // Выселились, но не выведены из портала. Записи старше STALE_TASK_DAYS не показываем:
-    // это гости из далёкого прошлого, портал их давно закрыл сам — они только копились в задаче.
-    const departedNotRemoved = useMemo(
-        () => guests.filter(g =>
-            g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut &&
-            !isStaleSince(g.checkOutDate)),
-        [guests]);
+    // ── Кого выводить из портала ─────────────────────────────────────────────
+    // Источник правды — сам список e-mehmon (/listok). Всё, что есть в портале, но
+    // НЕ живёт сейчас, нужно вывести: и незнакомые записи, и гости, которых уже
+    // выселили. Раньше сверка шла со всеми гостями за всю историю, поэтому
+    // выселенный «находился» в системе и в задачу не попадал вовсе.
+    const portalLoaded = (emehmonList || []).length > 0;
+
+    const livingByPassport = useMemo(() => new Set(residents.map(g => normP(g.passport)).filter(Boolean)), [residents]);
+    const livingByName     = useMemo(() => new Set(residents.map(g => normP(g.fullName)).filter(Boolean)), [residents]);
+
+    const inPortalToRemove = useMemo(() => (emehmonList || [])
+        .filter(r => !((r.passport && livingByPassport.has(normP(r.passport))) ||
+                       (r.name && livingByName.has(normP(r.name)))))
+        .map(r => {
+            // Нашего гостя отдаём целиком: у него есть id, комната и отметки e-mehmon
+            const known = guests.find(g => g.status === 'checked_out' &&
+                ((r.passport && g.passport && normP(g.passport) === normP(r.passport)) ||
+                 (r.name && g.fullName && normP(g.fullName) === normP(r.name))));
+            if (known) return { ...known, _inPortal: true };
+            return {
+                passport: r.passport, fullName: r.displayName || r.name, country: r.country,
+                roomNumber: r.room, days: r.days, hostelId: emehmonHostelId, _orphan: true,
+            };
+        }), [emehmonList, guests, livingByPassport, livingByName, emehmonHostelId]);
+
+    const departedInPortal = useMemo(() => inPortalToRemove.filter(g => !g._orphan), [inPortalToRemove]);
+    const orphans          = useMemo(() => inPortalToRemove.filter(g =>  g._orphan), [inPortalToRemove]);
+
+    // Запасной список — когда портал недоступен (веб-версия, нет сессии e-mehmon):
+    // судим по своим отметкам. Записи старше STALE_TASK_DAYS не показываем, иначе
+    // копятся гости из далёкого прошлого, которых портал давно закрыл сам.
+    const departedNotRemoved = useMemo(() => portalLoaded ? [] : guests.filter(g =>
+        g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && !isStaleSince(g.checkOutDate)),
+        [guests, portalLoaded]);
 
     const archivedCount = useMemo(() => {
+        if (portalLoaded) return 0;   // портал показывает реальное положение дел
         const departedOld = guests.filter(g =>
             g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && isStaleSince(g.checkOutDate)).length;
         const regsOld = enriched.filter(r => r.computedStatus === 'archived').length;
         return departedOld + regsOld;
-    }, [guests, enriched]);
+    }, [guests, enriched, portalLoaded]);
 
-    const orphans = useMemo(() => {
-        const pset = new Set(), nset = new Set();
-        guests.forEach(g => { if (g.passport) pset.add(normP(g.passport)); if (g.fullName) nset.add(normP(g.fullName)); });
-        return (emehmonList || [])
-            .filter(r => !((r.passport && pset.has(r.passport)) || (r.name && nset.has(r.name))))
-            .map(r => ({
-                passport: r.passport, fullName: r.displayName || r.name, country: r.country,
-                roomNumber: r.room, days: r.days, hostelId: emehmonHostelId, _orphan: true,
-            }));
-    }, [emehmonList, guests, emehmonHostelId]);
+    const toDepart = useMemo(() => [...departedInPortal, ...departedNotRemoved, ...orphans],
+        [departedInPortal, departedNotRemoved, orphans]);
 
-    const removeCount = departedNotRemoved.length + orphans.length + expiredRegs.length;
+    const removeCount = toDepart.length + expiredRegs.length;
 
     // ── Поиск по всем регистрациям ──
     const searched = useMemo(() => {
@@ -745,23 +765,26 @@ const RegistrationsView = ({
                         {removeCount === 0 ? <AllDone text="Никого выводить не нужно" /> : (
                             <>
                                 {/* Массовый вывод одним нажатием */}
-                                {canEmehmon && (departedNotRemoved.length + orphans.length) > 1 && (
+                                {canEmehmon && toDepart.length > 1 && (
                                     <button
-                                        onClick={() => onDepartEmehmon?.([...departedNotRemoved, ...orphans])}
+                                        onClick={() => onDepartEmehmon?.(toDepart)}
                                         className="w-full mb-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-base font-black shadow-md shadow-rose-200 transition-all active:scale-[0.99]">
-                                        <Plane size={20} /> Вывести всех сразу ({departedNotRemoved.length + orphans.length})
+                                        <Plane size={20} /> Вывести всех сразу ({toDepart.length})
                                     </button>
                                 )}
 
-                                {departedNotRemoved.length > 0 && (
+                                {(departedInPortal.length + departedNotRemoved.length) > 0 && (
                                     <>
                                         <GroupTitle emoji="🏠">Выселились из хостела — выведите их</GroupTitle>
                                         <div className="space-y-2">
-                                            {departedNotRemoved.map(g => (
+                                            {[...departedInPortal, ...departedNotRemoved].map(g => (
                                                 <PersonRow key={g.id} tone="rose"
                                                     flag={<Flag country={g.country} />}
                                                     name={g.fullName}
                                                     line2={guestLine(g)}
+                                                    line3={g.checkOutDate
+                                                        ? <span className="text-rose-600">Выселен {new Date(g.checkOutDate).toLocaleDateString('ru-RU')} · до сих пор в E-mehmon</span>
+                                                        : null}
                                                     onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                                     actions={departBtn(g)} />
                                             ))}
