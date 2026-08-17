@@ -505,6 +505,7 @@ const RegistrationsView = ({
     users = [],
     emehmonSnapshot = { status: 'none', at: null },
     onEmehmonLogin,
+    canAct = true,   // false — чужой филиал открыт на просмотр: пишем в него ничего нельзя
 }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     const canEmehmon = !!window.electronAPI?.openEmehmon;
@@ -604,7 +605,7 @@ const RegistrationsView = ({
     };
 
     // ── Кнопки-действия для строк ──
-    const departBtn = (g) => canEmehmon && (
+    const departBtn = (g) => canAct && canEmehmon && (
         <BigBtn color="rose" onClick={() => onDepartEmehmon?.(g)} disabled={isDeparting(g)}>
             <Plane size={16} className={isDeparting(g) ? 'animate-pulse' : ''} />
             {isDeparting(g) ? 'Вывожу…' : 'Вывести'}
@@ -689,6 +690,11 @@ const RegistrationsView = ({
                                                 : needsEmehmonLogin ? 'Нет входа в портал'
                                                 : 'Регистрация гостей'}
                                         </span>
+                                        {!canAct && (
+                                            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-black">
+                                                только просмотр
+                                            </span>
+                                        )}
                                         {needsEmehmonLogin && onEmehmonLogin && (
                                             <button onClick={onEmehmonLogin}
                                                 className="ml-0.5 px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black hover:bg-amber-100 transition-colors">
@@ -706,10 +712,12 @@ const RegistrationsView = ({
                                         {emehmonSyncing ? 'Проверяю…' : 'Обновить'}
                                     </button>
                                 )}
-                                <button onClick={onOpenRegister}
-                                    className="flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-md shadow-indigo-200 transition-all active:scale-95">
-                                    <Plus size={18} /> Зарегистрировать
-                                </button>
+                                {canAct && (
+                                    <button onClick={onOpenRegister}
+                                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-md shadow-indigo-200 transition-all active:scale-95">
+                                        <Plus size={18} /> Зарегистрировать
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -768,10 +776,10 @@ const RegistrationsView = ({
                                             line3={regRowInfo(r)}
                                             actions={<>
                                                 {r.computedStatus !== 'removed' && (
-                                                    <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
+                                                    canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
                                                 )}
                                                 {(r.computedStatus === 'expired' || r.computedStatus === 'expiring' || r.computedStatus === 'archived') && (
-                                                    <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
+                                                    canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
                                                 )}
                                             </>} />
                                     ))}
@@ -815,7 +823,7 @@ const RegistrationsView = ({
                         {removeCount === 0 ? <AllDone text="Никого выводить не нужно" /> : (
                             <>
                                 {/* Массовый вывод одним нажатием */}
-                                {canEmehmon && toDepart.length > 1 && (
+                                {canAct && canEmehmon && toDepart.length > 1 && (
                                     <button
                                         onClick={() => onDepartEmehmon?.(toDepart)}
                                         className="w-full mb-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-base font-black shadow-md shadow-rose-200 transition-all active:scale-[0.99]">
@@ -855,8 +863,8 @@ const RegistrationsView = ({
                                                     line2={`${r.passport || ''} · до ${r.endDate}`}
                                                     line3={regRowInfo(r)}
                                                     actions={<>
-                                                        <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
-                                                        <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
+                                                        {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>}
+                                                        {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>}
                                                     </>} />
                                             ))}
                                         </div>
@@ -897,7 +905,7 @@ const RegistrationsView = ({
                                         line2={guestLine(g)}
                                         line3={g.emehmonRegError ? <span className="text-rose-600">⚠️ {g.emehmonRegError}</span> : null}
                                         onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
-                                        actions={canEmehmon && onRegisterEmehmon && (
+                                        actions={canAct && canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>
                                                 <Plus size={16} /> Оформить
                                             </BigBtn>
@@ -921,8 +929,8 @@ const RegistrationsView = ({
                                         line2={`${r.passport || ''} · до ${r.endDate}`}
                                         line3={regRowInfo(r)}
                                         actions={<>
-                                            <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
-                                            <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
+                                            {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>}
+                                            {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>}
                                         </>} />
                                 ))}
                             </div>
@@ -992,10 +1000,10 @@ const RegistrationsView = ({
                                         line3={regRowInfo(r)}
                                         actions={<>
                                             {r.computedStatus !== 'removed' && (
-                                                <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
+                                                canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
                                             )}
                                             {(r.computedStatus === 'expired' || r.computedStatus === 'expiring') && (
-                                                <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
+                                                canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
                                             )}
                                             {isAdmin && (
                                                 <button onClick={() => onDelete(r)} title="Удалить запись"

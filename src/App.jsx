@@ -475,12 +475,19 @@ function App() {
   const patchEmehmon = useCallback((hostelId, patch) => {
     setEmehmonByHostel(prev => ({ ...prev, [hostelId]: { ...(prev[hostelId] || {}), ...patch } }));
   }, []);
-  // Филиал, с чьей сессией e-mehmon работаем сейчас (у кассира — свой, у админа — выбранный)
-  const emehmonHostelId = useMemo(() => (
-    (currentUser?.hostelId && currentUser.hostelId !== 'all')
-      ? currentUser.hostelId
-      : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')
-  ), [currentUser, selectedHostelFilter]);
+  // Филиал, с чьей сессией e-mehmon работаем сейчас. Правило то же, что у фильтра
+  // данных (filterByHostel): смотрим на ВЫБРАННЫЙ филиал, а не на привязку пользователя.
+  // Иначе кассир второго хостела, переключившийся на первый, видел гостей первого,
+  // а список и отметки тянулись из портала второго — филиалы путались местами.
+  const emehmonHostelId = useMemo(() => {
+    if (!currentUser) return 'hostel1';
+    const picked = (selectedHostelFilter && selectedHostelFilter !== 'all') ? selectedHostelFilter : null;
+    const own = (currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : null;
+    const canSwitch = currentUser.role === 'admin' || currentUser.role === 'super'
+      || currentUser.canViewHostel1 || (currentUser.allowedHostels || []).length > 1;
+    if (canSwitch) return picked || own || 'hostel1';
+    return own || picked || 'hostel1';
+  }, [currentUser, selectedHostelFilter]);
   const emehmonCur      = emehmonByHostel[emehmonHostelId] || {};
   const emehmonList     = emehmonCur.rows || [];
   const emehmonSnapshot = { status: emehmonCur.status || 'none', at: emehmonCur.at || null };
@@ -2747,6 +2754,7 @@ return (
                         onDelete={handleDeleteRegistration}
                         onSyncEmehmon={() => runEmehmonSync(true, emehmonHostelId)}
                         emehmonSyncing={emehmonSyncing}
+                        canAct={canPerformActions}
                         onEmehmonLogin={() => {
                             // Открываем портал в сессии ИМЕННО этого филиала — main.js
                             // пересоздаёт окно, если партиция принадлежит другому хостелу
