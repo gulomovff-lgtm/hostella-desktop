@@ -3,6 +3,7 @@ import { Power, LogOut, LayoutDashboard, FileText, Plus, Edit, FileSpreadsheet, 
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
+import { effShiftRange, shiftDays, isShared, fmtDays } from '../../utils/shiftMath';
 
 // --- Constants ---
 const DAILY_SALARY = 266666; // дефолт; реальная ставка берётся из settings/salaryConfig
@@ -22,28 +23,7 @@ const getLocalDatetimeString = (dateObj) => {
 // Локальная дата YYYY-MM-DD (без UTC-сдвига) — единый ключ для колонок и смен.
 const ymdLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-// Активная смена старше этого порога уже засчитывается как полные отработанные сутки.
-const ACTIVE_COUNT_AFTER_H = 3;
-
-// Эффективный диапазон смены для подсчёта отработанного и начисления ЗП:
-//  • закрытая смена — её реальные времена (как в БД, уже нормализованы при закрытии);
-//  • активная старше 3ч — виртуальные сутки 9:00 дня старта → +24ч (как при закрытии);
-//  • активная младше 3ч — null (ещё не засчитывается).
-const effShiftRange = (s) => {
-    if (s.endTime) return { start: s.startTime, end: s.endTime };
-    const ageH = (Date.now() - new Date(s.startTime).getTime()) / 3600000;
-    if (!(ageH > ACTIVE_COUNT_AFTER_H)) return null;
-    const st = new Date(s.startTime); st.setHours(9, 0, 0, 0);
-    const en = new Date(st); en.setDate(en.getDate() + 1);
-    return { start: st.toISOString(), end: en.toISOString() };
-};
-
-const calculateSalary = (startTime, endTime) => {
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const diffDays = (end - start) / (1000 * 60 * 60 * 24);
-    return Math.round(diffDays * DAILY_SALARY);
-};
+// Сутки, доли 50/50 и диапазоны смен — в utils/shiftMath (покрыто тестами)
 
 // --- FillButton ---
 const FillButton = ({ onClick, disabled }) => (
@@ -53,13 +33,14 @@ const FillButton = ({ onClick, disabled }) => (
 );
 
 // --- ShiftsView ---
-const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, onTransferShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, payments = [], expenses = [], onPaySalary }) => {
+const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, onAdminSplitShift, onAdminUnsplitShift, payments = [], expenses = [], onPaySalary }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
+    // Передача смены живёт в окне «Закрытие смены» — там, где кассир заканчивает работу.
+    // Здесь только просмотр смен и деление 50/50 по уже отработанным (для админа).
     const myActiveShift = shifts.find(s => (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login)) && !s.endTime);
-    const allCashiers = users.filter(u => u.role === 'cashier' && u.id !== currentUser.id);
-    const [transferTarget, setTransferTarget] = useState('');
+    const [splitFor, setSplitFor] = useState(null);   // смена, которую админ делит 50/50
     const [view, setView] = useState('grid');
     // По умолчанию — текущий месяц: с 1 числа по сегодня
     const [dateRange, setDateRange] = useState(() => {
@@ -100,6 +81,9 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         return Math.round(d * dailyRate);
     }, [dailyRate]);
 
+    // ЗП за смену с учётом доли: половинка = половина суточной ставки, часы не важны
+    const shiftSalary = useCallback((s) => Math.round(shiftDays(s) * dailyRate), [dailyRate]);
+
     const displayedShifts = useMemo(() => {
         // Смены только кассиров — admin не учитывается
         let list = shifts.filter(s => cashierIds.has(s.staffId));
@@ -120,11 +104,12 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     }, [shifts, cashierIds, hostelId, isAdmin, currentUser.id, dateRange, filterCashierId]);
 
     const kpi = useMemo(() => {
-        // Считаем закрытые + активные старше 3ч (как полные отработанные сутки)
-        const counted  = displayedShifts.map(s => effShiftRange(s)).filter(Boolean);
-        const totalH   = counted.reduce((s,r) => s + (new Date(r.end)-new Date(r.start))/3600000, 0);
-        const totalSal = counted.reduce((s,r) => s + calcSalary(r.start, r.end), 0);
-        const sutki    = counted.reduce((s,r) => s + Math.round((new Date(r.end)-new Date(r.start))/86400000), 0);
+        // Считаем закрытые + активные старше 3ч (как полные отработанные сутки),
+        // половинки (50/50) дают по 0.5 суток и половину ставки каждому
+        const counted  = displayedShifts.filter(s => effShiftRange(s));
+        const totalH   = counted.reduce((sum,s) => { const r = effShiftRange(s); return sum + (new Date(r.end)-new Date(r.start))/3600000; }, 0);
+        const totalSal = counted.reduce((sum,s) => sum + shiftSalary(s), 0);
+        const sutki    = counted.reduce((sum,s) => sum + shiftDays(s), 0);
         const active   = displayedShifts.filter(s => !s.endTime).length;
         const avgH     = counted.length ? totalH / counted.length : 0;
 
@@ -180,7 +165,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         const totalTransfer = relPay.reduce((s,p)=>s+(p.transfer!==undefined?parseInt(p.transfer)||0:p.method==='transfer'?parseInt(p.amount)||0:0),0);
         const totalInc  = totalCash + totalCard + totalQR + totalTransfer;
         return { totalH: totalH.toFixed(1), totalSal, sutki, salaryPaid, salaryDue: totalSal - salaryPaid, active, avgH: avgH.toFixed(1), count: displayedShifts.length, totalCash, totalCard, totalQR, totalTransfer, totalInc };
-    }, [displayedShifts, payments, expenses, filterCashierId, users, allUsers, isAdmin, currentUser, dateRange, calcSalary]);
+    }, [displayedShifts, payments, expenses, filterCashierId, users, allUsers, isAdmin, currentUser, dateRange, shiftSalary]);
 
     // ── Помесячная зарплата: начислено / взято с расходов (Зарплата+Аванс) / остаток ──
     const monthlySalary = useMemo(() => {
@@ -188,14 +173,14 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         const ymOf = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
         const cashiers = (allUsers || users).filter(u => u.role === 'cashier');
         // Закрытые + активные старше 3ч (как полные сутки), с привязкой к месяцу старта
-        const counted = displayedShifts.map(s => ({ s, r: effShiftRange(s) })).filter(x => x.r);
-        const months = [...new Set(counted.map(({ s }) => ymOf(s.startTime)).filter(Boolean))].sort().reverse();
+        const counted = displayedShifts.filter(s => effShiftRange(s));
+        const months = [...new Set(counted.map(s => ymOf(s.startTime)).filter(Boolean))].sort().reverse();
         const matchStaff = (val, c) => val && (val === c.id || val === c.login);
         return months.map(ym => {
             const rows = cashiers.map(c => {
-                const cShifts = counted.filter(({ s }) => ymOf(s.startTime) === ym && (s.staffId === c.id || (s.staffLogin && s.staffLogin === c.login)));
-                const days = cShifts.reduce((a, { r }) => a + Math.round((new Date(r.end) - new Date(r.start)) / 86400000), 0);
-                const earned = cShifts.reduce((a, { r }) => a + calcSalary(r.start, r.end), 0);
+                const cShifts = counted.filter(s => ymOf(s.startTime) === ym && (s.staffId === c.id || (s.staffLogin && s.staffLogin === c.login)));
+                const days = cShifts.reduce((a, s) => a + shiftDays(s), 0);
+                const earned = cShifts.reduce((a, s) => a + shiftSalary(s), 0);
                 const taken = expenses.filter(e => ymOf(e.date) === ym && (
                     (e.category === 'Зарплата' && matchStaff(e.targetStaffId, c)) ||
                     (e.category === 'Аванс' && matchStaff(e.staffId, c))
@@ -205,7 +190,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             const tot = rows.reduce((t, r) => ({ days: t.days + r.days, earned: t.earned + r.earned, taken: t.taken + r.taken, remaining: t.remaining + r.remaining }), { days: 0, earned: 0, taken: 0, remaining: 0 });
             return { ym, rows, tot };
         }).filter(m => m.rows.length > 0);
-    }, [displayedShifts, expenses, allUsers, users, calcSalary]);
+    }, [displayedShifts, expenses, allUsers, users, shiftSalary]);
 
     // Выплачено по каждому кассиру за выбранный период (Зарплата + Аванс) — для «остатка»
     const paidByStaff = useMemo(() => {
@@ -322,6 +307,36 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         if (editingShift?.id === s.id) { setIsAddModalOpen(false); setEditingShift(null); }
     };
 
+    // ── Деление уже отработанной смены 50/50 (админ) ─────────────────────────
+    // Напарник — кассир того же хостела; если он один, выбирается автоматически.
+    const splitCandidates = useCallback((s) => {
+        const list = allUsers || users;
+        return list.filter(u =>
+            u.role === 'cashier' &&
+            !(u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin)) &&
+            (!s.hostelId || u.hostelId === s.hostelId || (u.allowedHostels || []).includes(s.hostelId)));
+    }, [allUsers, users]);
+
+    const startSplit = (s) => {
+        const cands = splitCandidates(s);
+        if (!cands.length) {
+            window.alert('В этом хостеле нет второго кассира — некому отдать половину смены.');
+            return;
+        }
+        if (cands.length === 1) {
+            const u = cands[0];
+            if (window.confirm(`Разделить смену 50/50 с ${u.name || u.login}?\nСутки и зарплата поделятся пополам.`)) {
+                onAdminSplitShift?.(s, u.id);
+            }
+            return;
+        }
+        setSplitFor(s);
+    };
+
+    const doUnsplit = (s) => {
+        if (window.confirm('Отменить деление 50/50 и вернуть смену целиком одному кассиру?')) onAdminUnsplitShift?.(s);
+    };
+
     // «Призрачные» смены — завершённые короче 10 минут (случайно открыли/закрыли)
     const GHOST_MAX_MIN = 10;
     const ghostShifts = useMemo(
@@ -353,10 +368,10 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             const staff = (users.find(u=>u.id===s.staffId || (s.staffLogin && u.login===s.staffLogin)))?.name || s.staffName || '?';
             const start = new Date(s.startTime), end = s.endTime ? new Date(s.endTime) : null;
             const hours = end ? ((end-start)/3600000).toFixed(1) : '—';
-            const salary = end ? calcSalary(s.startTime, s.endTime) : 0;
-            return `<tr><td>${staff}</td><td>${HOSTELS[s.hostelId]?.name||s.hostelId}</td><td>${start.toLocaleDateString('ru')}</td><td>${start.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})}</td><td>${end?end.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}):'—'}</td><td>${hours}</td><td>${salary.toLocaleString()}</td></tr>`;
+            const salary = end ? shiftSalary(s) : 0;
+            return `<tr><td>${staff}</td><td>${HOSTELS[s.hostelId]?.name||s.hostelId}</td><td>${start.toLocaleDateString('ru')}</td><td>${start.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})}</td><td>${end?end.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}):'—'}</td><td>${hours}</td><td>${fmtDays(shiftDays(s))}</td><td>${salary.toLocaleString()}</td></tr>`;
         }).join('');
-        const html = `<html><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse"><thead><tr><th>Сотрудник</th><th>Хостел</th><th>Дата</th><th>Начало</th><th>Конец</th><th>Часы</th><th>Зарплата</th></tr></thead><tbody>${rows}<tr><td colspan="6" style="text-align:right;font-weight:bold">Итого:</td><td><b>${fmt(kpi.totalSal)}</b></td></tr></tbody></table></body></html>`;
+        const html = `<html><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse"><thead><tr><th>Сотрудник</th><th>Хостел</th><th>Дата</th><th>Начало</th><th>Конец</th><th>Часы</th><th>Сутки</th><th>Зарплата</th></tr></thead><tbody>${rows}<tr><td colspan="7" style="text-align:right;font-weight:bold">Итого:</td><td><b>${fmt(kpi.totalSal)}</b></td></tr></tbody></table></body></html>`;
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([html],{type:'application/vnd.ms-excel'}));
         a.download = 'Shifts.xls'; a.click();
@@ -376,6 +391,9 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                     <div className="flex-1 min-w-0">
                         <div className="font-black text-slate-800 text-lg">{myActiveShift ? 'Смена активна' : 'Смена не начата'}</div>
                         {myActiveShift && <div className="text-sm text-emerald-700 font-semibold mt-0.5">Началась в {fmtTime(myActiveShift.startTime)} · {fmtDate(myActiveShift.startTime)}</div>}
+                        {myActiveShift?.handedFromName && (
+                            <div className="text-xs text-indigo-600 font-bold mt-0.5">🤝 Принята от {myActiveShift.handedFromName} · смена и ЗП 50/50</div>
+                        )}
                     </div>
                     {!myActiveShift ? (
                         <button onClick={() => onStartShift(hostelId)} className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-sm transition-colors">
@@ -383,15 +401,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         </button>
                     ) : (
                         <div className="flex items-center gap-2 flex-wrap">
-                            <select className="border border-slate-200 rounded-xl text-sm py-2.5 px-3 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                                value={transferTarget} onChange={e => setTransferTarget(e.target.value)}>
-                                <option value="">Передать кому…</option>
-                                {allCashiers.map(u => <option key={u.id} value={u.id}>{u.name} ({HOSTELS[u.hostelId]?.name})</option>)}
-                            </select>
-                            <button onClick={() => onTransferShift(myActiveShift.id, transferTarget)} disabled={!transferTarget}
-                                className="px-4 py-2.5 rounded-xl text-sm font-bold border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 transition-colors">
-                                Передать
-                            </button>
+                            <span className="text-xs text-slate-400 font-semibold">Передать смену — в окне «Закрытие смены»</span>
                             <button onClick={onEndShift} className="flex items-center gap-2 px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition-colors">
                                 <LogOut size={16}/> Завершить смену
                             </button>
@@ -404,7 +414,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { icon:'🌙',  label:'Сутки',          value: kpi.sutki,            sub: `${kpi.count} смен за период`, color:'#4f46e5', bg:'#eef2ff' },
+                    { icon:'🌙',  label:'Сутки',          value: fmtDays(kpi.sutki),   sub: `${kpi.count} смен за период`, color:'#4f46e5', bg:'#eef2ff' },
                     { icon:'💰',  label:'Начислено ЗП',   value: fmt(kpi.totalSal),    sub: 'за период',                  color:'#0f766e', bg:'#ccfbf1' },
                     { icon:'✅',  label:'Выплачено',      value: fmt(kpi.salaryPaid),  sub: 'зарплата + аванс',           color:'#15803d', bg:'#dcfce7' },
                     { icon:'⚖️',  label:'Остаток к выплате', value: fmt(kpi.salaryDue), sub: kpi.salaryDue > 0 ? 'нужно доплатить' : 'закрыто', color: kpi.salaryDue > 0 ? '#b91c1c' : '#64748b', bg: kpi.salaryDue > 0 ? '#fee2e2' : '#f1f5f9' },
@@ -564,10 +574,10 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                 <tbody>
                                     {staffList.map((staff, si) => {
                                         const staffShifts = shiftMap[staff.id] || {};
-                                        const staffCounted = displayedShifts.filter(s=>s.staffId===staff.id).map(s=>effShiftRange(s)).filter(Boolean);
-                                        const totalH = staffCounted.reduce((sum,r)=>sum+(new Date(r.end)-new Date(r.start))/3600000,0);
-                                        const totalS = staffCounted.reduce((sum,r)=>sum+calcSalary(r.start,r.end),0);
-                                        const fullShifts = staffCounted.filter(r=>(new Date(r.end)-new Date(r.start))/3600000>=6).length;
+                                        const staffCounted = displayedShifts.filter(s=>s.staffId===staff.id && effShiftRange(s));
+                                        const totalS = staffCounted.reduce((sum,s)=>sum+shiftSalary(s),0);
+                                        // «Сутки» — с учётом половинок: две подмены по 50% = 1 сутки
+                                        const fullShifts = staffCounted.reduce((sum,s)=>sum+shiftDays(s),0);
                                         const paidS = paidByStaff[staff.id] || 0;
                                         const dueS = totalS - paidS;
                                         const hasActive = displayedShifts.some(s=>s.staffId===staff.id&&!s.endTime);
@@ -610,20 +620,23 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                             const active = !s.endTime;
                                                             const shiftH = s.endTime ? (new Date(s.endTime)-new Date(s.startTime))/3600000 : (new Date()-new Date(s.startTime))/3600000;
                                                             const effR = effShiftRange(s);
-                                                            const effSal = effR ? calcSalary(effR.start, effR.end) : 0;
-                                                            const bg = active ? 'linear-gradient(135deg,#22c55e,#15803d)' : shiftH>=6 ? 'linear-gradient(135deg,#10b981,#059669)' : '#a7f3d0';
-                                                            const fg = (active||shiftH>=6) ? '#fff' : '#065f46';
+                                                            const effSal = effR ? shiftSalary(s) : 0;
+                                                            const half5050 = isShared(s);
+                                                            const bg = active ? 'linear-gradient(135deg,#22c55e,#15803d)'
+                                                                : half5050 ? 'linear-gradient(135deg,#818cf8,#4f46e5)'
+                                                                : shiftH>=6 ? 'linear-gradient(135deg,#10b981,#059669)' : '#a7f3d0';
+                                                            const fg = (active||half5050||shiftH>=6) ? '#fff' : '#065f46';
                                                             const barW = colspan * CELL_W - 4;
                                                             return (
                                                                 <td key={cellKey}
                                                                     className={`relative ${half===0?'border-r border-dashed border-slate-200':'border-r border-slate-200'}`}
                                                                     style={{height:44, width:CELL_W, overflow:'visible', background:cellBg}}>
                                                                     <div onClick={() => openEdit(s)}
-                                                                        onMouseEnter={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoveredCell({ x:r.left+r.width/2, y:r.top, name: (users.find(u=>u.id===s.staffId)?.name)||staff.name, line1: `${fmtTime(s.startTime)} – ${s.endTime?fmtTime(s.endTime):'сейчас'}`, line2: `${shiftH.toFixed(1)}ч · ${fmt(effSal)} сум${active && effR ? ' (идёт)' : ''}` }); }}
+                                                                        onMouseEnter={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoveredCell({ x:r.left+r.width/2, y:r.top, name: (users.find(u=>u.id===s.staffId)?.name)||staff.name, line1: `${fmtTime(s.startTime)} – ${s.endTime?fmtTime(s.endTime):'сейчас'}`, line2: `${shiftH.toFixed(1)}ч · ${fmt(effSal)} сум${half5050 ? ' · ½ 50/50' : ''}${active && effR ? ' (идёт)' : ''}` }); }}
                                                                         onMouseLeave={()=>setHoveredCell(null)}
                                                                         className="hover:brightness-110"
                                                                         style={{ position:'absolute', top:7, bottom:7, left:2, width:barW, zIndex:3, background: bg, color: fg, borderRadius: 9, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', userSelect:'none', fontSize: shiftH>=6 ? 15 : 9, fontWeight: 800, whiteSpace:'nowrap', overflow:'hidden', transition:'filter .15s' }}>
-                                                                        {active ? '💼' : shiftH >= 6 ? '✓' : `${shiftH.toFixed(0)}ч`}
+                                                                        {active ? '💼' : half5050 ? '½' : shiftH >= 6 ? '✓' : `${shiftH.toFixed(0)}ч`}
                                                                     </div>
                                                                 </td>
                                                             );
@@ -631,7 +644,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                     });
                                                 })()}
                                                 <td className="px-2 text-center border-l-2 border-slate-200" style={{position:'sticky', right:260, zIndex:9, width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
-                                                    <div className="text-base font-black text-slate-700">{fullShifts}</div>
+                                                    <div className="text-base font-black text-slate-700">{fmtDays(fullShifts)}</div>
                                                 </td>
                                                 <td className="px-2 text-right" style={{position:'sticky', right:110, zIndex:9, width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
                                                     <div className="text-sm font-black text-slate-800">{fmt(totalS)}</div>
@@ -658,7 +671,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                             });
                                         })}
                                         <td className="px-2 text-center border-l-2 border-slate-200" style={{position:'sticky', right:260, zIndex:9, width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', background:'#f1f5f9'}}>
-                                            <div className="text-base font-black text-slate-700">{kpi.sutki}</div>
+                                            <div className="text-base font-black text-slate-700">{fmtDays(kpi.sutki)}</div>
                                         </td>
                                         <td className="px-2 text-right" style={{position:'sticky', right:110, zIndex:9, width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', background:'#f1f5f9'}}>
                                             <div className="text-sm font-black text-slate-800">{fmt(kpi.totalSal)}</div>
@@ -673,6 +686,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         <div className="flex items-center gap-4 px-5 py-3 border-t border-slate-100 text-[11px] font-semibold text-slate-500 flex-wrap">
                             <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-[10px]" style={{background:'linear-gradient(135deg,#22c55e,#15803d)'}}>💼</span>Активная</div>
                             <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px]" style={{background:'linear-gradient(135deg,#10b981,#059669)'}}>✓</span>Сутки (смена)</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px] font-black" style={{background:'linear-gradient(135deg,#818cf8,#4f46e5)'}}>½</span>Половина (50/50)</div>
                             <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-emerald-200 inline-flex items-center justify-center text-emerald-800 text-[8px] font-black">ч</span>Короткая (&lt;6ч)</div>
                             <div className="flex items-center gap-1.5 ml-auto text-slate-400 italic">Клик по смене = редактировать</div>
                         </div>
@@ -702,7 +716,8 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                 const active = !s.endTime;
                                 const hours  = s.endTime ? (new Date(s.endTime)-new Date(s.startTime))/3600000 : null;
                                 const effR   = effShiftRange(s);
-                                const salary = effR ? calcSalary(effR.start, effR.end) : null;
+                                const salary = effR ? shiftSalary(s) : null;
+                                const partnerName = s.handedToName || s.handedFromName || s.sharedWithName || null;
                                         const shiftPay = payments.filter(p => {
                                                 if (p.type === 'cash_to_terminal') return false;
                                                 const t = new Date(p.date).getTime();
@@ -726,6 +741,11 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                         <span className="font-mono">{fmtTime(s.startTime)}–{active ? '…' : fmtTime(s.endTime)}</span>
                                                         {hours !== null && <span className="text-slate-400">{hours.toFixed(1)}ч</span>}
                                                         {sTotal > 0 && <span className="text-emerald-600 font-semibold">касса {fmt(sTotal)}</span>}
+                                                        {isShared(s) && (
+                                                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-600 font-black">
+                                                                ½ 50/50{partnerName ? ` · ${partnerName}` : ''}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 {active && <span className="text-[10px] font-black text-emerald-600 shrink-0 hidden sm:block">● сейчас</span>}
@@ -739,6 +759,12 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                             <button onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })} title="Закрыть смену"
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-rose-500 hover:bg-rose-50 transition-all"><Power size={15}/></button>
                                                         )}
+                                                        {!active && (isShared(s)
+                                                            ? <button onClick={() => doUnsplit(s)} title="Отменить деление 50/50"
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-indigo-500 bg-indigo-50 hover:bg-indigo-100 text-sm font-black transition-all">½</button>
+                                                            : <button onClick={() => startSplit(s)} title="Разделить смену 50/50 с другим кассиром"
+                                                                className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 text-sm font-black transition-all">½</button>
+                                                        )}
                                                         <button onClick={() => openEdit(s)} title="Изменить"
                                                             className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"><Edit size={15}/></button>
                                                         <button onClick={() => handleDeleteShift(s)} title="Удалить смену"
@@ -749,7 +775,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         );
                             })}
                             <div className="flex items-center justify-end gap-5 px-5 py-3 bg-slate-50 border-t border-slate-200 flex-wrap">
-                                <span className="text-xs text-slate-500 font-semibold mr-auto">{displayedShifts.length} записей · {kpi.sutki} сут</span>
+                                <span className="text-xs text-slate-500 font-semibold mr-auto">{displayedShifts.length} записей · {fmtDays(kpi.sutki)} сут</span>
                                 <span className="text-xs text-slate-500">Начислено: <b className="text-slate-800">{fmt(kpi.totalSal)}</b></span>
                                 <span className="text-xs text-slate-500">Выплачено: <b className="text-emerald-600">{fmt(kpi.salaryPaid)}</b></span>
                                 <span className="text-xs text-slate-500">Остаток: <b className={kpi.salaryDue > 0 ? 'text-rose-600' : 'text-slate-400'}>{kpi.salaryDue > 0 ? fmt(kpi.salaryDue) : '✓'}</b></span>
@@ -792,7 +818,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                             {rows.map(r => (
                                                 <tr key={r.id} className="border-t border-slate-100">
                                                     <td className="text-left px-5 py-2.5 font-bold text-slate-700">{r.name}</td>
-                                                    <td className="text-right px-3 py-2.5 text-slate-500">{r.days}</td>
+                                                    <td className="text-right px-3 py-2.5 text-slate-500">{fmtDays(r.days)}</td>
                                                     <td className="text-right px-3 py-2.5 font-semibold text-slate-800">{fmt(r.earned)}</td>
                                                     <td className="text-right px-3 py-2.5 text-emerald-600 font-semibold">{fmt(r.taken)}</td>
                                                     <td className="text-right px-5 py-2.5">
@@ -810,7 +836,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         <tfoot>
                                             <tr className="border-t-2 border-slate-200 bg-slate-50/60">
                                                 <td className="text-left px-5 py-2.5 font-black text-slate-800">ИТОГО</td>
-                                                <td className="text-right px-3 py-2.5 font-black text-slate-600">{tot.days}</td>
+                                                <td className="text-right px-3 py-2.5 font-black text-slate-600">{fmtDays(tot.days)}</td>
                                                 <td className="text-right px-3 py-2.5 font-black text-slate-800">{fmt(tot.earned)}</td>
                                                 <td className="text-right px-3 py-2.5 font-black text-emerald-600">{fmt(tot.taken)}</td>
                                                 <td className={`text-right px-5 py-2.5 font-black ${tot.remaining > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{tot.remaining > 0 ? fmt(tot.remaining) : '✓'}</td>
@@ -822,7 +848,8 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         );
                     })}
                     <p className="text-[11px] text-slate-400 text-center">
-                        Начислено = сутки × ставка. Выплачено = расходы «Зарплата» + «Аванс» кассира за месяц. Остаток = начислено − выплачено.
+                        Начислено = сутки × ставка. Переданная или разделённая смена (½ 50/50) даёт каждому кассиру по 0.5 суток и половину ставки.
+                        Выплачено = расходы «Зарплата» + «Аванс» кассира за месяц. Остаток = начислено − выплачено.
                     </p>
                 </div>
             )}
@@ -868,6 +895,34 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                     </div>
                 );
             })()}
+
+            {/* Выбор напарника для деления смены 50/50 (когда кандидатов больше одного) */}
+            {splitFor && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-indigo-50">
+                            <div>
+                                <div className="font-black text-slate-800">Разделить смену 50/50</div>
+                                <div className="text-xs text-slate-500 font-semibold">
+                                    {splitFor.staffName || users.find(u=>u.id===splitFor.staffId)?.name || '—'} · {fmtDate(splitFor.startTime)}
+                                </div>
+                            </div>
+                            <button onClick={()=>setSplitFor(null)} className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-200 text-slate-400 transition-colors"><X size={18}/></button>
+                        </div>
+                        <div className="p-4 space-y-2">
+                            <p className="text-xs text-slate-500">С кем разделить? Каждому зачтётся по 0.5 суток и половина ставки.</p>
+                            {splitCandidates(splitFor).map(u => (
+                                <button key={u.id}
+                                    onClick={() => { onAdminSplitShift?.(splitFor, u.id); setSplitFor(null); }}
+                                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 text-left transition-colors">
+                                    <span className="font-bold text-slate-700 text-sm">{u.name || u.login}</span>
+                                    <span className="text-[11px] text-slate-400">{HOSTELS[u.hostelId]?.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Add/Edit modal */}
             {isAddModalOpen && (() => {

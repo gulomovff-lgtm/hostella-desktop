@@ -21,10 +21,13 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
     return (
-        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+            onClick={e => e.target === e.currentTarget && onClose()}>
+            {/* На телефоне это шторка снизу (index.css): шапка и кнопки закреплены,
+                прокручивается только форма — иначе низ уезжает под нижнее меню. */}
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col">
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
                     <div className="flex items-center gap-3 min-w-0">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shrink-0" style={{ background: BRAND }}>{initials}</div>
                         <div className="min-w-0">
@@ -36,7 +39,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                 </div>
 
                 {/* Body */}
-                <div className="p-5 space-y-3.5">
+                <div className="p-5 space-y-3.5 overflow-y-auto flex-1 min-h-0">
                     <div>
                         <label className={labelClass}><UserCog size={12}/> {t('guestName')}</label>
                         <input className={inputClass} value={form.fullName || ''} onChange={e => set('fullName', e.target.value)} onBlur={e => set('fullName', e.target.value.toUpperCase())} />
@@ -81,7 +84,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                 </div>
 
                 {/* Footer */}
-                <div className="flex gap-2 px-5 py-4 border-t border-slate-100">
+                <div className="flex gap-2 px-5 py-4 border-t border-slate-100 bg-white shrink-0">
                     <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50 transition-colors">{t('cancel')}</button>
                     <button onClick={() => onSave(form)} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm transition-opacity hover:opacity-90" style={{ background: BRAND }}>{t('save')}</button>
                 </div>

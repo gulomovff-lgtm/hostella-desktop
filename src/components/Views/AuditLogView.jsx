@@ -37,6 +37,9 @@ const ACTION_META = {
     sync_clients:         { icon: '🔄', label: 'Синхронизация клиентов',  color: 'blue',    group: 'Клиенты' },
     // Система
     auto_shift_start:     { icon: '🟢', label: 'Смена начата (авто)',      color: 'emerald', group: 'Система' },
+    shift_transfer:       { icon: '🤝', label: 'Смена передана (50/50)',   color: 'indigo',  group: 'Смены' },
+    shift_split:          { icon: '½',  label: 'Смена разделена 50/50',    color: 'indigo',  group: 'Смены' },
+    shift_unsplit:        { icon: '↩️', label: 'Деление смены отменено',    color: 'slate',   group: 'Смены' },
     error:                { icon: '⚠️', label: 'Ошибка системы',           color: 'rose',    group: 'Система' },
     system_error:         { icon: '🚨', label: 'Системная ошибка JS',      color: 'rose',    group: 'Система' },
     version_check:        { icon: '🔄', label: 'Проверка версии',          color: 'blue',    group: 'Система' },

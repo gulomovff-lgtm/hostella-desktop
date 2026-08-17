@@ -532,6 +532,215 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Вход в приложение — проверка пароля НА СЕРВЕРЕ.
+//
+// Зачем: раньше клиент читал users.pass из Firestore и сверял пароль сам. Значит
+// любой, у кого есть публичный конфиг Firebase (он в бандле), мог анонимно войти,
+// выгрузить все хеши и перебрать их офлайн. Теперь:
+//   • секрет лежит в userSecrets/{userId} — коллекция закрыта правилами наглухо;
+//   • проверка идёт здесь, с ограничением числа попыток (см. lib/authPolicy);
+//   • старый формат (SHA-256 / plaintext в users.pass) принимается один раз и
+//     сразу перехешируется в PBKDF2 (upgrade-on-login).
+//
+// Поле users.pass пока НЕ удаляем: кассы обновляются не мгновенно, старым сборкам
+// оно ещё нужно для входа. Удаление — отдельным релизом, см. SECURITY.md.
+// ─────────────────────────────────────────────────────────────────────────────
+const AUTH_APP_ID = 'hostella-multi-v4';
+const authPolicy = require('./lib/authPolicy');
+const passwordLib = require('./lib/password');
+
+const authDb = () => {
+    const { getFirestore } = require('firebase-admin/firestore');
+    return getFirestore('hostella');
+};
+const authBase = () => `artifacts/${AUTH_APP_ID}/public/data`;
+const throttleRef = (db, key) => db.doc(`${authBase()}/authThrottle/${encodeURIComponent(key)}`);
+
+/** Ключ троттлинга по IP вызова (за прокси Firebase — x-forwarded-for). */
+const callerIp = (context) => {
+    const req = context?.rawRequest;
+    const fwd = req?.headers?.['x-forwarded-for'];
+    const ip = (Array.isArray(fwd) ? fwd[0] : fwd || '').split(',')[0].trim() || req?.ip || 'unknown';
+    return `ip_${ip}`;
+};
+
+/** Бросает resource-exhausted, если ключ заблокирован. Возвращает состояния для записи. */
+async function assertNotThrottled(db, keys, now) {
+    const states = {};
+    for (const key of keys) {
+        const snap = await throttleRef(db, key).get();
+        const res = authPolicy.checkAttempt(snap.exists ? snap.data() : null, now);
+        if (!res.allowed) {
+            throw new functions.https.HttpsError(
+                'resource-exhausted',
+                authPolicy.lockMessage(res.retryAfterSec),
+                { retryAfterSec: res.retryAfterSec },
+            );
+        }
+        states[key] = res.state;
+    }
+    return states;
+}
+
+async function noteFailure(db, keys, states, now) {
+    await Promise.all(keys.map(key => {
+        const { state } = authPolicy.registerFailure(states[key], now);
+        return throttleRef(db, key).set(state, { merge: false });
+    }));
+}
+
+async function noteSuccess(db, keys) {
+    await Promise.all(keys.map(key => throttleRef(db, key).set(authPolicy.registerSuccess(), { merge: false })));
+}
+
+// Служебный супер-аккаунт. Раньше его пароль сверялся на клиенте с хешем из бандла,
+// а хеш по умолчанию — sha256('super'), то есть у всех, кто не задал свой, работал
+// вход Super/super с полными правами. Теперь проверка только здесь и только против
+// заданного секрета; общеизвестный дефолт не принимается никогда.
+const SUPER_LOGIN = 'Super';
+const KNOWN_DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
+const SUPER_SECRET_ID = '__super__';
+
+async function authenticateSuper(db, password, now, keys, states) {
+    const denied = () => new functions.https.HttpsError('permission-denied', 'Неверный логин или пароль');
+
+    const secretSnap = await db.doc(`${authBase()}/userSecrets/${SUPER_SECRET_ID}`).get();
+    if (secretSnap.exists) {
+        if (!passwordLib.verifyAgainstSecret(password, secretSnap.data())) {
+            await noteFailure(db, keys, states, now);
+            throw denied();
+        }
+    } else {
+        // Ещё не переехал на PBKDF2 — принимаем настроенный SHA-256 и сразу апгрейдим
+        const envHash = String(process.env.SUPER_PASSWORD_HASH || '').trim().toLowerCase();
+        let cfgHash = '';
+        if (!envHash) {
+            const cfg = await db.doc(`${authBase()}/settings/appConfig`).get();
+            cfgHash = String(cfg.exists ? (cfg.data().superPassHash || '') : '').trim().toLowerCase();
+        }
+        const expected = envHash || cfgHash;
+        if (!expected || expected === KNOWN_DEFAULT_SUPER_HASH) {
+            throw new functions.https.HttpsError(
+                'failed-precondition',
+                'Супер-аккаунт не настроен: пароль по умолчанию отключён. Задайте superPassHash в настройках.',
+            );
+        }
+        if (!passwordLib.verifyLegacy(password, expected)) {
+            await noteFailure(db, keys, states, now);
+            throw denied();
+        }
+        const secret = passwordLib.hashPassword(password);
+        await db.doc(`${authBase()}/userSecrets/${SUPER_SECRET_ID}`)
+            .set({ ...secret, updatedAt: new Date().toISOString() });
+    }
+
+    await noteSuccess(db, keys);
+    return { user: { id: SUPER_SECRET_ID, name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' } };
+}
+
+exports.authenticateUser = functions.https.onCall(async (data, context) => {
+    const login = String(data?.login || '').trim();
+    const password = String(data?.password || '');
+    if (!login || !password) {
+        throw new functions.https.HttpsError('invalid-argument', 'Введите логин и пароль');
+    }
+
+    const db = authDb();
+    const now = Date.now();
+    const keys = [`login_${login.toLowerCase()}`, callerIp(context)];
+    const states = await assertNotThrottled(db, keys, now);
+
+    // Один и тот же ответ для «нет такого логина» и «неверный пароль» —
+    // иначе перебором можно собрать список действующих логинов.
+    const denied = () => new functions.https.HttpsError('permission-denied', 'Неверный логин или пароль');
+
+    if (login.toLowerCase() === SUPER_LOGIN.toLowerCase()) {
+        return authenticateSuper(db, password, now, keys, states);
+    }
+
+    const usersSnap = await db.collection(`${authBase()}/users`).get();
+    const userDoc = usersSnap.docs.find(d => String(d.data()?.login || '').toLowerCase() === login.toLowerCase());
+
+    if (!userDoc) {
+        await noteFailure(db, keys, states, now);
+        throw denied();
+    }
+
+    const userData = userDoc.data();
+    const secretSnap = await db.doc(`${authBase()}/userSecrets/${userDoc.id}`).get();
+    const { match, needsUpgrade } = passwordLib.verifyPassword(password, {
+        secret: secretSnap.exists ? secretSnap.data() : null,
+        legacyPass: userData.pass,
+    });
+
+    if (!match) {
+        await noteFailure(db, keys, states, now);
+        throw denied();
+    }
+
+    if (needsUpgrade) {
+        const secret = passwordLib.hashPassword(password);
+        await db.doc(`${authBase()}/userSecrets/${userDoc.id}`)
+            .set({ ...secret, updatedAt: new Date().toISOString() });
+    }
+
+    await noteSuccess(db, keys);
+
+    const { pass: _pass, ...safeUser } = userData;
+    return { user: { id: userDoc.id, ...safeUser } };
+});
+
+/**
+ * Установить пароль пользователя. Право: сам пользователь либо admin/super
+ * (роль проверяется по базе, а не по тому, что прислал клиент).
+ */
+exports.setUserPassword = functions.https.onCall(async (data, context) => {
+    const targetId = String(data?.userId || '').trim();
+    const newPassword = String(data?.newPassword || '');
+    const actorLogin = String(data?.actorLogin || '').trim();
+    const actorPassword = String(data?.actorPassword || '');
+
+    if (!targetId || newPassword.length < 4) {
+        throw new functions.https.HttpsError('invalid-argument', 'Пароль слишком короткий (минимум 4 символа)');
+    }
+
+    const db = authDb();
+    const now = Date.now();
+    const keys = [`login_${actorLogin.toLowerCase()}`, callerIp(context)];
+    const states = await assertNotThrottled(db, keys, now);
+
+    // Кто просит — подтверждает себя своим же паролем (сессии на клиенте, доверять им нельзя)
+    const usersSnap = await db.collection(`${authBase()}/users`).get();
+    const actorDoc = usersSnap.docs.find(d => String(d.data()?.login || '').toLowerCase() === actorLogin.toLowerCase());
+    if (!actorDoc) {
+        await noteFailure(db, keys, states, now);
+        throw new functions.https.HttpsError('permission-denied', 'Не удалось подтвердить права');
+    }
+    const actorSecret = await db.doc(`${authBase()}/userSecrets/${actorDoc.id}`).get();
+    const actorOk = passwordLib.verifyPassword(actorPassword, {
+        secret: actorSecret.exists ? actorSecret.data() : null,
+        legacyPass: actorDoc.data().pass,
+    }).match;
+    if (!actorOk) {
+        await noteFailure(db, keys, states, now);
+        throw new functions.https.HttpsError('permission-denied', 'Не удалось подтвердить права');
+    }
+
+    const actorRole = actorDoc.data().role;
+    const isSelf = actorDoc.id === targetId;
+    if (!isSelf && actorRole !== 'admin' && actorRole !== 'super') {
+        throw new functions.https.HttpsError('permission-denied', 'Менять чужой пароль может только администратор');
+    }
+
+    const secret = passwordLib.hashPassword(newPassword);
+    await db.doc(`${authBase()}/userSecrets/${targetId}`)
+        .set({ ...secret, updatedAt: new Date().toISOString() });
+
+    await noteSuccess(db, keys);
+    return { ok: true };
+});
+
 // Admin Stats Password Verification
 // Secure password check for admin-stats.html
 exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
@@ -545,10 +754,18 @@ exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
         );
     }
 
+    // Тот же лимит попыток, что и на входе кассира — пароль статистики тоже подбираем не дадим
+    const db = authDb();
+    const now = Date.now();
+    const keys = [callerIp(context), 'adminStats'];
+    const states = await assertNotThrottled(db, keys, now);
+
     // Compare passwords (constant-time)
     if (safeEqual(submittedPassword, adminPassword)) {
+        await noteSuccess(db, keys);
         return { success: true, message: 'Password accepted' };
     } else {
+        await noteFailure(db, keys, states, now);
         throw new functions.https.HttpsError(
             'permission-denied',
             'Invalid password'

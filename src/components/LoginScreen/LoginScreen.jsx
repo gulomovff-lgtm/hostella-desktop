@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import TRANSLATIONS from '../../constants/translations';
 import { APP_VERSION } from '../../constants/config';
-import { verifyPassword, hashPassword } from '../../utils/hash';
-import { getConfigValue } from '../../utils/appConfig';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../firebase';
 import { X, Minus, Maximize2 } from 'lucide-react';
 import AmbientCanvas from './AmbientCanvas';
 import CrossfadeBg from './CrossfadeBg';
@@ -73,9 +73,8 @@ export const THEMES = {
 };
 
 // Служебный супер-аккаунт (bootstrap). Логин фиксирован, пароль — по SHA-256-хешу.
-// DEFAULT_SUPER_HASH = sha256('super') — легаси-пароль. Задайте свой в appConfig.superPassHash.
-const SUPER_LOGIN = 'Super';
-const DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
+// Логины и пароли на клиенте больше не сверяются — этим занимается Cloud Function
+// authenticateUser (включая служебный супер-аккаунт).
 
 export const getAutoThemeId = (h) => {
     if (h >= 5  && h < 12) return 'morning';
@@ -396,29 +395,14 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
         setSubmitPhase('loading');
 
         try {
-            // Auth и анимация выполняются параллельно
+            // Пароль проверяет Cloud Function: на устройстве его сверять нельзя —
+            // это давало бесконечные попытки подбора и требовало хранить хеши там,
+            // где их может прочитать любой клиент.
             const authPromise = (async () => {
-                let user;
-                // Служебный супер-аккаунт. Пароль сверяется по SHA-256-хешу —
-                // открытым текстом в бандле его больше нет. Хеш можно переопределить
-                // через appConfig.superPassHash (рекомендуется задать свой стойкий пароль).
-                const superHash = getConfigValue('superPassHash') || DEFAULT_SUPER_HASH;
-                if (login === SUPER_LOGIN) {
-                    const inputHash = await hashPassword(pass);
-                    if (inputHash === superHash) {
-                        user = { name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' };
-                    } else {
-                        throw new Error('wrongpass');
-                    }
-                } else {
-                    // Обычные пользователи — только из Firestore. Никаких fallback-входов
-                    // «любой логин/пароль»: при пустом списке вход невозможен (безопаснее).
-                    const u = (users || []).find(u => u.login.toLowerCase() === login.toLowerCase());
-                    if (!u) throw new Error('notfound');
-                    const { match } = await verifyPassword(pass, u.pass);
-                    if (!match) throw new Error('wrongpass');
-                    user = u;
-                }
+                const authenticate = httpsCallable(functions, 'authenticateUser');
+                const res = await authenticate({ login: login.trim(), password: pass });
+                const user = res?.data?.user;
+                if (!user) throw new Error('wrongpass');
                 return user;
             })();
 
@@ -441,9 +425,13 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     setTimeout(() => onLogin?.(user), 1200);
                 }, 1250);
             }
-        } catch {
+        } catch (e) {
             setSubmitPhase('idle');
-            setError(t('error'));
+            // Сервер сам объясняет блокировку («попробуйте через N мин») и отсутствие
+            // настроенного супер-пароля — такие сообщения показываем как есть.
+            const serverSaid = (e?.code === 'functions/resource-exhausted' || e?.code === 'functions/failed-precondition')
+                ? e?.message : '';
+            setError(serverSaid || t('error'));
         }
     };
 

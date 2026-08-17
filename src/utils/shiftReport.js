@@ -5,8 +5,38 @@
  * Логика перенесена из ShiftClosingModal без изменений.
  */
 
-export function computeShiftReport(user, payments = [], expenses = []) {
+/** Пустой перенос — смена начата с нуля. */
+const emptyOpening = () => ({ cash: 0, card: 0, qr: 0, transfer: 0, transferByEntity: {}, refunds: 0, expenses: 0 });
+
+/**
+ * Приводит перенос к объекту. Принимает и число (старый формат — только наличные),
+ * чтобы уже сохранённые смены продолжали считаться правильно.
+ */
+const readOpening = (opening) => {
+    if (!opening) return emptyOpening();
+    if (typeof opening === 'number' || typeof opening === 'string') {
+        return { ...emptyOpening(), cash: parseInt(opening) || 0 };
+    }
+    return {
+        cash:     parseInt(opening.cash)     || 0,
+        card:     parseInt(opening.card)     || 0,
+        qr:       parseInt(opening.qr)       || 0,
+        transfer: parseInt(opening.transfer) || 0,
+        transferByEntity: { ...(opening.transferByEntity || {}) },
+        refunds:  parseInt(opening.refunds)  || 0,
+        expenses: parseInt(opening.expenses) || 0,
+    };
+};
+
+/**
+ * @param {object|number} opening — итоги смены, принятой от предыдущего кассира при
+ *   передаче. Сутки не закончены и касса не сдавалась, поэтому цифры складываются:
+ *   принявший закрывает смену одним общим отчётом за сутки, как и раньше, — а не
+ *   своей половиной. Число поддерживается для смен, записанных ранним форматом.
+ */
+export function computeShiftReport(user, payments = [], expenses = [], opening = null) {
     const shiftStart = user.lastShiftEnd || '1970-01-01T00:00:00.000Z';
+    const carried = readOpening(opening);
 
     const myPayments = payments.filter(p =>
         ((p.staffId === user.id) || (p.staffId === user.login)) && p.date > shiftStart);
@@ -14,6 +44,7 @@ export function computeShiftReport(user, payments = [], expenses = []) {
     const myExpenses = expenses.filter(e =>
         ((e.staffId === user.id) || (e.staffId === user.login)) && e.date > shiftStart && e.source !== 'cadastre');
 
+    // Принятая смена входит в те же строки отчёта: сдаётся общая касса за сутки
     const income = myPayments.reduce((acc, p) => {
         acc.cash += p.cash !== undefined ? (parseInt(p.cash) || 0) : (p.method === 'cash' ? (parseInt(p.amount) || 0) : 0);
         acc.card += p.card !== undefined ? (parseInt(p.card) || 0) : (p.method === 'card' ? (parseInt(p.amount) || 0) : 0);
@@ -22,7 +53,13 @@ export function computeShiftReport(user, payments = [], expenses = []) {
         acc.transfer += t;
         if (t > 0 && p.transferTo) acc.transferByEntity[p.transferTo] = (acc.transferByEntity[p.transferTo] || 0) + t;
         return acc;
-    }, { cash: 0, card: 0, qr: 0, transfer: 0, transferByEntity: {} });
+    }, {
+        cash: carried.cash,
+        card: carried.card,
+        qr: carried.qr,
+        transfer: carried.transfer,
+        transferByEntity: { ...carried.transferByEntity },
+    });
 
     const { totalRefunds, totalExpenses, cashboxExpenses } = myExpenses.reduce((acc, e) => {
         const amt = parseInt(e.amount) || 0;
@@ -30,12 +67,20 @@ export function computeShiftReport(user, payments = [], expenses = []) {
         if (e.category === 'Возврат') acc.totalRefunds += amt;
         if (!e.skipCashbox) acc.cashboxExpenses += amt;
         return acc;
-    }, { totalRefunds: 0, totalExpenses: 0, cashboxExpenses: 0 });
+    }, {
+        totalRefunds: carried.refunds,
+        totalExpenses: carried.expenses,
+        cashboxExpenses: carried.expenses,
+    });
 
     const totalRevenue = income.cash + income.card + income.qr + income.transfer;
     const cashInHand = income.cash - cashboxExpenses;
 
-    return { income, totalRefunds, totalExpenses, cashboxExpenses, totalRevenue, cashInHand };
+    return {
+        income, totalRefunds, totalExpenses, cashboxExpenses, totalRevenue, cashInHand,
+        // Итоги принятой смены — для передачи дальше и для контроля, в отчёт не выносятся
+        opening: carried,
+    };
 }
 
 /** HTML-сообщение для Telegram при закрытии смены (формат — как был). */

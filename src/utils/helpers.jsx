@@ -49,6 +49,10 @@ export const getKppDayNumber = (kppDate) => {
   return Math.round((today - start) / 86400000) + 1;
 };
 
+// Отсечка «запись протухла» живёт в utils/staleness.js (без JSX — покрыта тестами),
+// здесь реэкспорт, чтобы не менять существующие импорты из helpers.
+export { STALE_TASK_DAYS, isStaleSince } from './staleness';
+
 // Крайний день регистрации (включительно). windowDays=10 → прибыл 15-го → дедлайн 24-е.
 // windowDays получают из getRegistrationWindow(country).
 export const getKppDeadline = (kppDate, windowDays = 10) => {

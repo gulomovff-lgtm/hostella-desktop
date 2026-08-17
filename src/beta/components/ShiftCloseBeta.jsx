@@ -18,11 +18,15 @@ const Row = ({ icon: Icon, cls, label, value, negative }) => (
     </div>
 );
 
-const ShiftCloseBeta = ({ user, payments = [], expenses = [], onClose, onEndShift, notify, sendTelegramMessage }) => {
+const ShiftCloseBeta = ({ user, payments = [], expenses = [], onClose, onEndShift, notify, sendTelegramMessage,
+    opening = null, openingFrom = null }) => {
     const [confirming, setConfirming] = useState(false);
     const [busy, setBusy] = useState(false);
 
-    const r = useMemo(() => computeShiftReport(user, payments, expenses), [user, payments, expenses]);
+    // opening — итоги смены, принятой от напарника: складываются с своими,
+    // потому что сутки не закончены и касса сдаётся одна общая
+    const r = useMemo(() => computeShiftReport(user, payments, expenses, opening),
+        [user, payments, expenses, opening]);
     const transferEntries = Object.entries(r.income.transferByEntity || {});
     const otherExpenses = r.cashboxExpenses - r.totalRefunds;
 
@@ -65,6 +69,7 @@ const ShiftCloseBeta = ({ user, payments = [], expenses = [], onClose, onEndShif
                             <div className="text-sm font-black text-white truncate">Закрытие смены · {user.name}</div>
                             <div className="text-[11px]" style={{ color: 'rgba(158,205,208,0.6)' }}>
                                 {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                                {openingFrom ? ` · принята от ${openingFrom}` : ''}
                             </div>
                         </div>
                         <button onClick={onClose} disabled={busy} aria-label="Закрыть"

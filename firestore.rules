@@ -28,7 +28,23 @@ service cloud.firestore {
     }
 
     // Рабочие данные приложения.
-    match /artifacts/hostella-multi-v4/public/data/{document=**} {
+    //
+    // ВАЖНО: правила складываются по ИЛИ — запретить что-то вложенным match нельзя,
+    // поэтому исключения перечислены прямо в условии.
+    //   userSecrets — хеши паролей (PBKDF2). Клиенту не нужны вовсе: вход проверяет
+    //     Cloud Function authenticateUser. Без этого запрета любой анонимный клиент
+    //     выгружал бы хеши и перебирал пароли офлайн.
+    //   authThrottle — счётчики неудачных попыток входа. Будь они доступны на запись,
+    //     защиту от перебора можно было бы просто обнулять.
+    // Обе коллекции пишутся только Admin SDK из функций (правила его не ограничивают).
+    match /artifacts/hostella-multi-v4/public/data/{col}/{rest=**} {
+      allow read, write: if signedIn()
+        && col != 'userSecrets'
+        && col != 'authThrottle';
+    }
+
+    // Сам документ data (без подколлекций) — как раньше.
+    match /artifacts/hostella-multi-v4/public/data {
       allow read, write: if signedIn();
     }
 

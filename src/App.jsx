@@ -39,6 +39,7 @@ import {
   getNormalizedCountry,
   getKppDayNumber,
   getRegistrationWindow,
+  isStaleSince,
   emehmonAmountFor,
   Flag
 } from './utils/helpers';
@@ -164,7 +165,7 @@ import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, 
 import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered, departEmehmonBackground, departEmehmonBulk, autoRegisterArrival } from './utils/emehmon';
 import { minNightPrice } from './utils/pricing';
 import { useGuestActions }        from './hooks/useGuestActions';
-import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
+import { loadFromElectron, getQueue, clearQueue, isFreshTelegram } from './utils/offlineQueue';
 import { useClientActions }       from './hooks/useClientActions';
 import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
@@ -706,8 +707,9 @@ function App() {
   }, [hostelConfig, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Оффлайн очередь: загрузка файла Electron при старте, сохранение при закрытии ───
+  const [queueLoaded, setQueueLoaded] = useState(false);
   useEffect(() => {
-    loadFromElectron();
+    loadFromElectron().finally(() => setQueueLoaded(true));
     const handleBeforeUnload = () => {
       const q = getQueue();
       if (q.length > 0 && window.electronAPI?.savePendingPayments) {
@@ -721,18 +723,24 @@ function App() {
   }, []);
 
   // ─── Очередь: флаш при восстановлении сети ───
+  // Ждём queueLoaded: иначе флаш проходит раньше, чем догрузится файл Electron,
+  // очередь чистится «вхолостую», а старые записи оседают в localStorage
+  // и уходят в Telegram при следующем восстановлении сети — через недели.
   useEffect(() => {
-    if (!isOnline) return;
+    if (!isOnline || !queueLoaded) return;
     const q = getQueue();
     if (!q.length) return;
 
-    // 1. Отправляем отложенные Telegram-уведомления (Cloud Functions недоступны оффлайн)
-    const telegramEntries = q.filter(e => e._type === 'telegram');
+    // 1. Отправляем отложенные Telegram-уведомления (Cloud Functions недоступны оффлайн).
+    //    Протухшие (старше 12 ч) молча выбрасываем — событие давно неактуально.
+    const telegramEntries = q.filter(e => e._type === 'telegram' && isFreshTelegram(e));
+    const staleCount = q.filter(e => e._type === 'telegram' && !isFreshTelegram(e)).length;
     if (telegramEntries.length > 0) {
       telegramEntries.forEach(e => {
         sendTelegramMessage(e.text, e.notifType).catch(() => {});
       });
     }
+    if (staleCount > 0) console.info(`[offlineQueue] отброшено устаревших уведомлений: ${staleCount}`);
 
     // 2. Firestore (persistentLocalCache) уже синхронизовал платежи/расходы автоматически.
     //    Очищаем всю очередь и удаляем Electron-файл.
@@ -740,9 +748,9 @@ function App() {
     const parts = [];
     if (paymentCount > 0) parts.push(`${paymentCount} оплат`);
     if (telegramEntries.length > 0) parts.push(`${telegramEntries.length} уведомлений`);
-    showNotification(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
+    if (parts.length > 0) showNotification(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
     clearQueue();
-  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOnline, queueLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Хелпер: найти пользователя по staffId/staffLogin (устойчив к смене document ID)
   const findUserByShift = useCallback((s) => {
@@ -783,6 +791,25 @@ function App() {
       );
       return mine?.hostelId ?? null;
   }, [activeShiftInMyHostel, shifts, currentUser]);
+
+  // Своя открытая смена — нужна окну закрытия смены, чтобы передать её напарнику
+  const myActiveShift = useMemo(() => {
+      if (!currentUser) return null;
+      return shifts.find(s => !s.endTime &&
+          (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login))) || null;
+  }, [shifts, currentUser]);
+
+  // Кому кассир может передать смену: кассиры того же хостела
+  const cashiersForTransfer = useMemo(() => {
+      if (!currentUser || !myActiveShift) return [];
+      const hostel = myActiveShift.hostelId || currentUser.hostelId;
+      return usersList.filter(u =>
+          u.role === 'cashier' &&
+          u.id !== currentUser.id &&
+          (u.login ? u.login !== currentUser.login : true) &&
+          (!hostel || u.hostelId === hostel || (u.allowedHostels || []).includes(hostel))
+      );
+  }, [usersList, currentUser, myActiveShift]);
 
   useEffect(() => {
     const handleEsc = (event) => {
@@ -914,7 +941,11 @@ function App() {
     // Не запускаем автостарт повторно — только один раз за сессию
     if (autoShiftStartedRef.current) return;
 
-    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+    // Идентифицируем кассира и по login: document ID пользователя мог смениться
+    // после правок в настройках, и тогда своя смена выглядит чужой (или наоборот).
+    const isMine = (s) => s.staffId === currentUser.id ||
+      (s.staffLogin && currentUser.login && s.staffLogin === currentUser.login);
+    const myActiveShift = shifts.find(s => isMine(s) && !s.endTime);
 
     if (myActiveShift) {
       // Смена уже есть — помечаем, больше не трогаем
@@ -929,9 +960,10 @@ function App() {
     const otherActiveShift = shifts.find(s =>
       s.hostelId === effectiveHostel &&
       !s.endTime &&
-      s.staffId !== currentUser.id &&
+      !isMine(s) &&
       // Не учитываем смены удалённых пользователей при авто-старте
-      usersList.some(u => u.id === s.staffId)
+      // (по обоим идентификаторам — иначе смена живого кассира считается «призрачной»)
+      usersList.some(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin))
     );
 
     if (!otherActiveShift) {
@@ -1542,7 +1574,8 @@ function App() {
 
   const {
     handleStartShift, handleEndShift,
-    handleTransferShift, handleTransferToMe,
+    handleTransferShift,
+    handleAdminSplitShift, handleAdminUnsplitShift,
     handleAdminAddShift, handleAdminUpdateShift, handleAdminDeleteShift,
     handleAddUser, handleUpdateUser, handleDeleteUser: deleteUserById,
     handleChangePassword,
@@ -1603,6 +1636,18 @@ function App() {
       const regWindow = getRegistrationWindow(g.country);
       const days = getKppDayNumber(g.kppDate);
       if (days < regWindow) return;
+      // Не напоминаем по «забытым» записям: если расчётный выезд был больше
+      // STALE_TASK_DAYS назад, гость давно уехал, а запись просто не закрыли
+      // (авто-выселение выключено для хостела или нет даты выезда).
+      // Без этой отсечки такие гости шлют «Нужна регистрация!» каждый день вечно.
+      const coRaw = (g.bonusCheckOutDate && g.checkOutDate &&
+                     new Date(g.bonusCheckOutDate) > new Date(g.checkOutDate))
+        ? g.bonusCheckOutDate : g.checkOutDate;
+      if (coRaw) {
+        if (isStaleSince(coRaw, 2)) return;          // выезд прошёл больше 2 дней назад
+      } else if (isStaleSince(g.kppDate)) {
+        return;                                       // даты выезда нет — судим по возрасту записи
+      }
       const key = `kpp_${g.id}_day${days}_${today}`;
       const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
       const room = rooms.find(r => r.id === g.roomId);
@@ -1802,13 +1847,16 @@ const filterByHostel = (items) => {
     return filteredTasks.filter(t => t.status !== 'done').length;
   }, [filteredTasks]);
 
-  // Регистрации E-mehmon с истёкшим сроком
+  // Регистрации E-mehmon с истёкшим сроком.
+  // Старше STALE_TASK_DAYS не считаем: гость давно уехал, это архив, а не задача —
+  // иначе бейдж копит записи за всю историю и перестаёт что-либо значить.
   const registrationsAlertCount = useMemo(() => {
     const now = Date.now();
     return filteredRegistrations.filter(r => {
       if (r.status === 'removed') return false;
       const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
-      return end <= now;
+      if (!Number.isFinite(end) || end > now) return false;
+      return !isStaleSince(r.endDate);
     }).length;
   }, [filteredRegistrations]);
 
@@ -2627,13 +2675,14 @@ return (
                         allUsers={usersList}
                         currentUser={currentUser} 
                         onStartShift={handleStartShift} 
-                        onEndShift={handleEndShift} 
-                        onTransferShift={handleTransferShift} 
-                        lang={lang} 
+                        onEndShift={handleEndShift}
+                        lang={lang}
                         hostelId={currentUser.role === 'super' ? 'all' : selectedHostelFilter} 
                         onAdminAddShift={handleAdminAddShift}
                         onAdminUpdateShift={handleAdminUpdateShift}
                         onAdminDeleteShift={handleAdminDeleteShift}
+                        onAdminSplitShift={handleAdminSplitShift}
+                        onAdminUnsplitShift={handleAdminUnsplitShift}
                         payments={filteredPayments}
                         expenses={filteredExpenses}
                         onPaySalary={(d) => handleAddExpense({ category: 'Зарплата', amount: d.amount, targetStaffId: d.staffId, comment: d.comment })}
@@ -3091,12 +3140,17 @@ return (
                 user={activeUserDoc} 
                 payments={payments} 
                 expenses={filteredExpenses} 
-                onClose={() => setShiftModal(false)} 
-                onEndShift={handleEndShift} 
-                onLogout={handleLogout} 
-                notify={showNotification} 
-                lang={lang} 
+                onClose={() => setShiftModal(false)}
+                onEndShift={handleEndShift}
+                onLogout={handleLogout}
+                notify={showNotification}
+                lang={lang}
                 sendTelegramMessage={sendTelegramMessage}
+                myShift={myActiveShift}
+                cashiersForTransfer={cashiersForTransfer}
+                onTransferShift={handleTransferShift}
+                opening={myActiveShift?.opening || myActiveShift?.openingCash || null}
+                openingFrom={myActiveShift?.openingFrom || null}
             />
         )}
         

@@ -10,7 +10,6 @@ import { useExpenseActions } from '../hooks/useExpenseActions';
 import { useGuestActions } from '../hooks/useGuestActions';
 import { useShiftActions } from '../hooks/useShiftActions';
 import { sendTelegramMessage } from '../utils/telegram';
-import { verifyPassword, hashPassword } from '../utils/hash';
 import { loadAppConfig, getConfigValue } from '../utils/appConfig';
 import { HOSTELS, getTotalPaid } from '../utils/helpers';
 import ExpenseBetaModal from './components/ExpenseBetaModal';
@@ -41,9 +40,7 @@ import DebtsBeta from './components/DebtsBeta';
 const SESSION_KEY = 'hostella_beta_user_v1';
 const THEME_KEY = 'hostella_beta_theme';
 
-// Служебный супер-аккаунт — та же проверка, что и в основном LoginScreen
-const SUPER_LOGIN = 'Super';
-const DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
+// Пароли (включая супер-аккаунт) проверяет Cloud Function authenticateUser
 
 // Глобальный стиль беты: курсор, видимый фокус для клавиатуры, reduced-motion
 const BetaStyles = () => (
@@ -104,22 +101,16 @@ const BetaLogin = ({ users, onLogin, usersReady }) => {
         setError('');
         setBusy(true);
         try {
-            let user;
-            if (login === SUPER_LOGIN) {
-                const superHash = getConfigValue('superPassHash') || DEFAULT_SUPER_HASH;
-                const inputHash = await hashPassword(pass);
-                if (inputHash !== superHash) throw new Error('wrongpass');
-                user = { name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' };
-            } else {
-                const u = (users || []).find(u => u.login?.toLowerCase() === login.toLowerCase());
-                if (!u) throw new Error('notfound');
-                const { match } = await verifyPassword(pass, u.pass);
-                if (!match) throw new Error('wrongpass');
-                user = u;
-            }
+            // Пароль проверяет Cloud Function (лимит попыток + секреты недоступны клиенту)
+            const authenticate = httpsCallable(functions, 'authenticateUser');
+            const res = await authenticate({ login: login.trim(), password: pass });
+            const user = res?.data?.user;
+            if (!user) throw new Error('wrongpass');
             onLogin(user);
         } catch (err) {
-            setError(err.message === 'notfound' ? 'Пользователь не найден' : 'Неверный пароль');
+            const serverSaid = (err?.code === 'functions/resource-exhausted' || err?.code === 'functions/failed-precondition')
+                ? err?.message : '';
+            setError(serverSaid || 'Неверный логин или пароль');
             setBusy(false);
         }
     };
@@ -639,17 +630,24 @@ const BetaApp = () => {
                 />
             )}
 
-            {shiftModal && (
-                <ShiftCloseBeta
-                    user={usersList.find(u => u.id === currentUser.id) || currentUser}
-                    payments={payments}
-                    expenses={fExpenses}
-                    onClose={() => setShiftModal(false)}
-                    onEndShift={handleEndShift}
-                    notify={showToast}
-                    sendTelegramMessage={sendTelegramMessage}
-                />
-            )}
+            {shiftModal && (() => {
+                // Своя открытая смена: если её передал напарник — вместе с ней перешла касса
+                const myShift = shifts.find(s => !s.endTime &&
+                    (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login)));
+                return (
+                    <ShiftCloseBeta
+                        user={usersList.find(u => u.id === currentUser.id) || currentUser}
+                        payments={payments}
+                        expenses={fExpenses}
+                        onClose={() => setShiftModal(false)}
+                        onEndShift={handleEndShift}
+                        notify={showToast}
+                        sendTelegramMessage={sendTelegramMessage}
+                        opening={myShift?.opening || myShift?.openingCash || null}
+                        openingFrom={myShift?.openingFrom || null}
+                    />
+                );
+            })()}
 
             {groupCheckInModal && (
                 <GroupCheckInModal

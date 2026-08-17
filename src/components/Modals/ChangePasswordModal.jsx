@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Lock, XCircle, AlertCircle } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
-import { verifyPassword, hashPassword } from '../../utils/hash';
 
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
 const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
@@ -17,14 +16,14 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
     const handleSubmit = async () => {
         setError('');
 
-        const { match } = await verifyPassword(oldPassword, currentUser.pass);
-        if (!match) {
+        // Текущий пароль проверяет сервер: на клиенте хеша пароля больше нет
+        if (!oldPassword) {
             setError(t('wrongPassword'));
             return;
         }
 
-        if (newPassword.length < 3) {
-            setError('Пароль должен быть не менее 3 символов');
+        if (newPassword.length < 4) {
+            setError('Пароль должен быть не менее 4 символов');
             return;
         }
 
@@ -33,9 +32,12 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
             return;
         }
 
-        const hashed = await hashPassword(newPassword);
-        onChangePassword(currentUser.id, hashed);
-        onClose();
+        try {
+            await onChangePassword(currentUser.id, newPassword, oldPassword);
+            onClose();
+        } catch (e) {
+            setError(e?.message || t('wrongPassword'));
+        }
     };
 
     return (

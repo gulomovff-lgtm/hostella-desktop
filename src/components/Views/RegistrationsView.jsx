@@ -4,6 +4,7 @@ import {
     Trash2, RefreshCw, Plus, X,
     UserX, Plane, ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -21,12 +22,15 @@ const Flag = ({ country, size = 20 }) => {
     return <span className={`fi fi-${code.toLowerCase()}`} style={{ width: size, height: Math.round(size * 0.75), display: 'inline-block', objectFit: 'cover', borderRadius: 3, verticalAlign: 'middle', flexShrink: 0, backgroundSize: 'cover' }} />;
 };
 
+// 'archived' — срок истёк больше STALE_TASK_DAYS назад: гость давно уехал,
+// это уже не задача «вывести», а история. В счётчики и плитки не попадает,
+// но остаётся в поиске и в списке «Все регистрации».
 const getRegStatus = (reg) => {
     if (reg.status === 'removed') return 'removed';
     const now = Date.now();
     const end = new Date(reg.endDate + 'T23:59:59').getTime();
     const daysLeft = Math.ceil((end - now) / 86400000);
-    if (daysLeft < 0) return 'expired';
+    if (daysLeft < 0) return isStaleSince(reg.endDate) ? 'archived' : 'expired';
     if (daysLeft <= 3) return 'expiring';
     return 'active';
 };
@@ -521,9 +525,20 @@ const RegistrationsView = ({
     const needRegister = useMemo(() => residents.filter(g => !g.emehmonReg && !hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
     const inCadastre = useMemo(() => residents.filter(g => !g.emehmonReg && hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
 
+    // Выселились, но не выведены из портала. Записи старше STALE_TASK_DAYS не показываем:
+    // это гости из далёкого прошлого, портал их давно закрыл сам — они только копились в задаче.
     const departedNotRemoved = useMemo(
-        () => guests.filter(g => g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut),
+        () => guests.filter(g =>
+            g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut &&
+            !isStaleSince(g.checkOutDate)),
         [guests]);
+
+    const archivedCount = useMemo(() => {
+        const departedOld = guests.filter(g =>
+            g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && isStaleSince(g.checkOutDate)).length;
+        const regsOld = enriched.filter(r => r.computedStatus === 'archived').length;
+        return departedOld + regsOld;
+    }, [guests, enriched]);
 
     const orphans = useMemo(() => {
         const pset = new Set(), nset = new Set();
@@ -564,10 +579,11 @@ const RegistrationsView = ({
         const dl = getDaysLeft(r.endDate);
         const status = r.computedStatus;
         const when = status === 'expired' ? `❗ Истекла ${Math.abs(dl)} дн. назад`
+            : status === 'archived' ? `🗄 Архив · истекла ${Math.abs(dl)} дн. назад`
             : status === 'expiring' ? (dl === 0 ? '⏰ Сегодня последний день' : `⏰ Осталось ${dl} дн.`)
             : status === 'removed' ? '✓ Выведен'
             : `До ${r.endDate}`;
-        const cls = status === 'expired' ? 'text-rose-600' : status === 'expiring' ? 'text-amber-600' : status === 'removed' ? 'text-slate-400' : 'text-emerald-600';
+        const cls = status === 'expired' ? 'text-rose-600' : status === 'expiring' ? 'text-amber-600' : (status === 'removed' || status === 'archived') ? 'text-slate-400' : 'text-emerald-600';
         return <span className={cls}>{when}</span>;
     };
 
@@ -697,7 +713,7 @@ const RegistrationsView = ({
                                                 {r.computedStatus !== 'removed' && (
                                                     <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
                                                 )}
-                                                {(r.computedStatus === 'expired' || r.computedStatus === 'expiring') && (
+                                                {(r.computedStatus === 'expired' || r.computedStatus === 'expiring' || r.computedStatus === 'archived') && (
                                                     <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
                                                 )}
                                             </>} />
@@ -720,6 +736,12 @@ const RegistrationsView = ({
                 {screen === 'remove' && (
                     <>
                         <ScreenHeader emoji="✈️" title="Вывести из E-mehmon" />
+                        {archivedCount > 0 && (
+                            <p className="text-sm text-slate-400 -mt-1 mb-3">
+                                🗄 Скрыто старых записей: {archivedCount} — прошло больше {STALE_TASK_DAYS} дн.
+                                Они остались в поиске и в списке «Все регистрации».
+                            </p>
+                        )}
                         {removeCount === 0 ? <AllDone text="Никого выводить не нужно" /> : (
                             <>
                                 {/* Массовый вывод одним нажатием */}
