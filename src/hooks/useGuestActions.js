@@ -1030,6 +1030,14 @@ export function useGuestActions(ctx) {
         });
       }
     }
+    // Ручная правка фактической оплаты (админ) — всегда в аудит-лог
+    if (typeof d.amountPaid === 'number') {
+      const g = guests.find(x => x.id === id);
+      logAction(currentUser, 'guest_paid_fix', {
+        guestId: id, guestName: g?.fullName, roomNumber: g?.roomNumber,
+        oldPaid: Number(g?.amountPaid) || 0, newPaid: d.amountPaid, hostelId: g?.hostelId,
+      });
+    }
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), d);
   };
 

@@ -337,6 +337,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const [reduceDaysNoRefund, setReduceDaysNoRefund] = useState(1);
     const [trimDays, setTrimDays] = useState(1);
     const [superPayAmount, setSuperPayAmount] = useState('');
+    // Правка фактической оплаты гостя (админ) — чинит перекос, если оплата
+    // откатилась лишний раз (например, по нескольким кликам «удалить платёж»).
+    const [fixCash, setFixCash] = useState(String(parseInt(guest.paidCash) || 0));
+    const [fixCard, setFixCard] = useState(String(parseInt(guest.paidCard) || 0));
+    const [fixQR,   setFixQR]   = useState(String(parseInt(guest.paidQR)   || 0));
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [newStartDate, setNewStartDate] = useState(() => {
         try { return guest.checkInDate ? new Date(guest.checkInDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]; }
@@ -471,6 +476,17 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     // Пункта в меню для fazliddin нет — чтобы подменный кассир на общем логине не видел соблазна.
     // Операция всё равно пишется в аудит-лог (см. handleSuperPayment).
     const canSuperPay = currentUser.role === 'super' || currentUser.login === 'fazliddin';
+
+    // Перевод и баланс не редактируем — они переносятся в новую сумму как есть
+    const fixedOther = (parseInt(guest.paidTransfer) || 0) + (parseInt(guest.paidBalance) || 0);
+    const fixedTotal = (parseInt(fixCash) || 0) + (parseInt(fixCard) || 0) + (parseInt(fixQR) || 0) + fixedOther;
+    const handleFixPaid = () => {
+        const c = parseInt(fixCash) || 0, k = parseInt(fixCard) || 0, q = parseInt(fixQR) || 0;
+        if (c < 0 || k < 0 || q < 0) { notify('Суммы не могут быть отрицательными', 'error'); return; }
+        if (!window.confirm(`Оплата гостя станет ${fixedTotal.toLocaleString()} сум (сейчас ${totalPaid.toLocaleString()}). Записи кассы и отчёты не меняются. Продолжить?`)) return;
+        onUpdate(guest.id, { paidCash: c, paidCard: k, paidQR: q, amountPaid: fixedTotal });
+        notify('Оплата исправлена', 'success');
+    };
     const superPayHoldRef = useRef(null);
     const superPayTriggeredRef = useRef(false);
     const startSuperPayHold = () => {
@@ -1421,6 +1437,31 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     <input type="number" className="w-20 p-2.5 border rounded-xl font-bold text-center" value={reduceDaysNoRefund} onChange={e=>setReduceDaysNoRefund(e.target.value)}/>
                                     <button onClick={handleReduceNR} className="flex-1 px-3 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm">Сократить</button>
                                 </div>
+                            </div>
+                            <div className="p-4 border-2 border-indigo-200 bg-indigo-50 rounded-xl space-y-3">
+                                <div className="text-xs font-bold text-indigo-700 uppercase">Исправить оплату</div>
+                                <p className="text-[11px] font-semibold text-indigo-500 leading-snug">
+                                    Ставит фактически оплаченную сумму по гостю. Кассу, смену и отчёты не трогает — только карточку.
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[['Наличные', fixCash, setFixCash], ['Карта', fixCard, setFixCard], ['QR', fixQR, setFixQR]].map(([label, val, set]) => (
+                                        <div key={label}>
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{label}</label>
+                                            <input type="number" min="0" className="w-full p-2 border-2 border-indigo-200 rounded-xl font-bold text-center focus:border-indigo-400 outline-none"
+                                                value={val} onChange={e=>set(e.target.value)} onWheel={disableWheel}/>
+                                        </div>
+                                    ))}
+                                </div>
+                                {fixedOther > 0 && (
+                                    <div className="text-[11px] font-semibold text-slate-500">Перевод и баланс ({fixedOther.toLocaleString()} сум) остаются как есть</div>
+                                )}
+                                <div className="flex items-center justify-between text-xs font-bold">
+                                    <span className="text-slate-500">Сейчас: {totalPaid.toLocaleString()} сум</span>
+                                    <span className="text-indigo-700">Станет: {fixedTotal.toLocaleString()} сум</span>
+                                </div>
+                                <button onClick={handleFixPaid} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors">
+                                    Сохранить оплату
+                                </button>
                             </div>
                             <div className="p-4 border-2 border-rose-200 bg-rose-50 rounded-xl space-y-3">
                                 <div className="text-xs font-bold text-rose-700 uppercase">Опасная зона</div>

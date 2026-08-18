@@ -1,7 +1,7 @@
 /**
  * useExpenseActions — расходы, удаление платежей, экспорт.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, increment, runTransaction } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, increment, runTransaction } from 'firebase/firestore';
 
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
@@ -31,7 +31,7 @@ export function buildExpenseComment(expense) {
 export function useExpenseActions({
   currentUser, selectedHostelFilter,
   expenses, usersList, lang,
-  guests = [], clients = [],
+  clients = [],
   setExpenseModal, setUndoStack,
   showNotification, isOnline = true,
 }) {

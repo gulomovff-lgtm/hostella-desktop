@@ -249,6 +249,20 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const [cttReceipt, setCttReceipt] = useState(null); // base64 image
     const [cttDragOver, setCttDragOver] = useState(false);
     const [receiptViewer, setReceiptViewer] = useState(null); // lightbox
+    const [deletingId, setDeletingId] = useState(null);   // удаление в процессе — блокируем кнопку
+
+    // Удаление записи кассы: подтверждение + защита от повторных кликов.
+    // Раньше по «залипшей» кнопке кликали несколько раз и оплата гостя откатывалась
+    // столько же раз, уводя его в минус.
+    const askDelete = async (id, type, item) => {
+        if (deletingId) return;
+        const sum = (parseInt(item?.amount) || 0).toLocaleString('ru');
+        const what = type === 'income' ? 'приход' : 'расход';
+        if (!window.confirm(`Удалить ${what} на ${sum} сум?${item?.guestId ? '\nОплата гостя уменьшится на эту сумму.' : ''}`)) return;
+        setDeletingId(id);
+        try { await onDeletePayment(id, type, item); }
+        finally { setDeletingId(null); }
+    };
     const openCTT = () => {
         setCttDate(getLocalDatetimeString(new Date()));
         setCashToTerminalOpen(true);
@@ -543,7 +557,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                     <button onClick={() => setReceiptViewer(item.receipt)} className="ml-1 text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1">🧾 Чек</button>
                                 )}
                                 {currentUser.role==='super' && (
-                                    <button onClick={()=>onDeletePayment(item.id,'income',item)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
+                                    <button onClick={()=>askDelete(item.id,'income',item)} disabled={deletingId===item.id} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={13}/></button>
                                 )}
                             </div>
                         </div>
@@ -573,7 +587,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 </span>
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{methodLabel(item.method)}</span>
                                 {currentUser.role==='super' && (
-                                    <button onClick={()=>onDeletePayment(item.id,item.type,item)} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={13}/></button>
+                                    <button onClick={()=>askDelete(item.id,item.type,item)} disabled={deletingId===item.id} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={13}/></button>
                                 )}
                             </div>
                         </div>
@@ -624,7 +638,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         </td>
                                         {currentUser.role==='super' && (
                                             <td className="px-4 py-3">
-                                                <button onClick={()=>onDeletePayment(item.id,'income',item)} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>
+                                                <button onClick={()=>askDelete(item.id,'income',item)} disabled={deletingId===item.id} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={14}/></button>
                                             </td>
                                         )}
                                     </tr>
@@ -652,7 +666,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{detail}</td>
                                         {currentUser.role==='super' && (
                                             <td className="px-4 py-3">
-                                                <button onClick={()=>onDeletePayment(item.id,item.type,item)} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>
+                                                <button onClick={()=>askDelete(item.id,item.type,item)} disabled={deletingId===item.id} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={14}/></button>
                                             </td>
                                         )}
                                     </tr>

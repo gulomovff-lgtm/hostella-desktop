@@ -20,6 +20,7 @@ const ACTION_META = {
     debt_add:             { icon: '💸', label: 'Долг добавлен',            color: 'rose',    group: 'Финансы' },
     debt_paid:            { icon: '💰', label: 'Долг погашен',             color: 'emerald', group: 'Финансы' },
     super_payment:        { icon: '🛡️', label: 'Зачёт суммы (не выручка)', color: 'purple',  group: 'Финансы' },
+    guest_paid_fix:       { icon: '🩹', label: 'Правка оплаты гостя',       color: 'indigo',  group: 'Финансы' },
     contract_writeoff:    { icon: '✂️', label: 'Списание долга (договор)',  color: 'purple',  group: 'Финансы' },
     contract_writeoff_undo:{ icon: '↩️', label: 'Списание отменено',        color: 'slate',   group: 'Финансы' },
     // Промокоды
