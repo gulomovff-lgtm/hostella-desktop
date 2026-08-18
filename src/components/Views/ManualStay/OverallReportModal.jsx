@@ -69,7 +69,11 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
             const extraScoped = (g.extraCharges || [])
                 .filter(c => c.date && mkey(c.date) === ym)
                 .reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
-            const charged = rate * ss.pn + extraScoped;
+            // Списания админа: уменьшают начисленное молча, отдельной строки в отчёте нет
+            const writeOffScoped = (g.writeOffs || [])
+                .filter(c => c.date && mkey(c.date) === ym)
+                .reduce((s, c) => s + Math.abs(parseInt(c.amount, 10) || 0), 0);
+            const charged = rate * ss.pn + extraScoped - writeOffScoped;
             return { id: g.id, name: g.name, members: g.members.length, memberNames: g.members.map(m => m.name), pn: ss.pn, rate, charged, paid: recPaid, paidCash, paidTransfer, paidCard, paidQR, debt: charged > 0 ? charged - recPaid : 0, period: ym, closed: !!g.closed, completed: !!g.completed, specs: ss.specs };
         }
         return { id: g.id, name: g.name, members: g.members.length, memberNames: g.members.map(m => m.name), pn: g.totalPersonNights, rate, charged: g.contractTotal, paid: g.amountPaid, paidCash, paidTransfer, paidCard, paidQR, debt: Math.max(0, g.debt), period: periodStr, closed: !!g.closed, completed: !!g.completed, specs: ss.specs };

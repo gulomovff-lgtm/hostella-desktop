@@ -1,9 +1,11 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, X, Search, Loader2, Edit2, Check, Users, CalendarDays, ChevronDown, ChevronRight, CreditCard, DollarSign, Shuffle, Trash2, FileText, TrendingUp, Archive, ArchiveRestore } from 'lucide-react';
+import { Plus, X, Search, Loader2, Edit2, Check, Users, CalendarDays, ChevronDown, ChevronRight, CreditCard, DollarSign, Shuffle, Trash2, FileText, TrendingUp, Archive, ArchiveRestore, EyeOff } from 'lucide-react';
 import {
     collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, writeBatch, addDoc,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
+import { sumCharges } from '../../utils/contractFinancials';
+import { logAction } from '../../utils/auditLog';
 
 import { CONTRACT_GROUPS_KEY, COLLECTION, PAYMENTS_COLLECTION, TRANSFER_ENTITIES, INP, fmt, getStayNights, pluralGroups, computeEntry, ACCENT_COLORS } from './ManualStay/shared';
 import RoomPicker from './ManualStay/RoomPicker';
@@ -30,6 +32,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editEntryModal, setEditEntryModal] = useState(null); // { groupId, entryId } — попап редактирования периода
     const [extraForm, setExtraForm] = useState(null); // { groupId, name, amount } — форма доп. расхода
+    const [writeOffForm, setWriteOffForm] = useState(null); // { groupId, reason, amount } — форма списания долга (админ)
     const [transferModal, setTransferModal] = useState(null); // { group, targetId, amount, toArchive } — перенос сальдо
     const [mergeMode, setMergeMode] = useState(false);
     const [selectedGroupIds, setSelectedGroupIds] = useState(new Set());
@@ -217,6 +220,45 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
         await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: (group.extraCharges || []).filter(c => c.id !== chargeId) });
     };
 
+    // ── Списание долга (только админ) ──────────────────────────────────────
+    // Уменьшает начисленную сумму договора, НЕ создавая платёжную запись:
+    // деньги не проходят через кассу, смена и кассовые отчёты не меняются.
+    // Хранится в extraCharges с флагом writeOff, поэтому из всех отчётов
+    // (бригадный, общий, попапы аренды) позиция исключена — видит только админ
+    // в карточке договора. Событие пишется в журнал действий.
+    const addWriteOff = async (groupId, reason, amount) => {
+        if (!isAdmin) return;
+        const group = contractGroups.find(g => g.id === groupId);
+        const amt = Math.abs(parseInt(amount, 10) || 0);
+        if (!group || amt <= 0) return;
+        const charge = {
+            id: `w-${Date.now()}`,
+            name: reason.trim() || 'Списание',
+            amount: -amt,                     // отрицательная — уменьшает «Начислено»
+            date: new Date().toISOString().slice(0, 10),
+            writeOff: true,
+            by: currentUser?.name || currentUser?.login || '',
+        };
+        await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: [...(group.extraCharges || []), charge] });
+        logAction(currentUser, 'contract_writeoff', {
+            contractId: groupId, contractName: group.name, amount: amt, reason: charge.name,
+        });
+    };
+    const removeWriteOff = async (groupId, chargeId) => {
+        if (!isAdmin) return;
+        const group = contractGroups.find(g => g.id === groupId);
+        const charge = (group?.extraCharges || []).find(c => c.id === chargeId);
+        if (!charge) return;
+        const amt = Math.abs(parseInt(charge.amount, 10) || 0);
+        if (!window.confirm(`Отменить списание «${charge.name}» (${amt.toLocaleString()} сум)?
+
+Долг вернётся в договор.`)) return;
+        await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: (group.extraCharges || []).filter(c => c.id !== chargeId) });
+        logAction(currentUser, 'contract_writeoff_undo', {
+            contractId: groupId, contractName: group.name, amount: amt, reason: charge.name,
+        });
+    };
+
     // ── Перенос сальдо (долга или переплаты) на другой договор ──
     // Реализовано парой доп. расходов (±сумма), а не платёжными записями — чтобы
     // не искажать кассовые отчёты фиктивными деньгами. Сумма по двум договорам
@@ -312,10 +354,14 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             const totalPersonNights  = autoPersonNights + manualPersonNights;
             const contractRate = parseInt(group.contractRate, 10) || 0;
             const rateTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
-            // Доп. расходы: произвольные позиции с ценами (формула = contractFinancials.js)
-            const extraCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
-            const extraTotal = extraCharges.reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
-            const contractTotal = rateTotal + extraTotal;
+            // Доп. расходы и списания (формула = contractFinancials.js).
+            // extraCharges отдаём БЕЗ списаний — отчёты берут именно его.
+            const allCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
+            const extraCharges = allCharges.filter(c => !c.writeOff);
+            const writeOffs = allCharges.filter(c => c.writeOff);
+            const extraTotal = sumCharges(extraCharges);
+            const writeOffTotal = -sumCharges(writeOffs) || 0;
+            const contractTotal = rateTotal + extraTotal - writeOffTotal;
             // Compute amountPaid from payment records first, fallback to group.amountPaid (legacy)
             const groupPayments = payments.filter(p => p.contractGroupId === group.id);
             const paidFromRecords = groupPayments.reduce((s, p) => {
@@ -328,6 +374,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                 ...group, members, manualEntries: entries,
                 autoPersonNights, manualPersonNights, manualRoomNights, totalPersonNights,
                 contractRate, rateTotal, extraCharges, extraTotal, contractTotal, amountPaid, debt,
+                writeOffs, writeOffTotal,
             };
         });
     }, [contractGroups, guestMap, payments]);
@@ -1046,6 +1093,70 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                     </div>
                                 )}
                             </div>
+
+                            {/* ─ Списание долга: только админ, в отчёты не попадает ─ */}
+                            {isAdmin && ((group.writeOffs || []).length > 0 || (!group.closed && group.debt > 0)) && (
+                                <div style={{ borderTop: '1px solid rgba(167,139,250,0.15)' }}>
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5">
+                                        <EyeOff size={9} style={{ color: 'rgba(167,139,250,0.6)' }} />
+                                        <span className="text-[10px] font-medium" style={{ color: 'rgba(167,139,250,0.7)' }}>Списание</span>
+                                        {(group.writeOffTotal || 0) > 0 && (
+                                            <span className="text-[9px] font-bold" style={{ color: '#a78bfa' }}>−{fmt(group.writeOffTotal)}</span>
+                                        )}
+                                        <span className="text-[9px]" style={{ color: 'rgba(167,139,250,0.4)' }}>не в отчётах</span>
+                                    </div>
+                                    {(group.writeOffs || []).length > 0 && (
+                                        <div className="pb-1">
+                                            {group.writeOffs.map(charge => (
+                                                <div key={charge.id} className="flex items-center gap-2 px-3 py-1.5 border-b last:border-0"
+                                                    style={{ borderColor: 'rgba(167,139,250,0.1)' }}>
+                                                    <span className="flex-1 min-w-0 text-[12px] truncate" style={{ color: 'rgba(226,247,248,0.75)' }}>{charge.name}</span>
+                                                    {charge.date && <span className="text-[9px] shrink-0" style={{ color: 'rgba(167,139,250,0.4)' }}>{charge.date.slice(5).split('-').reverse().join('.')}</span>}
+                                                    <span className="text-[11px] font-bold shrink-0" style={{ color: '#a78bfa' }}>−{fmt(Math.abs(parseInt(charge.amount, 10) || 0))}</span>
+                                                    <button onClick={() => removeWriteOff(group.id, charge.id)} className="p-0.5 rounded shrink-0"
+                                                        style={{ color: 'rgba(167,139,250,0.35)' }}
+                                                        onMouseEnter={e => e.currentTarget.style.color='#f87171'} onMouseLeave={e => e.currentTarget.style.color='rgba(167,139,250,0.35)'}>
+                                                        <X size={9} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {!group.closed && (
+                                        <div className="px-3 pb-2">
+                                            {writeOffForm?.groupId === group.id ? (
+                                                <div className="flex items-center gap-1.5">
+                                                    <input autoFocus value={writeOffForm.reason}
+                                                        onChange={e => setWriteOffForm(f => ({ ...f, reason: e.target.value }))}
+                                                        onKeyDown={e => { if (e.key === 'Enter') { addWriteOff(group.id, writeOffForm.reason, writeOffForm.amount); setWriteOffForm(null); } if (e.key === 'Escape') setWriteOffForm(null); }}
+                                                        placeholder="Причина (скидка, договорённость…)"
+                                                        className="flex-1 min-w-0 px-2 py-1.5 text-[11px] rounded-lg focus:outline-none"
+                                                        style={{ border: '1px solid rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.08)', color: '#e2f7f8' }} />
+                                                    <input value={writeOffForm.amount}
+                                                        onChange={e => setWriteOffForm(f => ({ ...f, amount: e.target.value.replace(/\D/g, '') }))}
+                                                        onKeyDown={e => { if (e.key === 'Enter') { addWriteOff(group.id, writeOffForm.reason, writeOffForm.amount); setWriteOffForm(null); } if (e.key === 'Escape') setWriteOffForm(null); }}
+                                                        placeholder="Сумма" inputMode="numeric"
+                                                        className="w-24 px-2 py-1.5 text-[11px] rounded-lg focus:outline-none text-right font-mono"
+                                                        style={{ border: '1px solid rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.08)', color: '#a78bfa' }} />
+                                                    <button onClick={() => { addWriteOff(group.id, writeOffForm.reason, writeOffForm.amount); setWriteOffForm(null); }}
+                                                        disabled={!(parseInt(writeOffForm.amount, 10) > 0)}
+                                                        className="shrink-0 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-white disabled:opacity-40"
+                                                        style={{ background: '#7c3aed' }}>Списать</button>
+                                                    <button onClick={() => setWriteOffForm(null)} className="shrink-0 p-1 rounded" style={{ color: 'rgba(167,139,250,0.4)' }}><X size={10} /></button>
+                                                </div>
+                                            ) : group.debt > 0 && (
+                                                <button onClick={() => setWriteOffForm({ groupId: group.id, reason: '', amount: String(Math.max(0, group.debt)) })}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-[10px] font-medium transition-colors"
+                                                    style={{ borderColor: 'rgba(167,139,250,0.35)', color: '#a78bfa' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.background='rgba(167,139,250,0.08)'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.background=''; }}>
+                                                    <EyeOff size={8} /> Списать долг
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     );
                 })}

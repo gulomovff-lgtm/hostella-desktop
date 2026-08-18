@@ -4,9 +4,20 @@
  * иначе карточка договора и попап аренды покажут разные цифры.
  *
  * Начислено = ставка × человеко-ночи (авто-участники + ручные периоды)
- *             + доп. расходы (extraCharges: произвольные позиции с ценой).
+ *             + доп. расходы (extraCharges: произвольные позиции с ценой)
+ *             − списания (позиции с writeOff: true — см. ниже).
  * Оплачено  = сумма платежей по contractGroupId (фолбэк — group.amountPaid).
  * Долг      = начислено − оплачено (только если начислено > 0).
+ *
+ * СПИСАНИЕ ДОЛГА (writeOff). Админ может уменьшить долг договора, не проводя
+ * денег: скидка, прощённый остаток, договорённость. Хранится в том же массиве
+ * extraCharges с флагом writeOff и отрицательной суммой, но:
+ *   - платёжная запись НЕ создаётся — кассовые отчёты и смены не искажаются;
+ *   - в extraCharges функция возвращает только ВИДИМЫЕ позиции, поэтому ни один
+ *     отчёт (бригадный, общий, попапы аренды) списание отдельной строкой не
+ *     покажет — оно молча сидит внутри «Начислено».
+ * Сами списания доступны отдельно: writeOffs / writeOffTotal — их показывает
+ * только карточка договора у админа.
  */
 
 const entryPersonNights = (entry) => {
@@ -27,6 +38,13 @@ const stayNights = (stay) => {
   const ms = new Date(stay.checkOutDate) - new Date(stay.checkInDate);
   return ms > 0 ? Math.round(ms / 86400000) : 0;
 };
+
+/** Сумма позиций (доп. расходов или списаний). */
+export const sumCharges = (charges = []) =>
+  charges.reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
+
+/** Списание — служебная позиция, скрытая от всех отчётов. */
+export const isWriteOff = (charge) => !!charge?.writeOff;
 
 export const computeContractFinancials = (group, guests = [], payments = []) => {
   if (!group) return null;
@@ -50,9 +68,13 @@ export const computeContractFinancials = (group, guests = [], payments = []) => 
   const contractRate = parseInt(group.contractRate, 10) || 0;
   const rateTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
   // Доп. расходы: произвольные позиции (стирка, транспорт, питание…) с ценами
-  const extraCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
-  const extraTotal = extraCharges.reduce((s, c) => s + (parseInt(c.amount, 10) || 0), 0);
-  const contractTotal = rateTotal + extraTotal;
+  const allCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
+  const extraCharges = allCharges.filter(c => !c.writeOff);
+  const writeOffs = allCharges.filter(c => c.writeOff);
+  const extraTotal = sumCharges(extraCharges);
+  // Списания хранятся отрицательными; writeOffTotal — положительная «сколько списано»
+  const writeOffTotal = -sumCharges(writeOffs) || 0; // || 0 — чтобы не получить -0
+  const contractTotal = rateTotal + extraTotal - writeOffTotal;
 
   const groupPayments = payments.filter(p => p.contractGroupId === group.id);
   const paidFromRecords = groupPayments.reduce((s, p) => {
@@ -70,6 +92,7 @@ export const computeContractFinancials = (group, guests = [], payments = []) => 
   return {
     autoPersonNights, manualPersonNights, totalPersonNights,
     contractRate, rateTotal, extraTotal, extraCharges, contractTotal,
+    writeOffs, writeOffTotal,
     amountPaid, paidCash, paidTransfer, paidCard, paidQR,
     debt,
     memberCount: memberKeys.length,

@@ -64,7 +64,9 @@ const BrigadeReportModal = ({ group, onClose }) => {
             if (group.contractRate > 0) lines.push(`Ставка: ${fmt(group.contractRate)} сум/чс`);
             lines.push(`Чел-ночей: ${totalPersonNights} (участники ${memberPersonNights} + периоды ${Math.max(0, totalPersonNights - memberPersonNights)})`);
             if ((group.extraTotal || 0) > 0) {
-                lines.push(`Проживание: ${fmt(group.rateTotal || 0)} сум`);
+                // Проживание считаем как остаток от «Начислено»: если админ списал часть
+                // долга, строка списания в отчёт не попадает, а суммы всё равно сходятся.
+                lines.push(`Проживание: ${fmt((group.contractTotal || 0) - (group.extraTotal || 0))} сум`);
                 lines.push(`Доп. расходы: ${fmt(group.extraTotal)} сум`);
                 (group.extraCharges || []).forEach(c => lines.push(`  - ${c.name || 'Без названия'}: ${fmt(parseInt(c.amount, 10) || 0)} сум${c.date ? ` (${c.date})` : ''}`));
             }
@@ -175,7 +177,7 @@ const BrigadeReportModal = ({ group, onClose }) => {
                                             <>
                                                 <div className="flex justify-between items-center px-4 py-3" style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f8fafc'}` }}>
                                                     <span className="text-sm" style={{ color: dk ? '#94a3b8' : '#64748b' }}>Проживание</span>
-                                                    <span className="text-sm font-bold" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmt(group.rateTotal || 0)} сум</span>
+                                                    <span className="text-sm font-bold" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmt((group.contractTotal || 0) - (group.extraTotal || 0))} сум</span>
                                                 </div>
                                                 {(group.extraCharges || []).map(c => (
                                                     <div key={c.id} className="flex justify-between items-center px-4 py-2" style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f8fafc'}` }}>
