@@ -65,7 +65,7 @@ test('отчёт не делит смену на «свою» и «принят�
   for (const report of [text, tg]) {
     assert.ok(!/передач/i.test(report), 'передача в отчёте не упоминается');
   }
-  const norm = (s) => s.replace(/[\s  ]/g, '');
+  const norm = (s) => s.replace(/[\s\u00a0\u202f]/g, '');   // ru-RU разделяет разряды неразрывными пробелами
   assert.ok(norm(tg).includes('170000'), 'наличные — общие 170 000');
   assert.ok(norm(tg).includes('330000'), 'терминал принятой смены на месте');
 });

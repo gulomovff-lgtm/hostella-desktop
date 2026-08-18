@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { doc, updateDoc, deleteField } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
-import { emehmonAmountFor, getLocalDateString } from '../utils/helpers';
+import { emehmonAmountFor, getLocalDateString, HOSTELS } from '../utils/helpers';
 import { emehmonAmountForStay } from '../utils/emehmonAmount';
 import {
-  openEmehmonArrival, fetchEmehmonRegistered, departEmehmonBackground,
-  departEmehmonBulk, autoRegisterArrival, recalcEmehmonAmounts,
+  openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered,
+  departEmehmonBackground, departEmehmonBulk, autoRegisterArrival, recalcEmehmonAmounts,
 } from '../utils/emehmon';
 
 /**

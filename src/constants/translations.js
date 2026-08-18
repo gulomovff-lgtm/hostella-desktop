@@ -180,7 +180,6 @@ const TRANSLATIONS = {
     checkinGroup: "Группа",
     checkinRental: "Аренда",
     // Conflict banner
-    close: "Закрыть",
     daysShort: "дн.",
     conflictBannerTitle: "Конфликт заселения",
     conflictBannerSub: "Место занято раньше, чем гость выезжает",

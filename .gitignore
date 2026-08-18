@@ -46,3 +46,4 @@ lerna-debug.log*
 # Electron
 out/
 .webpack/tmp/
+.lint.json

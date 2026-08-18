@@ -281,9 +281,8 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
-    if (!guest) { onClose(); return null; }
 
     const totalPaid = getTotalPaid(guest);
     const debt = (guest.totalPrice || 0) - totalPaid;
@@ -1753,5 +1752,13 @@ const GuestDetailsModal = ({ guest, room, currentUser, clients = [], guests = []
         </>
     );
 };
+
+// Карточка гостя без самого гостя не имеет смысла. Проверка стояла ВНУТРИ
+// компонента до трёх десятков хуков — это нарушение правил хуков: при смене
+// guest на null React увидел бы другое число хуков и уронил бы дерево.
+// Плюс оттуда же вызывался onClose() прямо во время отрисовки — побочный эффект
+// в рендере. Окно и так открывается только при открытом guestDetailsModal,
+// поэтому здесь достаточно не отрисовывать ничего.
+const GuestDetailsModal = (props) => (props.guest ? <GuestDetailsModalInner {...props} /> : null);
 
 export default GuestDetailsModal;

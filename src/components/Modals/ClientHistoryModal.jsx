@@ -111,8 +111,7 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
     );
 };
 
-const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, onAdjustBalance, onEditClient, lang }) => {
-    if (!client) return null;
+const ClientHistoryModalInner = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, onAdjustBalance, onEditClient, lang }) => {
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     // Админ и Fazliddin могут только СПИСЫВАТЬ с баланса (не пополнять)
     const subtractOnly = currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
@@ -367,5 +366,9 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
         </>
     );
 };
+
+// Та же причина, что и в карточке гостя: проверка на пустого клиента стояла
+// перед хуками и нарушала их порядок. Выносим в обёртку.
+const ClientHistoryModal = (props) => (props.client ? <ClientHistoryModalInner {...props} /> : null);
 
 export default ClientHistoryModal;

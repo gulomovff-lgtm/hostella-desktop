@@ -15,7 +15,9 @@
     "build:electron": "vite build --config vite.electron.config.js",
     "clean": "npx rimraf release",
     "dist": "npm run clean && npm run build:electron && electron-builder build --publish always",
-    "deploy": "npm run build && firebase deploy --only hosting"
+    "deploy": "npm run build && firebase deploy --only hosting",
+    "lint": "eslint src electron functions tests",
+    "lint:fix": "eslint src electron functions tests --fix"
   },
   "build": {
     "appId": "com.hostella.app",
@@ -66,12 +68,17 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@vitejs/plugin-react": "^4.0.0",
     "autoprefixer": "^10.4.23",
     "concurrently": "^8.0.0",
     "cross-env": "^7.0.0",
     "electron": "^28.0.0",
     "electron-builder": "^26.8.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "vite": "^5.0.0",

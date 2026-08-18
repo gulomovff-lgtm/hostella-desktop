@@ -2,8 +2,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import ReactDOM from 'react-dom';
 import {
   signInAnonymously,
-  signInWithEmailAndPassword,
-  signOut,
   onAuthStateChanged
 } from 'firebase/auth';
 import {
@@ -14,7 +12,6 @@ import {
   deleteDoc,
   setDoc,
   increment,
-  writeBatch,
   deleteField,
   arrayUnion
 } from 'firebase/firestore';
@@ -28,24 +25,11 @@ import { useAutoCheckout } from './hooks/useAutoCheckout';
 import { useEmehmonAutomation } from './hooks/useEmehmonAutomation';
 import useNow from './hooks/useNow';
 import {
-  getTimeLeftLabel,
   HOSTELS,
-  getTotalPaid,
-  pluralize,
   getLocalDateString,
-  getLocalDatetimeString,
-  getStayDetails,
-  checkCollision,
-  calculateSalary,
-  exportToExcel,
-  printDocument,
-  printDebts,
-  printReport,
-  getNormalizedCountry,
   getKppDayNumber,
   getRegistrationWindow,
   isStaleSince,
-  emehmonAmountFor,
   Flag
 } from './utils/helpers';
 import { sendTelegramMessage } from './utils/telegram';

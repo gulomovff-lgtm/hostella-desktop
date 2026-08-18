@@ -129,7 +129,8 @@ export const fmtSum = (raw) => {
     return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 };
 // Обратное: убирает пробелы и возвращает строку цифр
-export const parseSum = (formatted) => String(formatted ?? '').replace(/[\s ]/g, '');
+// \u00a0 - неразрывный пробел: toLocaleString(ru-RU) разделяет им разряды
+export const parseSum = (formatted) => String(formatted ?? '').replace(/[\s\u00a0]/g, '');
 
 export const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
 export const pluralize = (number, one, two, five, lang = 'ru') => {
@@ -198,14 +199,8 @@ export const checkCollision = (existingCheckIn, existingDays, newCheckIn, newDay
     return !(e2 <= n1 || n2 <= e1);
 };
 
-export const calculateSalary = (startTime, endTime) => {
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const diffMs = end - start;
-    const diffHours = diffMs / (1000 * 60 * 60);
-    const diffDays = diffHours / 24;
-    return Math.round(diffDays * DAILY_SALARY);
-};
+// calculateSalary удалён: не вызывался и падал (DAILY_SALARY сюда не импортировался).
+// Зарплата считается по настраиваемой ставке — см. utils/shiftMath.
 
 // ? ИСПРАВЛЕНИЕ: Экспорт в Excel через SheetJS (реальный .xlsx)
 export const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0) => {
