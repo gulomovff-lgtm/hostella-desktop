@@ -1,8 +1,7 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, X, Search, Loader2, Edit2, Check, Users, CalendarDays, ChevronDown, ChevronRight, CreditCard, DollarSign, Shuffle, Trash2, FileText, TrendingUp, Archive, ArchiveRestore, EyeOff } from 'lucide-react';
 import {
-    collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, writeBatch, addDoc,
-} from 'firebase/firestore';
+    collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, writeBatch, } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { sumCharges } from '../../utils/contractFinancials';
 import { logAction } from '../../utils/auditLog';
@@ -79,7 +78,9 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             }
         }, (err) => { console.error('[ManualStay]', err); setLoading(false); });
         return () => unsub();
-    }, []);
+        // Фильтр внутри подписки читает филиал и роль — при их смене нужна новая подписка,
+        // иначе список договоров остаётся отфильтрованным по прежнему пользователю.
+    }, [currentUser?.hostelId, isAdmin]);
 
     const createGroup = async () => {
         const name = newGroupName.trim();

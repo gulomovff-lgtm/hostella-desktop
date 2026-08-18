@@ -170,13 +170,13 @@ const Navigation = ({
     const allItems = ALL_NAV_ITEMS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount);
     const accessibleItems = allItems.filter(filterItem);
     const accessibleIds   = new Set(accessibleItems.map(i => i.id));
-    const hiddenSet = useMemo(() => new Set(navPrefs?.hidden ?? []), [navPrefs?.hidden]); // eslint-disable-line
+    const hiddenSet = useMemo(() => new Set(navPrefs?.hidden ?? []), [navPrefs?.hidden]);  
 
     // ── Folders (use saved or defaults) ──
     const folders = useMemo(() => {
         const src = navPrefs?.folders ?? DEFAULT_FOLDERS;
         return src.map(f => ({ ...f, items: (f.items || []).filter(id => accessibleIds.has(id)) }));
-    }, [navPrefs?.folders, accessibleIds]); // eslint-disable-line
+    }, [navPrefs?.folders, accessibleIds]);  
 
     const openFolders = navPrefs?.openFolders ?? {};
 
@@ -185,7 +185,7 @@ const Navigation = ({
     // Items not in any folder (standalone) — just membership, order handled by resolvedNavOrder
     const standaloneItems = useMemo(() => {
         return accessibleItems.filter(i => !folderItemIds.has(i.id) && i.id !== 'dashboard');
-    }, [accessibleItems, folderItemIds]); // eslint-disable-line
+    }, [accessibleItems, folderItemIds]);  
 
     // Resolved render order for sidebar and customize modal
     const resolvedNavOrder = React.useMemo(() => {
@@ -212,7 +212,7 @@ const Navigation = ({
         const missingItems   = itemEntries.filter(e => !savedItems.includes(e));
         const missingFolders = folderEntries.filter(e => !savedFolders.includes(e));
         return [...savedItems, ...missingItems, ...savedFolders, ...missingFolders];
-    }, [navPrefs?.navOrder, navPrefs?.order, folders, accessibleItems, folderItemIds]); // eslint-disable-line
+    }, [navPrefs?.navOrder, navPrefs?.order, folders, accessibleItems, folderItemIds]);  
 
     const toggleFolder = (fid) => {
         const cur = openFolders[fid] ?? (navPrefs?.folders ? false : (DEFAULT_FOLDERS.find(f => f.id === fid)?.open ?? false));

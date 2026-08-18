@@ -3,7 +3,6 @@ import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 
 const orPayAmt = (p) => ((parseInt(p.cash) || 0) + (parseInt(p.transfer) || 0) + (parseInt(p.card) || 0) + (parseInt(p.qr) || 0)) || (parseInt(p.amount) || 0);
-const orMethod = (p) => { const parts = []; if (p.cash) parts.push('нал'); if (p.transfer) parts.push('переч'); if (p.card) parts.push('карта'); if (p.qr) parts.push('QR'); return parts.join('+') || '—'; };
 
 const OR_COLS = [
     { key: 'members',      label: 'Участн.',   num: true,  val: r => r.members },
@@ -77,7 +76,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
             return { id: g.id, name: g.name, members: g.members.length, memberNames: g.members.map(m => m.name), pn: ss.pn, rate, charged, paid: recPaid, paidCash, paidTransfer, paidCard, paidQR, debt: charged > 0 ? charged - recPaid : 0, period: ym, closed: !!g.closed, completed: !!g.completed, specs: ss.specs };
         }
         return { id: g.id, name: g.name, members: g.members.length, memberNames: g.members.map(m => m.name), pn: g.totalPersonNights, rate, charged: g.contractTotal, paid: g.amountPaid, paidCash, paidTransfer, paidCard, paidQR, debt: Math.max(0, g.debt), period: periodStr, closed: !!g.closed, completed: !!g.completed, specs: ss.specs };
-    }), [groups, ym, payments]); // eslint-disable-line react-hooks/exhaustive-deps
+    }), [groups, ym, payments]);  
 
     const activeCols = OR_COLS.filter(c => cols[c.key]);
     const totals = {};
@@ -135,7 +134,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
         }));
         // Сортируем по договору (каждый отдельно), внутри — по дате заезда
         return out.sort((a, b) => a.contract.localeCompare(b.contract, 'ru') || (a.checkIn || '').localeCompare(b.checkIn || ''));
-    }, [groups, ym]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [groups, ym]);  
 
     // Участники с проживанием (сколько ночей прожили)
     const memberRows = useMemo(() => {

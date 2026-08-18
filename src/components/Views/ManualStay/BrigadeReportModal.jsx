@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Users, X } from 'lucide-react';
 import { fmt } from './shared';
 

@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
+import react from 'eslint-plugin-react'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 // Линтер настроен на РЕАЛЬНЫЕ ошибки, а не на стиль.
@@ -16,6 +17,7 @@ export default defineConfig([
   {
     files: ['src/**/*.{js,jsx}'],
     extends: [js.configs.recommended, reactHooks.configs.flat.recommended],
+    plugins: { react },
     languageOptions: {
       ecmaVersion: 'latest',
       globals: {
@@ -31,6 +33,13 @@ export default defineConfig([
       'no-dupe-keys': 'error',
       'no-irregular-whitespace': 'error',
       'react-hooks/rules-of-hooks': 'error',
+      // БЕЗ ЭТОГО ПРАВИЛА no-unused-vars врёт: имя, использованное только в JSX
+      // (<motion.div>, <Icon/>), выглядит для него неиспользуемым, и его «мёртвый
+      // импорт» на самом деле живой. Один раз уже стоил белого экрана на входе.
+      'react/jsx-uses-vars': 'error',
+      // И обратная сторона: компонент, использованный в JSX без импорта. Сборка
+      // такое пропускает, экран падает уже у кассира.
+      'react/jsx-no-undef': 'error',
       // Неиспользуемое: чаще всего след недоделанной правки
       'no-unused-vars': ['warn', {
         varsIgnorePattern: '^[A-Z_]',      // константы могут быть «про запас»

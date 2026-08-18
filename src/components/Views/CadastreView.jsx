@@ -7,11 +7,10 @@ import {
 } from 'lucide-react';
 import { HOSTELS, Flag } from '../../utils/helpers';
 import { COUNTRY_FLAGS } from '../../constants/countries';
-import { getConfig } from '../../utils/appConfig';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
-import { getLocalDateStr, getDaysLeft, getStatus, STATUS_CFG, calcEndDate, fmt, inp } from './Cadastre/shared';
+import { getStatus, STATUS_CFG, fmt } from './Cadastre/shared';
 import EditRegModal from './Cadastre/EditRegModal';
 import CopyButton from './Cadastre/CopyButton';
 import ExtendModal from './Cadastre/ExtendModal';

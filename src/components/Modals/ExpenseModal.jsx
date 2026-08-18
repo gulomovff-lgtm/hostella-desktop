@@ -93,7 +93,7 @@ const evalExpr = (raw) => {
     if (!s || !/[0-9]/.test(s)) return NaN;
     if (!/^[0-9+\-*/().]+$/.test(s)) return NaN;
     try {
-        // eslint-disable-next-line no-new-func
+         
         const val = Function(`"use strict"; return (${s});`)();
         return (typeof val === 'number' && isFinite(val)) ? val : NaN;
     } catch { return NaN; }

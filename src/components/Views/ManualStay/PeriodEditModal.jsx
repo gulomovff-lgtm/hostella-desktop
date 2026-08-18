@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
+import RoomPicker from './RoomPicker';
+import WorkerGroupRow from './WorkerGroupRow';
 
 const PeriodEditModal = ({ group, entry, rooms, savedSpecialties, onUpdate, onRemove, onAddWG, onUpdateWG, onRemoveWG, onClose }) => {
     const [checkIn, setCheckIn] = useState(entry.checkIn || '');

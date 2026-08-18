@@ -1,7 +1,7 @@
 /**
  * useClientActions — операции с базой клиентов.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, writeBatch, increment } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { getNormalizedCountry } from '../utils/helpers';

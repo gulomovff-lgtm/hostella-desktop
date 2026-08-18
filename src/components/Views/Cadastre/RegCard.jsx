@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, ChevronDown, ChevronUp, Edit2, ExternalLink, Link, MapPin, Receipt, RefreshCw, Trash2, UserX } from 'lucide-react';
 import { STATUS_CFG, fmt, getDaysLeft, getStatus } from './shared';
+import CopyButton from './CopyButton';
 
 const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, isAdmin }) => {
   const [expanded, setExpanded] = useState(false);

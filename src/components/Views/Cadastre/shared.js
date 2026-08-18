@@ -1,7 +1,6 @@
 // Общие расчёты и стили экрана кадастровых регистраций.
 // Вынесены отдельно: их используют и карточки, и все модалки экрана.
 import { CheckCircle2, AlertTriangle, AlertCircle, UserX } from 'lucide-react';
-import { getConfig } from '../../../utils/appConfig';
 
 export const getLocalDateStr = () => {
   const d = new Date();

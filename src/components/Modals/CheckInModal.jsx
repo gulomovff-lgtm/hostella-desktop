@@ -10,21 +10,6 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 
 // --- Helpers ---
-const getStayDetails = (checkInDateTime, days) => {
-    const start = new Date(checkInDateTime);
-    const checkInHour = start.getHours();
-    if (checkInHour === 0) {
-        const end = new Date(start);
-        end.setDate(end.getDate() + parseInt(days));
-        end.setHours(12, 0, 0, 0);
-        return { start, end };
-    }
-    start.setHours(12, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + parseInt(days));
-    return { start, end };
-};
-
 /**
  * Auto-select price based on bed position and room bunk type.
  * Lower beds (1..ceil(cap/2)) -> prices.lower, upper -> prices.upper.

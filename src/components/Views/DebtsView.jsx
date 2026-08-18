@@ -124,7 +124,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
             );
         }
         return result;
-    }, [guests, startDate, endDate, staffFilter, users]);
+    }, [guests, startDate, endDate, staffFilter, users, currentUser]);
 
     // Долги по аренде комнат (из rooms)
     const rentalDebts = useMemo(() => {

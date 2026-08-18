@@ -23,10 +23,8 @@ import { useOfflineQueue } from './hooks/useOfflineQueue';
 import { useSystemHealth } from './hooks/useSystemHealth';
 import { useAutoCheckout } from './hooks/useAutoCheckout';
 import { useEmehmonAutomation } from './hooks/useEmehmonAutomation';
-import useNow from './hooks/useNow';
 import {
   HOSTELS,
-  getLocalDateString,
   getKppDayNumber,
   getRegistrationWindow,
   isStaleSince,
@@ -34,7 +32,6 @@ import {
 } from './utils/helpers';
 import { sendTelegramMessage } from './utils/telegram';
 import { checkAndMarkAlert } from './utils/alertsLog';
-import { hashPassword } from './utils/hash';
 
 import { 
   LayoutDashboard, 
@@ -146,8 +143,7 @@ import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
 import ManualStayView from './components/Views/ManualStayView';
 import GuestHistoryView from './components/Views/GuestHistoryView';
-import { logAction, logSystemError } from './utils/auditLog';
-import { reportClientVersion } from './utils/clientTelemetry';
+import { logAction } from './utils/auditLog';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
@@ -590,7 +586,7 @@ function App() {
     // Без этого: если предыдущий юзер был force-разлогинен (ref=true),
     // следующий юзер на том же устройстве НИКОГДА не получит force-logout.
     forceLogoutTriggeredRef.current = false;
-  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);  
 
   // Сброс флага когда мультихостел кассир выбрал хостел — чтобы авто-старт сработал
   useEffect(() => {
