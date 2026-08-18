@@ -35,11 +35,9 @@ export function useGuestActions(ctx) {
     setGuestDetailsModal, setMoveGuestModal,
     setUndoStack, setUndoHistoryOpen,
     showNotification, isOnline = true,
-    setEmehmonReminder,
     setEmehmonArrivalPrompt,
     onEmehmonDepart,
     onEmehmonAutoArrival,
-    onEmehmonAutoDepart,
   } = ctx;
 
   // ─── Internal helpers ────────────────────────────────────────────────────

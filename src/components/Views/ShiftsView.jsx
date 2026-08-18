@@ -34,7 +34,6 @@ const FillButton = ({ onClick, disabled }) => (
 
 // --- ShiftsView ---
 const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, onAdminSplitShift, onAdminUnsplitShift, payments = [], expenses = [], onPaySalary }) => {
-    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
     // Передача смены живёт в окне «Закрытие смены» — там, где кассир заканчивает работу.
@@ -763,7 +762,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                             ? <button onClick={() => doUnsplit(s)} title="Отменить деление 50/50"
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-indigo-500 bg-indigo-50 hover:bg-indigo-100 text-sm font-black transition-all">½</button>
                                                             : <button onClick={() => startSplit(s)} title="Разделить смену 50/50 с другим кассиром"
-                                                                className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 text-sm font-black transition-all">½</button>
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 text-sm font-black transition-all">½</button>
                                                         )}
                                                         <button onClick={() => openEdit(s)} title="Изменить"
                                                             className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"><Edit size={15}/></button>
@@ -1025,6 +1024,17 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         {editingShift ? '✏️ Сохранить изменения' : '➕ Добавить смену'}
                                     </button>
                                 </div>
+                                {editingShift && isAdmin && editingShift.endTime && (
+                                    isShared(editingShift)
+                                        ? <button onClick={()=>{ setIsAddModalOpen(false); doUnsplit(editingShift); }}
+                                            className="w-full py-2.5 rounded-xl border border-indigo-300 bg-indigo-50 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-colors">
+                                            ½ Отменить деление 50/50
+                                        </button>
+                                        : <button onClick={()=>{ setIsAddModalOpen(false); startSplit(editingShift); }}
+                                            className="w-full py-2.5 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors">
+                                            ½ Разделить смену 50/50 с другим кассиром
+                                        </button>
+                                )}
                                 {editingShift && isAdmin && (
                                     <button onClick={()=>handleDeleteShift(editingShift)} className="w-full py-2.5 rounded-xl border border-rose-200 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors">
                                         🗑 Удалить смену

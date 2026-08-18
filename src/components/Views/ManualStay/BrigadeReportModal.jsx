@@ -12,7 +12,7 @@ const BrigadeReportModal = ({ group, onClose }) => {
     };
     const weekDay = (d) => ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][new Date(d + 'T00:00:00').getDay()];
 
-    const { members, entries, specialtySummary, totalPersonDays, totalNights, wgDays, memberPersonNights, totalPersonNights } = React.useMemo(() => {
+    const { members, entries, specialtySummary, totalPersonDays, wgDays, memberPersonNights, totalPersonNights } = React.useMemo(() => {
         const members = group.members || [];
         const entries = (group.manualEntries || []).map(entry => {
             let nights = 0;
@@ -47,7 +47,6 @@ const BrigadeReportModal = ({ group, onClose }) => {
         });
         const wgDays = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, wgs]) => ({ date, wgs }));
         const totalPersonDays = [...summary.values()].reduce((s, v) => s + v.total, 0);
-        const totalNights = entries.reduce((s, e) => s + e.nights, 0);
         // Проживание участников (их собственные ночи как гостей) + чел-ночи договора
         const memberPersonNights = (typeof group.autoPersonNights === 'number')
             ? group.autoPersonNights
@@ -55,7 +54,7 @@ const BrigadeReportModal = ({ group, onClose }) => {
         const totalPersonNights = (typeof group.totalPersonNights === 'number')
             ? group.totalPersonNights
             : memberPersonNights + (group.manualPersonNights || 0);
-        return { members, entries, specialtySummary: summary, totalPersonDays, totalNights, wgDays, memberPersonNights, totalPersonNights };
+        return { members, entries, specialtySummary: summary, totalPersonDays, wgDays, memberPersonNights, totalPersonNights };
     }, [group]);
 
     const copyReport = () => {

@@ -102,7 +102,6 @@ const evalExpr = (raw) => {
 const hasOperator = (s) => /[+\-*/×÷]/.test(String(s || '').slice(1));
 
 const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = '', usersList = [], selectedHostelFilter = '' }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
     // Полный список категорий — как в разделе «Расходы»: встроенные + центральные

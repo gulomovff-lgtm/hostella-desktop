@@ -487,16 +487,6 @@ export default function ExpensesView({
         () => selectedList.reduce((s, e) => s + (Number(e.amount) || 0), 0),
         [selectedList]);
 
-    // Выделить/снять все записи конкретной категории
-    const toggleCategorySelection = useCallback((catName, items) => {
-        const ids = items.map(e => e.id);
-        setSelectedIds(prev => {
-            const n = new Set(prev);
-            const allIn = ids.length > 0 && ids.every(id => n.has(id));
-            ids.forEach(id => allIn ? n.delete(id) : n.add(id));
-            return n;
-        });
-    }, []);
 
     const handleBulkMove = useCallback(async () => {
         if (!bulkTarget || selectedIds.size === 0 || bulkBusy) return;
@@ -553,7 +543,6 @@ export default function ExpensesView({
     const allCatsForSelect = [...CATS, ...customCategories.filter(c => !CATS.includes(c))];
 
     // ── Recurring block (shared) ──────────────────────────────────────────────
-    const now_today = now.getDate();
     const RecurringSection = () => isAdmin ? (
         <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden">
             <button onClick={() => setRecurringOpen(o => !o)} className="w-full flex items-center justify-between px-5 py-3.5 bg-indigo-50 hover:bg-indigo-100 transition-colors">

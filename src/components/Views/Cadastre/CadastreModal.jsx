@@ -13,7 +13,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
       ? (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')
       : currentUser.hostelId;
 
-  const [hostelId, setHostelId] = useState(defaultHostel);
+  const [hostelId] = useState(defaultHostel);
 
   const [guestSearch, setGuestSearch] = useState('');
   const [selectedGuest, setSelectedGuest] = useState(null);

@@ -145,7 +145,6 @@ import ManualStayView from './components/Views/ManualStayView';
 import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction } from './utils/auditLog';
 import { loadAppConfig, getConfig } from './utils/appConfig';
-import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
 import { openEmehmonArrival } from './utils/emehmon';
 import { minNightPrice } from './utils/pricing';
@@ -185,9 +184,6 @@ import TRANSLATIONS from './constants/translations';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_FLAGS } from './constants/countries';
 import { DAILY_SALARY, DEFAULT_USERS, APP_VERSION, MIN_REQUIRED_VERSION } from './constants/config';
 
-// --- STYLES ---
-const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
-const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
 
 // Constants outside component to avoid recreation on every render
 const SEEN_BOOKINGS_KEY = 'hostella_seen_booking_ids';
@@ -305,7 +301,6 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [hostelPickerPending, setHostelPickerPending] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [roomFilter, setRoomFilter] = useState('all');
   const [selectedHostelFilter, setSelectedHostelFilter] = useState('hostel1');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [notifications, setNotifications] = useState([]);
@@ -413,11 +408,6 @@ function App() {
 
   // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
   useOfflineQueue({ isOnline, showNotification });
-
-  // Хелпер: найти пользователя по staffId/staffLogin (устойчив к смене document ID)
-  const findUserByShift = useCallback((s) => {
-    return usersList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
-  }, [usersList]);
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
@@ -792,8 +782,8 @@ function App() {
     emehmonDepartingIds,
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
     handleEmehmonFlag, handleEmehmonDepart, handleEmehmonDepartConfirm,
-    handleEmehmonDone, handleEmehmonAutoArrival, handleEmehmonAutoDepart,
-    handleDepartOutcome, runEmehmonSync, runEmehmonRecalc,
+    handleEmehmonDone, handleEmehmonAutoArrival,
+    runEmehmonSync, runEmehmonRecalc,
   } = useEmehmonAutomation({
     guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
     isDataReady, showNotification, setGuestDetailsModal,
@@ -863,7 +853,7 @@ function App() {
 
   const {
     handleUndo, pushUndo,
-    handleCheckInSubmit, handleCheckIn,
+    handleCheckInSubmit,
     handleCheckOut, handlePayment, handleExtendGuest,
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
@@ -884,7 +874,6 @@ function App() {
     setEmehmonArrivalPrompt,
     onEmehmonDepart: handleEmehmonDepart,
     onEmehmonAutoArrival: handleEmehmonAutoArrival,
-    onEmehmonAutoDepart: handleEmehmonAutoDepart,
   });
 
   const {
@@ -1143,29 +1132,6 @@ const filterByHostel = (items) => {
     () => filterByHostel((manualStayGroups || []).map(g => ({ ...g, hostelId: g.hostelId || 'hostel1' }))),
     [manualStayGroups, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
-
-  const handleExportGuests = useCallback(() => {
-    const active = filteredGuests.filter(g => g.status === 'active');
-    if (!active.length) { showNotification('Нет проживающих гостей', 'error'); return; }
-    const rows = active.map(g => ({
-      'ФИО': g.fullName || '',
-      'Паспорт': g.passport || '',
-      'Дата выдачи паспорта': g.passportIssueDate || '',
-      'Дата рождения': g.birthDate || '',
-      'Страна': g.country || '',
-      'Телефон': g.phone || '',
-      'Комната': g.roomNumber || g.roomId || '',
-      'Место': g.bedId || '',
-      'Дата заезда': g.checkInDate || '',
-      'Дата выезда': g.checkOutDate || '',
-      'Дата КПП': g.kppDate || '',
-      'КПП подтверждено': g.kppRegistered ? 'Да' : '',
-    }));
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'Гости');
-    XLSX.writeFile(wb, `Гости_${new Date().toISOString().split('T')[0]}.xlsx`);
-  }, [filteredGuests]);
 
   const filteredExpenses = useMemo(() => filterByHostel(expenses), [expenses, currentUser, selectedHostelFilter]);
   const filteredTasks = useMemo(() => filterByHostel(tasks), [tasks, currentUser, selectedHostelFilter]);
@@ -1742,13 +1708,25 @@ const currentHostelInfo = HOSTELS[currentUser.role === 'admin' ? selectedHostelF
 const currentHostelKey = currentUser.role === 'admin' ? selectedHostelFilter : (currentUser.hostelId || 'hostel1');
 const currentCheckInHour = hostelConfig?.[currentHostelKey]?.checkInHour ?? 14;
 const currentCheckOutHour = hostelConfig?.[currentHostelKey]?.checkOutHour ?? 12;
-const t = (k) => TRANSLATIONS[lang][k];
-
 return (
     <div className="app-root w-full font-sans flex flex-col overflow-hidden text-slate-800 bg-[#f0f2f5]" style={{height:'100dvh', paddingTop:'env(safe-area-inset-top, 0px)' }}>
 
+        {/* Баннер «нет доступа»: база отклонила чтение. Раньше это состояние
+            приложение получало, но никак не показывало — кассир видел пустые
+            экраны и не понимал причины. Офлайн-баннер при этом прячем: связь
+            есть, дело в правах. */}
+        {permissionError && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2 bg-rose-600 text-white text-sm z-50">
+            <span className="flex items-center gap-2">
+              <ShieldAlert size={15} className="shrink-0"/>
+              <span><strong>Нет доступа к данным.</strong> База отклонила запрос — обычно аккаунт отключён или изменились права. Выйдите и войдите снова; если не помогло, сообщите администратору.</span>
+            </span>
+            <button onClick={handleLogout} className="ml-2 shrink-0 px-3 py-1 bg-white text-rose-700 rounded font-semibold text-xs hover:bg-rose-50">Выйти</button>
+          </div>
+        )}
+
         {/* Баннер офлайн */}
-        {!isOnline && (
+        {!isOnline && !permissionError && (
           <div className="flex items-center justify-between px-4 py-2 bg-amber-600 text-white text-sm z-50">
             <span className="flex items-center gap-2"><WifiOff size={15} className="shrink-0"/><span><strong>Нет подключения к интернету.</strong> Данные сохраняются локально и синхронизируются при восстановлении связи. Telegram-уведомления будут отправлены автоматически.</span></span>
           </div>

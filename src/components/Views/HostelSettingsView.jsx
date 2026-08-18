@@ -310,7 +310,6 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
     // Stable refs (defined at this level, never inside a nested component)
     const fileRef1 = useRef();
     const fileRef2 = useRef();
-    const fileRefs = { hostel1: fileRef1, hostel2: fileRef2 };
 
     // Load settings from Firestore
     useEffect(() => {

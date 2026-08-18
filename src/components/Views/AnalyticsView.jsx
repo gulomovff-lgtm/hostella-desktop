@@ -438,9 +438,6 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     const cVarNight      = nTotal > 0 ? cVar / nTotal : 0;
     // Доля постоянных расходов на 1 койко-ночь
     const cFixedNight    = nTotal > 0 ? cFixed / nTotal : 0;
-    // P_guest = R - (C_var/N + C_fixed/N)
-    const pGuest         = Math.round(R_night - cVarNight - cFixedNight);
-    const rentability    = R_night > 0 ? Math.round((pGuest / R_night) * 100) : 0;
 
     return (
         <div className="flex-1 overflow-y-auto" style={{ background: dk ? '#0f172a' : '#f0f2f5' }}>
@@ -503,7 +500,6 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
                 {/* ── Финансовый итог периода ── */}
                 {nTotal > 0 && (() => {
-                    const incomeBarPct = totalIncome > 0 ? 100 : 0;
                     const expenseBarPct = totalIncome > 0 ? Math.min(100, Math.round(totalExpense / totalIncome * 100)) : 0;
                     const profitColor = totalProfit >= 0 ? '#10b981' : '#ef4444';
                     const marginPct = totalIncome > 0 ? Math.round(totalProfit / totalIncome * 100) : 0;

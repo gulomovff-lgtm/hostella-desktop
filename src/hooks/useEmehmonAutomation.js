@@ -87,24 +87,6 @@ const handleEmehmonDepart = useCallback((guestOrList) => {
   }
 }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-// Тихий авто-вывод из e-mehmon (для переезда/сплита): выселяем в фоне и сразу
-// помечаем «выведен», чтобы не висело напоминание «вывести из e-mehmon пока не
-// обновлю». Если фон не смог (нужен вход) — оставляем как есть, плашка покажет
-// это как обычный «хвост» для ручного вывода.
-const handleEmehmonAutoDepart = useCallback(async (guest) => {
-  if (!guest || !guest.emehmonReg || !guest.id) return;
-  if (!window.electronAPI?.emehmonDeparture) return; // веб — тихо пропускаем
-  try {
-    const res = await departEmehmonBackground(guest, { hostelId: guest.hostelId });
-    if (res?.status === 'done' || res?.status === 'submitted') {
-      handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString(), emehmonOutAuto: true });
-      showNotification(`${guest.fullName} — выведен из e-mehmon (авто) ✓`, 'success');
-      setTimeout(() => { if (emehmonSyncRef.current) emehmonSyncRef.current(false); }, 1500);
-    }
-    // прочие статусы (need_login и т.п.) — не трогаем, останется в плашке «Вывести»
-  } catch (_) { /* пропускаем */ }
-}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
-
 // Итог фонового выселения: помечаем «выведен», чистим лоадеры, обновляем список.
 const handleDepartOutcome = useCallback((res, list) => {
   const ids = (list || []).filter(g => g && g.id).map(g => g.id);
@@ -515,7 +497,7 @@ useEffect(() => {
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
     // действия
     handleEmehmonFlag, handleEmehmonDepart, handleEmehmonDepartConfirm,
-    handleEmehmonDone, handleEmehmonAutoArrival, handleEmehmonAutoDepart,
+    handleEmehmonDone, handleEmehmonAutoArrival,
     handleDepartOutcome, runEmehmonSync, runEmehmonRecalc,
   };
 }

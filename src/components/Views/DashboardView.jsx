@@ -110,7 +110,6 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 // ---------------------------------------------------------------------------
 
 const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [], onOpenGuest, onMarkEmehmonOut }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
     const [tab, setTab] = useState('overview');
     const [chartMode, setChartMode] = useState('income');
     const [selectMode, setSelectMode] = useState(false);

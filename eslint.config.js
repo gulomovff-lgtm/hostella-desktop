@@ -45,6 +45,7 @@ export default defineConfig([
         varsIgnorePattern: '^[A-Z_]',      // константы могут быть «про запас»
         argsIgnorePattern: '^_',           // _event, _unused — намеренно
         caughtErrorsIgnorePattern: '^_|^e$',
+        ignoreRestSiblings: true,          // const { pass, ...rest } — приём «выкинуть поле»
       }],
       // Зависимости эффектов: часто нарушаются осознанно (таймеры на refs)
       'react-hooks/exhaustive-deps': 'warn',
@@ -70,7 +71,7 @@ export default defineConfig([
       parserOptions: { sourceType: 'commonjs' },
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_|^e$' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_|^e$', ignoreRestSiblings: true }],
       'no-empty': ['warn', { allowEmptyCatch: true }],
     },
   },

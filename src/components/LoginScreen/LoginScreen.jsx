@@ -299,14 +299,14 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
     const [pass, setPass]           = useState('');
     const [error, setError]         = useState('');
     const [hour, setHour]           = useState(() => new Date().getHours());
-    const [themeKey, setThemeKey]   = useState(0);
+    // Счётчик-триггер: значение не читаем, важен сам факт перерисовки неба
+    const [_themeKey, setThemeKey]  = useState(0);
     const [greetKey, setGreetKey]   = useState(0);
     const [stars, setStars]         = useState([]);
     const [clouds, setClouds]       = useState([]);
     // submitPhase: 'idle' | 'morphing' | 'loading' | 'success' | 'hostel-pick' | 'collapsing' | 'zooming'
     const [submitPhase, setSubmitPhase] = useState('idle');
     const [pendingUser, setPendingUser] = useState(null);
-    const [loginFocused, setLoginFocused] = useState(false);
     const [showPass, setShowPass] = useState(false);
     const loginInputRef = useRef(null);
     const [loadingTextIdx, setLoadingTextIdx] = useState(0);

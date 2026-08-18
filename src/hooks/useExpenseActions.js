@@ -1,7 +1,7 @@
 /**
  * useExpenseActions — расходы, удаление платежей, экспорт.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, deleteDoc, increment, runTransaction } from 'firebase/firestore';
 
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
@@ -154,63 +154,79 @@ export function useExpenseActions({
     return { ok: ids.length, failed, total };
   };
 
+  /**
+   * Удаление записи кассы (приход/расход).
+   *
+   * Всё делается одной транзакцией: сначала читаем сам документ — если его уже нет
+   * (второй клик по той же кнопке, пока первый запрос ещё летел), выходим не тронув
+   * деньги. Иначе однократное удаление и однократный откат оплат гостя/баланса
+   * клиента. Без этого повторные клики по «тормозящей» кнопке списывали оплату
+   * столько раз, сколько было кликов, и гость уходил в минус.
+   */
   const handleDeletePayment = async (id, type, record = {}) => {
-    // Сначала корректируем баланс гостя, потом удаляем запись —
-    // чтобы при сбое платёж остался и его можно было попробовать снова
-    if (type === 'income' && record.guestId && record.category !== 'registration') {
-      try {
-        const cash     = Number(record.cash)     || 0;
-        const card     = Number(record.card)     || 0;
-        const qr       = Number(record.qr)       || 0;
-        const transfer = Number(record.transfer) || 0;
-        const total = Number(record.amount) || (cash + card + qr + transfer);
-        const patch = {
-          paidCash: increment(-cash), paidCard: increment(-card),
-          paidQR: increment(-qr), amountPaid: increment(-total),
-          ...(transfer > 0 ? { paidTransfer: increment(-transfer) } : {}),
-        };
+    const col = type === 'income' ? 'payments' : 'expenses';
+    const ref = doc(db, ...PUBLIC_DATA_PATH, col, id);
 
-        // Откат переплаты: если с этого гостя часть денег ушла на баланс клиента,
-        // после удаления платежа переплата уменьшилась — снимаем лишнее с баланса,
-        // иначе удалённый платёж «оставался» деньгами на балансе.
-        const g = guests.find(x => x.id === record.guestId);
-        const credited = Number(g?.balanceCredited) || 0;
-        if (credited > 0) {
-          const paidNow = (Number(g?.amountPaid) || 0) - total;
-          const overAfter = Math.max(0, paidNow - (Number(g?.totalPrice) || 0));
-          const clawback = Math.min(credited, Math.max(0, credited - overAfter));
-          if (clawback > 0) {
-            const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
-            const cli = (g.passport && clients.find(c => c.passport && norm(c.passport) === norm(g.passport))) || null;
-            if (cli) {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', cli.id), { balance: increment(-clawback) });
-              showNotification(`С баланса клиента снята переплата ${clawback.toLocaleString()} сум`, 'info');
+    try {
+      const res = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return { already: true };
+        const p = { ...record, ...snap.data() };
+
+        const touchesGuest = type === 'income' && p.guestId && p.category !== 'registration';
+        if (!touchesGuest) { tx.delete(ref); return {}; }
+
+        const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', p.guestId);
+        const gSnap = await tx.get(guestRef);
+
+        const cash     = Number(p.cash)     || 0;
+        const card     = Number(p.card)     || 0;
+        const qr       = Number(p.qr)       || 0;
+        const transfer = Number(p.transfer) || 0;
+        const total = Number(p.amount) || (cash + card + qr + transfer);
+
+        let clawback = 0;
+        if (gSnap.exists()) {
+          const g = gSnap.data();
+          const patch = {
+            paidCash: increment(-cash), paidCard: increment(-card),
+            paidQR: increment(-qr), amountPaid: increment(-total),
+            ...(transfer > 0 ? { paidTransfer: increment(-transfer) } : {}),
+          };
+
+          // Откат переплаты: если с этого гостя часть денег ушла на баланс клиента,
+          // после удаления платежа переплата уменьшилась — снимаем лишнее с баланса,
+          // иначе удалённый платёж «оставался» деньгами на балансе.
+          const credited = Number(g.balanceCredited) || 0;
+          if (credited > 0) {
+            const paidNow = (Number(g.amountPaid) || 0) - total;
+            const overAfter = Math.max(0, paidNow - (Number(g.totalPrice) || 0));
+            clawback = Math.min(credited, Math.max(0, credited - overAfter));
+            if (clawback > 0) {
+              const norm = s2 => (s2 || '').replace(/\s/g, '').toUpperCase();
+              const cli = (g.passport && clients.find(c => c.passport && norm(c.passport) === norm(g.passport))) || null;
+              if (cli) {
+                tx.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', cli.id), { balance: increment(-clawback) });
+                patch.balanceCredited = increment(-clawback);
+              } else {
+                clawback = 0;
+              }
             }
-            patch.balanceCredited = increment(-clawback);
           }
+          tx.update(guestRef, patch);
         }
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', record.guestId), patch);
-      } catch (e) {
-        console.warn('Не удалось обновить баланс гостя:', e.message);
-      }
-    }
 
-    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
+        tx.delete(ref);
+        return { clawback };
+      });
 
-    let msg = `🗑 <b>Удалена запись</b>\nТип: ${type === 'income' ? 'Платёж' : record.category === 'Возврат' ? 'Возврат' : 'Расход'}`;
-    if (type === 'income') {
-      if (record.guestName || record.guest) msg += `\n👤 Гость: ${record.guestName || record.guest}`;
-      if (record.amount) msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
-      if (record.method) msg += `\n💳 Метод: ${record.method}`;
-      if (record.date)   msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
-    } else {
-      if (record.category) msg += `\n📂 Категория: ${record.category}`;
-      if (record.amount)   msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
-      if (record.comment)  msg += `\n💬 ${record.comment}`;
-      if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
+      if (res.already) { showNotification('Эта запись уже удалена', 'info'); return; }
+      if (res.clawback > 0)
+        showNotification(`С баланса клиента снята переплата ${res.clawback.toLocaleString()} сум`, 'info');
+      showNotification('Запись удалена');
+    } catch (e) {
+      showNotification('Не удалось удалить запись: ' + e.message, 'error');
     }
-    msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
-    showNotification('Запись удалена');
   };
 
   const downloadExpensesCSV = () => {
@@ -218,7 +234,6 @@ export function useExpenseActions({
       ? expenses
       : expenses.filter(e => e.hostelId === (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId));
 
-    const today = new Date().toLocaleDateString('ru-RU');
     const reportDate = new Date().toISOString().split('T')[0];
     const hostelKey = currentUser?.role === 'super' ? 'all' : (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId);
     const hostelSlug = hostelKey === 'hostel1' ? 'Хостел1' : hostelKey === 'hostel2' ? 'Хостел2' : 'Все';

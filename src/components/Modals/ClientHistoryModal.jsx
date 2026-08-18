@@ -146,7 +146,6 @@ const ClientHistoryModalInner = ({ client, guests, users, rooms, currentUser, on
     const avgCheck  = stats.stays > 0 ? Math.round(stats.totalSpent / stats.stays) : 0;
     const trustGood = stats.totalDebt === 0;
     const initials  = client.fullName?.split(' ').map(w=>w[0]).slice(0,2).join('') || '?';
-    const fmt = d => { try { return new Date(d).toLocaleDateString('ru',{day:'2-digit',month:'2-digit',year:'2-digit'}); } catch{ return '—'; }};
     const fmtFull = d => { try { return new Date(d).toLocaleDateString('ru',{day:'2-digit',month:'long',year:'numeric'}); } catch{ return '—'; }};
 
     const latestStay    = history[0] || client;

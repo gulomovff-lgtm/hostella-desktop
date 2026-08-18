@@ -114,9 +114,6 @@ function parseMRZ(text) {
   // I<UZB...
   if (firstLine.includes('<<')) {
       const parts = firstLine.split('<<');
-      let namePart = parts[0];
-      // Убираем префикс (P<UZB, I<UZB, A<UZB)
-      namePart = namePart.replace(/^[A-Z0-9<]{5}/, ''); 
       // Часто в начале остается часть фамилии, если она не отделена.
       // Попробуем просто взять то, что разделено <<
       if (parts.length > 1) {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Award, Trophy, Medal, Coins } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Coins } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import DatePicker from '../UI/DatePicker';
@@ -8,8 +8,6 @@ import { addDebtSheets } from './Reports/debtExcel';
 import { buildDebtReport, expectedProfit } from '../../utils/debtReport';
 
 // --- Styles ---
-const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
-const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
 
 // --- Utilities ---
 const METHOD_LABELS = { cash: 'Наличные', card: 'Терминал', qr: 'QR', transfer: 'Перечисление' };
@@ -390,27 +388,6 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         setActivePreset(preset);
     };
     const net = totalIncome - totalExpense - totalRefund;
-
-    // ── Top Cashiers ──────────────────────────────────────────────────────
-    const topCashiers = useMemo(() => {
-        const map = {};
-        filteredData.filter(t => t.type === 'income').forEach(t => {
-            const uid  = t.staffId || 'unknown';
-            const user = users.find(u => u.id === uid || u.login === uid);
-            const name = user?.name || uid;
-            if (!map[uid]) map[uid] = { name, income: 0, count: 0 };
-            map[uid].income += parseInt(t.amount) || 0;
-            map[uid].count  += 1;
-        });
-        return Object.values(map).sort((a, b) => b.income - a.income).slice(0, 5);
-    }, [filteredData, users]);
-
-    const MedalIcon = ({ rank }) => {
-        if (rank === 0) return <Trophy size={16} className="text-amber-500"/>;
-        if (rank === 1) return <Medal size={16} className="text-slate-400"/>;
-        if (rank === 2) return <Medal size={16} className="text-orange-400"/>;
-        return <span className="text-xs font-black text-slate-400 w-4 text-center">{rank + 1}</span>;
-    };
 
     const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
     const hostelBadge = (selectedHostelFilter && selectedHostelFilter !== 'all')

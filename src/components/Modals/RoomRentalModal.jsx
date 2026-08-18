@@ -86,7 +86,6 @@ const RoomRentalModal = ({
     lang         = 'ru',
     currentUser,
 }) => {
-    const t     = (k) => TRANSLATIONS[lang]?.[k] || k;
     const today = new Date().toISOString().split('T')[0];
     const isEdit = mode === 'edit';
 

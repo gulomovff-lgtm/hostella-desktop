@@ -229,11 +229,6 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
 
     useEffect(() => { setCurrentPage(1); }, [search, countryFilter, recencyFilter, itemsPerPage]);
 
-    const handleSelectAll = (e) => {
-        if (e.target.checked) setSelectedIds(new Set(paginatedClients.map(c => c.id)));
-        else setSelectedIds(new Set());
-    };
-
     const handleSelect = (id) => {
         const newSet = new Set(selectedIds);
         if (newSet.has(id)) newSet.delete(id); else newSet.add(id);

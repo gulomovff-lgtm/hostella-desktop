@@ -162,7 +162,6 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const [payQR, setPayQR] = useState('');
     const [isAdminAdjustModalOpen, setIsAdminAdjustModalOpen] = useState(false);
     const [adminAdjustAmount, setAdminAdjustAmount] = useState('');
-    const [magnetActiveField, setMagnetActiveField] = useState(null);
     const [isCreateDebtModalOpen, setIsCreateDebtModalOpen] = useState(false);
     const [isPayModalOpen, setIsPayModalOpen] = useState(false);
 
@@ -170,8 +169,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
         if (!debtor || debtor.totalDebt <= 0) return;
         setSelectedDebtor(debtor); 
         setIsPayModalOpen(true); 
-        setPayCash(''); setPayCard(''); setPayQR(''); 
-        setMagnetActiveField(null);
+        setPayCash(''); setPayCard(''); setPayQR('');
     };
     
     const handleAdminAdjustClick = (debtor) => { 
@@ -211,7 +209,6 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
         if (field === 'payCash') setPayCash(String(remaining));
         if (field === 'payCard') setPayCard(String(remaining));
         if (field === 'payQR') setPayQR(String(remaining));
-        setMagnetActiveField(field);
     };
 
     const toggleDetails = (id) => {
@@ -488,7 +485,6 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                             if(field === 'payCash') setPayCash(val);
                                             else if(field === 'payCard') setPayCard(val);
                                             else setPayQR(val);
-                                            setMagnetActiveField(null);
                                         }}
                                         onWheel={e => e.target.blur()}
                                     />

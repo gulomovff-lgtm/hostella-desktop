@@ -100,7 +100,6 @@ const Navigation = ({
     const [checkinOpen,   setCheckinOpen]   = React.useState(false);
     const [checkinPos,    setCheckinPos]    = React.useState({});
     const [customizeOpen, setCustomizeOpen] = React.useState(false);
-    const [hamburgerOpen, setHamburgerOpen] = React.useState(false);
     const [dragId,          setDragId]          = React.useState(null);  // item id being dragged in folder
     const [dragOverId,      setDragOverId]      = React.useState(null);  // item id or 'folder:fid'
     const [dragNavEntry,    setDragNavEntry]    = React.useState(null);  // 'folder:fid' or 'item:id' outer list
@@ -182,11 +181,6 @@ const Navigation = ({
 
     const folderItemIds = useMemo(() => new Set(folders.flatMap(f => f.items)), [folders]);
 
-    // Items not in any folder (standalone) — just membership, order handled by resolvedNavOrder
-    const standaloneItems = useMemo(() => {
-        return accessibleItems.filter(i => !folderItemIds.has(i.id) && i.id !== 'dashboard');
-    }, [accessibleItems, folderItemIds]);  
-
     // Resolved render order for sidebar and customize modal
     const resolvedNavOrder = React.useMemo(() => {
         const savedOrder = navPrefs?.navOrder;
@@ -229,7 +223,6 @@ const Navigation = ({
     const clearDrag = () => { setDragId(null); setDragOverId(null); setDragNavEntry(null); setDragOverNavEntry(null); };
 
     const handleDragStart = (id) => { setDragNavEntry(null); setDragId(id); };
-    const handleDragOver  = (id) => { if (id !== dragId) setDragOverId(id); };
 
     // Drag item into folder
     const handleDropOnFolder = (targetFolderId) => {
@@ -295,11 +288,6 @@ const Navigation = ({
 
     const setFolderIcon = (fid, iconId) => {
         onNavPrefs?.({ folders: folders.map(f => f.id === fid ? { ...f, icon: iconId === 'folder' ? undefined : iconId } : f) });
-    };
-
-    const reorderFolders = (fromId, toId) => {
-        if (!fromId || !toId || fromId === toId) return;
-        reorderNav('folder:' + fromId, 'folder:' + toId);
     };
 
     // Reorder entries in the outer nav list (folders + standalone items interleaved)
