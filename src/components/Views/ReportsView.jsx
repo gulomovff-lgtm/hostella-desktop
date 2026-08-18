@@ -4,6 +4,8 @@ import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import DatePicker from '../UI/DatePicker';
 import DebtReportModal from './Reports/DebtReportModal';
+import { addDebtSheets } from './Reports/debtExcel';
+import { buildDebtReport, expectedProfit } from '../../utils/debtReport';
 
 // --- Styles ---
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
@@ -19,7 +21,7 @@ const getLocalDatetimeString = (dateObj) => {
     return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16);
 };
 
-const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '') => {
+const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '', debt = null) => {
     const ExcelJS = (await import('exceljs')).default;
     const net = totalIncome - totalExpense - totalRefund;
     const mLabel = methodLabel;
@@ -84,7 +86,19 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
     ];
     sumRows.forEach(rw => { const r = ws2.addRow(rw); boxRow(r); });
     const balR = ws2.addRow(['БАЛАНС', net, data.length]); balR.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
-    widths(ws2, [22, 20, 12]);
+    // Долги: остаток на сегодня, не за период — поэтому отдельным блоком под балансом
+    if (debt) {
+        ws2.addRow([]);
+        const dRows = [
+            ['ДОЛГИ на сегодня', debt.report.totals.debt, debt.report.totals.count],
+            ['  из них перечислением', debt.report.totals.transfer, ''],
+            ['  из них наличные / карта', debt.report.totals.regular, ''],
+        ];
+        dRows.forEach(rw => { const r = ws2.addRow(rw); boxRow(r); });
+        const expR = ws2.addRow(['ОЖИДАЕМО (баланс + долги)', debt.expected, '']);
+        expR.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
+    }
+    widths(ws2, [26, 20, 12]);
     moneyFmt(ws2, [2]);
 
     // ── Лист 3: По кассирам ──
@@ -123,6 +137,9 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
         widths(ws4, [18, 16, 12]);
         moneyFmt(ws4, [2]);
     }
+
+    // ── Листы с долгами (те же, что в отдельном отчёте по долгам) ──
+    if (debt) addDebtSheets(wb, { report: debt.report, hostelLabel, hostelName: debt.hostelName, periodLabel: periodStr, periodNet: net, expected: debt.expected });
 
     // ── Скачивание ──
     if (wb.worksheets.length === 0) wb.addWorksheet('Отчёт');
@@ -212,6 +229,8 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     }, [selectedHostelFilter]);
     const [exporting, setExporting] = useState(false);
     const [debtReportOpen, setDebtReportOpen] = useState(false);
+    const hostelName = (id) => hostels?.[id]?.name
+        || (id === 'hostel1' ? 'Хостел №1' : id === 'hostel2' ? 'Хостел №2' : id || '—');
     const [activePreset, setActivePreset] = useState('today');
     const fInput = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
     const fLabel = "block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wide ml-1";
@@ -305,6 +324,12 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const totalExpense = filteredData.filter(t => t.type === 'expense' && t.category !== 'Возврат').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
     const totalCTT     = filteredData.filter(t => t.type === 'cash_to_terminal').reduce((sum, t) => sum + (parseInt(t.amount)||0), 0);
 
+    // Долги на сегодня: нужны и кнопке «Долги», и общему Excel-отчёту.
+    // Считаются от текущего состояния, период фильтра на них не влияет.
+    const debtReport = useMemo(
+        () => buildDebtReport({ guests, rooms, contractGroups, payments, hostelId: filters.hostelId || null }),
+        [guests, rooms, contractGroups, payments, filters.hostelId]);
+
     const handleExport = async () => {
         if (exporting) return;
         setExporting(true);
@@ -331,7 +356,11 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId).replace(/\s/g, '_')
             : 'Все_хостелы';
         const fname = `Hostella_${dateFrom}_${dateTo}_${sortLabel}_${hostelSlug}.xls`;
-        await exportToExcel(exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr);
+        await exportToExcel(exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr, {
+            report: debtReport,
+            expected: expectedProfit(net, debtReport.totals.debt),
+            hostelName,
+        });
         } catch (e) {
             console.error('Excel export failed:', e);
             alert('Не удалось сформировать Excel: ' + (e?.message || 'неизвестная ошибка'));
@@ -752,13 +781,9 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         )}
         {debtReportOpen && (
             <DebtReportModal
-                guests={guests}
-                rooms={rooms}
-                contractGroups={contractGroups}
-                payments={payments}
-                hostelId={filters.hostelId || null}
+                report={debtReport}
+                hostelName={hostelName}
                 hostelLabel={hostelBadge}
-                hostels={hostels}
                 periodNet={net}
                 periodLabel={periodLabel}
                 onClose={() => setDebtReportOpen(false)}

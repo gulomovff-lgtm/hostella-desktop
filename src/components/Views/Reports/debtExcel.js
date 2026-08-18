@@ -1,17 +1,20 @@
-// Выгрузка отчёта по долгам в Excel. Оформление то же, что у финансового
-// отчёта (те же цвета шапки и рамки), чтобы два файла выглядели как один пакет.
+// Листы с долгами для Excel. Используются дважды:
+//   - addDebtSheets(wb, …)      — дописывает листы в общий финансовый отчёт;
+//   - exportDebtsToExcel(…)     — отдельный файл только с долгами.
+// Оформление то же, что у финансового отчёта (цвета шапки, рамки, зебра).
 
 const MONEY = '#,##0';
 const HEAD = 'FF0F9688', TOTAL_FILL = 'FFE8F5F3', ZEBRA = 'FFF1F5F9', TITLE = 'FF1A3C40';
 
 const SOURCE_TITLE = { guest: 'Гости', rental: 'Аренда комнат', contract: 'Договоры и бригады' };
 
-export const exportDebtsToExcel = async ({ report, hostelLabel, hostelName, periodLabel, periodNet, expected }) => {
-    const ExcelJS = (await import('exceljs')).default;
+/**
+ * Дописывает в книгу два листа: «Долги — сводка» и «Долги подробно».
+ * ExcelJS не нужен — работаем с уже созданной книгой.
+ */
+export const addDebtSheets = (wb, { report, hostelLabel, hostelName, periodLabel, periodNet, expected }) => {
     const { rows, totals, byHostel, byEntity, bySource } = report;
 
-    const wb = new ExcelJS.Workbook();
-    wb.creator = 'Hostella';
     const thin = { style: 'thin', color: { argb: 'FFE2E8F0' } };
     const box = { top: thin, left: thin, bottom: thin, right: thin };
     const boxRow = (r) => r.eachCell(c => { c.border = box; });
@@ -47,8 +50,8 @@ export const exportDebtsToExcel = async ({ report, hostelLabel, hostelName, peri
         ? `Перечисление${r.entities?.length ? ` (${r.entities.join(', ')})` : ''}`
         : 'Наличные / карта';
 
-    // ── Лист 1: Сводка ────────────────────────────────────────────────────────
-    const ws1 = wb.addWorksheet('Сводка');
+    // ── Лист: сводка по долгам ────────────────────────────────────────────────
+    const ws1 = wb.addWorksheet('Долги — сводка');
     titleBlock(ws1, 7, 'Отчёт по долгам');
     addHeader(ws1, ['Филиал', 'Гости', 'Аренда', 'Договоры', 'Перечислением', 'Обычные', 'Всего долг']);
     byHostel.forEach((h, i) => {
@@ -81,7 +84,7 @@ export const exportDebtsToExcel = async ({ report, hostelLabel, hostelName, peri
         byEntity.forEach(e => { boxRow(ws1.addRow([e.entity, e.debt])); });
     }
 
-    // ── Лист 2: Долги подробно ────────────────────────────────────────────────
+    // ── Лист: долги построчно ─────────────────────────────────────────────────
     const ws2 = wb.addWorksheet('Долги подробно', { views: [{ state: 'frozen', ySplit: 4 }] });
     titleBlock(ws2, 8, 'Долги — построчно');
     addHeader(ws2, ['Источник', 'Кто', 'Детали', 'Филиал', 'Начислено', 'Оплачено', 'Долг', 'Ожидается']);
@@ -100,14 +103,24 @@ export const exportDebtsToExcel = async ({ report, hostelLabel, hostelName, peri
     widths(ws2, [20, 28, 34, 16, 16, 16, 16, 28]);
     money(ws2, [5, 6, 7]);
 
+    return wb;
+};
+
+/** Отдельный файл только с долгами — кнопка «Excel» в отчёте по долгам. */
+export const exportDebtsToExcel = async (args) => {
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Hostella';
+    addDebtSheets(wb, args);
+
     const stamp = new Date().toLocaleDateString('ru').replace(/\./g, '-');
-    const slug = hostelLabel.replace(/\s/g, '_');
+    const slug = (args.hostelLabel || 'Все_хостелы').replace(/\s/g, '_');
     const buf = await wb.xlsx.writeBuffer();
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `Долги_${slug}_${stamp}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
 };

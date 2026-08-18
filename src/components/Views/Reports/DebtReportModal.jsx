@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { X, Printer, Download, Wallet, ArrowRightLeft, Banknote, TrendingUp } from 'lucide-react';
-import { buildDebtReport, expectedProfit } from '../../../utils/debtReport';
+import { expectedProfit } from '../../../utils/debtReport';
 import { printDebtReport } from './debtPrint';
 import { exportDebtsToExcel } from './debtExcel';
 
@@ -16,21 +16,16 @@ const SOURCES = [
  * Отчёт по долгам: кто и сколько должен, в разрезе филиалов, источников и
  * способа оплаты. Показывается поверх финансового отчёта — вместе они дают
  * ожидаемую прибыль: собранное за период плюс то, что ещё придёт.
+ *
+ * Сводку считает экран отчётов (она же уходит в общий Excel), модалка только
+ * показывает готовое — иначе два места разошлись бы в цифрах.
  */
 const DebtReportModal = ({
-    guests = [], rooms = [], contractGroups = [], payments = [],
-    hostelId = null, hostelLabel = 'Все хостелы', hostels,
+    report, hostelName, hostelLabel = 'Все хостелы',
     periodNet = 0, periodLabel = '', onClose,
 }) => {
     const [tab, setTab] = useState('all');
     const [busy, setBusy] = useState(false);
-
-    const hostelName = (id) => hostels?.[id]?.name
-        || (id === 'hostel1' ? 'Хостел №1' : id === 'hostel2' ? 'Хостел №2' : id || '—');
-
-    const report = useMemo(
-        () => buildDebtReport({ guests, rooms, contractGroups, payments, hostelId }),
-        [guests, rooms, contractGroups, payments, hostelId]);
 
     const { rows, totals, bySource, byHostel, byEntity } = report;
     const expected = expectedProfit(periodNet, totals.debt);
