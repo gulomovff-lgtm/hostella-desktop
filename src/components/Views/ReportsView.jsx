@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Award, Trophy, Medal } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Award, Trophy, Medal, Coins } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import DatePicker from '../UI/DatePicker';
+import DebtReportModal from './Reports/DebtReportModal';
 
 // --- Styles ---
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
@@ -176,7 +177,7 @@ const printReport = (data, totalIncome, totalExpense, totalRefund, filters, user
 };
 
 // --- ReportsView ---
-const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, selectedHostelFilter, hostels, lang }) => {
+const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, selectedHostelFilter, hostels, lang, rooms = [], contractGroups = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const HOSTEL_LIST = [
         { id: 'hostel1', name: hostels?.hostel1?.name || 'Хостел №1' },
@@ -210,6 +211,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         }
     }, [selectedHostelFilter]);
     const [exporting, setExporting] = useState(false);
+    const [debtReportOpen, setDebtReportOpen] = useState(false);
     const [activePreset, setActivePreset] = useState('today');
     const fInput = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
     const fLabel = "block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wide ml-1";
@@ -493,6 +495,9 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors disabled:opacity-60">
                         <Download size={15}/> {exporting ? 'Формирую…' : 'Excel'}
                     </button>
+                    <button onClick={() => setDebtReportOpen(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
+                        <Coins size={15}/> Долги
+                    </button>
                     {onCashToTerminal && (
                         <button onClick={openCTT} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
                             🏦 Инкассация
@@ -744,6 +749,20 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     >×</button>
                 </div>
             </div>
+        )}
+        {debtReportOpen && (
+            <DebtReportModal
+                guests={guests}
+                rooms={rooms}
+                contractGroups={contractGroups}
+                payments={payments}
+                hostelId={filters.hostelId || null}
+                hostelLabel={hostelBadge}
+                hostels={hostels}
+                periodNet={net}
+                periodLabel={periodLabel}
+                onClose={() => setDebtReportOpen(false)}
+            />
         )}
         </>
     );

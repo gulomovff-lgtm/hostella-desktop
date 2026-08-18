@@ -1142,6 +1142,10 @@ const filterByHostel = (items) => {
   }, [payments, usersList, currentUser, selectedHostelFilter]);
 
   const filteredRooms = useMemo(() => filterByHostel(rooms), [rooms, currentUser, selectedHostelFilter]);
+  // Договоры для отчёта по долгам: у старых записей филиала нет — считаем их первым
+  const visibleContractGroups = useMemo(
+    () => filterByHostel((manualStayGroups || []).map(g => ({ ...g, hostelId: g.hostelId || 'hostel1' }))),
+    [manualStayGroups, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
 
   const handleExportGuests = useCallback(() => {
@@ -1964,6 +1968,8 @@ return (
                         selectedHostelFilter={selectedHostelFilter}
                         hostels={HOSTELS}
                         lang={lang}
+                        rooms={filteredRooms}
+                        contractGroups={visibleContractGroups}
                     />
                 )}
                 
