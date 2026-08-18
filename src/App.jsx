@@ -21,6 +21,9 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions, PUBLIC_DATA_PATH } from './firebase';
 import { useAppData } from './hooks/useAppData';
+import { useAutoClientSync } from './hooks/useAutoClientSync';
+import { useOfflineQueue } from './hooks/useOfflineQueue';
+import { useSystemHealth } from './hooks/useSystemHealth';
 import useNow from './hooks/useNow';
 import {
   getTimeLeftLabel,
@@ -166,7 +169,7 @@ import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmeh
 import { emehmonAmountForStay } from './utils/emehmonAmount';
 import { minNightPrice } from './utils/pricing';
 import { useGuestActions }        from './hooks/useGuestActions';
-import { loadFromElectron, getQueue, clearQueue, isFreshTelegram } from './utils/offlineQueue';
+
 import { useClientActions }       from './hooks/useClientActions';
 import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
@@ -345,8 +348,6 @@ function App() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(null); // 0-100
-  const [versionBlocked, setVersionBlocked]       = useState(false);
-  const [remoteVersionInfo, setRemoteVersionInfo] = useState(null);
 
   const showNotification = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random();
@@ -360,84 +361,9 @@ function App() {
     else document.documentElement.dataset.theme = appTheme;
   }, [appTheme]);
 
-  // ─── Проверка минимальной версии при старте ───────────────────────────────
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const res  = await fetch(`/version.json?_t=${Date.now()}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setRemoteVersionInfo(data);
-        const minVer = data.minVersion || MIN_REQUIRED_VERSION;
-        if (versionLt(APP_VERSION, minVer)) {
-          setVersionBlocked(true);
-          logSystemError('version_check', `App ${APP_VERSION} < required ${minVer}`, {
-            appVersion: APP_VERSION, minVersion: minVer,
-          });
-        }
-      } catch (e) {
-        // Сетевая ошибка — не блокируем приложение, просто предупреждаем
-        console.warn('[version] check failed:', e.message);
-      }
-    };
-    check();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Телеметрия версии клиента ────────────────────────────────────────────
-  // Пишем версию запущенного клиента в Firestore при входе и раз в 30 мин,
-  // чтобы видеть удалённо, кто на какой версии и когда последний раз заходил.
-  useEffect(() => {
-    if (!currentUser?.login) return;
-    reportClientVersion(currentUser);
-    const id = setInterval(() => reportClientVersion(currentUser), 30 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [currentUser?.login, currentUser?.hostelId, currentUser?.role]);
-
-  // ─── Глобальное логирование системных ошибок JS ───────────────────────────
-  useEffect(() => {
-    const onError = (e) => {
-      // Игнорируем ошибки сторонних скриптов (cross-origin)
-      if (!e.filename || e.message === 'Script error.') return;
-      logSystemError('window.onerror', e.error || new Error(e.message), {
-        filename: e.filename, lineno: e.lineno, colno: e.colno,
-      });
-    };
-    const onUnhandled = (e) => {
-      const reason = e.reason;
-      if (!reason) return;
-      logSystemError('unhandledrejection', reason, {});
-    };
-    window.addEventListener('error', onError);
-    window.addEventListener('unhandledrejection', onUnhandled);
-    return () => {
-      window.removeEventListener('error', onError);
-      window.removeEventListener('unhandledrejection', onUnhandled);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Сбои главного процесса Electron ──────────────────────────────────────
-  // Падения автоматики e-mehmon, обновлятора и IPC раньше видел только файл
-  // лога на кассе. Теперь они приходят сюда и уходят тем же путём, что и
-  // ошибки интерфейса — мгновенным алертом в Telegram.
-  useEffect(() => {
-    if (!window.electronAPI?.onMainError) return;
-    window.electronAPI.onMainError((payload) => {
-      if (!payload) return;
-      const err = new Error(payload.message || 'сбой главного процесса');
-      if (payload.stack) err.stack = payload.stack;
-      logSystemError(payload.context || 'electron.main', err, {
-        at: payload.at, exitCode: payload.exitCode, type: payload.type,
-      });
-    });
-    // Ошибки, случившиеся когда окно было мертво (краш) — забираем при старте
-    window.electronAPI.takePendingErrors?.().then(list => {
-      (list || []).forEach(p => {
-        const err = new Error(p.message || 'сбой главного процесса');
-        if (p.stack) err.stack = p.stack;
-        logSystemError((p.context || 'electron.main') + ' (прошлый запуск)', err, { at: p.at });
-      });
-    }).catch(() => { /* нет файла — нечего слать */ });
-  }, []);
+  // Версия клиента и перехват ошибок (JS, промисы, главный процесс) —
+  // см. hooks/useSystemHealth: всё уходит в журнал и мгновенным алертом в Telegram
+  const { remoteVersionInfo, versionBlocked } = useSystemHealth({ currentUser, versionLt });
 
   // --- Data from Firebase (via custom hook) ---
   const {
@@ -729,76 +655,9 @@ function App() {
   // Refs обновляются через отдельные useEffect выше.
   }, [currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Авто-синхронизация клиентов из гостей по расписанию ───────────────────
-  const autoSyncGuestsRef = useRef(guests);
-  useEffect(() => { autoSyncGuestsRef.current = guests; }, [guests]);
 
-  useEffect(() => {
-    if (!isDataReady || !hostelConfig) return;
-    const FREQ_MS = { daily: 24 * 60 * 60 * 1000, weekly: 7 * 24 * 60 * 60 * 1000, monthly: 30 * 24 * 60 * 60 * 1000 };
-    const checkAndSync = () => {
-      ['hostel1', 'hostel2'].forEach(hostelKey => {
-        const cfg = hostelConfig?.[hostelKey]?.autoSync;
-        if (!cfg?.enabled) return;
-        const freq = FREQ_MS[cfg.frequency] || FREQ_MS.daily;
-        const lastSync = parseInt(localStorage.getItem(`autoSync_${hostelKey}`) || '0');
-        if (Date.now() - lastSync < freq) return;
-        const hostelGuests = autoSyncGuestsRef.current.filter(g => (g.hostelId || 'hostel1') === hostelKey);
-        if (!hostelGuests.length) return;
-        localStorage.setItem(`autoSync_${hostelKey}`, Date.now().toString());
-        handleSyncClientsFromGuests(hostelGuests);
-      });
-    };
-    const initial = setTimeout(checkAndSync, 5 * 60 * 1000);
-    const interval = setInterval(checkAndSync, 60 * 60 * 1000);
-    return () => { clearTimeout(initial); clearInterval(interval); };
-  }, [hostelConfig, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Оффлайн очередь: загрузка файла Electron при старте, сохранение при закрытии ───
-  const [queueLoaded, setQueueLoaded] = useState(false);
-  useEffect(() => {
-    loadFromElectron().finally(() => setQueueLoaded(true));
-    const handleBeforeUnload = () => {
-      const q = getQueue();
-      if (q.length > 0 && window.electronAPI?.savePendingPayments) {
-        window.electronAPI.savePendingPayments(q);
-      }
-      // Закрываем сессию при закрытии вкладки/приложения
-      closeSession();
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
-
-  // ─── Очередь: флаш при восстановлении сети ───
-  // Ждём queueLoaded: иначе флаш проходит раньше, чем догрузится файл Electron,
-  // очередь чистится «вхолостую», а старые записи оседают в localStorage
-  // и уходят в Telegram при следующем восстановлении сети — через недели.
-  useEffect(() => {
-    if (!isOnline || !queueLoaded) return;
-    const q = getQueue();
-    if (!q.length) return;
-
-    // 1. Отправляем отложенные Telegram-уведомления (Cloud Functions недоступны оффлайн).
-    //    Протухшие (старше 12 ч) молча выбрасываем — событие давно неактуально.
-    const telegramEntries = q.filter(e => e._type === 'telegram' && isFreshTelegram(e));
-    const staleCount = q.filter(e => e._type === 'telegram' && !isFreshTelegram(e)).length;
-    if (telegramEntries.length > 0) {
-      telegramEntries.forEach(e => {
-        sendTelegramMessage(e.text, e.notifType).catch(() => {});
-      });
-    }
-    if (staleCount > 0) console.info(`[offlineQueue] отброшено устаревших уведомлений: ${staleCount}`);
-
-    // 2. Firestore (persistentLocalCache) уже синхронизовал платежи/расходы автоматически.
-    //    Очищаем всю очередь и удаляем Electron-файл.
-    const paymentCount = q.filter(e => e._type !== 'telegram').length;
-    const parts = [];
-    if (paymentCount > 0) parts.push(`${paymentCount} оплат`);
-    if (telegramEntries.length > 0) parts.push(`${telegramEntries.length} уведомлений`);
-    if (parts.length > 0) showNotification(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
-    clearQueue();
-  }, [isOnline, queueLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
+  useOfflineQueue({ isOnline, showNotification });
 
   // Хелпер: найти пользователя по staffId/staffLogin (устойчив к смене document ID)
   const findUserByShift = useCallback((s) => {
@@ -1704,6 +1563,11 @@ function App() {
     handleBulkDeleteClients, handleNormalizeCountries, handleSyncClientsFromGuests,
     handleTopUpBalance, handleAddClient, handleAdjustBalance,
   } = useClientActions({ currentUser, clients, showNotification, setUndoStack });
+
+  // Плановое пополнение базы клиентов из гостей — см. hooks/useAutoClientSync.
+  // Вызов стоит ПОСЛЕ useClientActions: handleSyncClientsFromGuests рождается там,
+  // а обратиться к нему раньше объявления нельзя (ReferenceError при первом рендере).
+  useAutoClientSync({ guests, hostelConfig, isDataReady, onSync: handleSyncClientsFromGuests });
 
   const {
     handleStartShift, handleEndShift,
