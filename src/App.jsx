@@ -415,6 +415,30 @@ function App() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Сбои главного процесса Electron ──────────────────────────────────────
+  // Падения автоматики e-mehmon, обновлятора и IPC раньше видел только файл
+  // лога на кассе. Теперь они приходят сюда и уходят тем же путём, что и
+  // ошибки интерфейса — мгновенным алертом в Telegram.
+  useEffect(() => {
+    if (!window.electronAPI?.onMainError) return;
+    window.electronAPI.onMainError((payload) => {
+      if (!payload) return;
+      const err = new Error(payload.message || 'сбой главного процесса');
+      if (payload.stack) err.stack = payload.stack;
+      logSystemError(payload.context || 'electron.main', err, {
+        at: payload.at, exitCode: payload.exitCode, type: payload.type,
+      });
+    });
+    // Ошибки, случившиеся когда окно было мертво (краш) — забираем при старте
+    window.electronAPI.takePendingErrors?.().then(list => {
+      (list || []).forEach(p => {
+        const err = new Error(p.message || 'сбой главного процесса');
+        if (p.stack) err.stack = p.stack;
+        logSystemError((p.context || 'electron.main') + ' (прошлый запуск)', err, { at: p.at });
+      });
+    }).catch(() => { /* нет файла — нечего слать */ });
+  }, []);
+
   // --- Data from Firebase (via custom hook) ---
   const {
     rooms, guests, expenses, clients, payments,

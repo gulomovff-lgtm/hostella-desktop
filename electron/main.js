@@ -32,6 +32,65 @@ const UPDATE_IDLE_CHECK_INTERVAL_MS = 60 * 1000;
 
 const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.json');
 
+// ─── Немедленные уведомления о сбоях главного процесса ────────────────────────
+// Раньше падения main-процесса (автоматика e-mehmon, авто-обновление, IPC)
+// уходили только в файл лога, и владелец о них не узнавал. Теперь ошибка сразу
+// передаётся в интерфейс, а он шлёт алерт в Telegram уже настроенным путём.
+// Если окно мертво (краш рендерера) — складываем в файл и отправим при следующем
+// запуске: иначе именно самые тяжёлые сбои и терялись бы.
+const ERRORS_FILE = () => path.join(app.getPath('userData'), 'pending_errors.json');
+
+function queuePendingError(payload) {
+  try {
+    const file = ERRORS_FILE();
+    const prev = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8') || '[]') : [];
+    const next = Array.isArray(prev) ? prev : [];
+    next.push(payload);
+    fs.writeFileSync(file, JSON.stringify(next.slice(-20), null, 2), 'utf8'); // не копим бесконечно
+  } catch (e) {
+    log.error('[error-report] не смог сохранить:', e.message);
+  }
+}
+
+function reportMainError(context, err, extra = {}) {
+  const message = (err && err.message) ? err.message : String(err);
+  const stack = (err && err.stack) ? String(err.stack).slice(0, 600) : '';
+  log.error(`[${context}]`, message, stack);
+  const payload = { context, message, stack, at: new Date().toISOString(), ...extra };
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('main-error', payload);
+      return;
+    }
+  } catch (e) { /* окно недоступно — уходим в файл */ }
+  queuePendingError(payload);
+}
+
+process.on('uncaughtException', (err) => reportMainError('electron.uncaughtException', err));
+process.on('unhandledRejection', (reason) => reportMainError('electron.unhandledRejection', reason));
+app.on('render-process-gone', (_e, _wc, details) => {
+  reportMainError('electron.render-process-gone', new Error(details && details.reason ? details.reason : 'unknown'),
+    { exitCode: details && details.exitCode });
+});
+app.on('child-process-gone', (_e, details) => {
+  reportMainError('electron.child-process-gone', new Error(details && details.reason ? details.reason : 'unknown'),
+    { type: details && details.type });
+});
+
+// Интерфейс забирает накопленные ошибки при старте и сам их отправляет
+ipcMain.handle('take-pending-errors', () => {
+  try {
+    const file = ERRORS_FILE();
+    if (!fs.existsSync(file)) return [];
+    const data = JSON.parse(fs.readFileSync(file, 'utf8') || '[]');
+    fs.unlinkSync(file);
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    log.error('[error-report] не смог прочитать:', e.message);
+    return [];
+  }
+});
+
 let mainWindow;
 let emehmonWindow = null;
 let arrivalPayload = null; // текущий payload окна прибытия (для авто-галочки на нужного гостя)

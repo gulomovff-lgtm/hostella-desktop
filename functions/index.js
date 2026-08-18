@@ -546,6 +546,7 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
         res.json({ ok: true, firestoreId: ref.id });
     } catch (e) {
         console.error('createWebBooking error:', e);
+        await alertOwnerError('Бронь с сайта (createWebBooking)', e);
         res.status(500).json({ ok: false, error: e.message });
     }
 });
@@ -659,6 +660,48 @@ async function authenticateSuper(db, password, now, keys, states) {
 
     await noteSuccess(db, keys);
     return { user: { id: SUPER_SECRET_ID, name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' } };
+}
+
+/**
+ * Немедленный алерт владельцу о серверной ошибке.
+ * Раньше сбои функций уходили только в логи Cloud Console — владелец о них
+ * не узнавал вовсе. Шлём напрямую в Telegram, без очередей и БД-посредников.
+ * Дедупликация: одинаковая ошибка не чаще раза в 10 минут (счётчик в authThrottle).
+ */
+async function alertOwnerError(context, err, extra = {}) {
+    try {
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (!botToken) return;
+
+        const db = authDb();
+        const cfgSnap = await db.doc(`${authBase()}/settings/appConfig`).get();
+        const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+        if (cfg.errorAlertsEnabled === false) return;
+        const chatId = String(cfg.errorAlertChatId || process.env.ERROR_ALERT_CHAT_ID || '').trim();
+        if (!chatId) return;
+
+        const message = String(err?.message || err || 'неизвестная ошибка').slice(0, 400);
+        const gate = await rateLimit('srverr_' + context + '_' + message.slice(0, 40), 1, 10 * 60 * 1000);
+        if (!gate.allowed) return;   // о той же ошибке уже сообщили
+
+        const lines = [
+            '🛑 <b>Ошибка на сервере</b>',
+            `📍 ${escTgHtml(context)}`,
+            `💬 ${escTgHtml(message)}`,
+        ];
+        Object.entries(extra).forEach(([k, v]) => {
+            if (v !== undefined && v !== null && v !== '') lines.push(`${escTgHtml(k)}: ${escTgHtml(String(v).slice(0, 120))}`);
+        });
+        lines.push(`🕒 ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Tashkent' })}`);
+
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: lines.join(String.fromCharCode(10)), parse_mode: 'HTML' }),
+        });
+    } catch (e) {
+        console.warn('[alertOwnerError] не доставлено:', e.message);
+    }
 }
 
 /**
@@ -999,6 +1042,9 @@ exports.scheduledFirestoreBackup = functions
       return response;
     } catch (err) {
       console.error("❌ Firestore backup failed:", err);
+      // Молчаливый сбой бэкапа — самый опасный: о нём узнают, только когда
+      // понадобится восстановление. Сообщаем сразу.
+      await alertOwnerError('Автобэкап Firestore не выполнен', err);
       throw err;
     }
   });
