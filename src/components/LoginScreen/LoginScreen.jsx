@@ -312,10 +312,16 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
     const [loadingTextIdx, setLoadingTextIdx] = useState(0);
     const [hostelError, setHostelError]         = useState(null); // { hostelId, occupiedBy }
 
+    // Тексты идут ОДИН раз и останавливаются на последнем. Раньше индекс крутился
+    // по кругу (% length), и если вход занимал больше 5 секунд, надпись и полоса
+    // прогресса откатывались в начало — выглядело как зависший повтор загрузки.
     useEffect(() => {
         if (submitPhase !== 'loading') return;
         setLoadingTextIdx(0);
-        const id = setInterval(() => setLoadingTextIdx(i => (i + 1) % LOADING_TEXTS.length), 700);
+        const id = setInterval(() => setLoadingTextIdx(i => {
+            if (i >= LOADING_TEXTS.length - 1) { clearInterval(id); return i; }
+            return i + 1;
+        }), 700);
         return () => clearInterval(id);
     }, [submitPhase]);
 
@@ -389,6 +395,9 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
         e.preventDefault();
         if (submitPhase !== 'idle') return;
         setError('');
+        // Сбрасываем прогресс ДО начала анимации: иначе повторная попытка входа
+        // стартовала с процента прошлой (полоса прыгала с 90% обратно на 13%).
+        setLoadingTextIdx(0);
         setSubmitPhase('morphing');
 
         await new Promise(r => setTimeout(r, 420));
@@ -406,13 +415,11 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                 return user;
             })();
 
-            // Минимум — показать первые 2 текста (1.4s), максимум — весь список
-            const minDelay  = new Promise(r => setTimeout(r, 2 * 700));
-            const fullDelay = new Promise(r => setTimeout(r, LOADING_TEXTS.length * 700));
-
-            // Ждём auth + min задержку, затем даём дочитать до конца если auth был быстрым
+            // Ждём ответ сервера, но не меньше двух текстов (1.4 c), чтобы анимация
+            // не мигала. Досиживать весь список больше не заставляем: вход шёл
+            // фиксированные ~5 секунд даже когда сервер отвечал сразу.
+            const minDelay = new Promise(r => setTimeout(r, 2 * 700));
             const [user] = await Promise.all([authPromise, minDelay]);
-            await fullDelay; // уже практически завершён к этому моменту
             setSubmitPhase('success');
             setPendingUser(user);
             const needsPicker = user.role === 'cashier' && (user.allowedHostels || []).length > 1;

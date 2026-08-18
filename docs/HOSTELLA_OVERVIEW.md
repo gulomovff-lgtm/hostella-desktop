@@ -1,6 +1,6 @@
 # Hostella — структура и возможности системы
 
-**Версия:** v0.13.0 · **Составлено:** 17.08.2026
+**Версия:** v0.13.4 · **Составлено:** 17.08.2026
 
 Система управления хостелом для двух филиалов в Ташкенте: настольное приложение для касс, сайт с ИИ-ботом бронирования и интеграция с госсистемой e-mehmon — единый контур.
 
@@ -96,7 +96,6 @@
 ### 🖥 Интерфейс
 - Глобальный поиск Ctrl+K, календарь занятости
 - Два языка (русский/узбекский), темы, настраиваемое расположение меню
-- Бета-режим: параллельный новый UI (календарь v2, «Сегодня», командная палитра) на тех же данных
 - Аренда комнат целиком (посуточно, с продлением)
 - Групповое заселение, лист в бухгалтерию
 
@@ -173,11 +172,7 @@
 | `utils/contractFinancials.js` | Единая формула финансов договоров (начислено, допы, долг) |
 | `utils/offlineQueue / telegram / auditLog / shiftReport / ical` | Офлайн-очередь, Telegram, аудит, отчёт смены, Booking.com iCal |
 | `electron/main.js` + `emehmonAutofill.js` | Окна, IPC, скрипты автозаполнения и парсинга e-mehmon (скрытые окна с общей сессией) |
-| `functions/index.js` | Cloud Functions: createWebBooking, getFreeBeds, getAvailability, scanPassport, sendTelegramMessage, sendPriceRequest, telegramWebhook, verifyAdminPassword, scheduledFirestoreBackup |
-
-### Бета-режим — `src/beta`
-
-Параллельный новый интерфейс (включается на пользователя): TodayView «Сегодня», календарь v2, командная палитра, свои модалки заселения/выселения/оплаты, мобильная навигация. Работает на тех же данных — переключение без риска.
+| `functions/index.js` | Cloud Functions: authenticateUser, setUserPassword, createWebBooking, getFreeBeds, getAvailability, scanPassport, sendTelegramMessage, sendPriceRequest, telegramWebhook, verifyAdminPassword, scheduledFirestoreBackup |
 
 ---
 

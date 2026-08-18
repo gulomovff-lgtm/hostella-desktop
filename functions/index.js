@@ -221,6 +221,14 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('invalid-argument', 'Message text is required');
     }
 
+    // Звать может любой клиент с анонимной сессией — ограничиваем частоту,
+    // чтобы через приложение нельзя было устроить рассылку владельцу.
+    const tgKey = 'tg_' + (context.auth?.uid || callerIp(context));
+    const tgLimit = await rateLimit(tgKey, 120, 10 * 60 * 1000);
+    if (!tgLimit.allowed) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Слишком много уведомлений подряд');
+    }
+
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) {
         throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
@@ -422,6 +430,16 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
     res.set('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
     if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
+
+    // Точка публичная: без лимита с одного адреса можно засыпать бронями и
+    // уведомлениями кассиров. 10 заявок за 10 минут — с запасом для живого сайта.
+    const bookIp = String((req.headers['x-forwarded-for'] || '').split(',')[0] || req.ip || 'unknown').trim();
+    const bookLimit = await rateLimit('book_' + bookIp, 10, 10 * 60 * 1000);
+    if (!bookLimit.allowed) {
+        res.set('Retry-After', String(bookLimit.retryAfterSec));
+        res.status(429).json({ ok: false, error: 'too many requests' });
+        return;
+    }
 
     try {
         const d = req.body || {};
@@ -641,6 +659,39 @@ async function authenticateSuper(db, password, now, keys, states) {
 
     await noteSuccess(db, keys);
     return { user: { id: SUPER_SECRET_ID, name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' } };
+}
+
+/**
+ * Лимит частоты для публичных точек входа (без авторизации).
+ * Считаем по ключу в той же коллекции authThrottle, что и попытки входа:
+ * она закрыта правилами, поэтому счётчик нельзя обнулить с клиента.
+ * Возвращает { allowed, retryAfterSec }.
+ */
+async function rateLimit(key, maxPerWindow, windowMs) {
+    try {
+        const db = authDb();
+        const ref = throttleRef(db, key);
+        const now = Date.now();
+        return await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            const cur = snap.exists ? snap.data() : null;
+            const startedAt = Number(cur?.firstFailAt) || 0;
+            const hits = Number(cur?.fails) || 0;
+            if (!startedAt || now - startedAt > windowMs) {
+                tx.set(ref, { fails: 1, firstFailAt: now, lockedUntil: 0 });
+                return { allowed: true, retryAfterSec: 0 };
+            }
+            if (hits >= maxPerWindow) {
+                return { allowed: false, retryAfterSec: Math.ceil((startedAt + windowMs - now) / 1000) };
+            }
+            tx.set(ref, { fails: hits + 1, firstFailAt: startedAt, lockedUntil: 0 });
+            return { allowed: true, retryAfterSec: 0 };
+        });
+    } catch (e) {
+        // Сбой счётчика не должен ронять рабочую операцию
+        console.warn('[rateLimit] skipped:', e.message);
+        return { allowed: true, retryAfterSec: 0 };
+    }
 }
 
 exports.authenticateUser = functions.https.onCall(async (data, context) => {
