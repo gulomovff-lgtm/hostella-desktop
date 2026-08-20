@@ -391,3 +391,17 @@ mainWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
 Проверено red-team как SOLID (сломать не удалось): `buildEmehmonUrl`, `isEmehmonUrl`, `safeLookup` (SSRF resolve-gate), pending-payments IPC, `telegramWebhook` fail-closed+safeEqual, `getFreeBeds`, `scanPassport`, Secret Manager (токены реально удалены из Firestore), append-only auditLog (update/delete запрещены).
 
 **Всё ещё открыто (корень, нужен трек Firebase Auth):** C1/C7 — аноним = полный read/write; `guests`/`users` PII читаются/пишутся анонимно; forge `auditLog`/`sessions` create; открытый relay произвольных `chatIds`; финансовые UI-guard'ы обходятся через SDK. Кастом-токены задеплоены как фундамент; следующий шаг — ужесточение правил после раскатки клиентов.
+
+---
+
+# Волна 3 — продвижение по треку Firebase Auth (2026-08-20)
+
+- **[CRITICAL закрыт] `users.pass`** — миграция выполнена и проверена анонимным чтением: `с читаемым pass: 0` (было 6/6). Хеши паролей больше не выгружаются анонимом; вход работает через `userSecrets`.
+- **[C6 — публичный виджет] guests больше не читается напрямую** — новая функция `getPublicAvailability` отдаёт только вместимость+интервалы+промо (0 PII, проверено). Виджет переключён, календарь занятости работает. Прямое чтение всей коллекции guests с паспортами со страницы брони убрано.
+- **[фундамент]** `authenticateUser` выдаёт кастомный токен с claims `hostellaRole`/`hostellaHostel`; клиент входит по нему (fallback на аноним). Задеплоено.
+- **[LOW]** admin-stats throttle переведён с глобального ключа на per-IP.
+
+**Ещё НЕ закрыто (нужна раскатка десктоп-сборки, затем ужесточение правил):**
+- Аноним всё ещё может ПИСАТЬ/ЧИТАТЬ `guests` напрямую через SDK (C1/C6-root), forge `auditLog`(create)/`sessions`(update), менять роли в `users` (C2), править финансы (C7), слать в произвольные `chatIds` (relay).
+- Эти замки требуют, чтобы (1) была выпущена десктоп-сборка с кастом-токенами (`npm run dist` — твой шаг), (2) старые клиенты обновились авто-апдейтом, и только ПОТОМ правила можно перевести на проверку claims (иначе заблокируются живые кассы). Booking-запись брони останется анонимной (create-only) — под неё правило `guests` будет «create для анона, read/write только staff по claims».
+- `superPassHash` в settings сейчас НЕ задан (супер-вход отключён) — при настройке увести в Secret Manager.
