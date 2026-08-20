@@ -983,7 +983,9 @@ exports.verifyAdminPassword = functions.runWith({ secrets: ['ADMIN_STATS_PASSWOR
     // Тот же лимит попыток, что и на входе кассира — пароль статистики тоже подбираем не дадим
     const db = authDb();
     const now = Date.now();
-    const keys = [callerIp(context), 'adminStats'];
+    // По IP, а не глобально: раньше константный ключ 'adminStats' позволял любому
+    // 20 неудачными попытками заблокировать статистику сразу для всех (DoS).
+    const keys = ['adminStats_' + callerIp(context)];
     const states = await assertNotThrottled(db, keys, now);
 
     // Compare passwords (constant-time)
