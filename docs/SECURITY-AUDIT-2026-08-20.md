@@ -354,3 +354,23 @@ mainWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
 - **n8n:** переключить `getFreeBeds` с `?key=` на заголовок `x-api-key` (иначе интеграция получает 401).
 - **Ротация секретов:** токены/пароль жили в plaintext — желательно сменить `TELEGRAM_BOT_TOKEN` (через @BotFather), `TELEGRAM_WEBHOOK_SECRET` и `ADMIN_STATS_PASSWORD`. Не делаю сам: смена бот-токена рвёт webhook до повторного `setWebhook`, а новый пароль нужно знать тебе. После смены: `firebase functions:secrets:set <NAME>` + редеплой функций.
 - **H1** code-signing, **H2** апгрейд Electron/зависимостей, **H3** CSP (тест на сборке), и **крупный трек — миграция на Firebase Auth** (корневые C1–C7).
+
+---
+
+# C5 — токены ботов перенесены из Firestore в Secret Manager (2026-08-20)
+
+Обнаружено при миграции: `settings/appConfig.priceBotToken` = **тот же самый** основной
+`TELEGRAM_BOT_TOKEN` (sha256 совпал), а `settings/telegram.kppBotToken` — отдельный бот.
+Оба читались любым анонимом (корень C1). Значения перенесены **без изменения** (по просьбе — не ротировать):
+
+- `KPP_BOT_TOKEN` → Secret Manager, привязан к `sendTelegramMessage`; код читает `process.env.KPP_BOT_TOKEN`, не Firestore.
+- `getPriceBotToken()` берёт `PRICE_BOT_TOKEN` (env, fallback `TELEGRAM_BOT_TOKEN`), больше не читает Firestore.
+- Поля `priceBotToken` и `kppBotToken` **удалены** из Firestore `settings` (проверено). Список получателей КПП сохранён.
+- UI (`PricingSettingsPanel`, `TelegramSettingsView`): ввод токена убран, показывается «токен на сервере».
+
+Задеплоено: функции + хостинг. Секреты в Secret Manager: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
+`ADMIN_STATS_PASSWORD`, `KPP_BOT_TOKEN`, `N8N_API_KEY`.
+
+**Осталось в читаемом Firestore (C5, не токен):** `settings/appConfig.superPassHash` (хеш супер-пароля) —
+переезжает в рамках трека Firebase Auth. Отмечено: основной бот-токен фактически был анонимно читаем,
+поэтому его ротация теперь обоснованнее (по твоему решению — не меняли).
