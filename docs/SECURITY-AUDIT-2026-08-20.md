@@ -374,3 +374,20 @@ mainWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
 **Осталось в читаемом Firestore (C5, не токен):** `settings/appConfig.superPassHash` (хеш супер-пароля) —
 переезжает в рамках трека Firebase Auth. Отмечено: основной бот-токен фактически был анонимно читаем,
 поэтому его ротация теперь обоснованнее (по твоему решению — не меняли).
+
+---
+
+# Волна 2 — исправления по итогам независимого red-team (2026-08-20)
+
+Запущены 3 атакующих агента (только read-only/статика). Нашли реальные пробелы, включая **живой CRITICAL**. Исправлено и задеплоено:
+
+- **[CRITICAL] `users.pass` читается анонимно** (`admin`=sha256("admin"), `nargiza`="123", …) → вход админом за минуту. Мой C4-фикс был неполным. Теперь: легаси-хеш уносится в закрытую `userSecrets.legacyPass`, `authenticateUser` **самоудаляет** `pass` при входе, добавлена одноразовая `migrateLegacyPass` для спящих аккаунтов, клиент больше не дублирует `pass`. **Требует однократного запуска миграции** (см. команду в переписке) — до неё 6/6 аккаунтов ещё экспонированы.
+- **[HIGH] `escapeTg` — клиентское экранирование обходится** анонимным вызовом `sendTelegramMessage` с готовым HTML. Добавлена **серверная** `sanitizeTgHtml` (whitelist тегов форматирования, `<a href>` остаётся экранирован). Плюс закрыты пропущенные `escapeTg` в `useCadastreAlerts`, `useExpenseActions:81`.
+- **[регрессия] `isBlockedIcalHost` резал ВСЕ домены** (я сломал iCal) — исправлено (isPrivateIp только для литеральных IP); IPv6 NAT64/compat/mapped; `will-redirect` в hardening окон.
+- **[регрессия/availability] `trustedClientIp` (последний XFF)** на gen1 = общий Google-IP → риск глобальной блокировки входа/броней. Откат на клиентский хоп (безопасно для доступности).
+- **[HIGH-финансы] `transferBalance`** обходил мой H7 (обнуление долга без аудита через перенос + удаление «пустышки»). Добавлен аудит + запрет удаления договора с непогашенным сальдо. Отклонение отрицательных сплитов оплаты (десинхрон кассы). Аудит `handleAdminAdjustDebt`.
+- **[фундамент миграции]** `authenticateUser` выдаёт кастомный токен Firebase с claims (`role`/`hostelId`), клиент входит по нему с fallback на аноним. Правила пока не требуют claims (не ломает старые сборки) — это шаг к серверной проверке ролей (C1–C7).
+
+Проверено red-team как SOLID (сломать не удалось): `buildEmehmonUrl`, `isEmehmonUrl`, `safeLookup` (SSRF resolve-gate), pending-payments IPC, `telegramWebhook` fail-closed+safeEqual, `getFreeBeds`, `scanPassport`, Secret Manager (токены реально удалены из Firestore), append-only auditLog (update/delete запрещены).
+
+**Всё ещё открыто (корень, нужен трек Firebase Auth):** C1/C7 — аноним = полный read/write; `guests`/`users` PII читаются/пишутся анонимно; forge `auditLog`/`sessions` create; открытый relay произвольных `chatIds`; финансовые UI-guard'ы обходятся через SDK. Кастом-токены задеплоены как фундамент; следующий шаг — ужесточение правил после раскатки клиентов.
