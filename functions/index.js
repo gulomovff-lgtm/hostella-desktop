@@ -41,6 +41,11 @@ exports.scanPassport = functions
   if (!data || !data.image) {
     throw new functions.https.HttpsError("invalid-argument", "Image data missing.");
   }
+  // Ограничение размера base64: без него можно нагружать Vision API большими
+  // изображениями (стоимость/таймаут). ~10 МБ base64 ≈ 7.5 МБ исходника.
+  if (typeof data.image !== 'string' || data.image.length > 10 * 1024 * 1024) {
+    throw new functions.https.HttpsError("invalid-argument", "Image too large.");
+  }
 
   try {
     const request = {
@@ -73,8 +78,9 @@ exports.scanPassport = functions
     return { success: true, data: parsedData };
 
   } catch (error) {
+    // Внутренние детали — только в лог; клиенту общий текст (не раскрываем стек/инфру).
     console.error("Vision API Error:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    throw new functions.https.HttpsError("internal", "OCR failed.");
   }
 });
 
@@ -210,7 +216,7 @@ function isUpperCase(str) {
 
 // --- TELEGRAM MESSAGE FUNCTION ---
 // Reads recipients from Firestore settings/telegram, filters by notificationType
-exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
+exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated to send messages');
     }
@@ -421,7 +427,7 @@ exports.getAvailability = functions.https.onRequest(async (req, res) => {
 //                    checkOut, nights, amount, pricePerDay, paymentMethod,
 //                    paymentStatus, mysqlBookingId, comment }
 // ─────────────────────────────────────────────────────────────────────────────
-exports.createWebBooking = functions.https.onRequest(async (req, res) => {
+exports.createWebBooking = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onRequest(async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -430,7 +436,7 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
 
     // Точка публичная: без лимита с одного адреса можно засыпать бронями и
     // уведомлениями кассиров. 10 заявок за 10 минут — с запасом для живого сайта.
-    const bookIp = String((req.headers['x-forwarded-for'] || '').split(',')[0] || req.ip || 'unknown').trim();
+    const bookIp = trustedClientIp(req);
     const bookLimit = await rateLimit('book_' + bookIp, 10, 10 * 60 * 1000);
     if (!bookLimit.allowed) {
         res.set('Retry-After', String(bookLimit.retryAfterSec));
@@ -574,12 +580,18 @@ const authBase = () => `artifacts/${AUTH_APP_ID}/public/data`;
 const throttleRef = (db, key) => db.doc(`${authBase()}/authThrottle/${encodeURIComponent(key)}`);
 
 /** Ключ троттлинга по IP вызова (за прокси Firebase — x-forwarded-for). */
-const callerIp = (context) => {
-    const req = context?.rawRequest;
+const trustedClientIp = (req) => {
     const fwd = req?.headers?.['x-forwarded-for'];
-    const ip = (Array.isArray(fwd) ? fwd[0] : fwd || '').split(',')[0].trim() || req?.ip || 'unknown';
-    return `ip_${ip}`;
+    const chain = (Array.isArray(fwd) ? fwd.join(',') : (fwd || ''))
+        .split(',').map((s) => s.trim()).filter(Boolean);
+    // ПОСЛЕДНИЙ адрес добавляет прокси Google и клиент его подделать не может.
+    // Левый (первый) полностью контролируется клиентом: подставляя случайный
+    // X-Forwarded-For на каждый запрос, он раньше обходил все rate-limit'ы.
+    // NB: точный доверенный хоп стоит сверить с реальным логом запроса при деплое.
+    return chain.length ? chain[chain.length - 1] : (req?.ip || 'unknown');
 };
+
+const callerIp = (context) => `ip_${trustedClientIp(context?.rawRequest)}`;
 
 /** Бросает resource-exhausted, если ключ заблокирован. Возвращает состояния для записи. */
 async function assertNotThrottled(db, keys, now) {
@@ -796,8 +808,8 @@ exports.setUserPassword = functions.https.onCall(async (data, context) => {
     const actorLogin = String(data?.actorLogin || '').trim();
     const actorPassword = String(data?.actorPassword || '');
 
-    if (!targetId || newPassword.length < 4) {
-        throw new functions.https.HttpsError('invalid-argument', 'Пароль слишком короткий (минимум 4 символа)');
+    if (!targetId || newPassword.length < 6) {
+        throw new functions.https.HttpsError('invalid-argument', 'Пароль слишком короткий (минимум 6 символов)');
     }
 
     const db = authDb();
@@ -838,7 +850,7 @@ exports.setUserPassword = functions.https.onCall(async (data, context) => {
 
 // Admin Stats Password Verification
 // Secure password check for admin-stats.html
-exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
+exports.verifyAdminPassword = functions.runWith({ secrets: ['ADMIN_STATS_PASSWORD'] }).https.onCall(async (data, context) => {
     const submittedPassword = data?.password;
     const adminPassword = process.env.ADMIN_STATS_PASSWORD || 'NOT_SET';
 
@@ -898,13 +910,15 @@ exports.getFreeBeds = functions
     if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
 
     // --- Проверка API-ключа ---
-    const apiKey = req.query.key || req.headers['x-api-key'];
+    // Только из заголовка: ключ в query-строке (?key=…) утекал бы в логи доступа,
+    // Referer и прокси. Сравнение — константного времени (safeEqual).
+    const apiKey = req.headers['x-api-key'] || '';
     const validKey = process.env.N8N_API_KEY;
     if (!validKey || validKey === 'NOT_SET') {
         res.status(503).json({ ok: false, error: 'API key not configured on server' });
         return;
     }
-    if (!apiKey || apiKey !== validKey) {
+    if (!apiKey || !safeEqual(apiKey, validKey)) {
         res.status(401).json({ ok: false, error: 'Invalid or missing API key' });
         return;
     }
@@ -1013,7 +1027,7 @@ const { v1: firestoreV1 } = require("@google-cloud/firestore");
 const firestoreAdminClient = new firestoreV1.FirestoreAdminClient();
 
 exports.scheduledFirestoreBackup = functions
-  .runWith({ memory: "256MB", timeoutSeconds: 540 })
+  .runWith({ memory: '256MB', timeoutSeconds: 540, secrets: ['TELEGRAM_BOT_TOKEN'] })
   .pubsub.schedule("0 4 * * *")
   .timeZone("Asia/Tashkent")
   .onRun(async () => {
@@ -1078,7 +1092,7 @@ async function getPriceBotToken() {
   return token;
 }
 
-exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
+exports.sendPriceRequest = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Требуется авторизация');
   }
@@ -1117,7 +1131,7 @@ exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
   return { success: sent > 0, sent };
 });
 
-exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
+exports.telegramWebhook = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET'] }).https.onRequest(async (req, res) => {
   // Вебхук обрабатывает только pricereq-колбэки → используем токен бота цены.
   const botToken = await getPriceBotToken();
 
@@ -1127,15 +1141,19 @@ exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
   // и приходит в заголовке X-Telegram-Bot-Api-Secret-Token.
   // Настройте env TELEGRAM_WEBHOOK_SECRET и пересоздайте вебхук с тем же secret_token.
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (expectedSecret) {
-    const gotSecret = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
-    if (gotSecret !== expectedSecret) {
-      console.warn('[telegramWebhook] rejected: bad secret token');
-      res.status(401).send('unauthorized');
-      return;
-    }
-  } else {
-    console.warn('[telegramWebhook] TELEGRAM_WEBHOOK_SECRET not set — webhook is UNPROTECTED');
+  // Fail-closed: без настроенного секрета вебхук НЕ обрабатывает запросы (иначе
+  // любой, зная URL, подделывал бы «одобрение» снижения цен). Сравнение —
+  // константного времени (safeEqual), чтобы не утекал секрет по таймингу.
+  if (!expectedSecret) {
+    console.error('[telegramWebhook] TELEGRAM_WEBHOOK_SECRET not set — refusing request');
+    res.status(503).send('webhook not configured');
+    return;
+  }
+  const gotSecret = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
+  if (!safeEqual(gotSecret, expectedSecret)) {
+    console.warn('[telegramWebhook] rejected: bad secret token');
+    res.status(401).send('unauthorized');
+    return;
   }
 
   try {

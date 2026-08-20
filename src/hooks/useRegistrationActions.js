@@ -3,7 +3,7 @@
  */
 import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { openEmehmonArrival } from '../utils/emehmon';
 
@@ -94,7 +94,7 @@ export function useRegistrationActions({
       }
       logAction(currentUser, 'registration_add', { fullName: formData.fullName, passport: formData.passport, days: formData.days });
       sendTelegramMessage(
-        `🪪 <b>Регистрация (E-mehmon)</b>\n👤 ${formData.fullName}\n🪪 ${formData.passport} · ${formData.country || ''}\n📅 ${formData.startDate} → ${formData.endDate} (${formData.days} дн.)\n💰 ${totalPaid.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
+        `🪪 <b>Регистрация (E-mehmon)</b>\n👤 ${escapeTg(formData.fullName)}\n🪪 ${escapeTg(formData.passport)} · ${escapeTg(formData.country || '')}\n📅 ${formData.startDate} → ${formData.endDate} (${formData.days} дн.)\n💰 ${totalPaid.toLocaleString()} сум\n👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         'registration'
       );
     } catch (e) {
@@ -130,7 +130,7 @@ export function useRegistrationActions({
       );
       logAction(currentUser, 'registration_extend', { id: reg.id, fullName: reg.fullName, newEndDate: extData.newEndDate });
       sendTelegramMessage(
-        `🔄 <b>Продление регистрации (E-mehmon)</b>\n👤 ${reg.fullName}\n🪪 ${reg.passport || '—'}\n📅 +${extData.days} дн. → ${extData.newEndDate}\n💰 ${extData.amount.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
+        `🔄 <b>Продление регистрации (E-mehmon)</b>\n👤 ${escapeTg(reg.fullName)}\n🪪 ${escapeTg(reg.passport || '—')}\n📅 +${extData.days} дн. → ${extData.newEndDate}\n💰 ${extData.amount.toLocaleString()} сум\n👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         'registrationExtend'
       );
     } catch (e) {
@@ -155,7 +155,7 @@ export function useRegistrationActions({
       );
       logAction(currentUser, 'registration_remove', { id: reg.id, fullName: reg.fullName });
       sendTelegramMessage(
-        `🔴 <b>Вывод из E-mehmon</b>\n👤 ${reg.fullName}\n🪪 ${reg.passport || '—'}\n👷 ${currentUser.name || currentUser.login}`,
+        `🔴 <b>Вывод из E-mehmon</b>\n👤 ${escapeTg(reg.fullName)}\n🪪 ${escapeTg(reg.passport || '—')}\n👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         'registrationRemove'
       );
     } catch (e) {

@@ -30,7 +30,7 @@ import {
   isStaleSince,
   Flag
 } from './utils/helpers';
-import { sendTelegramMessage } from './utils/telegram';
+import { sendTelegramMessage, escapeTg } from './utils/telegram';
 import { checkAndMarkAlert } from './utils/alertsLog';
 
 import { 
@@ -969,7 +969,7 @@ function App() {
       const fmt = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
       const msg = [
         `📍 <b>Нужна регистрация!</b>`,
-        `👤 ${g.fullName}`,
+        `👤 ${escapeTg(g.fullName)}`,
         `🪪 ${g.passport || '—'}`,
         `🎂 Д/р: ${fmt(g.birthDate)}`,
         `📋 Паспорт выдан: ${fmt(g.passportIssueDate)}`,
@@ -1227,7 +1227,7 @@ const filterByHostel = (items) => {
     const timer = setTimeout(() => {
       if (pendingBookingsCount > 0 && isOnline) {
         const list = websiteBookings.slice(0, 5).map(b =>
-          `• ${b.fullName || '—'} — ${b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2'}, заезд ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'}`
+          `• ${escapeTg(b.fullName || '—')} — ${b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2'}, заезд ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'}`
         ).join('\n');
         sendTelegramMessage(`🔔 <b>Необработанные брони с сайта: ${pendingBookingsCount}</b>\n${list}`, 'newBooking');
       }

@@ -40,7 +40,24 @@ service cloud.firestore {
     match /artifacts/hostella-multi-v4/public/data/{col}/{rest=**} {
       allow read, write: if signedIn()
         && col != 'userSecrets'
-        && col != 'authThrottle';
+        && col != 'authThrottle'
+        && col != 'auditLog'
+        && col != 'sessions';
+    }
+
+    // auditLog — только добавление (append-only). Приложение лишь создаёт записи
+    // (logAction → addDoc); изменять/удалять их нельзя, чтобы нельзя было замести
+    // следы: переписать или стереть собственные записи об операциях.
+    match /artifacts/hostella-multi-v4/public/data/auditLog/{doc} {
+      allow read, create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // sessions — создание/обновление разрешено (старт, завершение, авто-закрытие),
+    // но НЕ удаление: иначе можно было бы стереть историю входов задним числом.
+    match /artifacts/hostella-multi-v4/public/data/sessions/{doc} {
+      allow read, create, update: if signedIn();
+      allow delete: if false;
     }
 
     // Сам документ data (без подколлекций) — как раньше.

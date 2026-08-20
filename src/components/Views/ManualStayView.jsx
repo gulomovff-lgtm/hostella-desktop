@@ -186,7 +186,10 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const addExtraCharge = async (groupId, name, amount) => {
         const group = contractGroups.find(g => g.id === groupId);
         const amt = parseInt(amount, 10) || 0;
-        if (!group || !name.trim() || amt === 0) return;
+        // Только положительные позиции. Отрицательная сумма раньше молча уменьшала
+        // «Начислено» и обнуляла долг мимо админского списания (addWriteOff) и без
+        // аудита — снижения долга обязаны идти через списание, а не сюда.
+        if (!group || !name.trim() || amt <= 0) return;
         const charge = { id: `x-${Date.now()}`, name: name.trim(), amount: amt, date: new Date().toISOString().slice(0, 10) };
         await updateDoc(doc(db, ...COLLECTION, groupId), { extraCharges: [...(group.extraCharges || []), charge] });
     };

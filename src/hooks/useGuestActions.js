@@ -20,7 +20,7 @@ import {
   collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { getStayDetails, getTotalPaid } from '../utils/helpers';
 import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
@@ -339,7 +339,7 @@ export function useGuestActions(ctx) {
 
       if (newGuest.status === 'active') {
         const hostelLabel = targetHostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-        const checkinMsg = `🏨 <b>Новое заселение</b>\n👤 ${newGuest.fullName}\n🛏 ${hostelLabel} · Ком. ${newGuest.roomNumber || '—'}, место ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} дн.)\n💰 Оплачено: ${totalPaid.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+        const checkinMsg = `🏨 <b>Новое заселение</b>\n👤 ${escapeTg(newGuest.fullName)}\n🛏 ${hostelLabel} · Ком. ${newGuest.roomNumber || '—'}, место ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} дн.)\n💰 Оплачено: ${totalPaid.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           sendTelegramMessage(checkinMsg, 'checkin');
         } else {
@@ -441,7 +441,7 @@ export function useGuestActions(ctx) {
       if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(-1) });
 
       const hostelLabel = guest.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-      const checkoutMsg = `🚪 <b>Выселение</b>\n👤 ${guest.fullName}\n🛏 ${hostelLabel} · Ком. ${guest.roomNumber || '—'}\n📅 Заехал: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 Итого: ${(final.totalPrice || 0).toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+      const checkoutMsg = `🚪 <b>Выселение</b>\n👤 ${escapeTg(guest.fullName)}\n🛏 ${hostelLabel} · Ком. ${guest.roomNumber || '—'}\n📅 Заехал: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 Итого: ${(final.totalPrice || 0).toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
       if (isOnline) {
         sendTelegramMessage(checkoutMsg, 'checkout');
       } else {
@@ -466,7 +466,7 @@ export function useGuestActions(ctx) {
           staffId: currentUser.id || currentUser.login,
           hostelId: currentUser.hostelId || guest.hostelId,
         });
-        const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${guest.fullName}\n💵 Сумма: ${cashPart.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+        const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${escapeTg(guest.fullName)}\n💵 Сумма: ${cashPart.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           sendTelegramMessage(refundMsg, 'refund');
         } else {
@@ -563,7 +563,7 @@ export function useGuestActions(ctx) {
           overpay, balanceUsed, overpayClientId: clientRec?.id || null });
         if (g) {
           const hostelLabel = g.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-          const payMsg = `💵 <b>Оплата принята</b>\n👤 ${g.fullName}\n🛏 ${hostelLabel} · Ком. ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+          const payMsg = `💵 <b>Оплата принята</b>\n👤 ${escapeTg(g.fullName)}\n🛏 ${hostelLabel} · Ком. ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
           if (isOnline) {
             sendTelegramMessage(payMsg, 'paymentAdded');
           } else {
@@ -628,7 +628,7 @@ export function useGuestActions(ctx) {
       const g = guests.find(x => x.id === guestId);
       pushUndo({ type: 'extend', label: `+${extendDays} дн. — ${g?.fullName || guestId}`, guestId, prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut, prevStatus, paymentIds, payCash, payCard, payQR });
       if (g) {
-        const extMsg = `📅 <b>Продление проживания</b>\n👤 ${g.fullName}\n➕ +${extendDays} дн. → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 Доплачено: ${payTotal.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+        const extMsg = `📅 <b>Продление проживания</b>\n👤 ${escapeTg(g.fullName)}\n➕ +${extendDays} дн. → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 Доплачено: ${payTotal.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           sendTelegramMessage(extMsg, 'guestExtended');
         } else {
@@ -675,7 +675,12 @@ export function useGuestActions(ctx) {
       const coMs = new Date(guest.checkOutDate || 0).getTime();
       const actualDays = (ciMs && coMs) ? Math.max(parseInt(guest.days || 1), Math.round((coMs - ciMs) / 86400000)) : parseInt(guest.days || 1);
       const newDays  = actualDays + days;
-      const newTotal = parseInt(guest.pricePerNight || 0) * newDays;
+      // Не обнуляем начисление у гостей с нулевой ставкой (пакет/долг): если
+      // pricePerNight = 0, но totalPrice задан — берём фактическую ставку из
+      // totalPrice/дни, иначе продление стёрло бы долг в 0.
+      const ppn = parseInt(guest.pricePerNight || 0)
+        || (parseInt(guest.totalPrice || 0) && actualDays ? Math.round(parseInt(guest.totalPrice) / actualDays) : 0);
+      const newTotal = ppn > 0 ? ppn * newDays : parseInt(guest.totalPrice || 0);
       const co = new Date(guest.checkOutDate || Date.now()); co.setDate(co.getDate() + days);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         days: newDays, totalPrice: newTotal, checkOutDate: co.toISOString(), status: 'active',
@@ -701,7 +706,7 @@ export function useGuestActions(ctx) {
         status: 'debt',
         hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId,
       });
-      const debtMsg = `⚠️ <b>Создан долг</b>\n👤 ${client.fullName}\n💰 Сумма: ${amount.toLocaleString()} сум\n👷 Кассир: ${currentUser.name || currentUser.login}`;
+      const debtMsg = `⚠️ <b>Создан долг</b>\n👤 ${escapeTg(client.fullName)}\n💰 Сумма: ${amount.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
       if (isOnline) {
         sendTelegramMessage(debtMsg, 'debtAlert');
       } else {
@@ -973,7 +978,7 @@ export function useGuestActions(ctx) {
         const notifType = guestData.status === 'booking' ? 'deleteBooking' : 'deleteGuest';
         const notifIcon = guestData.status === 'booking' ? '🗑️' : '🚫';
         const notifLabel = guestData.status === 'booking' ? 'Удалено бронирование' : 'Удалена запись гостя';
-        const delMsg = `${notifIcon} <b>${notifLabel}</b>\n👤 ${guestData.fullName || '—'}\n🛏 ${hostelLabel} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
+        const delMsg = `${notifIcon} <b>${notifLabel}</b>\n👤 ${escapeTg(guestData.fullName || '—')}\n🛏 ${hostelLabel} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${escapeTg(currentUser?.name || currentUser?.login || '—')}`;
         if (isOnline) {
           sendTelegramMessage(delMsg, notifType);
         } else {
@@ -1043,15 +1048,27 @@ export function useGuestActions(ctx) {
 
   const handleAdminReduceDays = async (g, rd) => {
     const newDays = parseInt(g.days) - parseInt(rd);
-    const refundAmount = parseInt(rd) * parseInt(g.pricePerNight);
+    const ppn = parseInt(g.pricePerNight || 0);
+    const rawRefund = Math.max(0, parseInt(rd) * ppn);
+    // Возврат ограничиваем реально оплаченным: иначе для гостя, оплатившего
+    // картой/QR или меньше суммы возврата, paidCash/amountPaid уходили в минус —
+    // фиктивный «выход наличных» из кассы. Возвращаем не больше, чем было внесено.
+    const paidTotal = parseInt(g.amountPaid || 0);
+    const paidCashCur = parseInt(g.paidCash || 0);
+    const refundFromPaid = Math.min(rawRefund, Math.max(0, paidTotal));
+    const refundFromCash = Math.min(rawRefund, Math.max(0, paidCashCur));
     const stay = getStayDetails(g.checkInDate, newDays);
     // Один updateDoc — атомарно, чтобы избежать несогласованность двух записей
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
       days: newDays,
-      totalPrice: newDays * parseInt(g.pricePerNight),
-      amountPaid: increment(-refundAmount),
-      paidCash:   increment(-refundAmount),
+      totalPrice: newDays * ppn,
+      amountPaid: increment(-refundFromPaid),
+      paidCash:   increment(-refundFromCash),
       checkOutDate: stay.end.toISOString(),
+    });
+    logAction(currentUser, 'reduce_days', {
+      guestName: g.fullName, daysReduced: parseInt(rd), newDays,
+      refundFromCash, refundFromPaid,
     });
     showNotification('Days reduced');
   };

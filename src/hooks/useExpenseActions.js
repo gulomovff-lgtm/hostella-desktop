@@ -5,7 +5,7 @@ import { collection, doc, addDoc, updateDoc, increment, runTransaction } from 'f
 
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { enqueueTelegram } from '../utils/offlineQueue';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
@@ -78,7 +78,7 @@ export function useExpenseActions({
 
       if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
         const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 Кассир: ${currentUser.name || currentUser.login}`;
+        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           await sendTelegramMessage(tgMsg, 'expenseAdded');
         } else {
@@ -142,8 +142,8 @@ export function useExpenseActions({
       // Сводка в Telegram — одним сообщением вместо десятка
       if (currentUser.role !== 'admin' && currentUser.role !== 'super') {
         const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const lines = list.map(i => `• ${i.category}: ${i.amount.toLocaleString()} сум${i.comment ? ' — ' + i.comment : ''}`).join('\n');
-        const tgMsg = `💳 <b>Расходы (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>Итого: ${total.toLocaleString()} сум</b>\n👤 Кассир: ${currentUser.name || currentUser.login}`;
+        const lines = list.map(i => `• ${escapeTg(i.category)}: ${i.amount.toLocaleString()} сум${i.comment ? ' — ' + escapeTg(i.comment) : ''}`).join('\n');
+        const tgMsg = `💳 <b>Расходы (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>Итого: ${total.toLocaleString()} сум</b>\n👤 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) await sendTelegramMessage(tgMsg, 'expenseAdded');
         else enqueueTelegram(tgMsg, 'expenseAdded');
       }

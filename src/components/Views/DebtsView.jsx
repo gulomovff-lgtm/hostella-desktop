@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Printer, ChevronDown, Users, CheckCircle2, Edit, Wallet, Magnet, Plus, X, AlertCircle } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
@@ -145,12 +145,22 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const totalDebt = totalGuestDebt + totalRentalDebt;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
+    // Синхронный latch против двойного клика: без него быстрый второй тап по
+    // «Сохранить» на медленном устройстве проводил оплату дважды (два increment
+    // + два документа payments) — гость переплачен, наличные задвоены в отчёте.
+    const payingRef = useRef(false);
+
     const rpTotal = (parseInt(rpCash) || 0) + (parseInt(rpCard) || 0) + (parseInt(rpQR) || 0);
     const openRentalPay = (x) => { setRentalPay(x); setRpCash(''); setRpCard(''); setRpQR(''); };
-    const submitRentalPay = () => {
-        if (!rentalPay || rpTotal <= 0) return;
-        onPayRentalDebt?.(rentalPay.room, { cash: parseInt(rpCash) || 0, card: parseInt(rpCard) || 0, qr: parseInt(rpQR) || 0 });
-        setRentalPay(null);
+    const submitRentalPay = async () => {
+        if (payingRef.current || !rentalPay || rpTotal <= 0) return;
+        payingRef.current = true;
+        try {
+            await onPayRentalDebt?.(rentalPay.room, { cash: parseInt(rpCash) || 0, card: parseInt(rpCard) || 0, qr: parseInt(rpQR) || 0 });
+            setRentalPay(null);
+        } finally {
+            payingRef.current = false;
+        }
     };
     const canPay  = !isAdmin
         && !(currentUser.hostelId === 'hostel1' && currentUser.permissions?.canPayInHostel1 === false)
@@ -178,19 +188,24 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
         setAdminAdjustAmount(''); 
     };
     
-    const submitPayment = () => {
-        if (!selectedDebtor) return;
+    const submitPayment = async () => {
+        if (payingRef.current || !selectedDebtor) return;
         const cash = parseInt(payCash) || 0;
         const card = parseInt(payCard) || 0;
         const qr = parseInt(payQR) || 0;
         const amount = cash + card + qr;
         if (amount <= 0) return;
         const targets = selectedDebtor.records.map(r => ({
-            id: r.id, 
+            id: r.id,
             currentDebt: r.currentDebt
         }));
-        onPayDebt(targets, amount, { cash, card, qr });
-        setIsPayModalOpen(false);
+        payingRef.current = true;
+        try {
+            await onPayDebt(targets, amount, { cash, card, qr });
+            setIsPayModalOpen(false);
+        } finally {
+            payingRef.current = false;
+        }
     };
 
     const submitAdminAdjust = () => {

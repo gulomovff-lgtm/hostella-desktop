@@ -5,6 +5,11 @@
  * Логика перенесена из ShiftClosingModal без изменений.
  */
 
+// Экранирование для Telegram HTML (локально — модуль остаётся чистым, без
+// зависимости от firebase, чтобы юнит-тесты импортировали его напрямую).
+const escapeTg = (s = '') =>
+    String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /** Пустой перенос — смена начата с нуля. */
 const emptyOpening = () => ({ cash: 0, card: 0, qr: 0, transfer: 0, transferByEntity: {}, refunds: 0, expenses: 0 });
 
@@ -88,11 +93,11 @@ export function buildShiftTelegramMsg(user, r) {
     const transferEntries = Object.entries(r.income.transferByEntity || {});
     const transferLine = r.income.transfer > 0
         ? (transferEntries.length > 0
-            ? transferEntries.map(([entity, amt]) => `\n🏦 ${entity}: ${amt.toLocaleString()}`).join('')
+            ? transferEntries.map(([entity, amt]) => `\n🏦 ${escapeTg(entity)}: ${amt.toLocaleString()}`).join('')
             : `\n🏦 Перечисление: ${r.income.transfer.toLocaleString()}`)
         : '';
     const refundLine = r.totalRefunds > 0 ? `\n🔄 Возврат: -${r.totalRefunds.toLocaleString()}` : '';
-    return `<b>🔒 Закрытие смены</b>\nКассир: ${user.name}\n---\n💵 Наличные: ${r.income.cash.toLocaleString()}\n💳 Терминал: ${r.income.card.toLocaleString()}\n📱 QR: ${r.income.qr.toLocaleString()}${transferLine}\n---\n<b>✅ ИТОГО: ${r.totalRevenue.toLocaleString()}</b>${refundLine}\n🔴 Расходы: ${r.cashboxExpenses.toLocaleString()}\n<b>💰 В КАССЕ: ${r.cashInHand.toLocaleString()}</b>`;
+    return `<b>🔒 Закрытие смены</b>\nКассир: ${escapeTg(user.name)}\n---\n💵 Наличные: ${r.income.cash.toLocaleString()}\n💳 Терминал: ${r.income.card.toLocaleString()}\n📱 QR: ${r.income.qr.toLocaleString()}${transferLine}\n---\n<b>✅ ИТОГО: ${r.totalRevenue.toLocaleString()}</b>${refundLine}\n🔴 Расходы: ${r.cashboxExpenses.toLocaleString()}\n<b>💰 В КАССЕ: ${r.cashInHand.toLocaleString()}</b>`;
 }
 
 /** Плоский текст отчёта для «Копировать» (формат — как был). */

@@ -31,6 +31,13 @@ function buildAutofillScript(guest) {
     // сохранения возвращало бы на новую регистрацию).
     try {
       var _target = GUEST.path || '/listok/create-page';
+      // Защита от увода окна на чужой домен: path приходит из Hostella, но
+      // берём только «чистый» относительный путь. Строка вида '@evil.com/' или
+      // '//evil.com' иначе увела бы окно на чужой origin при редиректе ниже —
+      // а туда инжектится автозаполнение с логином/паролем портала.
+      if (typeof _target !== 'string' || !/^\\/[A-Za-z0-9\\/_.\\-?=&%]*$/.test(_target) || _target.indexOf('//') === 0) {
+        _target = '/listok/create-page';
+      }
       var _p = location.pathname || '';
       var _onTarget = _target === '/listok'
         ? (_p.replace(/\\/+$/, '') === '/listok')

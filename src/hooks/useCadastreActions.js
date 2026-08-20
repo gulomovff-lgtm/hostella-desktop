@@ -4,7 +4,7 @@
 import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 
 const HOSTEL_LABEL = { hostel1: 'Хостел №1', hostel2: 'Хостел №2' };
 
@@ -209,13 +209,13 @@ export function useCadastreActions({
       if (!disabledTypes.has('cadastreNew') && isOnline) {
         const msg = [
           `🏠 <b>Кадастр-регистрация добавлена</b>`,
-          `👤 ${data.guestName}`,
-          data.passport ? `🪪 ${data.passport}` : null,
-          `📍 ${data.cadastreAddress}`,
+          `👤 ${escapeTg(data.guestName)}`,
+          data.passport ? `🪪 ${escapeTg(data.passport)}` : null,
+          `📍 ${escapeTg(data.cadastreAddress)}`,
           `📅 ${data.startDate} → ${data.endDate} (${data.days} дн.)`,
           Number(data.amount) > 0 ? `💰 ${Number(data.amount).toLocaleString()} сум` : null,
           `🏨 ${HOSTEL_LABEL[hostelId] || hostelId}`,
-          `👷 ${currentUser.name || currentUser.login}`,
+          `👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         ].filter(Boolean).join('\n');
         sendTelegramMessage(msg, 'cadastreNew');
       }

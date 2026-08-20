@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, powerMonitor, shell } = electron;
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const dns = require('dns');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
@@ -230,6 +231,80 @@ const emehmonPartition = (hostelId) => {
   return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? `persist:emehmon-${id}` : 'persist:emehmon';
 };
 
+// ─── e-mehmon: безопасное построение URL и защита инжекции учётных данных ─────
+// Портал открывается ТОЛЬКО на своём origin, а автозаполнение (в нём — логин,
+// пароль и PII гостя) инжектится ТОЛЬКО когда окно реально стоит на emehmon.uz.
+const EMEHMON_ORIGIN = 'https://emehmon.uz';
+
+// Строим URL портала как фикс. origin + безопасный относительный путь. Строку
+// пути из рендерера НИКОГДА не конкатенируем к хосту напрямую: 'path' вида
+// '@evil.com/' превратил бы 'https://emehmon.uz'+path в userinfo-трюк и увёл
+// окно на чужой домен, куда затем инжектятся учётные данные.
+const buildEmehmonUrl = (rawPath) => {
+  const fallback = EMEHMON_ORIGIN + '/listok/create-page';
+  const p = String(rawPath || '/listok/create-page');
+  if (!/^\/[A-Za-z0-9/_.\-?=&%]*$/.test(p) || p.indexOf('//') === 0) return fallback;
+  try {
+    const u = new URL(p, EMEHMON_ORIGIN);
+    return u.origin === EMEHMON_ORIGIN ? u.toString() : fallback;
+  } catch { return fallback; }
+};
+
+// true только для https emehmon.uz (и поддоменов) — гейт для любой инжекции.
+const isEmehmonUrl = (url) => {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    const h = u.hostname.toLowerCase();
+    return h === 'emehmon.uz' || h.endsWith('.emehmon.uz');
+  } catch { return false; }
+};
+
+// Инжектим автозаполнение (логин/пароль/PII) ТОЛЬКО если окно на emehmon.uz.
+// Если портал/редирект/MITM увёл на чужой origin — молча пропускаем.
+const safeInjectAutofill = (win, payload) => {
+  try {
+    if (!win || win.isDestroyed()) return;
+    const wc = win.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    if (!isEmehmonUrl(wc.getURL())) {
+      log.warn('[emehmon] inject skipped: окно не на emehmon.uz →', wc.getURL());
+      return;
+    }
+    wc.executeJavaScript(buildAutofillScript(payload)).catch((err) =>
+      log.error('[emehmon] inject failed:', err.message));
+  } catch (e) { log.error('[emehmon] safeInject error:', e.message); }
+};
+
+// Запираем окно портала на emehmon.uz: любую навигацию на чужой origin
+// отменяем, всплывающие окна (лист печати) разрешаем только на emehmon.uz и с
+// полным hardening в webPreferences (иначе дочернее окно наследует defaults).
+const hardenEmehmonWindow = (win, part) => {
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isEmehmonUrl(url)) {
+      event.preventDefault();
+      log.warn('[emehmon] заблокирована навигация на', url);
+    }
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isEmehmonUrl(url)) return { action: 'deny' };
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: mainWindow,
+        autoHideMenuBar: true,
+        webPreferences: {
+          partition: part,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          webSecurity: true,
+        },
+      },
+    };
+  });
+};
+
 // ─── e-mehmon: встроенное окно регистрации иностранцев ──────────────────────
 // Открывает дочернее окно с порталом e-mehmon в отдельной постоянной сессии
 // (логин/капча сохраняются) и инжектит автозаполнение. Логин/пароль приходят
@@ -249,7 +324,7 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
     if (emehmonWindow && !emehmonWindow.isDestroyed()) {
       emehmonWindow.focus();
       // окно переиспользуется — обновляем данные/кнопку под нового гостя
-      emehmonWindow.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      safeInjectAutofill(emehmonWindow, payload);
       return true;
     }
     emehmonWindowPartition = part;
@@ -267,15 +342,13 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
       },
     });
     emehmonWindow.setMenuBarVisibility(false);
+    hardenEmehmonWindow(emehmonWindow, part);
     // Прибытие → create-page, убытие → /listok. Если не залогинен, портал уведёт
     // на /login, после входа скрипт авто-редиректит на нужную страницу.
-    emehmonWindow.loadURL('https://emehmon.uz' + (payload.path || '/listok/create-page'));
+    // URL строится безопасно (фикс. origin + валидированный путь), см. buildEmehmonUrl.
+    emehmonWindow.loadURL(buildEmehmonUrl(payload.path));
 
-    const inject = () => {
-      emehmonWindow.webContents
-        .executeJavaScript(buildAutofillScript(arrivalPayload || payload))
-        .catch((err) => log.error('[emehmon] inject failed:', err.message));
-    };
+    const inject = () => safeInjectAutofill(emehmonWindow, arrivalPayload || payload);
     emehmonWindow.webContents.on('did-finish-load', inject);
     emehmonWindow.webContents.on('did-navigate', inject);
     emehmonWindow.webContents.on('did-navigate-in-page', inject);
@@ -341,15 +414,9 @@ function ensureDepartureWindow(hostelId) {
   });
   win.setMenuBarVisibility(false);
   win.on('closed', () => { delete departureWindows[part]; });
-  // e-mehmon при печати открывает лист убытия отдельным окном — показываем его.
-  win.webContents.setWindowOpenHandler(() => ({
-    action: 'allow',
-    overrideBrowserWindowOptions: {
-      parent: mainWindow,
-      autoHideMenuBar: true,
-      webPreferences: { partition: part },
-    },
-  }));
+  // Запираем окно на emehmon.uz. Лист печати (window.open с портала) — только на
+  // emehmon.uz и с полным hardening в дочернем окне, см. hardenEmehmonWindow.
+  hardenEmehmonWindow(win, part);
   departureWindows[part] = win;
   return win;
 }
@@ -376,7 +443,7 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
     if (needsHuman) {
       // Показать окно и подмешать ручную панель убытия / автозаполнение логина.
       win.show(); win.focus();
-      win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      safeInjectAutofill(win, payload);
     } else if (status === 'done' && !wantVisible) {
       win.hide(); // успех в фоне — прячем (окно переиспользуется при след. выселении)
     }
@@ -408,7 +475,7 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
     const status = (result && result.status) || 'error';
     if (status === 'need_login') {
       win.show(); win.focus();
-      win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      safeInjectAutofill(win, payload);
     } else {
       win.hide(); // проверка всегда фоновая
     }
@@ -438,6 +505,7 @@ function ensureAutoArrivalWindow(hostelId) {
   });
   win.setMenuBarVisibility(false);
   win.on('closed', () => { delete autoArrivalWindows[part]; });
+  hardenEmehmonWindow(win, part);
   autoArrivalWindows[part] = win;
   return win;
 }
@@ -461,7 +529,7 @@ async function runAutoArrival(payload) {
   } else {
     // Проблема — окно кассиру + привычная ручная кнопка «Заполнить из Hostella».
     win.show(); win.focus();
-    win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+    safeInjectAutofill(win, payload);
   }
   return result || { status };
 }
@@ -499,7 +567,7 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
       'no_button', 'no_checkout_btn', 'error'].includes(status);
     if (needsHuman) {
       win.show(); win.focus();
-      win.webContents.executeJavaScript(buildAutofillScript({ mode: 'departure' })).catch(() => {});
+      safeInjectAutofill(win, { mode: 'departure' });
     } else if (status === 'done' && !wantVisible) {
       win.hide();
     }
@@ -579,19 +647,28 @@ ipcMain.handle('emehmon-tursbor', async (_event, payload) => {
 });
 
 // IPC Handlers for window control
+const liveWin = () => (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
+
 ipcMain.handle('window-minimize', () => {
-  mainWindow.minimize();
+  liveWin()?.minimize();
 });
 
 // ─── Pending payments file (offline safety net) ───────────────────────────────
 ipcMain.handle('save-pending-payments', (_event, data) => {
   try {
     const file = PENDING_FILE();
-    if (!data || !data.length) {
+    // Пишем только массив и с ограничением размера — не даём рендереру складывать
+    // на диск произвольный/огромный объект, который потом читается и доверяется.
+    if (!Array.isArray(data) || data.length === 0) {
       if (fs.existsSync(file)) fs.unlinkSync(file);
-    } else {
-      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+      return true;
     }
+    const serialized = JSON.stringify(data.slice(0, 500), null, 2);
+    if (serialized.length > 5 * 1024 * 1024) {
+      log.error('save-pending-payments: payload too large, skipped');
+      return false;
+    }
+    fs.writeFileSync(file, serialized, 'utf8');
     return true;
   } catch (e) {
     log.error('save-pending-payments error:', e.message);
@@ -604,7 +681,8 @@ ipcMain.handle('load-pending-payments', () => {
     const file = PENDING_FILE();
     if (!fs.existsSync(file)) return [];
     const raw = fs.readFileSync(file, 'utf8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     log.error('load-pending-payments error:', e.message);
     return [];
@@ -613,43 +691,57 @@ ipcMain.handle('load-pending-payments', () => {
 
 
 ipcMain.handle('window-maximize', () => {
-  if (mainWindow.isMaximized()) {
-    mainWindow.restore();
-  } else {
-    mainWindow.maximize();
-  }
+  const w = liveWin();
+  if (!w) return;
+  if (w.isMaximized()) w.restore(); else w.maximize();
 });
 
 ipcMain.handle('window-restore', () => {
-  mainWindow.restore();
+  liveWin()?.restore();
 });
 
 ipcMain.handle('window-close', () => {
-  mainWindow.close();
+  liveWin()?.close();
 });
 
 ipcMain.handle('window-isMaximized', () => {
-  return mainWindow.isMaximized();
+  return liveWin()?.isMaximized() ?? false;
 });
 
 // ─── Booking.com iCal fetch (bypasses CORS from renderer) ───────────────────
 // SSRF-защита: только https, запрет обращений на localhost/приватные диапазоны
 // (иначе рендерер мог бы заставить main-процесс сканировать локальную сеть).
+// Приватный/непубличный IP? Проверяем сам адрес (IPv4 и IPv6), а не строку.
+const isPrivateIp = (ip) => {
+    const a = String(ip || '').toLowerCase();
+    if (!a) return true;
+    if (a.includes(':')) { // IPv6
+        if (a === '::1' || a === '::') return true;
+        if (a.startsWith('fe80') || a.startsWith('fc') || a.startsWith('fd')) return true; // link-local, ULA
+        const m6 = a.match(/::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/); // IPv4-mapped
+        if (m6) return isPrivateIp(m6[1]);
+        return false;
+    }
+    const m = a.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return true; // после lookup сюда приходит валидный IP; иначе — блок
+    const [x, y] = [parseInt(m[1], 10), parseInt(m[2], 10)];
+    if (x === 127 || x === 10 || x === 0) return true;
+    if (x === 169 && y === 254) return true;               // link-local
+    if (x === 192 && y === 168) return true;
+    if (x === 172 && y >= 16 && y <= 31) return true;
+    if (x === 100 && y >= 64 && y <= 127) return true;     // CGNAT
+    if (x >= 224) return true;                             // multicast/reserved
+    return false;
+};
+
 const isBlockedIcalHost = (hostname) => {
     const h = (hostname || '').toLowerCase();
     if (!h) return true;
     if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
-    if (h === '::1' || h === '0.0.0.0') return true;
-    // IPv4 приватные/loopback/link-local диапазоны
-    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (m) {
-        const [a, b] = [parseInt(m[1], 10), parseInt(m[2], 10)];
-        if (a === 127 || a === 10 || a === 0) return true;
-        if (a === 169 && b === 254) return true;               // link-local
-        if (a === 192 && b === 168) return true;
-        if (a === 172 && b >= 16 && b <= 31) return true;
-        if (a === 100 && b >= 64 && b <= 127) return true;     // CGNAT
-    }
+    // Нестандартные записи IP (integer/hex) минуют dotted-quad проверку — блокируем явно.
+    if (/^\d+$/.test(h)) return true;                      // напр. 2130706433 = 127.0.0.1
+    if (/^0x[0-9a-f]+$/i.test(h)) return true;             // напр. 0x7f000001
+    if (isPrivateIp(h)) return true;                       // литеральный IP в hostname
     return false;
 };
 
@@ -658,27 +750,66 @@ const validateIcalUrl = (raw) => {
     try { u = new URL(raw); } catch { return null; }
     if (u.protocol !== 'https:') return null;                  // только https
     if (isBlockedIcalHost(u.hostname)) return null;
-    return u.toString();
+    return u;
 };
+
+// Пин к проверенному адресу: node подставляет в соединение ровно тот IP, что
+// вернул наш lookup, а мы валидируем его здесь → закрывается DNS-rebinding
+// (когда attacker.com резолвится в 169.254.169.254 между проверкой и коннектом).
+const safeLookup = (hostname, options, callback) => {
+    dns.lookup(hostname, options, (err, address, family) => {
+        if (err) return callback(err);
+        if (Array.isArray(address)) {
+            if (address.some((a) => isPrivateIp(a.address))) {
+                return callback(new Error('Blocked private address'));
+            }
+        } else if (isPrivateIp(address)) {
+            return callback(new Error('Blocked private address'));
+        }
+        callback(null, address, family);
+    });
+};
+
+const ICAL_MAX_BYTES = 5 * 1024 * 1024;   // 5 МБ — календарь не бывает больше
+const ICAL_TIMEOUT_MS = 15000;
 
 ipcMain.handle('fetch-ical', (event, url) => {
     return new Promise((resolve, reject) => {
         const MAX_REDIRECTS = 5;
         const doGet = (target, redirectsLeft) => {
             if (redirectsLeft <= 0) { reject('Too many redirects'); return; }
-            const safe = validateIcalUrl(target);
-            if (!safe) { reject('Blocked or invalid iCal URL'); return; }
-            https.get(safe, { headers: { 'User-Agent': 'Hostella/1.0' } }, (res) => {
+            const u = validateIcalUrl(target);
+            if (!u) { reject('Blocked or invalid iCal URL'); return; }
+            const req = https.get({
+                protocol: u.protocol,
+                hostname: u.hostname,
+                path: u.pathname + u.search,
+                lookup: safeLookup,                    // резолв + блок приватных + пин
+                headers: { 'User-Agent': 'Hostella/1.0' },
+                timeout: ICAL_TIMEOUT_MS,
+            }, (res) => {
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    res.resume(); // освобождаем сокет
                     // Резолвим относительный Location и снова валидируем хост.
-                    const next = new URL(res.headers.location, safe).toString();
+                    const next = new URL(res.headers.location, u).toString();
                     doGet(next, redirectsLeft - 1);
                     return;
                 }
                 let data = '';
-                res.on('data', chunk => { data += chunk; });
+                let size = 0;
+                res.on('data', (chunk) => {
+                    size += chunk.length;
+                    if (size > ICAL_MAX_BYTES) {
+                        req.destroy();
+                        reject('iCal response too large');
+                        return;
+                    }
+                    data += chunk;
+                });
                 res.on('end', () => resolve(data));
-            }).on('error', e => reject(e.message));
+            });
+            req.on('timeout', () => { req.destroy(); reject('iCal request timeout'); });
+            req.on('error', (e) => reject(e.message));
         };
         doGet(url, MAX_REDIRECTS);
     });
