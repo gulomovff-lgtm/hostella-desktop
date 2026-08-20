@@ -442,6 +442,44 @@ exports.getAvailability = functions.https.onRequest(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// getPublicAvailability — публичные данные для виджета брони БЕЗ PII.
+// Раньше виджет читал всю коллекцию guests напрямую (паспорта, имена, телефоны
+// уходили в браузер любого посетителя страницы брони, C6). Теперь отдаём только
+// то, что нужно для календаря занятости: вместимость комнат, интервалы
+// проживания (roomId + даты, без единого поля PII) и публичные промокоды.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getPublicAvailability = functions.https.onRequest(async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    try {
+        const { getFirestore } = require('firebase-admin/firestore');
+        const hostellaDb = getFirestore('hostella');
+        const base = `artifacts/hostella-multi-v4/public/data`;
+        const [roomsSnap, guestsSnap, promosSnap] = await Promise.all([
+            hostellaDb.collection(`${base}/rooms`).get(),
+            hostellaDb.collection(`${base}/guests`).get(),
+            hostellaDb.collection(`${base}/promos`).get(),
+        ]);
+        const rooms = roomsSnap.docs.map(d => {
+            const x = d.data() || {};
+            return { id: d.id, hostelId: x.hostelId, capacity: parseInt(x.capacity ?? x.beds ?? x.totalBeds ?? x.numberOfBeds) || 0 };
+        });
+        // ТОЛЬКО интервалы проживания — без имени/паспорта/телефона.
+        const stays = guestsSnap.docs.map(d => d.data() || {})
+            .filter(g => g.status !== 'checked_out' && (g.checkInDate || g.checkInDateTime) && g.checkOutDate)
+            .map(g => ({ roomId: g.roomId, checkInDate: g.checkInDate || g.checkInDateTime, checkOutDate: g.checkOutDate }));
+        const promos = promosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        res.set('Cache-Control', 'public, max-age=60');
+        res.json({ ok: true, rooms, stays, promos });
+    } catch (e) {
+        console.error('getPublicAvailability', e);
+        res.status(500).json({ ok: false });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // createWebBooking — creates a guest/booking document in Firestore
 // from the booking website so it appears instantly in the Hostella app.
 // POST body (JSON): { fullName, phone, hostelId, bedType, bedsCount, checkIn,

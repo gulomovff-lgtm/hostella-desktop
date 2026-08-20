@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, collection, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
+import { getFirestore, doc, updateDoc, increment } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, Check, X, Loader2, CalendarDays, Phone, User, Globe, BedDouble } from 'lucide-react';
 
@@ -84,22 +84,20 @@ export default function BookingWidget({ hostelParam }) {
   useEffect(() => {
     setLoading(true);
     setLoadError(false);
-    // Sign in anonymously first (Firestore rules require auth)
-    signInAnonymously(auth)
-      .then(() => Promise.all([
-        getDocs(collection(db, ...PATH, 'rooms')),
-        getDocs(collection(db, ...PATH, 'guests')),
-        getDocs(collection(db, ...PATH, 'promos')),
-      ]))
-      .then(([rSnap, gSnap, pSnap]) => {
-        setRooms(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setGuests(gSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(g => g.status !== 'checked_out')
-        );
-        setPromos(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // Данные календаря берём из публичной функции getPublicAvailability БЕЗ PII.
+    // Раньше виджет читал всю коллекцию guests напрямую (паспорта/имена/телефоны
+    // уходили в браузер любого посетителя, C6). Анонимный вход тут больше не нужен —
+    // он остаётся только для отправки брони.
+    const FN_URL = 'https://us-central1-hostella-app-a1e07.cloudfunctions.net/getPublicAvailability';
+    fetch(FN_URL)
+      .then(r => r.json())
+      .then(d => {
+        if (!d || !d.ok) throw new Error('load-failed');
+        setRooms(d.rooms || []);
+        setGuests(d.stays || []);     // только интервалы проживания (roomId + даты), без PII
+        setPromos(d.promos || []);
       }).catch((err) => {
-        console.error('[Hostella widget] Firebase error:', err);
+        console.error('[Hostella widget] availability error:', err);
         setLoadError(true);
       }).finally(() => setLoading(false));
   }, []); // load once
