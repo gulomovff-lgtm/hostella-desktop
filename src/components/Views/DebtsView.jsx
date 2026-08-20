@@ -153,10 +153,13 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
     const rpTotal = (parseInt(rpCash) || 0) + (parseInt(rpCard) || 0) + (parseInt(rpQR) || 0);
     const openRentalPay = (x) => { setRentalPay(x); setRpCash(''); setRpCard(''); setRpQR(''); };
     const submitRentalPay = async () => {
-        if (payingRef.current || !rentalPay || rpTotal <= 0) return;
+        const rc = parseInt(rpCash) || 0, rk = parseInt(rpCard) || 0, rq = parseInt(rpQR) || 0;
+        // Каждый метод ≥ 0: иначе сплит cash:1000/card:-500 давал бы положительную
+        // сумму, но задваивал наличные и уводил карту в минус в отчётах.
+        if (payingRef.current || !rentalPay || rpTotal <= 0 || rc < 0 || rk < 0 || rq < 0) return;
         payingRef.current = true;
         try {
-            await onPayRentalDebt?.(rentalPay.room, { cash: parseInt(rpCash) || 0, card: parseInt(rpCard) || 0, qr: parseInt(rpQR) || 0 });
+            await onPayRentalDebt?.(rentalPay.room, { cash: rc, card: rk, qr: rq });
             setRentalPay(null);
         } finally {
             payingRef.current = false;
@@ -194,7 +197,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
         const card = parseInt(payCard) || 0;
         const qr = parseInt(payQR) || 0;
         const amount = cash + card + qr;
-        if (amount <= 0) return;
+        // Каждый метод ≥ 0 — не допускаем отрицательный сплит (десинхрон кассы).
+        if (amount <= 0 || cash < 0 || card < 0 || qr < 0) return;
         const targets = selectedDebtor.records.map(r => ({
             id: r.id,
             currentDebt: r.currentDebt

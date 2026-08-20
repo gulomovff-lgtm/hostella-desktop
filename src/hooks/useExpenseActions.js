@@ -78,7 +78,7 @@ export function useExpenseActions({
 
       if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
         const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${escapeTg(d.category)}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           await sendTelegramMessage(tgMsg, 'expenseAdded');
         } else {

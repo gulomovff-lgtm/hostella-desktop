@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import TRANSLATIONS from '../../constants/translations';
 import { APP_VERSION } from '../../constants/config';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../../firebase';
+import { signInWithCustomToken } from 'firebase/auth';
+import { functions, auth } from '../../firebase';
 import { X, Minus, Maximize2 } from 'lucide-react';
 import AmbientCanvas from './AmbientCanvas';
 import CrossfadeBg from './CrossfadeBg';
@@ -412,6 +413,15 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                 const res = await authenticate({ login: login.trim(), password: pass });
                 const user = res?.data?.user;
                 if (!user) throw new Error('wrongpass');
+                // Переход с анонимного входа на реальную аутентификацию: входим по
+                // кастомному токену с claims (role/hostelId). При любой ошибке
+                // остаёмся на анонимной сессии — вход не рвём (правила пока пускают
+                // и анонимов). Это фундамент для будущего ужесточения правил.
+                const customToken = res?.data?.customToken;
+                if (customToken) {
+                    try { await signInWithCustomToken(auth, customToken); }
+                    catch (e) { console.error('[auth] custom-token sign-in failed, staying anonymous:', e?.message); }
+                }
                 return user;
             })();
 

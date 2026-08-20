@@ -4,7 +4,7 @@
  * Атомарный Firestore-трекинг через alertsLog — не дублируется с нескольких устройств.
  */
 import { useEffect, useRef } from 'react';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { checkAndMarkAlert, maybeCleanupAlerts } from '../utils/alertsLog';
 
 const ALERT_DAYS = 3;
@@ -80,8 +80,8 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline 
           else              label = `🟡 Осталось ${d} дн. (до ${fmtDate(reg.endDate)})`;
           lines.push('');
           lines.push(label);
-          lines.push(`👤 ${reg.guestName}`);
-          lines.push(`📍 ${reg.cadastreAddress}`);
+          lines.push(`👤 ${escapeTg(reg.guestName)}`);
+          lines.push(`📍 ${escapeTg(reg.cadastreAddress)}`);
         }
       }
 
@@ -98,11 +98,11 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline 
           const ctry = reg.country           || client?.country           || '';
 
           lines.push('');
-          lines.push(`<code>${reg.guestName}</code>`);
+          lines.push(`<code>${escapeTg(reg.guestName)}</code>`);
           if (bdt)          lines.push(`Дата рожд.: <code>${fmtDate(bdt)}</code>`);
-          if (reg.passport) lines.push(`Паспорт: <code>${reg.passport}</code>`);
+          if (reg.passport) lines.push(`Паспорт: <code>${escapeTg(reg.passport)}</code>`);
           if (pid)          lines.push(`Выдан: <code>${fmtDate(pid)}</code>`);
-          if (ctry)         lines.push(`Страна: <code>${ctry}</code>`);
+          if (ctry)         lines.push(`Страна: <code>${escapeTg(ctry)}</code>`);
         }
       }
 

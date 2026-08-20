@@ -1123,7 +1123,11 @@ export function useGuestActions(ctx) {
 
   const handleAdminAdjustDebt = async (guestId, adjustment) => {
     try {
+      const g = guests.find(x => x.id === guestId);
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { totalPrice: increment(adjustment) });
+      logAction(currentUser, 'debt_adjust', {
+        guestId, guestName: g?.fullName || '', adjustment: parseInt(adjustment) || 0,
+      });
       showNotification('Debt Adjusted');
     } catch (e) {
       showNotification('Error adjusting', 'error');

@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const dns = require('dns');
+const net = require('net');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
@@ -280,12 +281,15 @@ const safeInjectAutofill = (win, payload) => {
 // отменяем, всплывающие окна (лист печати) разрешаем только на emehmon.uz и с
 // полным hardening в webPreferences (иначе дочернее окно наследует defaults).
 const hardenEmehmonWindow = (win, part) => {
-  win.webContents.on('will-navigate', (event, url) => {
+  const blockOffOrigin = (event, url) => {
     if (!isEmehmonUrl(url)) {
       event.preventDefault();
-      log.warn('[emehmon] заблокирована навигация на', url);
+      log.warn('[emehmon] заблокирован переход на', url);
     }
-  });
+  };
+  win.webContents.on('will-navigate', blockOffOrigin);
+  // will-redirect ловит HTTP 3xx / meta-refresh, которые will-navigate пропускает.
+  win.webContents.on('will-redirect', blockOffOrigin);
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (!isEmehmonUrl(url)) return { action: 'deny' };
     return {
@@ -718,8 +722,17 @@ const isPrivateIp = (ip) => {
     if (a.includes(':')) { // IPv6
         if (a === '::1' || a === '::') return true;
         if (a.startsWith('fe80') || a.startsWith('fc') || a.startsWith('fd')) return true; // link-local, ULA
+        if (a.startsWith('64:ff9b:') || a.startsWith('64:ff9b:1:')) return true;           // NAT64 → внутр. IPv4
+        if (a.startsWith('2001:db8:')) return true;                                        // документационный
         const m6 = a.match(/::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/); // IPv4-mapped
         if (m6) return isPrivateIp(m6[1]);
+        const mHex = a.match(/::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);    // IPv4-mapped в hex
+        if (mHex) {
+            const n = (parseInt(mHex[1], 16) << 16) | parseInt(mHex[2], 16);
+            return isPrivateIp(`${(n>>>24)&255}.${(n>>>16)&255}.${(n>>>8)&255}.${n&255}`);
+        }
+        const mCompat = a.match(/^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/); // IPv4-compatible ::x.x.x.x
+        if (mCompat) return isPrivateIp(mCompat[1]);
         return false;
     }
     const m = a.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -740,8 +753,13 @@ const isBlockedIcalHost = (hostname) => {
     if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
     // Нестандартные записи IP (integer/hex) минуют dotted-quad проверку — блокируем явно.
     if (/^\d+$/.test(h)) return true;                      // напр. 2130706433 = 127.0.0.1
-    if (/^0x[0-9a-f]+$/i.test(h)) return true;             // напр. 0x7f000001
-    if (isPrivateIp(h)) return true;                       // литеральный IP в hostname
+    if (/^0x[0-9a-f.]+$/i.test(h)) return true;            // напр. 0x7f000001
+    // isPrivateIp зовём ТОЛЬКО для литеральных IP: раньше он возвращал true для
+    // любого доменного имени (не-IP → true), из-за чего блокировались ВСЕ реальные
+    // хосты и фича iCal переставала работать. Домены пропускаем — реальный барьер
+    // ставит safeLookup на этапе резолва.
+    const bare = h.replace(/^\[|\]$/g, '');                // снять скобки IPv6-литерала
+    if (net.isIP(bare) && isPrivateIp(bare)) return true;
     return false;
 };
 

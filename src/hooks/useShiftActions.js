@@ -467,9 +467,8 @@ export function useShiftActions({
         actorLogin: currentUser.login,
         actorPassword: oldPassword,
       });
-      try {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', userId), { pass: await hashPassword(newPassword) });
-      } catch { /* не критично: вход уже работает через сервер */ }
+      // Пароль уже сохранён на сервере в закрытой userSecrets (PBKDF2). Больше НЕ
+      // дублируем читаемый users.pass — именно из него аноним крал/перебирал хеши.
       const { pass: _p, ...sessionUser } = { ...currentUser };
       setCurrentUser({ ...currentUser });
       sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser));

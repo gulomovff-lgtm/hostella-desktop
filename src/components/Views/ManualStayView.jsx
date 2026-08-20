@@ -109,8 +109,16 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     };
 
     const deleteGroup = async (groupId) => {
+        const g = contractGroups.find(x => x.id === groupId);
+        // Запрет удаления договора с непогашенным сальдо: иначе перенос долга на
+        // «пустышку» + её удаление стирали бы долг мимо кассы и аудита.
+        if (g && Math.abs(g.debt || 0) > 0) {
+            window.alert(`Нельзя удалить договор с непогашенным сальдо (${Math.abs(g.debt).toLocaleString()} сум). Сначала закройте долг/переплату.`);
+            return;
+        }
         if (!window.confirm('Удалить группу?')) return;
         await deleteDoc(doc(db, ...COLLECTION, groupId));
+        logAction(currentUser, 'contract_delete', { contractId: groupId, contractName: g?.name || '' });
         if (memberPickerGroupId === groupId) setMemberPickerGroupId(null);
     };
 

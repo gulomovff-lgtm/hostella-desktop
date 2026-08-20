@@ -9,6 +9,20 @@ const escTgHtml = (s) => String(s ?? '')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
+// Санитизация целого HTML-сообщения для Telegram: экранируем ВСЁ, затем возвращаем
+// только безопасные теги форматирования. Инъектированный <a href> и любые чужие
+// теги остаются экранированными — не станут кликабельной ссылкой и не вызовут 400.
+// Клиентское экранирование не граница безопасности: text присылает клиент (в т.ч.
+// аноним), поэтому чистим на сервере, где сообщение реально уходит боту.
+const TG_ALLOWED_TAGS = ['b', 'strong', 'i', 'em', 'u', 's', 'code', 'pre'];
+const sanitizeTgHtml = (text) => {
+  let s = escTgHtml(text);
+  for (const tag of TG_ALLOWED_TAGS) {
+    s = s.split(`&lt;${tag}&gt;`).join(`<${tag}>`).split(`&lt;/${tag}&gt;`).join(`</${tag}>`);
+  }
+  return s;
+};
+
 // Сравнение строк за константное время (защита от timing-атак).
 const safeEqual = (a, b) => {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -237,13 +251,17 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
         throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
     }
 
+    // Санитизируем на сервере: клиент (в т.ч. аноним) мог прислать произвольный
+    // HTML (фишинг-ссылка <a href>). Разрешаем только теги форматирования.
+    const safeText = sanitizeTgHtml(data.text);
+
     // If explicit chatIds override is provided (e.g. test sends), use main bot directly
     if (Array.isArray(data.chatIds) && data.chatIds.length > 0) {
         const results = await Promise.allSettled(data.chatIds.map(target => {
             const chatId = typeof target === 'string' ? target : target.chatId;
             const rawThreadId = typeof target === 'object' ? (target.threadId || '').toString().trim() : '';
             const tid = rawThreadId ? parseInt(rawThreadId, 10) : null;
-            const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+            const payload = { chat_id: chatId, text: safeText, parse_mode: 'HTML' };
             if (tid && !isNaN(tid)) payload.message_thread_id = tid;
             return fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                 method: 'POST',
@@ -314,7 +332,7 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
         sends.map(({ token, chatId, threadId }) => {
             const rawThreadId = (threadId || '').toString().trim();
             const tid = rawThreadId ? parseInt(rawThreadId, 10) : null;
-            const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+            const payload = { chat_id: chatId, text: safeText, parse_mode: 'HTML' };
             if (tid && !isNaN(tid)) payload.message_thread_id = tid;
             console.log(`Sending to chatId=${chatId} threadId=${tid ?? 'none'}`);
             return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -587,11 +605,13 @@ const trustedClientIp = (req) => {
     const fwd = req?.headers?.['x-forwarded-for'];
     const chain = (Array.isArray(fwd) ? fwd.join(',') : (fwd || ''))
         .split(',').map((s) => s.trim()).filter(Boolean);
-    // ПОСЛЕДНИЙ адрес добавляет прокси Google и клиент его подделать не может.
-    // Левый (первый) полностью контролируется клиентом: подставляя случайный
-    // X-Forwarded-For на каждый запрос, он раньше обходил все rate-limit'ы.
-    // NB: точный доверенный хоп стоит сверить с реальным логом запроса при деплое.
-    return chain.length ? chain[chain.length - 1] : (req?.ip || 'unknown');
+    // Берём ПЕРВЫЙ (клиентский) адрес XFF — документированный клиентский IP на
+    // Cloud Functions gen1. Он подделываем (атакующий может обходить СВОЙ лимит),
+    // но не сталкивает разных пользователей в один бакет — в отличие от «последнего»
+    // хопа, который на gen1 = постоянный фронтенд Google и глобально заблокировал бы
+    // всех. Перебор конкретного аккаунта всё равно ограничен ключом login_<login>.
+    // Полноценный устойчивый к спуфингу лимит — при переезде на gen2 / captcha.
+    return chain.length ? chain[0] : (req?.ip || 'unknown');
 };
 
 const callerIp = (context) => `ip_${trustedClientIp(context?.rawRequest)}`;
@@ -634,6 +654,22 @@ const KNOWN_DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00
 // Идентификаторы вида __xxx__ Firestore считает служебными и не даёт создавать
 const SUPER_SECRET_ID = 'super-account';
 
+// Кастомный токен Firebase Auth с claims (role, hostelId) — фундамент перехода с
+// анонимного входа на реальную аутентификацию. НИКОГДА не бросает: при сбое
+// (напр. у сервис-аккаунта нет роли Token Creator) возвращает null, и клиент
+// остаётся на анонимной сессии — вход не ломается. Правила пока не требуют claims.
+async function mintClaimsToken(uid, role, hostelId) {
+    try {
+        return await admin.auth().createCustomToken(String(uid), {
+            hostellaRole: String(role || 'cashier'),
+            hostellaHostel: String(hostelId || ''),
+        });
+    } catch (e) {
+        console.error('[auth] createCustomToken failed:', e.message);
+        return null;
+    }
+}
+
 async function authenticateSuper(db, password, now, keys, states) {
     const denied = () => new functions.https.HttpsError('permission-denied', 'Неверный логин или пароль');
 
@@ -671,7 +707,8 @@ async function authenticateSuper(db, password, now, keys, states) {
     }
 
     await noteSuccess(db, keys);
-    return { user: { id: SUPER_SECRET_ID, name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' } };
+    const customToken = await mintClaimsToken(SUPER_SECRET_ID, 'super', 'all');
+    return { user: { id: SUPER_SECRET_ID, name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' }, customToken };
 }
 
 /**
@@ -779,9 +816,12 @@ exports.authenticateUser = functions.https.onCall(async (data, context) => {
 
     const userData = userDoc.data();
     const secretSnap = await db.doc(`${authBase()}/userSecrets/${userDoc.id}`).get();
+    const secretData = secretSnap.exists ? secretSnap.data() : null;
     const { match, needsUpgrade } = passwordLib.verifyPassword(password, {
-        secret: secretSnap.exists ? secretSnap.data() : null,
-        legacyPass: userData.pass,
+        secret: secretData,
+        // Легаси-хеш: сначала из ЗАКРЫТОЙ userSecrets.legacyPass (аноним её не
+        // читает), затем — из users.pass (свежесозданные до первого входа).
+        legacyPass: (secretData && secretData.legacyPass) || userData.pass,
     });
 
     if (!match) {
@@ -793,13 +833,51 @@ exports.authenticateUser = functions.https.onCall(async (data, context) => {
         const secret = passwordLib.hashPassword(password);
         await db.doc(`${authBase()}/userSecrets/${userDoc.id}`)
             .set({ ...secret, updatedAt: new Date().toISOString() });
+        // Самолечение: убираем читаемый легаси-хеш из users, чтобы аноним не мог
+        // его прочитать и перебрать по словарю. Любой pass исчезает при 1-м входе.
+        if (userData.pass !== undefined) {
+            try { await userDoc.ref.update({ pass: admin.firestore.FieldValue.delete() }); } catch (e) { /* ignore */ }
+        }
     }
 
     await noteSuccess(db, keys);
 
     const { pass: _pass, ...safeUser } = userData;
-    return { user: { id: userDoc.id, ...safeUser } };
+    const customToken = await mintClaimsToken(userDoc.id, safeUser.role, safeUser.hostelId);
+    return { user: { id: userDoc.id, ...safeUser }, customToken };
 });
+
+// ── Одноразовая миграция: убрать читаемый users.pass ──────────────────────────
+// Легаси-хеш users.pass лежал в анонимно читаемой коллекции users (sha256 слабых
+// паролей → вход админом за минуту). Переносим его в ЗАКРЫТУЮ userSecrets.legacyPass
+// и удаляем из users. Вход по легаси продолжает работать (authenticateUser читает
+// legacyPass из userSecrets). Идемпотентна и самозатухает: когда pass ни у кого не
+// осталось — no-op. Gated секретом ADMIN_STATS_PASSWORD в заголовке x-admin-secret.
+exports.migrateLegacyPass = functions
+    .runWith({ secrets: ['ADMIN_STATS_PASSWORD'] })
+    .https.onRequest(async (req, res) => {
+        const expected = process.env.ADMIN_STATS_PASSWORD || '';
+        const got = req.get('x-admin-secret') || '';
+        if (!expected || !safeEqual(got, expected)) { res.status(401).send('unauthorized'); return; }
+        const db = authDb();
+        const usersSnap = await db.collection(`${authBase()}/users`).get();
+        let moved = 0, cleared = 0, skipped = 0;
+        for (const d of usersSnap.docs) {
+            const data = d.data() || {};
+            if (data.pass === undefined || data.pass === null) { skipped++; continue; }
+            const secRef = db.doc(`${authBase()}/userSecrets/${d.id}`);
+            const secSnap = await secRef.get();
+            const sec = secSnap.exists ? secSnap.data() : {};
+            // Легаси-хеш кладём только если нет современного секрета и legacyPass ещё нет
+            if (!sec.hash && sec.legacyPass === undefined) {
+                await secRef.set({ legacyPass: String(data.pass) }, { merge: true });
+                moved++;
+            }
+            await d.ref.update({ pass: admin.firestore.FieldValue.delete() });
+            cleared++;
+        }
+        res.json({ ok: true, moved, cleared, skipped, total: usersSnap.size });
+    });
 
 /**
  * Установить пароль пользователя. Право: сам пользователь либо admin/super
