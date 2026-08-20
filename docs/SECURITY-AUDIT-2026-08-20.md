@@ -436,3 +436,15 @@ mainWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
 5. **Мигрировать запись брони `BookingWidget` на `createWebBooking`** (сейчас пишет `guests` напрямую анонимно) + промо-инкремент на сервер — иначе бронь сломается при замке `guests` write.
 6. `users` write запереть под admin-claims (иначе форж супер-claims через `users`-документ).
 Замок деплоить только после: (a) все кассы на 0.15.0, (b) пререквизиты 3/5 сделаны, (c) на спокойном времени с smoke-тестом и готовым откатом.
+
+---
+
+# Пререквизиты замка правил — прогресс
+
+- ✅ **Виджет брони мигрирован на `createWebBooking`** (Firebase SDK и анонимный вход из виджета удалены; бронь идёт через валидирующую функцию). Это снимает необходимость анонимной записи в `guests`/`promos`.
+- ✅ **Черновик замка правил готов** — `firestore.rules.locked` (не активен; firebase.json указывает на `firestore.rules`). Доступ по claim `hostellaRole`: `guests`/финансы/`users`-read — только staff; `users`/`settings`/`promos`/`priceWhitelist` write — только admin; `priceRequests.status` и `auditLog`/`sessions` изменение — только сервер; `settings` read оставлен для анонимной загрузки брендинга до входа.
+- ⏳ **Осталось для активации замка** (делается ВМЕСТЕ с деплоем правил, с твоим smoke-тестом — я не могу протестировать пост-логин без пароля кассира):
+  1. `useAppData` — гейтить слушатели на `currentUser`, а не на анонимный `firebaseUser` (иначе слушатели упадут на экране входа под замком).
+  2. Сверить текущие роли в `users` перед замком (вдруг подделаны через C1).
+  3. Убедиться, что все кассы на 0.15.0.
+  4. Деплой на спокойном окне: `cp firestore.rules.locked firestore.rules && firebase deploy --only firestore:rules`; сразу smoke-тест (вход кассира + оплата + бронь); откат — `git checkout firestore.rules && firebase deploy --only firestore:rules`.
