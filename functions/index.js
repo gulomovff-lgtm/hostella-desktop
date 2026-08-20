@@ -470,7 +470,12 @@ exports.getPublicAvailability = functions.https.onRequest(async (req, res) => {
         const stays = guestsSnap.docs.map(d => d.data() || {})
             .filter(g => g.status !== 'checked_out' && (g.checkInDate || g.checkInDateTime) && g.checkOutDate)
             .map(g => ({ roomId: g.roomId, checkInDate: g.checkInDate || g.checkInDateTime, checkOutDate: g.checkOutDate }));
-        const promos = promosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Только активные промо и только нужные поля — не сливаем публично весь
+        // список кодов, счётчики использования и просроченные/выключенные акции.
+        const promos = promosSnap.docs
+            .map(d => ({ id: d.id, ...(d.data() || {}) }))
+            .filter(p => p.active !== false)
+            .map(p => ({ id: p.id, code: p.code, discount: p.discount, type: p.type }));
         res.set('Cache-Control', 'public, max-age=60');
         res.json({ ok: true, rooms, stays, promos });
     } catch (e) {
@@ -716,27 +721,22 @@ async function authenticateSuper(db, password, now, keys, states) {
     const bySecret = secretSnap.exists && passwordLib.verifyAgainstSecret(password, secretSnap.data());
 
     if (!bySecret) {
-        // Пароль не совпал с сохранённым секретом (или секрета ещё нет) — сверяем с
-        // настроенным SHA-256. Это и первый вход, и способ сбросить супер-пароль:
-        // владелец меняет superPassHash в настройках, и следующий вход перезаписывает секрет.
+        // Ожидаемый хеш — ТОЛЬКО из Secret Manager (SUPER_PASSWORD_HASH). Раньше при
+        // пустом env читался superPassHash из settings/appConfig, а он анонимно
+        // ЗАПИСЫВАЕМ — атакующий подставлял свой хеш, входил супером и перезаписывал
+        // секрет владельца (zero-to-super + лок-аут). Fallback на settings удалён.
         const envHash = String(process.env.SUPER_PASSWORD_HASH || '').trim().toLowerCase();
-        let cfgHash = '';
-        if (!envHash) {
-            const cfg = await db.doc(`${authBase()}/settings/appConfig`).get();
-            cfgHash = String(cfg.exists ? (cfg.data().superPassHash || '') : '').trim().toLowerCase();
-        }
-        const expected = envHash || cfgHash;
-        if (!expected || expected === KNOWN_DEFAULT_SUPER_HASH) {
+        if (!envHash || envHash === KNOWN_DEFAULT_SUPER_HASH) {
             if (secretSnap.exists) {
                 await noteFailure(db, keys, states, now);
                 throw denied();
             }
             throw new functions.https.HttpsError(
                 'failed-precondition',
-                'Супер-аккаунт не настроен: пароль по умолчанию отключён. Задайте superPassHash в настройках.',
+                'Супер-аккаунт не настроен: задайте секрет SUPER_PASSWORD_HASH (firebase functions:secrets:set) и привяжите к функции.',
             );
         }
-        if (!passwordLib.verifyLegacy(password, expected)) {
+        if (!passwordLib.verifyLegacy(password, envHash)) {
             await noteFailure(db, keys, states, now);
             throw denied();
         }
@@ -983,9 +983,11 @@ exports.verifyAdminPassword = functions.runWith({ secrets: ['ADMIN_STATS_PASSWOR
     // Тот же лимит попыток, что и на входе кассира — пароль статистики тоже подбираем не дадим
     const db = authDb();
     const now = Date.now();
-    // По IP, а не глобально: раньше константный ключ 'adminStats' позволял любому
-    // 20 неудачными попытками заблокировать статистику сразу для всех (DoS).
-    const keys = ['adminStats_' + callerIp(context)];
+    // Per-IP ловит обычных, ГЛОБАЛЬНЫЙ ключ — тех, кто спуфит X-Forwarded-For
+    // (иначе ротацией XFF идёт безлимитный перебор единственного admin-пароля).
+    // Пароль один на всех, поэтому глобальный кап уместен; минорный DoS на
+    // owner-фичу — меньшее зло, чем открытый брутфорс.
+    const keys = ['adminStats_' + callerIp(context), 'adminStats'];
     const states = await assertNotThrottled(db, keys, now);
 
     // Compare passwords (constant-time)

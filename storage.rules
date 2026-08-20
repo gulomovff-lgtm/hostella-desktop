@@ -14,8 +14,10 @@ service firebase.storage {
       return request.auth != null;
     }
     function isImageUnder(maxBytes) {
+      // Явный allowlist растровых форматов. image/svg+xml исключён: SVG исполняет
+      // скрипт при открытии из Storage-origin (stored-XSS через «фото» чека).
       return request.resource.size < maxBytes
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(png|jpeg|jpg|webp|gif)');
     }
 
     // Фото к расходам.
@@ -26,6 +28,12 @@ service firebase.storage {
 
     // Логотипы/брендинг хостелов.
     match /hostels/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn() && isImageUnder(5 * 1024 * 1024);
+    }
+
+    // Логотипы (код грузит в logos/…) — раньше путь не был покрыт и загрузка падала.
+    match /logos/{file=**} {
       allow read:  if signedIn();
       allow write: if signedIn() && isImageUnder(5 * 1024 * 1024);
     }

@@ -22,13 +22,15 @@ export const DEFAULT_HOSTEL = 'hostel1';
 /** Филиал записи. Пусто = первый хостел (общая договорённость проекта). */
 export const hostelOf = (item) => item?.hostelId || DEFAULT_HOSTEL;
 
-/** Оплачено гостем — формула экрана «Долги», не менять в отрыве от него. */
-export const guestPaid = (g) =>
-  typeof g?.amountPaid === 'number'
-    ? g.amountPaid
-    : ((g?.paidCash || 0) + (g?.paidCard || 0) + (g?.paidQR || 0));
+const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
 
-const num = (v) => parseInt(v, 10) || 0;
+/** Оплачено гостем — формула экрана «Долги», не менять в отрыве от него.
+ *  Защита от NaN/Infinity: битое число в amountPaid раньше делало весь отчёт и
+ *  Excel = NaN (любой аноним мог отравить одно поле и сломать всю сверку). */
+export const guestPaid = (g) => {
+  const p = Number(g?.amountPaid);
+  return Number.isFinite(p) ? p : (num(g?.paidCash) + num(g?.paidCard) + num(g?.paidQR));
+};
 
 /** Платили ли по этим записям перечислением и от кого. */
 const transferInfo = (pays = []) => {

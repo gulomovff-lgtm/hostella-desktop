@@ -18,7 +18,7 @@
  * в lastFiredMonth → добавляем расход в коллекцию expenses.
  */
 import { useEffect, useCallback, useRef } from 'react';
-import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, addDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { HOSTELS } from '../utils/helpers';
 
@@ -109,12 +109,16 @@ export const useRecurringExpenses = ({
         const advSum = tmpl.category === 'Зарплата'
           ? getAdvancesSum(tmpl.id, curMonthKey)
           : 0;
-        const netAmount = Math.max(0, Number(tmpl.amount) - advSum);
+        const rawAmt = Number(tmpl.amount);
+        const netAmount = Number.isFinite(rawAmt) ? Math.max(0, rawAmt - advSum) : 0;
 
         let fired = false;
         for (const hid of targetHostels) {
           try {
-            await addDoc(expensesCol(), {
+            // Детерминированный id (шаблон + месяц + филиал): две кассы, стартовавшие
+            // одновременно, пишут ОДИН документ, а не два → нет двойной зарплаты/аренды.
+            const expId = `rec_${tmpl.id}_${curMonthKey}_${hid}`;
+            await setDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expId), {
               category:    tmpl.category,
               amount:      netAmount,
               comment:     `[Авто] ${tmpl.name}${advSum > 0 ? ` (аванс −${advSum.toLocaleString()})` : ''}${tmpl.comment ? ' — ' + tmpl.comment : ''}`,

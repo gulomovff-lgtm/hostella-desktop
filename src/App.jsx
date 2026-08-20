@@ -1587,6 +1587,11 @@ const filterByHostel = (items) => {
 
   // Ручное добавление клиента в список разрешённых на понижение цены (админ)
   const handleGrantPriceReduction = async (client, price) => {
+    // Только админ/супер: иначе кассир сам вносил паспорт в whitelist и заселял
+    // по любой цене мимо Telegram-одобрения (разницу — в карман).
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') {
+      showNotification('Разрешение на понижение цены выдаёт только администратор', 'error'); return;
+    }
     const key = (client?.passport || '').replace(/\s/g, '').toUpperCase();
     if (!key) { showNotification('У клиента нет паспорта — нельзя добавить', 'error'); return; }
     try {
@@ -1604,6 +1609,9 @@ const filterByHostel = (items) => {
   };
 
   const handleRevokePriceReduction = async (entry) => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') {
+      showNotification('Только администратор', 'error'); return;
+    }
     const key = entry?.id || (entry?.passport || '').replace(/\s/g, '').toUpperCase();
     if (!key) return;
     try {

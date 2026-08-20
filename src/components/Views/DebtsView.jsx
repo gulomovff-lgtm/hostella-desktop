@@ -10,7 +10,13 @@ const BRAND = '#0f9688';
 const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
 const fInput = "w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all";
 
-const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+const getTotalPaid = (g) => {
+    // Number.isFinite-защита: битое amountPaid (NaN/Infinity) раньше делало весь
+    // экран «Долги» и печать = NaN (аноним мог отравить одно поле).
+    const p = Number(g?.amountPaid);
+    const n = (v) => { const x = parseInt(v, 10); return Number.isFinite(x) ? x : 0; };
+    return Number.isFinite(p) ? p : (n(g?.paidCash) + n(g?.paidCard) + n(g?.paidQR));
+};
 
 const printDebts = (debts, totalDebt) => {
     const w = window.open('', '', 'width=800,height=600');

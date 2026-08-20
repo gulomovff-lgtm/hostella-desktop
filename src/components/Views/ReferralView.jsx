@@ -653,7 +653,7 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
     confirmTenDayStay, redeemBonusDays, addBonusDays, resetBonuses,
     extendStayWithBonus, removeFromProgram,
     getParticipantList, getNonParticipants, getStats,
-  } = useReferralSystem({ clients, guests, hostelId, showNotification, settings });
+  } = useReferralSystem({ clients, guests, hostelId, showNotification, settings, currentUser });
 
   const [selectedId, setSelectedId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
