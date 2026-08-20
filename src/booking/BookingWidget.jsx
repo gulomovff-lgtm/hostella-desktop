@@ -1,22 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, updateDoc, increment } from 'firebase/firestore';
-import { getAuth, signInAnonymously } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, Check, X, Loader2, CalendarDays, Phone, User, Globe, BedDouble } from 'lucide-react';
 
-// ─── Firebase (shared config) ────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: 'AIzaSyAoVj92dmnl5gBB7zYul0iG2Ekp5cbmkp0',
-  authDomain: 'hostella-app-a1e07.firebaseapp.com',
-  projectId: 'hostella-app-a1e07',
-  storageBucket: 'hostella-app-a1e07.firebasestorage.app',
-  messagingSenderId: '826787873496',
-  appId: '1:826787873496:web:51a0c6e42631a28919cdad',
-};
-const app  = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const db   = getFirestore(app, 'hostella'); // named database — same as main app
-const auth = getAuth(app);
-const PATH = ['artifacts', 'hostella-multi-v4', 'public', 'data'];
+// Виджет больше НЕ использует Firebase SDK и анонимный вход: занятость берётся из
+// публичной функции getPublicAvailability (без PII), бронь создаётся функцией
+// createWebBooking (серверная валидация). Прямого доступа к Firestore нет.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const HOSTELS = {
@@ -234,69 +221,32 @@ export default function BookingWidget({ hostelParam }) {
       createdAt:    new Date().toISOString(),
     };
 
-    // Helper: convert JS object → Firestore REST "fields" format
-    const toRestFields = (obj) => {
-      const fields = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (v === null || v === undefined) fields[k] = { nullValue: null };
-        else if (typeof v === 'boolean')   fields[k] = { booleanValue: v };
-        else if (typeof v === 'number')    fields[k] = { integerValue: String(v) };
-        else                              fields[k] = { stringValue: String(v) };
-      }
-      return fields;
-    };
-
-    const PROJECT    = 'hostella-app-a1e07';
-    const DB_NAME    = 'hostella'; // named database — not (default)
-    const COL_PATH   = PATH.join('/') + '/guests';
-    const REST_URL   = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/${DB_NAME}/documents/${COL_PATH}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
 
     try {
-      // ── Step 1: anonymous auth ───────────────────────────────────────────
-      if (!auth.currentUser) {
-        try {
-          await Promise.race([
-            signInAnonymously(auth),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('auth-timeout')), 10000)),
-          ]);
-        } catch (authErr) {
-          console.error('[widget] auth:', authErr.code, authErr.message);
-          if (authErr.message === 'auth-timeout') {
-            setError('Сервер авторизации не отвечает. Попробуйте позже.');
-          } else if (authErr.code === 'auth/admin-restricted-operation') {
-            setError('Анонимный вход отключён на сервере. Позвоните: +998 33 710 88 80');
-          } else {
-            setError(`Ошибка входа (${authErr.code ?? authErr.message})`);
-          }
-          setSubmitting(false);
-          return;
-        }
-      }
-
-      // ── Step 2: get ID token ─────────────────────────────────────────────
-      let idToken;
-      try {
-        idToken = await auth.currentUser.getIdToken();
-      } catch (tokErr) {
-        console.error('[widget] getIdToken:', tokErr);
-        setError('Не удалось получить токен авторизации. Попробуйте позже.');
-        setSubmitting(false);
-        return;
-      }
-
-      // ── Step 3: write via REST API (immediate HTTP response, no hanging) ──
+      // Бронь создаёт ВАЛИДИРУЮЩАЯ серверная функция createWebBooking (rate-limit,
+      // клампинг полей, экранирование, уведомление кассиру). Клиент больше НЕ пишет
+      // guests напрямую и не требует анонимного входа — это убирает форж брони,
+      // поле-инъекцию и отравление доступности через прямую запись.
+      const FN_URL = 'https://us-central1-hostella-app-a1e07.cloudfunctions.net/createWebBooking';
       let resp;
       try {
-        resp = await fetch(REST_URL, {
+        resp = await fetch(FN_URL, {
           method:  'POST',
           signal:  controller.signal,
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({ fields: toRestFields(bookingData) }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: bookingData.fullName,
+            phone:    bookingData.phone,
+            hostelId: bookingData.hostelId,
+            checkIn:  bookingData.checkInDate,
+            checkOut: bookingData.checkOutDate,
+            nights:   bookingData.days,
+            comment:  [form.country ? `Страна: ${form.country}` : '',
+                       promoApplied?.code ? `Промокод: ${promoApplied.code}` : '']
+                      .filter(Boolean).join(' · '),
+          }),
         });
       } catch (fetchErr) {
         console.error('[widget] fetch:', fetchErr);
@@ -311,27 +261,16 @@ export default function BookingWidget({ hostelParam }) {
         clearTimeout(timer);
       }
 
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        console.error('[widget] REST error:', resp.status, body);
-        if (resp.status === 403) {
-          setError('Доступ запрещён правилами базы. Позвоните: +998 33 710 88 80');
-        } else if (resp.status === 404) {
-          setError('База данных не найдена (404). Позвоните: +998 33 710 88 80');
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || !result.ok) {
+        console.error('[widget] createWebBooking error:', resp.status, result);
+        if (resp.status === 429) {
+          setError('Слишком много заявок подряд. Попробуйте через несколько минут.');
         } else {
           setError(`Ошибка сервера (${resp.status}). Позвоните: +998 33 710 88 80`);
         }
         setSubmitting(false);
         return;
-      }
-
-      // Increment promo usedCount if promo was applied
-      if (promoApplied?.id) {
-        try {
-          await updateDoc(doc(db, ...PATH, 'promos', promoApplied.id), {
-            usedCount: increment(1),
-          });
-        } catch (_) { /* silent */ }
       }
 
       setStep('success');
