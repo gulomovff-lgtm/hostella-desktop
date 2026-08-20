@@ -565,25 +565,12 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
     };
 
     // ─────────────── Render ──────────────────────────────────────────────────
-    const [kppBotTokenInput, setKppBotTokenInput] = useState(settings?.kppBotToken || '');
-    const [kppBotTokenShow, setKppBotTokenShow]   = useState(false);
-    const [kppBotSaving, setKppBotSaving]         = useState(false);
-
     // КПП-бот получатели
     const [kppRecipientModal, setKppRecipientModal]     = useState(false);
     const [kppEditRecipient, setKppEditRecipient]       = useState(null);
     const [kppExpandedRec, setKppExpandedRec]           = useState(null);
 
     const kppRecipients = settings?.kppBotRecipients || [];
-
-    const handleSaveKppBot = async () => {
-        setKppBotSaving(true);
-        try {
-            await saveSettings({ kppBotToken: kppBotTokenInput.trim() });
-        } finally {
-            setKppBotSaving(false);
-        }
-    };
 
     const handleSaveKppRecipient = async (data) => {
         const existing = [...kppRecipients];
@@ -861,62 +848,25 @@ const TelegramSettingsView = ({ settings, onSaveSettings, onTestMessage, current
                             <div>
                                 <div className="text-sm font-black text-slate-700 flex items-center gap-2">
                                     📍 КПП-бот
-                                    {settings?.kppBotToken
-                                        ? <span className="text-[11px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">✅ Токен задан</span>
-                                        : <span className="text-[11px] bg-slate-100 text-slate-400 font-bold px-2 py-0.5 rounded-full">Токен не задан</span>
-                                    }
+                                    <span className="text-[11px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">🔒 Токен на сервере</span>
                                 </div>
                                 <div className="text-xs text-slate-400 mt-0.5">{kppRecipients.filter(r=>r.active).length} активных · {kppRecipients.length} всего</div>
                             </div>
-                            {settings?.kppBotToken && (
-                                <button onClick={() => { setKppEditRecipient(null); setKppRecipientModal(true); }}
-                                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-colors">
-                                    <Plus size={14}/> Добавить получателя
-                                </button>
-                            )}
+                            <button onClick={() => { setKppEditRecipient(null); setKppRecipientModal(true); }}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-colors">
+                                <Plus size={14}/> Добавить получателя
+                            </button>
                         </div>
 
-                        {/* Токен */}
-                        <div className="px-5 py-4 space-y-3 border-b border-slate-100">
-                            <label className="block text-xs font-bold text-slate-500 uppercase">Токен бота</label>
-                            <div className="flex gap-2">
-                                <div className="relative flex-1">
-                                    <input
-                                        className={`${inp} font-mono text-xs pr-10`}
-                                        type={kppBotTokenShow ? 'text' : 'password'}
-                                        placeholder="123456:ABC-DEF..."
-                                        value={kppBotTokenInput}
-                                        onChange={e => setKppBotTokenInput(e.target.value)}
-                                    />
-                                    <button onClick={() => setKppBotTokenShow(v => !v)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600">
-                                        {kppBotTokenShow ? <EyeOff size={15}/> : <Eye size={15}/>}
-                                    </button>
-                                </div>
-                                <button onClick={handleSaveKppBot} disabled={kppBotSaving}
-                                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                                    {kppBotSaving ? <RefreshCw size={14} className="animate-spin"/> : <Check size={14}/>}
-                                    {kppBotSaving ? '...' : 'Сохранить'}
-                                </button>
-                                {settings?.kppBotToken && (
-                                    <button onClick={() => { setKppBotTokenInput(''); saveSettings({ kppBotToken: '' }); }}
-                                        className="px-3 py-2 border border-rose-200 text-rose-500 rounded-xl font-bold text-sm hover:bg-rose-50 transition-colors">
-                                        <Trash2 size={14}/>
-                                    </button>
-                                )}
-                            </div>
-                            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                                ⚠️ Токен хранится в Firestore. Не давайте доступ к базе посторонним.
+                        {/* Токен — на сервере (Secret Manager), не в Firestore */}
+                        <div className="px-5 py-4 border-b border-slate-100">
+                            <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                                🔒 Токен КПП-бота хранится на сервере (Secret Manager) и не задаётся здесь. Меняется командой <code className="bg-slate-200 px-1 rounded font-mono">firebase functions:secrets:set KPP_BOT_TOKEN</code>.
                             </div>
                         </div>
 
                         {/* Получатели КПП-бота */}
-                        {!settings?.kppBotToken ? (
-                            <div className="px-5 py-8 text-center">
-                                <div className="text-3xl mb-2">🔒</div>
-                                <div className="text-sm font-bold text-slate-500">Сначала введите и сохраните токен бота</div>
-                            </div>
-                        ) : kppRecipients.length === 0 ? (
+                        {kppRecipients.length === 0 ? (
                             <div className="px-5 py-8 text-center">
                                 <div className="text-4xl mb-2">📭</div>
                                 <div className="text-sm font-bold text-slate-600 mb-1">Нет получателей</div>

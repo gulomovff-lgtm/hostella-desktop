@@ -216,7 +216,7 @@ function isUpperCase(str) {
 
 // --- TELEGRAM MESSAGE FUNCTION ---
 // Reads recipients from Firestore settings/telegram, filters by notificationType
-exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onCall(async (data, context) => {
+exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'KPP_BOT_TOKEN'] }).https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated to send messages');
     }
@@ -291,15 +291,18 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
         sends.push({ token: botToken, chatId: r.telegramId, threadId: r.threadId || null });
     }
 
-    // 2. KPP-bot recipients (if token is set)
-    if (settings?.kppBotToken) {
+    // 2. KPP-bot recipients — токен из Secret Manager (KPP_BOT_TOKEN), НЕ из
+    // Firestore settings (там его читал любой аноним, C5). Список получателей
+    // (kppBotRecipients) остаётся в settings — это не секрет, только chatId.
+    const kppToken = String(process.env.KPP_BOT_TOKEN || '').trim();
+    if (kppToken) {
         const kppRecipients = (settings?.kppBotRecipients || []).filter(r => {
             if (!r.active || !r.telegramId) return false;
             if (notificationType) return r.notifications?.[notificationType] !== false;
             return true;
         });
         for (const r of kppRecipients) {
-            sends.push({ token: settings.kppBotToken, chatId: r.telegramId, threadId: r.threadId || null });
+            sends.push({ token: kppToken, chatId: r.telegramId, threadId: r.threadId || null });
         }
     }
 
@@ -1077,19 +1080,12 @@ async function tgAnswerCallback(botToken, cbId, text) {
   } catch (e) { console.error('answerCallbackQuery', e.message); }
 }
 
-// Токен бота одобрения цены: настраиваемый в приложении (settings/appConfig.priceBotToken),
-// с fallback на общий TELEGRAM_BOT_TOKEN. Используется и для отправки, и для вебхука.
 async function getPriceBotToken() {
-  let token = process.env.TELEGRAM_BOT_TOKEN;
-  try {
-    const { getFirestore } = require('firebase-admin/firestore');
-    const hostellaDb = getFirestore('hostella');
-    const APP_ID = 'hostella-multi-v4';
-    const snap = await hostellaDb.doc(`artifacts/${APP_ID}/public/data/settings/appConfig`).get();
-    const pbt = snap.exists ? (snap.data() || {}).priceBotToken : '';
-    if (pbt && String(pbt).trim()) token = String(pbt).trim();
-  } catch (e) { /* fallback на env */ }
-  return token;
+  // Токен бота одобрения цены — из Secret Manager (PRICE_BOT_TOKEN), fallback на
+  // общий TELEGRAM_BOT_TOKEN. Больше НЕ читается из Firestore settings: там его
+  // мог прочитать любой аноним (C5). Настраивается через Secret Manager, не в UI.
+  const pbt = String(process.env.PRICE_BOT_TOKEN || '').trim();
+  return pbt || process.env.TELEGRAM_BOT_TOKEN;
 }
 
 exports.sendPriceRequest = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onCall(async (data, context) => {

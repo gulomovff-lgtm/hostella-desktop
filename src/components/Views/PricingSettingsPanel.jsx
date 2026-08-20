@@ -7,7 +7,7 @@ let _seasonSeq = 0;
 const newSeasonId = () => `s_${Date.now().toString(36)}_${_seasonSeq++}`;
 
 // Редактор ценообразования: минимумы по комнатам/филиалам, пакет, сезоны (по датам),
-// отдельный бот одобрения цены. Сохраняется в appConfig.pricing / priceBotToken.
+// отдельный бот одобрения цены. Токен — в Secret Manager (PRICE_BOT_TOKEN), не в Firestore.
 
 const inp = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500';
 const HOSTELS = [{ id: 'hostel1', label: 'Хостел №1' }, { id: 'hostel2', label: 'Хостел №2' }];
@@ -83,7 +83,6 @@ const SetEditor = ({ set, onChange, showPackage = true }) => {
 const PricingSettingsPanel = ({ notify }) => {
     const cfg = getConfig();
     const p = cfg.pricing || {};
-    const [botToken, setBotToken] = useState(cfg.priceBotToken || '');
     const [chatIds, setChatIds] = useState((cfg.priceApprovalChatIds || []).join(', '));
     const [base, setBase] = useState(() => mkSet(p.base, p.packageMinDays, p.packagePrice));
     const [seasons, setSeasons] = useState(() => (p.seasons || []).map((s) => ({
@@ -116,7 +115,6 @@ const PricingSettingsPanel = ({ notify }) => {
             };
             await saveAppConfig({
                 pricing,
-                priceBotToken: botToken.trim(),
                 priceApprovalChatIds: chatIds.split(',').map(x => x.trim()).filter(Boolean),
                 emehmonAmountLocal: parseInt(emLocal) || 30000,
                 emehmonAmountForeign: parseInt(emForeign) || 50000,
@@ -134,11 +132,8 @@ const PricingSettingsPanel = ({ notify }) => {
             {/* Бот одобрения цены */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
                 <div className="font-black text-slate-800 flex items-center gap-2"><Send size={16} className="text-indigo-600" /> Бот одобрения понижения цены</div>
-                <p className="text-xs text-slate-400">Отдельный токен бота (пусто = общий бот). Chat ID одобряющих — через запятую. Одобряющий должен написать боту <b>/start</b>.</p>
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Токен бота (необязательно)</label>
-                    <input className={inp} value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="123456:ABC… (пусто = общий бот)" autoComplete="off" />
-                </div>
+                <p className="text-xs text-slate-400">Chat ID одобряющих — через запятую. Одобряющий должен написать боту <b>/start</b>.</p>
+                <p className="text-[11px] text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-2">🔒 Токен бота хранится на сервере (Secret Manager) и не задаётся здесь. Меняется командой <code>firebase functions:secrets:set PRICE_BOT_TOKEN</code>.</p>
                 <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase">Chat ID одобряющих</label>
                     <input className={inp} value={chatIds} onChange={e => setChatIds(e.target.value)} placeholder="6953132612, 7029598539" autoComplete="off" />
