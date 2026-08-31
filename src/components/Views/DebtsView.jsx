@@ -18,7 +18,7 @@ const getTotalPaid = (g) => {
     return Number.isFinite(p) ? p : (n(g?.paidCash) + n(g?.paidCard) + n(g?.paidQR));
 };
 
-const printDebts = (debts, totalDebt) => {
+const printDebts = (debts, totalDebt, t) => {
     const w = window.open('', '', 'width=800,height=600');
     const dateStr = new Date().toLocaleDateString();
     const esc = (v) => String(v == null ? '' : v)
@@ -27,7 +27,7 @@ const printDebts = (debts, totalDebt) => {
     let html = `
     <html>
     <head>
-        <title>Список Должников</title>
+        <title>${esc(t('dvReportTitle'))}</title>
         <style>
             body { font-family: Arial, sans-serif; padding: 20px; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -40,16 +40,16 @@ const printDebts = (debts, totalDebt) => {
     </head>
     <body>
         <div class="header">
-            <h1>Отчет по долгам</h1>
-            <p>Дата: ${dateStr}</p>
+            <h1>${esc(t('dvReportHeading'))}</h1>
+            <p>${esc(t('date'))}: ${dateStr}</p>
         </div>
         <table>
             <thead>
                 <tr>
-                    <th>ФИО Гостя</th>
-                    <th>Паспорт</th>
-                    <th>Телефон/Инфо</th>
-                    <th>Сумма долга</th>
+                    <th>${esc(t('dvColName'))}</th>
+                    <th>${esc(t('dvPassport'))}</th>
+                    <th>${esc(t('dvColPhoneInfo'))}</th>
+                    <th>${esc(t('dvColDebtAmount'))}</th>
                 </tr>
             </thead>
             <tbody>
@@ -59,7 +59,7 @@ const printDebts = (debts, totalDebt) => {
             <tr>
                 <td>${esc(d.fullName)}</td>
                 <td>${esc(d.passport || '-')}</td>
-                <td>${d.roomNumber ? `Комната ${esc(d.roomNumber)}` : '-'}</td>
+                <td>${d.roomNumber ? `${esc(t('room'))} ${esc(d.roomNumber)}` : '-'}</td>
                 <td class="debt">${d.totalDebt.toLocaleString()}</td>
             </tr>
         `;
@@ -67,7 +67,7 @@ const printDebts = (debts, totalDebt) => {
     html += `
             </tbody>
         </table>
-        <div class="total">Итого долгов: ${totalDebt.toLocaleString()}</div>
+        <div class="total">${esc(t('dvTotalDebts'))}: ${totalDebt.toLocaleString()}</div>
     </body>
     </html>
     `;
@@ -76,8 +76,8 @@ const printDebts = (debts, totalDebt) => {
     w.print();
 };
 
-const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustDebt, clients, onCreateDebt, onOpenGuest, rooms = [], onPayRentalDebt }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+const DebtsView = ({ guests, users, lang = 'ru', onPayDebt, currentUser, onAdminAdjustDebt, clients, onCreateDebt, onOpenGuest, rooms = [], onPayRentalDebt }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [staffFilter, setStaffFilter] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -113,7 +113,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                 debtMap[key].records.push({
                     ...g,
                     currentDebt: debt,
-                    staffName: users.find(u => u.id === g.staffId || u.login === g.staffId)?.name || 'Неизвестно',
+                    staffName: users.find(u => u.id === g.staffId || u.login === g.staffId)?.name || t('dvUnknown'),
                     lastExtendedByName: g.lastExtendedBy
                         ? (users.find(u => u.id === g.lastExtendedBy || u.login === g.lastExtendedBy)?.name || g.lastExtendedBy)
                         : null,
@@ -250,8 +250,8 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                         <Wallet size={20} className="text-rose-600" />
                     </div>
                     <div>
-                        <h2 className="font-black text-xl text-slate-800">Долги</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">{aggregatedDebts.length} должников</p>
+                        <h2 className="font-black text-xl text-slate-800">{t('dvTitle')}</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">{t('dvDebtorsCount').replace('{n}', aggregatedDebts.length)}</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
@@ -259,7 +259,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white font-bold text-sm shadow-sm shadow-teal-200 transition-opacity hover:opacity-90" style={{ background: BRAND }}>
                         <Plus size={16}/> {t('createDebt')}
                     </button>
-                    <button onClick={() => printDebts(aggregatedDebts, totalDebt)}
+                    <button onClick={() => printDebts(aggregatedDebts, totalDebt, t)}
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
                         <Printer size={16}/> {t('print')}
                     </button>
@@ -273,32 +273,32 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                     <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-white/10"/>
                     <div className="relative">
                         <div className="flex items-center gap-2 text-rose-100 text-xs font-bold uppercase tracking-wider mb-1">
-                            <AlertCircle size={14}/> {t('total')} {t('debt')}
+                            <AlertCircle size={14}/> {t('total')} {t('dvDebt')}
                         </div>
                         <div className="text-3xl font-black tracking-tight">{totalDebt.toLocaleString()}</div>
-                        <div className="text-rose-100 text-[11px] font-semibold mt-1">сум · {aggregatedDebts.length} чел.</div>
+                        <div className="text-rose-100 text-[11px] font-semibold mt-1">{t('sum')} · {t('dvPeopleCount').replace('{n}', aggregatedDebts.length)}</div>
                     </div>
                 </div>
 
                 {/* Filters */}
                 <div className="lg:col-span-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">{t('staff')}</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">{t('dvStaff')}</label>
                         <div className="relative">
                             <Users size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
                             <select className={fInput + ' pl-8 appearance-none'} value={staffFilter} onChange={e => setStaffFilter(e.target.value)}>
-                                <option value="">Все сотрудники</option>
+                                <option value="">{t('allStaff')}</option>
                                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                             </select>
                         </div>
                     </div>
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">От</label>
-                        <DatePicker value={startDate} onChange={setStartDate} placeholder="дата" className={fInput} />
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">{t('dvFrom')}</label>
+                        <DatePicker value={startDate} onChange={setStartDate} placeholder={t('dvDatePh')} className={fInput} />
                     </div>
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">До</label>
-                        <DatePicker value={endDate} onChange={setEndDate} placeholder="дата" className={fInput} />
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">{t('dvTo')}</label>
+                        <DatePicker value={endDate} onChange={setEndDate} placeholder={t('dvDatePh')} className={fInput} />
                     </div>
                 </div>
             </div>
@@ -326,14 +326,14 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                                 {item.fullName}
                                                 {item.records.length > 1 && (
                                                     <span className="text-[10px] bg-slate-100 px-1.5 rounded text-slate-500 font-normal">
-                                                        {item.records.length} записи
+                                                        {t('dvRecordsCount').replace('{n}', item.records.length)}
                                                     </span>
                                                 )}
                                             </h3>
                                             <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
                                                 <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{item.passport}</span>
                                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600">
-                                                    {isExpanded ? 'Скрыть' : 'Детали'}
+                                                    {isExpanded ? t('dvHide') : t('details')}
                                                     <ChevronDown size={12} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
                                                 </span>
                                             </div>
@@ -394,7 +394,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                             if (entries.length === 0) return null;
                                             return (
                                                 <div className="mb-3 px-2">
-                                                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">По кассирам</div>
+                                                    <div className="text-xs font-bold text-slate-400 uppercase mb-1">{t('dvByCashiers')}</div>
                                                     <div className="flex flex-wrap gap-2">
                                                         {entries.map(([name, sum]) => (
                                                             <div key={name} className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
@@ -406,7 +406,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                                 </div>
                                             );
                                         })()}
-                                        <div className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">История задолженностей</div>
+                                        <div className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">{t('dvDebtHistory')}</div>
                                         <div className="space-y-2">
                                             {item.records.map((rec, idx) => (
                                                 <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-lg border border-slate-200">
@@ -415,15 +415,15 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                                             {new Date(rec.checkInDate).toLocaleDateString()}
                                                         </div>
                                                         <div className="font-bold text-slate-700 flex flex-col">
-                                                            <span>Заселил: {rec.staffName}</span>
+                                                            <span>{t('dvCheckedInBy').replace('{name}', rec.staffName)}</span>
                                                             {rec.lastExtendedByName && (
                                                                 <span className="text-[11px] text-amber-600 font-semibold">
-                                                                    Продлил: {rec.lastExtendedByName}
+                                                                    {t('dvExtendedBy').replace('{name}', rec.lastExtendedByName)}
                                                                     {rec.lastExtendedAt ? ` · ${new Date(rec.lastExtendedAt).toLocaleDateString('ru-RU')}` : ''}
                                                                 </span>
                                                             )}
                                                             <span className="text-[10px] text-slate-400 font-normal">
-                                                                Комната {rec.roomNumber} {rec.autoCheckedOut ? '(Авто-выселение)' : ''}
+                                                                {t('room')} {rec.roomNumber} {rec.autoCheckedOut ? t('dvAutoCheckout') : ''}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -436,7 +436,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                                                                 onClick={() => onOpenGuest(rec)}
                                                                 className="text-[10px] text-teal-600 hover:underline mt-1 font-semibold"
                                                             >
-                                                                Карточка
+                                                                {t('dvGuestCard')}
                                                             </button>
                                                         )}
                                                     </div>
@@ -454,22 +454,22 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                           <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center text-xl shrink-0">🏢</div>
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-slate-800 text-lg truncate flex items-center gap-2">
-                              <span className="truncate">{x.tenantName || 'Аренда'}</span>
-                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black shrink-0">АРЕНДА · к.{x.number}</span>
+                              <span className="truncate">{x.tenantName || t('dvRent')}</span>
+                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black shrink-0">{t('dvRentBadge').replace('{n}', x.number)}</span>
                             </div>
                             <div className="text-xs font-medium text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
                               {x.passport ? <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{x.passport}</span> : null}
-                              <span>оплачено {x.paid.toLocaleString()} из {x.total.toLocaleString()}</span>
+                              <span>{t('dvPaidOf').replace('{paid}', x.paid.toLocaleString()).replace('{total}', x.total.toLocaleString())}</span>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Долг</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('dvDebt')}</div>
                             <div className="text-xl font-black text-rose-600">{x.debt.toLocaleString()}</div>
                           </div>
                           {onPayRentalDebt && (
                             <button onClick={() => openRentalPay(x)}
                               className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold text-sm shadow-sm shadow-teal-200 flex items-center gap-2 active:scale-95 shrink-0">
-                              <Wallet size={18}/> Оплатить
+                              <Wallet size={18}/> {t('dvPay')}
                             </button>
                           )}
                         </div>
@@ -495,7 +495,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                         {/* Content */}
                         <div className="px-5 pt-4 pb-2 space-y-3">
                             <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-lg text-center">
-                                <div className="text-[10px] font-bold text-rose-400 uppercase">Общий долг</div>
+                                <div className="text-[10px] font-bold text-rose-400 uppercase">{t('dvTotalDebt')}</div>
                                 <div className="text-xl font-black text-rose-600">{selectedDebtor?.totalDebt.toLocaleString()}</div>
                             </div>
                             {['payCash', 'payCard', 'payQR'].map(field => (
@@ -544,14 +544,14 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                     <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
                         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
                             <div>
-                                <h3 className="font-bold text-base text-slate-800">Оплата аренды</h3>
-                                <p className="text-xs text-slate-500">{rentalPay.tenantName || 'Аренда'} · комната {rentalPay.number}</p>
+                                <h3 className="font-bold text-base text-slate-800">{t('dvRentPayment')}</h3>
+                                <p className="text-xs text-slate-500">{rentalPay.tenantName || t('dvRent')} · {t('room')} {rentalPay.number}</p>
                             </div>
                             <button onClick={() => setRentalPay(null)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full"><X size={18}/></button>
                         </div>
                         <div className="px-5 pt-4 pb-2 space-y-3">
                             <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-lg text-center">
-                                <div className="text-[10px] font-bold text-rose-400 uppercase">Остаток долга</div>
+                                <div className="text-[10px] font-bold text-rose-400 uppercase">{t('dvRemainingDebt')}</div>
                                 <div className="text-xl font-black text-rose-600">{rentalPay.debt.toLocaleString()}</div>
                             </div>
                             <div className="relative">
@@ -564,7 +564,7 @@ const DebtsView = ({ guests, users, lang, onPayDebt, currentUser, onAdminAdjustD
                             <input type="number" className={inputClass} placeholder={t('qr')} value={rpQR}
                                 onChange={e => setRpQR(e.target.value)} onWheel={e => e.target.blur()} />
                             <div className="flex justify-between items-center text-sm px-1">
-                                <span className="text-slate-500 font-medium">Итого к оплате</span>
+                                <span className="text-slate-500 font-medium">{t('dvTotalToPay')}</span>
                                 <span className={`font-black ${rpTotal > rentalPay.debt ? 'text-amber-600' : 'text-slate-800'}`}>{rpTotal.toLocaleString()}</span>
                             </div>
                         </div>

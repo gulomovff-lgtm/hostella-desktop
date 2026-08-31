@@ -60,19 +60,19 @@ const ShiftClosingModal = ({
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
-                notify('✅ Скопировано!', 'success');
+                notify(t('scmCopied'), 'success');
             } else {
                 const el = document.createElement('textarea');
                 el.value = text;
                 el.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
                 document.body.appendChild(el);
                 el.focus(); el.select();
-                try { document.execCommand('copy'); notify('✅ Скопировано!', 'success'); }
-                catch { notify('Ошибка копирования', 'error'); }
+                try { document.execCommand('copy'); notify(t('scmCopied'), 'success'); }
+                catch { notify(t('copyError'), 'error'); }
                 document.body.removeChild(el);
             }
-        } catch { notify('Ошибка копирования', 'error'); }
-    }, [user, report, notify]);
+        } catch { notify(t('copyError'), 'error'); }
+    }, [user, report, notify, t]);
 
     const dateStr = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const money = (n) => (n || 0).toLocaleString('ru-RU');
@@ -114,17 +114,17 @@ const ShiftClosingModal = ({
     // ── Сверка (общая для обеих раскладок) ──────────────────────────────────
     const summary = (
         <>
-            {sectionLabel('Поступления')}
+            {sectionLabel(t('scmReceipts'))}
             {incomeRows.map(r => <Row key={r.key} {...r} />)}
 
             {income.transfer > 0 && (transferEntries.length > 0
                 ? transferEntries.map(([entity, amt]) => (
                     <Row key={entity} icon={<span style={{ fontSize: 13 }}>🏦</span>} label={entity} value={amt} {...transferStyle} />
                 ))
-                : <Row icon={<span style={{ fontSize: 13 }}>🏦</span>} label="Перечисление" value={income.transfer} {...transferStyle} />
+                : <Row icon={<span style={{ fontSize: 13 }}>🏦</span>} label={t('scmBankTransfer')} value={income.transfer} {...transferStyle} />
             )}
 
-            {(totalRefunds > 0 || otherExpenses > 0) && sectionLabel('Вычеты')}
+            {(totalRefunds > 0 || otherExpenses > 0) && sectionLabel(t('scmDeductions'))}
             {totalRefunds > 0 && (
                 <Row icon={<RotateCcw size={13} color="#f97316"/>} label={t('refund')} value={totalRefunds} sign="−"
                     color="#ea580c" bg={isDark ? 'rgba(249,115,22,0.12)' : '#fff7ed'} border={isDark ? 'rgba(249,115,22,0.2)' : 'rgba(253,186,116,0.3)'} />
@@ -169,16 +169,16 @@ const ShiftClosingModal = ({
             display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0,
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button onClick={() => setTransferTo(null)} aria-label="Назад"
+                <button onClick={() => setTransferTo(null)} aria-label={t('back')}
                     style={{ background: 'transparent', border: 'none', padding: 2, cursor: 'pointer', color: isDark ? '#a5b4fc' : '#4f46e5', display: 'flex' }}>
                     <ChevronLeft size={18}/>
                 </button>
-                <div style={{ fontSize: 13, fontWeight: 800, color: isDark ? '#c7d2fe' : '#3730a3' }}>Передать смену</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: isDark ? '#c7d2fe' : '#3730a3' }}>{t('scmTransferShift')}</div>
             </div>
 
             {!transferTarget ? (
                 <>
-                    <div style={{ fontSize: 12, color: isDark ? '#a5b4fc' : '#4338ca', lineHeight: 1.5 }}>Кто продолжит смену?</div>
+                    <div style={{ fontSize: 12, color: isDark ? '#a5b4fc' : '#4338ca', lineHeight: 1.5 }}>{t('scmWhoContinues')}</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
                         {cashiersForTransfer.map(u => (
                             <button key={u.id} onClick={() => setTransferTo(u.id)}
@@ -193,20 +193,18 @@ const ShiftClosingModal = ({
             ) : (
                 <>
                     <div style={{ fontSize: 12.5, color: isDark ? '#c7d2fe' : '#3730a3', lineHeight: 1.55 }}>
-                        Смену продолжит <b>{transferTarget.name || transferTarget.login}</b>. Сутки и зарплата разделятся <b>50/50</b>.
-                        Вся смена переходит ему: касса <b>{money(cashInHand)}</b> сум и все поступления за сутки —
-                        в конце он сдаёт один общий отчёт. Вы выйдете из системы.
+                        {t('scmContinuePre')}<b>{transferTarget.name || transferTarget.login}</b>{t('scmContinueMid')}<b>50/50</b>{t('scmContinueMid2')}<b>{money(cashInHand)}</b>{t('scmContinuePost')}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => setTransferTo(cashiersForTransfer.length === 1 ? null : '')}
-                            style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff' }}>Назад</button>
+                            style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff' }}>{t('back')}</button>
                         <button onClick={() => onTransferShift(myShift.id, transferTarget.id, {
                             cash: income.cash, card: income.card, qr: income.qr,
                             transfer: income.transfer, transferByEntity: income.transferByEntity,
                             refunds: totalRefunds, expenses: cashboxExpenses,
                         })}
                             style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#4f46e5,#4338ca)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(79,70,229,0.35)' }}>
-                            <ArrowRightLeft size={14}/> Передать 50/50
+                            <ArrowRightLeft size={14}/> {t('scmTransfer5050')}
                         </button>
                     </div>
                 </>
@@ -226,17 +224,17 @@ const ShiftClosingModal = ({
                     <AlertTriangle size={16} color="#d97706"/>
                 </div>
                 <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#fde68a' : '#92400e', marginBottom: 3 }}>Подтвердите закрытие</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#fde68a' : '#92400e', marginBottom: 3 }}>{t('scmConfirmClose')}</div>
                     <div style={{ fontSize: 12, color: isDark ? '#fbbf24' : '#78350f', lineHeight: 1.5 }}>
-                        В кассе остаётся <span style={{ fontWeight: 800, color: '#059669' }}>{money(cashInHand)}</span> сум.
+                        {t('scmCashRemainsPre')}<span style={{ fontWeight: 800, color: '#059669' }}>{money(cashInHand)}</span>{t('scmCashRemainsPost')}
                     </div>
                 </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setConfirming(false)} style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff' }}>Отмена</button>
+                <button onClick={() => setConfirming(false)} style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff' }}>{t('cancel')}</button>
                 <button onClick={handleEndShiftWithNotify}
                     style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#dc2626,#b91c1c)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(220,38,38,0.3)' }}>
-                    <LogOut size={14}/> Да, закрыть смену
+                    <LogOut size={14}/> {t('scmYesClose')}
                 </button>
             </div>
         </div>
@@ -248,14 +246,14 @@ const ShiftClosingModal = ({
         }}>
             <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={copyReport} style={{ ...ghostBtn, flex: 1, color: isDark ? '#9ecdd0' : '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: isPhone ? '12px' : '10px' }}>
-                    <Copy size={14}/> Отчёт
+                    <Copy size={14}/> {t('reportSingular')}
                 </button>
                 {canTransfer && (
                     <button onClick={openTransfer}
-                        title="Подмена: смена и зарплата разделятся 50/50"
+                        title={t('scmTransferHint')}
                         style={{ ...ghostBtn, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: isPhone ? '12px' : '10px',
                             background: isDark ? 'rgba(99,102,241,0.15)' : '#eef2ff', border: `1px solid ${isDark ? 'rgba(129,140,248,0.3)' : '#c7d2fe'}`, color: isDark ? '#c7d2fe' : '#4338ca' }}>
-                        <ArrowRightLeft size={14}/> Передать
+                        <ArrowRightLeft size={14}/> {t('scmTransfer')}
                     </button>
                 )}
             </div>
@@ -301,7 +299,7 @@ const ShiftClosingModal = ({
                                     <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('shiftClose')}</div>
                                     <div style={{ color: '#e2f7f8', fontSize: 16, fontWeight: 800, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</div>
                                     <div style={{ color: 'rgba(158,205,208,0.45)', fontSize: 11 }}>
-                                        {dateStr}{openingFrom ? ` · принята от ${openingFrom}` : ''}
+                                        {dateStr}{openingFrom ? ` · ${t('scmAcceptedFrom').replace('{name}', openingFrom)}` : ''}
                                     </div>
                                 </div>
                                 {closeBtn}
@@ -342,7 +340,7 @@ const ShiftClosingModal = ({
                         <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>{t('shiftClose')}</div>
                         <div style={{ color: '#e2f7f8', fontSize: 16, fontWeight: 800, lineHeight: 1.35, marginBottom: 4 }}>{user.name}</div>
                         <div style={{ color: 'rgba(158,205,208,0.45)', fontSize: 11, marginBottom: 'auto' }}>
-                            {dateStr}{openingFrom ? <><br/>принята от {openingFrom}</> : null}
+                            {dateStr}{openingFrom ? <><br/>{t('scmAcceptedFrom').replace('{name}', openingFrom)}</> : null}
                         </div>
                         <div style={{ padding: '14px 0 0', borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 28 }}>
                             <div style={{ color: 'rgba(94,234,212,0.45)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 5 }}>{t('cashInHand')}</div>
