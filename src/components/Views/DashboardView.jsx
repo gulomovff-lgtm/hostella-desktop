@@ -1071,6 +1071,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                 onClose={() => setGroupModalOpen(false)}
                 defaultHostelId={(currentHostelId && currentHostelId !== 'all') ? currentHostelId : 'hostel1'}
                 activeGuests={data.activeGuests}
+                lang={lang}
             />
         </div>
     );

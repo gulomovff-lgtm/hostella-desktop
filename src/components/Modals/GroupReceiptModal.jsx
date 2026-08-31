@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { X, Plus, Trash2, Printer, FileText, Users, Search, GripVertical, Coffee, Sparkles } from 'lucide-react';
 import { printGroupReceipt, RECEIPT_TITLES } from '../../utils/groupReceipt';
 import DatePicker from '../UI/DatePicker';
+import TRANSLATIONS from '../../constants/translations';
 
 const BRAND = '#0f9688';
 const emptyRow = () => ({ fullName: '', passport: '', days: '' });
@@ -21,7 +22,8 @@ const daysBetween = (from, to) => {
 };
 const norm = (s) => (s || '').replace(/\s/g, '').toUpperCase();
 
-const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeGuests = [] }) => {
+const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeGuests = [], lang = 'ru' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [hostelId, setHostelId] = useState(defaultHostelId);
     const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [periodFrom, setPeriodFrom] = useState('');
@@ -31,12 +33,12 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
     const [rows, setRows] = useState([emptyRow()]);
 
     // Заголовок документа и язык печати (RU/UZ)
-    const [lang, setLang] = useState('ru');
+    const [docLang, setDocLang] = useState('ru');
     const [title, setTitle] = useState(RECEIPT_TITLES.ru);
     const switchLang = (l) => {
         // Авто-перевод заголовка-по-умолчанию; кастомный заголовок не трогаем
-        setTitle(t => (!t.trim() || t === RECEIPT_TITLES.ru || t === RECEIPT_TITLES.uz) ? RECEIPT_TITLES[l] : t);
-        setLang(l);
+        setTitle(prev => (!prev.trim() || prev === RECEIPT_TITLES.ru || prev === RECEIPT_TITLES.uz) ? RECEIPT_TITLES[l] : prev);
+        setDocLang(l);
     };
 
     // Доп. услуги (произвольные цены)
@@ -149,11 +151,11 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
     const addAutoBlock = () => {
         const n = filled.length;
         const money = (v) => v.toLocaleString('ru-RU');
-        const fmtLoc = (d) => d ? new Date(d).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru-RU') : '';
+        const fmtLoc = (d) => d ? new Date(d).toLocaleDateString(docLang === 'uz' ? 'uz-UZ' : 'ru-RU') : '';
         const qOf = (s) => Number(s.qty) > 0 ? Number(s.qty) : 1;
         const svc = services.filter(s => (s.name || '').trim() && Number(s.price) > 0);
         let text;
-        if (lang === 'uz') {
+        if (docLang === 'uz') {
             const per = (periodFrom && periodTo) ? ` ${fmtLoc(periodFrom)} – ${fmtLoc(periodTo)} davrida` : '';
             const svcLine = svc.length ? ` Qo‘shimcha xizmatlar: ${svc.map(s => `${s.name} ×${qOf(s)} — ${money(svcSum(s))} so‘m`).join(', ')}.` : '';
             text = `Ushbu hujjat ${n} kishidan iborat guruhning${per} yashaganini tasdiqlaydi.${svcLine} Jami to‘lov summasi: ${money(grandTotal)} so‘m.`;
@@ -175,7 +177,7 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
         if (!list.length) return;
         printGroupReceipt(list, hostelId, {
             date, periodFrom, periodTo, rate: rateNum,
-            title: title.trim() || RECEIPT_TITLES[lang], lang,
+            title: title.trim() || RECEIPT_TITLES[docLang], lang: docLang,
             services: services.filter(s => (s.name || '').trim() && Number(s.price) > 0)
                 .map(s => ({ name: s.name.trim(), qty: Number(s.qty) > 0 ? Number(s.qty) : 1, price: Number(s.price) || 0 })),
             blocks: blocks.map(b => (b.text || '').trim()).filter(Boolean),
@@ -194,8 +196,8 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(15,150,136,0.12)' }}><FileText size={18} style={{ color: BRAND }}/></div>
                         <div>
-                            <div className="font-black text-slate-800">Лист в бухгалтерию</div>
-                            <div className="text-xs text-slate-400">Список группы, доп. услуги и текст</div>
+                            <div className="font-black text-slate-800">{t('grTitle')}</div>
+                            <div className="text-xs text-slate-400">{t('grSubtitle')}</div>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18}/></button>
@@ -205,29 +207,29 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                 <div className="px-5 py-3 border-b border-slate-100 shrink-0 space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label className={lbl}>Хостел / реквизиты</label>
+                            <label className={lbl}>{t('grHostelReq')}</label>
                             <select className={inp} value={hostelId} onChange={e => setHostelId(e.target.value)}>
                                 {HOSTELS.map(h => <option key={h.id} value={h.id}>{h.label}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className={lbl}>Дата документа</label>
+                            <label className={lbl}>{t('grDocDate')}</label>
                             <DatePicker value={date} onChange={setDate} className={inp} />
                         </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
                         <div>
-                            <label className={lbl}>Заголовок документа</label>
-                            <input className={inp} value={title} onChange={e => setTitle(e.target.value)} placeholder={RECEIPT_TITLES[lang]} />
+                            <label className={lbl}>{t('grDocTitle')}</label>
+                            <input className={inp} value={title} onChange={e => setTitle(e.target.value)} placeholder={RECEIPT_TITLES[docLang]} />
                         </div>
                         <div>
-                            <label className={lbl}>Язык документа</label>
+                            <label className={lbl}>{t('grDocLang')}</label>
                             <div className="flex rounded-lg overflow-hidden border border-slate-200 w-fit">
-                                {[['ru', 'RU'], ['uz', 'UZ']].map(([l, t]) => (
+                                {[['ru', 'RU'], ['uz', 'UZ']].map(([l, code]) => (
                                     <button key={l} type="button" onClick={() => switchLang(l)}
-                                        className={`px-5 py-1.5 text-sm font-bold transition-colors ${lang === l ? 'text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
-                                        style={lang === l ? { background: BRAND } : undefined}>
-                                        {t}
+                                        className={`px-5 py-1.5 text-sm font-bold transition-colors ${docLang === l ? 'text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                                        style={docLang === l ? { background: BRAND } : undefined}>
+                                        {code}
                                     </button>
                                 ))}
                             </div>
@@ -235,20 +237,20 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div>
-                            <label className={lbl}>Проживали с</label>
-                            <DatePicker value={periodFrom} onChange={v => { setPeriodFrom(v); onPeriod(v, periodTo); }} className={inp} placeholder="дата" />
+                            <label className={lbl}>{t('grStayedFrom')}</label>
+                            <DatePicker value={periodFrom} onChange={v => { setPeriodFrom(v); onPeriod(v, periodTo); }} className={inp} placeholder={t('date')} />
                         </div>
                         <div>
-                            <label className={lbl}>по</label>
-                            <DatePicker value={periodTo} onChange={v => { setPeriodTo(v); onPeriod(periodFrom, v); }} className={inp} placeholder="дата" />
+                            <label className={lbl}>{t('grStayedTo')}</label>
+                            <DatePicker value={periodTo} onChange={v => { setPeriodTo(v); onPeriod(periodFrom, v); }} className={inp} placeholder={t('date')} />
                         </div>
                         <div>
-                            <label className={lbl}>Дней (всем)</label>
-                            <input className={inp + ' text-center'} type="number" min="1" value={defaultDays} onChange={e => onDefaultDays(e.target.value)} placeholder="напр. 2"/>
+                            <label className={lbl}>{t('grDaysAll')}</label>
+                            <input className={inp + ' text-center'} type="number" min="1" value={defaultDays} onChange={e => onDefaultDays(e.target.value)} placeholder={t('grDaysPh')}/>
                         </div>
                         <div>
-                            <label className={lbl}>Ставка, сум/ночь</label>
-                            <input className={inp + ' text-right'} type="number" min="0" value={rate} onChange={e => setRate(e.target.value)} placeholder="напр. 50000"/>
+                            <label className={lbl}>{t('grRateLabel')}</label>
+                            <input className={inp + ' text-right'} type="number" min="0" value={rate} onChange={e => setRate(e.target.value)} placeholder={t('grRatePh')}/>
                         </div>
                     </div>
                 </div>
@@ -258,20 +260,20 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                     {/* ── Гости ── */}
                     <div>
                         <div className="hidden sm:grid grid-cols-[26px_1fr_150px_64px_120px_26px] gap-2 px-1 pb-1 text-[10px] font-black text-slate-400 uppercase">
-                            <span className="text-center">№</span><span>Ф.И.О.</span><span>Паспорт</span><span className="text-center">Дней</span><span className="text-right">Сумма</span><span/>
+                            <span className="text-center">№</span><span>{t('grFio')}</span><span>{t('passport')}</span><span className="text-center">{t('days')}</span><span className="text-right">{t('grAmount')}</span><span/>
                         </div>
                         <div className="space-y-2">
                             {rows.map((r, i) => (
                                 <div key={i} className="grid grid-cols-[26px_1fr_64px_26px] sm:grid-cols-[26px_1fr_150px_64px_120px_26px] gap-2 items-center">
                                     <span className="text-center text-xs font-black text-slate-400">{i + 1}</span>
-                                    <input className={inp} placeholder="Фамилия Имя Отчество" value={r.fullName} onChange={e => upd(i, 'fullName', e.target.value.toUpperCase())}/>
-                                    <input className={`${inp} hidden sm:block`} placeholder="Паспорт" value={r.passport} onChange={e => upd(i, 'passport', e.target.value.toUpperCase())}/>
-                                    <input className={inp + ' text-center'} type="number" min="1" placeholder="дн." value={r.days} onChange={e => upd(i, 'days', e.target.value)}/>
+                                    <input className={inp} placeholder={t('grFullNamePh')} value={r.fullName} onChange={e => upd(i, 'fullName', e.target.value.toUpperCase())}/>
+                                    <input className={`${inp} hidden sm:block`} placeholder={t('passport')} value={r.passport} onChange={e => upd(i, 'passport', e.target.value.toUpperCase())}/>
+                                    <input className={inp + ' text-center'} type="number" min="1" placeholder={t('grDaysShort')} value={r.days} onChange={e => upd(i, 'days', e.target.value)}/>
                                     <div className="hidden sm:block text-right text-sm font-bold text-slate-700 tabular-nums">{sumOf(r) ? sumOf(r).toLocaleString('ru-RU') : '—'}</div>
                                     <button onClick={() => delRow(i)} className="text-slate-300 hover:text-rose-500 flex justify-center"><Trash2 size={15}/></button>
                                     <div className="col-span-4 sm:hidden grid grid-cols-2 gap-2 -mt-1 items-center">
-                                        <input className={inp} placeholder="Паспорт" value={r.passport} onChange={e => upd(i, 'passport', e.target.value.toUpperCase())}/>
-                                        <div className="text-right text-sm font-bold text-slate-700 tabular-nums">{sumOf(r) ? sumOf(r).toLocaleString('ru-RU') + ' сум' : '—'}</div>
+                                        <input className={inp} placeholder={t('passport')} value={r.passport} onChange={e => upd(i, 'passport', e.target.value.toUpperCase())}/>
+                                        <div className="text-right text-sm font-bold text-slate-700 tabular-nums">{sumOf(r) ? sumOf(r).toLocaleString('ru-RU') + ' ' + t('sum') : '—'}</div>
                                     </div>
                                 </div>
                             ))}
@@ -279,34 +281,34 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                         <div className="flex items-center gap-2 mt-3 flex-wrap">
                             <button onClick={addRow} disabled={rows.length >= 20}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
-                                <Plus size={15}/> Строка
+                                <Plus size={15}/> {t('grRow')}
                             </button>
                             {activeGuests.length > 0 && (
                                 <button onClick={() => setPickerOpen(true)}
                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100">
-                                    <Users size={15}/> Из проживающих
+                                    <Users size={15}/> {t('grFromResidents')}
                                 </button>
                             )}
-                            <div className="ml-auto text-sm"><span className="text-slate-400">Проживание:</span> <b className="text-slate-800">{stayTotal.toLocaleString('ru-RU')} сум</b> <span className="text-slate-400">· {filled.length} чел.</span></div>
+                            <div className="ml-auto text-sm"><span className="text-slate-400">{t('grStay')}</span> <b className="text-slate-800">{stayTotal.toLocaleString('ru-RU')} {t('sum')}</b> <span className="text-slate-400">· {filled.length} {t('grPeople')}</span></div>
                         </div>
                     </div>
 
                     {/* ── Доп. услуги ── */}
                     <div className="border-t border-slate-100 pt-4">
                         <div className="flex items-center justify-between mb-2">
-                            <span className={sectionTitle}>Доп. услуги</span>
-                            {servicesTotal > 0 && <span className="text-sm font-bold text-slate-700">{servicesTotal.toLocaleString('ru-RU')} сум</span>}
+                            <span className={sectionTitle}>{t('grServices')}</span>
+                            {servicesTotal > 0 && <span className="text-sm font-bold text-slate-700">{servicesTotal.toLocaleString('ru-RU')} {t('sum')}</span>}
                         </div>
                         {services.length > 0 && (
                             <div className="space-y-2 mb-2">
                                 <div className="grid grid-cols-[1fr_48px_92px_84px_24px] gap-1.5 px-1 text-[10px] font-black text-slate-400 uppercase">
-                                    <span>Услуга</span><span className="text-center">Кол</span><span className="text-right">Цена</span><span className="text-right">Сумма</span><span/>
+                                    <span>{t('grService')}</span><span className="text-center">{t('grQty')}</span><span className="text-right">{t('grPrice')}</span><span className="text-right">{t('grAmount')}</span><span/>
                                 </div>
                                 {services.map((s, i) => (
                                     <div key={i} className="grid grid-cols-[1fr_48px_92px_84px_24px] gap-1.5 items-center">
-                                        <input className={inp} placeholder="Услуга (напр. Завтрак)" value={s.name} onChange={e => updService(i, 'name', e.target.value)}/>
+                                        <input className={inp} placeholder={t('grServicePh')} value={s.name} onChange={e => updService(i, 'name', e.target.value)}/>
                                         <input className={inp + ' text-center px-1'} type="number" min="1" placeholder="1" value={s.qty} onChange={e => updService(i, 'qty', e.target.value)}/>
-                                        <input className={inp + ' text-right'} type="number" min="0" placeholder="Цена" value={s.price} onChange={e => updService(i, 'price', e.target.value)}/>
+                                        <input className={inp + ' text-right'} type="number" min="0" placeholder={t('grPrice')} value={s.price} onChange={e => updService(i, 'price', e.target.value)}/>
                                         <div className="text-right text-sm font-bold text-slate-700 tabular-nums">{svcSum(s) ? svcSum(s).toLocaleString('ru-RU') : '—'}</div>
                                         <button onClick={() => delService(i)} className="text-slate-300 hover:text-rose-500 flex justify-center"><Trash2 size={15}/></button>
                                     </div>
@@ -316,7 +318,7 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <button onClick={() => addService('')}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50">
-                                <Plus size={15}/> Услуга
+                                <Plus size={15}/> {t('grService')}
                             </button>
                             {(SERVICE_PRESETS[lang] || SERVICE_PRESETS.ru).map(p => (
                                 <button key={p} onClick={() => addService(p)}
@@ -330,8 +332,8 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                     {/* ── Доп. текст / описание ── */}
                     <div className="border-t border-slate-100 pt-4">
                         <div className="flex items-center justify-between mb-2">
-                            <span className={sectionTitle}>Доп. текст / описание</span>
-                            <span className="text-[10px] text-slate-400">перетаскивай за <GripVertical size={11} className="inline -mt-0.5"/> для порядка</span>
+                            <span className={sectionTitle}>{t('grExtraText')}</span>
+                            <span className="text-[10px] text-slate-400">{t('grDragBefore')} <GripVertical size={11} className="inline -mt-0.5"/> {t('grDragAfter')}</span>
                         </div>
                         {blocks.length > 0 && (
                             <div className="space-y-2 mb-2">
@@ -347,7 +349,7 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                                             <GripVertical size={16}/>
                                         </span>
                                         <textarea className={inp + ' min-h-[58px] resize-y leading-snug'} rows={2}
-                                            placeholder="Произвольный текст для документа…"
+                                            placeholder={t('grBlockPh')}
                                             value={b.text} onChange={e => updBlock(b.id, e.target.value)}/>
                                         <button onClick={() => delBlock(b.id)} className="mt-2 text-slate-300 hover:text-rose-500 shrink-0"><Trash2 size={15}/></button>
                                     </div>
@@ -357,11 +359,11 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <button onClick={() => addBlock('')}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50">
-                                <Plus size={15}/> Блок
+                                <Plus size={15}/> {t('grBlock')}
                             </button>
                             <button onClick={addAutoBlock}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100">
-                                <Sparkles size={14}/> Авто-описание
+                                <Sparkles size={14}/> {t('grAutoDesc')}
                             </button>
                         </div>
                     </div>
@@ -370,13 +372,13 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                 {/* Footer */}
                 <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-100 shrink-0">
                     <div className="text-sm mr-auto">
-                        <span className="text-slate-400">Итого:</span> <b className="text-slate-800 text-base">{grandTotal.toLocaleString('ru-RU')} сум</b>
-                        {servicesTotal > 0 && <span className="text-slate-400 text-xs"> (прож. {stayTotal.toLocaleString('ru-RU')} + услуги {servicesTotal.toLocaleString('ru-RU')})</span>}
+                        <span className="text-slate-400">{t('total')}:</span> <b className="text-slate-800 text-base">{grandTotal.toLocaleString('ru-RU')} {t('sum')}</b>
+                        {servicesTotal > 0 && <span className="text-slate-400 text-xs"> {t('grBreakdown').replace('{stay}', stayTotal.toLocaleString('ru-RU')).replace('{svc}', servicesTotal.toLocaleString('ru-RU'))}</span>}
                     </div>
-                    <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">Закрыть</button>
+                    <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">{t('close')}</button>
                     <button onClick={doPrint} disabled={!filled.length}
                         className="px-5 py-2.5 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: BRAND }}>
-                        <Printer size={16}/> Печать листа
+                        <Printer size={16}/> {t('grPrintSheet')}
                     </button>
                 </div>
 
@@ -384,24 +386,24 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                 {pickerOpen && (
                     <div className="absolute inset-0 z-10 bg-white sm:rounded-2xl flex flex-col">
                         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
-                            <div className="font-black text-slate-800 flex items-center gap-2"><Users size={18} style={{ color: BRAND }}/> Из проживающих</div>
+                            <div className="font-black text-slate-800 flex items-center gap-2"><Users size={18} style={{ color: BRAND }}/> {t('grFromResidents')}</div>
                             <button onClick={() => { setPickerOpen(false); setPicked(new Set()); setPickerSearch(''); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18}/></button>
                         </div>
                         <div className="px-5 py-3 border-b border-slate-100 shrink-0">
                             <div className="relative">
                                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input className={inp + ' pl-8'} placeholder="Поиск по имени, паспорту, комнате…" value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}/>
+                                <input className={inp + ' pl-8'} placeholder={t('grPickerSearchPh')} value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}/>
                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
                             {guestsByRoom.length === 0 ? (
                                 <div className="py-12 text-center text-slate-400">
                                     <Users size={36} className="mx-auto mb-2 opacity-30"/>
-                                    <p className="text-sm font-semibold">Нет проживающих</p>
+                                    <p className="text-sm font-semibold">{t('grNoResidents')}</p>
                                 </div>
                             ) : guestsByRoom.map(group => (
                                 <div key={group.room} className="space-y-1.5">
-                                    <div className="text-xs font-black text-slate-500 uppercase tracking-wide">Комната {group.room} <span className="text-slate-300 font-normal">· {group.guests.length}</span></div>
+                                    <div className="text-xs font-black text-slate-500 uppercase tracking-wide">{t('room')} {group.room} <span className="text-slate-300 font-normal">· {group.guests.length}</span></div>
                                     <div className="grid gap-1.5">
                                         {group.guests.map(g => {
                                             const added = isGuestAdded(g);
@@ -415,7 +417,7 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                                                         <p className="text-sm font-bold text-slate-800 truncate">{g.fullName}</p>
                                                         <p className="text-[11px] text-slate-400 truncate">{g.passport || '—'}{g.country ? ` · ${g.country}` : ''}</p>
                                                     </div>
-                                                    {added && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 border border-slate-200 shrink-0">в списке</span>}
+                                                    {added && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 border border-slate-200 shrink-0">{t('grInList')}</span>}
                                                 </button>
                                             );
                                         })}
@@ -424,10 +426,10 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                             ))}
                         </div>
                         <div className="flex gap-2 px-5 py-4 border-t border-slate-100 shrink-0">
-                            <button onClick={() => { setPickerOpen(false); setPicked(new Set()); setPickerSearch(''); }} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                            <button onClick={() => { setPickerOpen(false); setPicked(new Set()); setPickerSearch(''); }} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
                             <button onClick={addPicked} disabled={picked.size === 0}
                                 className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: BRAND }}>
-                                <Plus size={16}/> Добавить выбранных ({picked.size})
+                                <Plus size={16}/> {t('grAddSelected').replace('{n}', picked.size)}
                             </button>
                         </div>
                     </div>

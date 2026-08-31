@@ -2311,6 +2311,7 @@ return (
                 notify={showNotification}
                 currentUser={currentUser}
                 guests={guests}
+                lang={lang}
             />
         )}
 
@@ -2605,6 +2606,7 @@ return (
                     ? (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')
                     : (currentUser.hostelId || 'hostel1')}
                 activeGuests={(filteredGuests || []).filter(g => g.status === 'active')}
+                lang={lang}
             />
 
             {/* Компонент глобального поиска */}
