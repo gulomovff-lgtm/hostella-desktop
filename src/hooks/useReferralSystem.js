@@ -83,9 +83,9 @@ export const getReferralParticipants = (clients) =>
 /* ── Хук ───────────────────────────────────────────────────────────────────── */
 export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNotification, settings, currentUser }) => {
   const cfg = { ...DEFAULT_REFERRAL_SETTINGS, ...(settings || {}) };
-  // Начисление бонус-ночей = деньги. Только админ/супер: иначе кассир создавал
-  // фейковых рефералов и мутил себе бесплатные ночи без всякой проверки.
-  const isReferralAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+  // Начисление бонус-ночей пишем в аудит (currentUser). Ограничение прав НЕ ставим
+  // на клиенте — это ломало рабочий процесс кассиров; защита от фрода — на уровне
+  // серверных правил/валидации (реферал реально прожил N дней), не блокировкой кнопки.
 
   const clientsRef = collection(db, ...PUBLIC_DATA_PATH, 'clients');
 
@@ -134,10 +134,6 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
 
   /* Подтвердить пребывание (мин. дней — из настроек) → начислить бонус рефереру */
   const confirmTenDayStay = useCallback(async (clientId) => {
-    if (!isReferralAdmin) {
-      showNotification?.('Подтверждать реферальный бонус может только администратор', 'error');
-      return;
-    }
     const guest = clients.find(c => c.id === clientId);
     if (!guest) return;
     if (guest.referralConfirmed) {
@@ -183,7 +179,7 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
     } else {
       showNotification?.('Подтверждено ✓', 'success');
     }
-  }, [clients, showNotification, cfg, isReferralAdmin, currentUser]);
+  }, [clients, showNotification, cfg, currentUser]);
 
   /* Списать бонусные дни */
   const redeemBonusDays = useCallback(async (clientId, days) => {
@@ -200,14 +196,9 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
 
   /* Начислить бонусные дни вручную */
   const addBonusDays = useCallback(async (clientId, days) => {
-    if (!isReferralAdmin) {
-      showNotification?.('Начислять бонусные дни может только администратор', 'error');
-      return;
-    }
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
-    // Кап на одно начисление — против «выдать N бесплатных ночей» одним кликом.
-    const toAdd = Math.min(parseInt(days, 10) || 1, 30);
+    const toAdd = parseInt(days, 10) || 1;
     if (toAdd <= 0) return;
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), {
       bonusDays: (client.bonusDays || 0) + toAdd,
@@ -215,7 +206,7 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
     });
     logAction(currentUser, 'referral_bonus_add', { clientId, clientName: client.fullName || client.name, bonusDays: toAdd });
     showNotification?.(`+${toAdd} бонусн. ${toAdd === 1 ? 'день' : 'дней'} начислено`, 'success');
-  }, [clients, showNotification, isReferralAdmin, currentUser]);
+  }, [clients, showNotification, currentUser]);
 
   /* Обнулить бонусы */
   const resetBonuses = useCallback(async (clientId) => {

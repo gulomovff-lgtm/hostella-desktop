@@ -10,7 +10,13 @@ import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { computeContractFinancials } from '../../utils/contractFinancials';
 
 // --- Utilities ---
-const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+const getTotalPaid = (g) => {
+    // Number.isFinite-защита: битый amountPaid (NaN/Infinity) раньше отравлял долг
+    // всего календаря в NaN и ломал полосу.
+    const p = Number(g?.amountPaid);
+    const n = (v) => { const x = parseInt(v, 10); return Number.isFinite(x) ? x : 0; };
+    return Number.isFinite(p) ? p : (n(g?.paidCash) + n(g?.paidCard) + n(g?.paidQR));
+};
 
 const parseDate = (dateInput) => {
     if (!dateInput) return null;
