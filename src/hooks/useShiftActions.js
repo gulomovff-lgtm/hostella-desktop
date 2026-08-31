@@ -10,6 +10,7 @@ import { db, functions, PUBLIC_DATA_PATH } from '../firebase';
 import { hashPassword } from '../utils/hash';
 import { getConfig } from '../utils/appConfig';
 import { logAction } from '../utils/auditLog';
+import TRANSLATIONS from '../constants/translations';
 
 // Доля суток (и ЗП) у части разделённой смены: передача и админ-деление — всегда 50/50.
 export const SHARE_HALF = 0.5;
@@ -52,8 +53,9 @@ export const normalizeShiftTimes = (startISO, endISO) => {
 export function useShiftActions({
   currentUser, setCurrentUser,
   usersList, shifts, payments = [],
-  showNotification, onLogout,
+  showNotification, onLogout, lang = 'ru',
 }) {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   // Была ли оплата во время смены (по staffId/staffLogin в окне смены)
   const shiftHadPayment = (shiftDoc) => {
@@ -119,7 +121,7 @@ export function useShiftActions({
     if (otherOpen) {
       const owner = usersList.find(u => u.id === otherOpen.staffId || (otherOpen.staffLogin && u.login === otherOpen.staffLogin));
       showNotification(
-        `В этом хостеле уже открыта смена (${owner?.name || otherOpen.staffName || 'другой кассир'}). Дождитесь её завершения или попросите передать смену.`,
+        t('shaShiftOccupied').replace('{name}', owner?.name || otherOpen.staffName || t('shaOtherCashier')),
         'error'
       );
       return;
@@ -134,7 +136,7 @@ export function useShiftActions({
           const otherSnap = await tx.get(doc(db, ...PUBLIC_DATA_PATH, 'shifts', lock.shiftId));
           if (otherSnap.exists() && !otherSnap.data().endTime) {
             const err = new Error('SHIFT_OCCUPIED');
-            err.occupiedBy = lock.staffName || 'другой кассир';
+            err.occupiedBy = lock.staffName || t('shaOtherCashier');
             throw err;
           }
         }
@@ -143,11 +145,11 @@ export function useShiftActions({
         tx.set(newRef, { ...me(), hostelId, startTime, endTime: null });
         tx.set(shiftLockRef(), { [hostelId]: { ...me(), shiftId: newRef.id, startTime } }, { merge: true });
       });
-      showNotification('Смена начата', 'success');
+      showNotification(t('shaShiftStarted'), 'success');
     } catch (e) {
       if (e?.message === 'SHIFT_OCCUPIED') {
         showNotification(
-          `В этом хостеле уже открыта смена (${e.occupiedBy}). Дождитесь её завершения или попросите передать смену.`,
+          t('shaShiftOccupied').replace('{name}', e.occupiedBy),
           'error'
         );
         return;
@@ -158,7 +160,7 @@ export function useShiftActions({
       addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), {
         ...me(), hostelId, startTime: new Date().toISOString(), endTime: null,
       }).catch(err => console.error('Error starting shift:', err));
-      showNotification('Смена начата (нет связи с сервером — занятость проверена локально)', 'warning');
+      showNotification(t('shaShiftStartedOffline'), 'warning');
     }
   };
 
@@ -227,10 +229,10 @@ export function useShiftActions({
   const handleTransferShift = async (currentShiftId, targetUserId, opening = null) => {
     if (!targetUserId) return;
     const targetUser = usersList.find(u => u.id === targetUserId);
-    if (!targetUser) { showNotification('Кассир не найден', 'error'); return; }
+    if (!targetUser) { showNotification(t('shaCashierNotFound'), 'error'); return; }
     const shift = shifts.find(s => s.id === currentShiftId);
-    if (!shift) { showNotification('Смена не найдена', 'error'); return; }
-    if (shift.endTime) { showNotification('Эта смена уже закрыта', 'error'); return; }
+    if (!shift) { showNotification(t('shaShiftNotFound'), 'error'); return; }
+    if (shift.endTime) { showNotification(t('shaShiftAlreadyClosed'), 'error'); return; }
 
     const now = new Date().toISOString();
     const hostelId = shift.hostelId || currentUser.hostelId;
@@ -299,12 +301,14 @@ export function useShiftActions({
         } catch { /* не блокируем передачу из-за этого */ }
       }
       showNotification(
-        `Смена передана: ${toName}. Касса ${handedCash.toLocaleString('ru-RU')} сум и все поступления за сутки переходят ему, смена и ЗП делятся 50/50.`,
+        t('shaShiftTransferred')
+          .replace('{name}', toName)
+          .replace('{cash}', handedCash.toLocaleString('ru-RU')),
         'success'
       );
       onLogout();
     } catch (e) {
-      showNotification('Ошибка передачи смены: ' + e.message, 'error');
+      showNotification(t('shaTransferError') + e.message, 'error');
     }
   };
 
@@ -315,9 +319,9 @@ export function useShiftActions({
    */
   const handleAdminSplitShift = async (shift, partnerId) => {
     const partner = usersList.find(u => u.id === partnerId);
-    if (!shift || !partner) { showNotification('Выберите кассира для деления', 'error'); return; }
+    if (!shift || !partner) { showNotification(t('shaSelectCashierToSplit'), 'error'); return; }
     if (isSameStaff(shift, { staffId: partner.id, staffLogin: partner.login })) {
-      showNotification('Нельзя разделить смену с тем же кассиром', 'error');
+      showNotification(t('shaCannotSplitSameCashier'), 'error');
       return;
     }
     const groupId = shift.shareGroupId || `sh_${shift.id}`;
@@ -345,9 +349,9 @@ export function useShiftActions({
       logAction(currentUser, 'shift_split', {
         shiftId: shift.id, with: partner.name || partner.login, startTime: shift.startTime,
       });
-      showNotification(`Смена разделена 50/50 с ${partner.name || partner.login}`, 'success');
+      showNotification(t('shaShiftSplit5050').replace('{name}', partner.name || partner.login), 'success');
     } catch (e) {
-      showNotification('Ошибка деления смены: ' + e.message, 'error');
+      showNotification(t('shaSplitError') + e.message, 'error');
     }
   };
 
@@ -358,7 +362,7 @@ export function useShiftActions({
     const base   = parts.find(s => !s.splitFrom) || shift;
     const clones = parts.filter(s => s.splitFrom === base.id);
     if (!clones.length) {
-      showNotification('Это передача смены — её деление отменить нельзя, отредактируйте смены вручную', 'error');
+      showNotification(t('shaCannotUnsplitTransfer'), 'error');
       return;
     }
     try {
@@ -369,9 +373,9 @@ export function useShiftActions({
       });
       await batch.commit();
       logAction(currentUser, 'shift_unsplit', { shiftId: base.id });
-      showNotification('Деление смены отменено', 'success');
+      showNotification(t('alShiftUnsplit'), 'success');
     } catch (e) {
-      showNotification('Ошибка отмены деления: ' + e.message, 'error');
+      showNotification(t('shaUnsplitError') + e.message, 'error');
     }
   };
 
@@ -380,7 +384,7 @@ export function useShiftActions({
       ? { ...shiftData, ...normalizeShiftTimes(shiftData.startTime, shiftData.endTime) }
       : shiftData;
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), norm);
-    showNotification('Смена добавлена вручную');
+    showNotification(t('shaShiftAddedManually'));
   };
 
   const handleAdminUpdateShift = async (id, data) => {
@@ -388,15 +392,15 @@ export function useShiftActions({
       ? { ...data, ...normalizeShiftTimes(data.startTime, data.endTime) }
       : data;
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id), norm);
-    showNotification('Смена обновлена');
+    showNotification(t('shaShiftUpdated'));
   };
 
   const handleAdminDeleteShift = async (id) => {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id));
-      showNotification('Смена удалена', 'success');
+      showNotification(t('shaShiftDeleted'), 'success');
     } catch (e) {
-      showNotification('Ошибка удаления: ' + e.message, 'error');
+      showNotification(t('shaDeleteError') + e.message, 'error');
     }
   };
 
@@ -426,9 +430,9 @@ export function useShiftActions({
         setCurrentUser({ ...currentUser, ...payload });
         sessionStorage.setItem('hostella_user_v4', JSON.stringify(updatedUser));
       }
-      showNotification('Сотрудник обновлён', 'success');
+      showNotification(t('shaStaffUpdated'), 'success');
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('shaErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -446,9 +450,9 @@ export function useShiftActions({
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', s.id), { endTime: now });
       }
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id));
-      showNotification('Сотрудник удалён', 'success');
+      showNotification(t('shaStaffDeleted'), 'success');
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('shaErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -472,10 +476,10 @@ export function useShiftActions({
       const { pass: _p, ...sessionUser } = { ...currentUser };
       setCurrentUser({ ...currentUser });
       sessionStorage.setItem('hostella_user_v4', JSON.stringify(sessionUser));
-      showNotification('Пароль успешно изменен!', 'success');
+      showNotification(t('shaPasswordChanged'), 'success');
     } catch (e) {
-      const msg = e?.message || 'не удалось';
-      showNotification('Ошибка изменения пароля: ' + msg, 'error');
+      const msg = e?.message || t('shaFailed');
+      showNotification(t('shaPasswordChangeError') + msg, 'error');
       throw new Error(msg);
     }
   };

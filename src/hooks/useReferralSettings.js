@@ -18,6 +18,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
+import TRANSLATIONS from '../constants/translations';
 
 /* ── Настройки по умолчанию ─────────────────────────────────────────────── */
 export const DEFAULT_REFERRAL_SETTINGS = {
@@ -48,7 +49,8 @@ const SETTINGS_DOC = (hostelId) => {
 const uid = () => `id_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 /* ── Хук ─────────────────────────────────────────────────────────────────── */
-export const useReferralSettings = (showNotification, hostelId) => {
+export const useReferralSettings = (showNotification, hostelId, lang = 'ru') => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [settings, setSettings] = useState(DEFAULT_REFERRAL_SETTINGS);
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
@@ -84,14 +86,14 @@ export const useReferralSettings = (showNotification, hostelId) => {
     try {
       await setDoc(SETTINGS_DOC(hostelId), next);
       setSettings(next);
-      showNotification?.('Настройки сохранены', 'success');
+      showNotification?.(t('hsSettingsSaved'), 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка сохранения', 'error');
+      showNotification?.(t('rfsSaveError'), 'error');
     } finally {
       setSaving(false);
     }
-  }, [showNotification, hostelId]);
+  }, [showNotification, hostelId, lang]);
 
   /* ── Тиры ───────────────────────────────────────────────────────────────── */
 

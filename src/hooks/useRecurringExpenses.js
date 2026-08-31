@@ -20,6 +20,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { collection, doc, addDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
+import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
 
 const recurringCol = () => collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
@@ -34,7 +35,10 @@ export const useRecurringExpenses = ({
   recurringExpenses = [],
   expenses = [],
   showNotification,
+  lang,
 }) => {
+
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   /** Сумма уже выданных авансов по шаблону за конкретный месяц ('YYYY-MM') */
   const getAdvancesSum = useCallback((tmplId, monthKey) => {
@@ -171,10 +175,10 @@ export const useRecurringExpenses = ({
         lastFiredMonth: null,
         createdAt:     new Date().toISOString(),
       });
-      showNotification?.('Шаблон добавлен', 'success');
+      showNotification?.(t('rexTemplateAdded'), 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('rexError'), 'error');
     }
   }, [showNotification]);
 
@@ -182,14 +186,14 @@ export const useRecurringExpenses = ({
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'recurringExpenses', id), patch);
     } catch (e) {
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('rexError'), 'error');
     }
   }, [showNotification]);
 
   const deleteRecurring = useCallback(async (id) => {
-    if (!window.confirm('Удалить шаблон повторяющегося расхода?')) return;
+    if (!window.confirm(t('rexDeleteConfirm'))) return;
     await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'recurringExpenses', id));
-    showNotification?.('Шаблон удалён', 'success');
+    showNotification?.(t('rexTemplateDeleted'), 'success');
   }, [showNotification]);
 
   const toggleActive = useCallback(async (id, current) => {
@@ -219,10 +223,10 @@ export const useRecurringExpenses = ({
         staffId:     currentUser?.id || currentUser?.login || 'manual',
         recurringId: tmpl.id,
       });
-      showNotification?.(`Расход "${tmpl.name}" внесён${advSum > 0 ? ` (−${advSum.toLocaleString()} аванс)` : ''}`, 'success');
+      showNotification?.(`${t('rexExpenseFired').replace('{name}', tmpl.name)}${advSum > 0 ? t('rexAdvanceSuffix').replace('{sum}', advSum.toLocaleString()) : ''}`, 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('rexError'), 'error');
     }
   }, [currentUser, selectedHostelFilter, showNotification, getAdvancesSum]);
 

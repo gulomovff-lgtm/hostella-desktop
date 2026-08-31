@@ -25,6 +25,7 @@ import { logAction } from '../utils/auditLog';
 import { getStayDetails, getTotalPaid } from '../utils/helpers';
 import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
 import { notifySiteBooking } from '../utils/siteCallback';
+import TRANSLATIONS from '../constants/translations';
 
 export function useGuestActions(ctx) {
   const {
@@ -39,6 +40,8 @@ export function useGuestActions(ctx) {
     onEmehmonDepart,
     onEmehmonAutoArrival,
   } = ctx;
+
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   // ─── Internal helpers ────────────────────────────────────────────────────
 
@@ -204,10 +207,10 @@ export function useGuestActions(ctx) {
       await fb.commit();
       setUndoStack(prev => prev.filter(u => u.id !== item.id));
       setUndoHistoryOpen(false);
-      showNotification('Действие отменено ↩', 'success');
+      showNotification(t('gaUndoDone'), 'success');
       logAction(currentUser, 'undo', { originalAction: item.type, label: item.label });
     } catch (e) {
-      showNotification('Ошибка отмены: ' + e.message, 'error');
+      showNotification(t('gaUndoErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -313,7 +316,7 @@ export function useGuestActions(ctx) {
               ...(depTotal > 0 ? { paidCash: 0, paidCard: 0, paidQR: 0, amountPaid: 0, depositMoved: true } : {}),
             });
           } catch (_) {}
-          showNotification(`Заселён ${seated}-й из ${totalBeds} — бронь остаётся, заселите остальных так же`, 'info');
+          showNotification(t('gaSeatedOf').replace('{n}', seated).replace('{total}', totalBeds), 'info');
         } else {
           try { await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId)); } catch (_) {}
         }
@@ -324,7 +327,7 @@ export function useGuestActions(ctx) {
           notifySiteBooking(srcBooking, formData.status === 'active' ? 'checked_in' : 'confirmed')
             .then(r => {
               if (r?.status === 'ok' && r.notified) {
-                showNotification('Гость получил подтверждение в Telegram ✓', 'success');
+                showNotification(t('gaGuestTgConfirm'), 'success');
               } else if (r?.status === 'error') {
                 console.warn('[siteCallback]', r.message);
               }
@@ -332,14 +335,14 @@ export function useGuestActions(ctx) {
         }
       }
 
-      showNotification(lang === 'ru' ? 'Гость успешно заселен!' : 'Mehmon muvaffaqiyatli joylashtirildi!', 'success');
+      showNotification(t('gaCheckinSuccess'), 'success');
       logAction(currentUser, newGuest.status === 'active' ? 'checkin' : 'booking_add', {
         guestName: newGuest.fullName, roomNumber: newGuest.roomNumber, bedId: newGuest.bedId, amount: totalPaid,
       });
 
       if (newGuest.status === 'active') {
-        const hostelLabel = targetHostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-        const checkinMsg = `🏨 <b>Новое заселение</b>\n👤 ${escapeTg(newGuest.fullName)}\n🛏 ${hostelLabel} · Ком. ${newGuest.roomNumber || '—'}, место ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} дн.)\n💰 Оплачено: ${totalPaid.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+        const hostelLabel = targetHostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
+        const checkinMsg = `🏨 <b>${t('gaTgCheckinTitle')}</b>\n👤 ${escapeTg(newGuest.fullName)}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${newGuest.roomNumber || '—'}, ${t('gaPlace')} ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} ${t('gaDaysShort')})\n💰 ${t('gaPaid')}: ${totalPaid.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           sendTelegramMessage(checkinMsg, 'checkin');
         } else {
@@ -369,7 +372,7 @@ export function useGuestActions(ctx) {
       setCheckInModal({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null });
     } catch (error) {
       console.error('Error adding guest:', error);
-      showNotification('Ошибка при заселении', 'error');
+      showNotification(t('gaCheckinError'), 'error');
     }
   };
 
@@ -386,7 +389,7 @@ export function useGuestActions(ctx) {
         if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(1) });
         await upsertClient(data);
       }
-      showNotification(data.status === 'booking' ? 'Booking created' : 'Checked In!');
+      showNotification(data.status === 'booking' ? t('gaBookingCreated') : t('gaCheckedIn'));
     } catch (e) {
       showNotification(e.message, 'error');
     }
@@ -440,8 +443,8 @@ export function useGuestActions(ctx) {
       const r = rooms.find(i => i.id === guest.roomId);
       if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(-1) });
 
-      const hostelLabel = guest.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-      const checkoutMsg = `🚪 <b>Выселение</b>\n👤 ${escapeTg(guest.fullName)}\n🛏 ${hostelLabel} · Ком. ${guest.roomNumber || '—'}\n📅 Заехал: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 Итого: ${(final.totalPrice || 0).toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+      const hostelLabel = guest.hostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
+      const checkoutMsg = `🚪 <b>${t('gaTgCheckoutTitle')}</b>\n👤 ${escapeTg(guest.fullName)}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${guest.roomNumber || '—'}\n📅 ${t('gaCheckedInDate')}: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 ${t('gaTotal')}: ${(final.totalPrice || 0).toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
       if (isOnline) {
         sendTelegramMessage(checkoutMsg, 'checkout');
       } else {
@@ -466,7 +469,7 @@ export function useGuestActions(ctx) {
           staffId: currentUser.id || currentUser.login,
           hostelId: currentUser.hostelId || guest.hostelId,
         });
-        const refundMsg = `💸 <b>Возврат средств</b>\n👤 ${escapeTg(guest.fullName)}\n💵 Сумма: ${cashPart.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+        const refundMsg = `💸 <b>${t('gaTgRefundTitle')}</b>\n👤 ${escapeTg(guest.fullName)}\n💵 ${t('gaAmount')}: ${cashPart.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           sendTelegramMessage(refundMsg, 'refund');
         } else {
@@ -507,7 +510,7 @@ export function useGuestActions(ctx) {
 
     } catch (e) {
       console.error('handleCheckOut error:', e);
-      showNotification('Ошибка выселения: ' + e.message, 'error');
+      showNotification(t('gaErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -555,15 +558,15 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
       }
       if (totalOverpay > 0) {
-        showNotification(`Переплата ${totalOverpay.toLocaleString()} сум — пойдёт в счёт продления либо будет возвращена при выселении`, 'info');
+        showNotification(t('gaOverpayNote').replace('{sum}', totalOverpay.toLocaleString()), 'info');
       }
       if (total > 0) {
         pushUndo({ type: 'payment', label: `${total.toLocaleString()} сум — ${g?.fullName || guestId}`,
           guestId, paymentIds, cash, card, qr,
           overpay, balanceUsed, overpayClientId: clientRec?.id || null });
         if (g) {
-          const hostelLabel = g.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
-          const payMsg = `💵 <b>Оплата принята</b>\n👤 ${escapeTg(g.fullName)}\n🛏 ${hostelLabel} · Ком. ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+          const hostelLabel = g.hostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
+          const payMsg = `💵 <b>${t('gaPaymentAccepted')}</b>\n👤 ${escapeTg(g.fullName)}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
           if (isOnline) {
             sendTelegramMessage(payMsg, 'paymentAdded');
           } else {
@@ -579,7 +582,7 @@ export function useGuestActions(ctx) {
         }
       }
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification(isOnline ? 'Оплата принята' : '📵 Оплата сохранена — синхронизируется при подключении', isOnline ? 'success' : 'warning');
+      showNotification(isOnline ? t('gaPaymentAccepted') : t('gaPaymentSavedOffline'), isOnline ? 'success' : 'warning');
     } catch (e) {
       showNotification(e.message, 'error');
     }
@@ -628,7 +631,7 @@ export function useGuestActions(ctx) {
       const g = guests.find(x => x.id === guestId);
       pushUndo({ type: 'extend', label: `+${extendDays} дн. — ${g?.fullName || guestId}`, guestId, prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut, prevStatus, paymentIds, payCash, payCard, payQR });
       if (g) {
-        const extMsg = `📅 <b>Продление проживания</b>\n👤 ${escapeTg(g.fullName)}\n➕ +${extendDays} дн. → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 Доплачено: ${payTotal.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+        const extMsg = `📅 <b>${t('gaTgExtendTitle')}</b>\n👤 ${escapeTg(g.fullName)}\n➕ +${extendDays} ${t('gaDaysShort')} → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 ${t('gaSurcharged')}: ${payTotal.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           sendTelegramMessage(extMsg, 'guestExtended');
         } else {
@@ -636,9 +639,9 @@ export function useGuestActions(ctx) {
         }
       }
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification(`Продлено на ${extendDays} дн.`, 'success');
+      showNotification(t('extendedByDays').replace('{days}', extendDays), 'success');
     } catch (e) {
-      showNotification('Ошибка продления: ' + e.message, 'error');
+      showNotification(t('gaExtendErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -657,7 +660,7 @@ export function useGuestActions(ctx) {
         guestId, guestName: g?.fullName || '', amount, method,
       });
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification('Сумма зачтена');
+      showNotification(t('gaAmountCredited'));
     } catch (e) {
       showNotification(e.message, 'error');
     }
@@ -687,9 +690,9 @@ export function useGuestActions(ctx) {
       });
       count++;
     }
-    if (count > 0) showNotification(`Продлено на ${days} дн. для ${count} гостей`, 'success');
+    if (count > 0) showNotification(t('gaExtendedForGuests').replace('{n}', days).replace('{count}', count), 'success');
     } catch (e) {
-      showNotification('Ошибка продления: ' + e.message, 'error');
+      showNotification(t('gaExtendErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -706,15 +709,15 @@ export function useGuestActions(ctx) {
         status: 'debt',
         hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId,
       });
-      const debtMsg = `⚠️ <b>Создан долг</b>\n👤 ${escapeTg(client.fullName)}\n💰 Сумма: ${amount.toLocaleString()} сум\n👷 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+      const debtMsg = `⚠️ <b>${t('gaTgDebtTitle')}</b>\n👤 ${escapeTg(client.fullName)}\n💰 ${t('gaAmount')}: ${amount.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
       if (isOnline) {
         sendTelegramMessage(debtMsg, 'debtAlert');
       } else {
         enqueueTelegram(debtMsg, 'debtAlert');
       }
-      showNotification('Debt created successfully');
+      showNotification(t('gaDebtCreated'));
     } catch (e) {
-      showNotification('Error creating debt', 'error');
+      showNotification(t('gaDebtCreateError'), 'error');
     }
   };
 
@@ -724,19 +727,19 @@ export function useGuestActions(ctx) {
     // в заявке ведёт через окно заселения по одному).
     const bedsTotal = parseInt(guest.beds, 10) || 1;
     if (bedsTotal - (parseInt(guest.seatedCount, 10) || 0) > 1) {
-      showNotification(`Групповая бронь (${bedsTotal} мест) — заселяйте каждого отдельно через «Заселить» в заявке`, 'error');
+      showNotification(t('gaGroupBookingSeatEach').replace('{n}', bedsTotal), 'error');
       return false;
     }
     // У брони с сайта место не выбрано — активация без койки создаст «гостя без места»
     if (!guest.roomId || !guest.bedId || guest.bedId === '-') {
-      showNotification('У брони не выбрано место — нажмите «Заселить» в заявке и выберите койку', 'error');
+      showNotification(t('gaBookingNoBed'), 'error');
       return false;
     }
     // Паспортные данные обязательны при фактическом заселении: бронь создаётся
     // без них, но активировать её «вслепую» нельзя (e-mehmon, госучёт).
     const passOk = (guest.passport || '').replace(/\s/g, '').length >= 5;
     if (!passOk || !guest.birthDate) {
-      showNotification('Перед заселением дополните паспорт и дату рождения гостя', 'error');
+      showNotification(t('gaBookingNeedPassport'), 'error');
       return false;
     }
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { status: 'active' });
@@ -752,7 +755,7 @@ export function useGuestActions(ctx) {
     // Бронь с сайта/бота: сообщаем «гость заселён» (сайт + Telegram гостю)
     if (guest.bookingCode) notifySiteBooking(guest, 'checked_in');
     setGuestDetailsModal({ open: false, guest: null });
-    showNotification('Activated');
+    showNotification(t('gaActivated'));
     return true;
   };
 
@@ -810,10 +813,10 @@ export function useGuestActions(ctx) {
       ['emehmonReg', 'emehmonRegAt', 'emehmonRegAuto', 'emehmonRegError', 'emehmonRegErrorAt',
        'emehmonOut', 'emehmonOutAt', 'emehmonOutAuto'].forEach(k => { delete newGuest[k]; });
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
-      showNotification('Split successful!');
+      showNotification(t('gaSplitSuccess'));
     } catch (e) {
       console.error(e);
-      showNotification('Split Error', 'error');
+      showNotification(t('gaSplitError'), 'error');
     }
   };
 
@@ -821,7 +824,7 @@ export function useGuestActions(ctx) {
     // То же самое место — ничего не делаем (иначе гость ошибочно «выселялся» сплитом)
     if (String(rid) === String(g.roomId) && String(bid) === String(g.bedId)) {
       setMoveGuestModal({ open: false, guest: null });
-      showNotification('Гость уже на этом месте', 'info');
+      showNotification(t('gaGuestAlreadyHere'), 'info');
       return;
     }
     try {
@@ -839,7 +842,7 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
         setMoveGuestModal({ open: false, guest: null });
         setGuestDetailsModal({ open: false, guest: null });
-        showNotification('Перемещено!');
+        showNotification(t('gaMoved'));
         return;
       }
 
@@ -851,7 +854,7 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
         setMoveGuestModal({ open: false, guest: null });
         setGuestDetailsModal({ open: false, guest: null });
-        showNotification('Перемещено!');
+        showNotification(t('gaMoved'));
         return;
       }
 
@@ -958,9 +961,9 @@ export function useGuestActions(ctx) {
 
       setMoveGuestModal({ open: false, guest: null });
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification(`Перемещено: ${daysPassed} дн. остались в ком. ${g.roomNumber}, ${remainingDays} дн. → ком. ${rnum}`);
+      showNotification(t('gaMovedDetail').replace('{passed}', daysPassed).replace('{oldRoom}', g.roomNumber).replace('{remaining}', remainingDays).replace('{newRoom}', rnum));
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('gaErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -974,11 +977,11 @@ export function useGuestActions(ctx) {
         if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(-1) });
       }
       if (guestData) {
-        const hostelLabel = guestData.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2';
+        const hostelLabel = guestData.hostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
         const notifType = guestData.status === 'booking' ? 'deleteBooking' : 'deleteGuest';
         const notifIcon = guestData.status === 'booking' ? '🗑️' : '🚫';
-        const notifLabel = guestData.status === 'booking' ? 'Удалено бронирование' : 'Удалена запись гостя';
-        const delMsg = `${notifIcon} <b>${notifLabel}</b>\n👤 ${escapeTg(guestData.fullName || '—')}\n🛏 ${hostelLabel} · Ком. ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 Удалил: ${escapeTg(currentUser?.name || currentUser?.login || '—')}`;
+        const notifLabel = guestData.status === 'booking' ? t('gaTgDelBookingTitle') : t('gaTgDelGuestTitle');
+        const delMsg = `${notifIcon} <b>${notifLabel}</b>\n👤 ${escapeTg(guestData.fullName || '—')}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 ${t('gaDeletedBy')}: ${escapeTg(currentUser?.name || currentUser?.login || '—')}`;
         if (isOnline) {
           sendTelegramMessage(delMsg, notifType);
         } else {
@@ -986,9 +989,9 @@ export function useGuestActions(ctx) {
         }
       }
       setGuestDetailsModal({ open: false, guest: null });
-      showNotification('Deleted');
+      showNotification(t('gaDeleted'));
     } catch (e) {
-      showNotification('Ошибка удаления: ' + e.message, 'error');
+      showNotification(t('gaDeleteErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -1003,9 +1006,9 @@ export function useGuestActions(ctx) {
         checkOutDate: newCheckOut,
         days: newDays,
       });
-      showNotification('Даты обновлены');
+      showNotification(t('gaDatesUpdated'));
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('gaErrorPrefix') + e.message, 'error');
     }
   };
 
@@ -1070,7 +1073,7 @@ export function useGuestActions(ctx) {
       guestName: g.fullName, daysReduced: parseInt(rd), newDays,
       refundFromCash, refundFromPaid,
     });
-    showNotification('Days reduced');
+    showNotification(t('gaDaysReduced'));
   };
 
   const handleAdminReduceDaysNoRefund = async (g, rd) => {
@@ -1081,7 +1084,7 @@ export function useGuestActions(ctx) {
       totalPrice: newDays * parseInt(g.pricePerNight),
       checkOutDate: stay.end.toISOString(),
     });
-    showNotification('Reduced (No Refund)');
+    showNotification(t('gaReducedNoRefund'));
   };
 
   const handlePayDebt = async (targets, amount, methods = { cash: amount, card: 0, qr: 0 }) => {
@@ -1115,9 +1118,9 @@ export function useGuestActions(ctx) {
         paymentIds: allPaymentIds,
         targets: allTargetsWithPay,
       });
-      showNotification('Debt Paid!');
+      showNotification(t('gaDebtPaid'));
     } catch (e) {
-      showNotification('Error paying debt', 'error');
+      showNotification(t('gaDebtPayError'), 'error');
     }
   };
 
@@ -1128,9 +1131,9 @@ export function useGuestActions(ctx) {
       logAction(currentUser, 'debt_adjust', {
         guestId, guestName: g?.fullName || '', adjustment: parseInt(adjustment) || 0,
       });
-      showNotification('Debt Adjusted');
+      showNotification(t('gaDebtAdjusted'));
     } catch (e) {
-      showNotification('Error adjusting', 'error');
+      showNotification(t('gaAdjustError'), 'error');
     }
   };
 
@@ -1183,26 +1186,26 @@ export function useGuestActions(ctx) {
         : (typeof updateData.bonusCheckOutDate === 'string'
             ? new Date(updateData.bonusCheckOutDate).toLocaleDateString('ru')
             : new Date(guest.checkOutDate).toLocaleDateString('ru'));
-      showNotification(`Срезано ${daysToRemove} дн. Выезд: ${finalDateStr}`, 'success');
+      showNotification(t('gaTrimmedDays').replace('{n}', daysToRemove).replace('{date}', finalDateStr), 'success');
       logAction(currentUser, 'trim_days', { guestName: guest.fullName, daysToRemove, newDays: updateData.days || prevDays });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('gaErrorPrefix') + e.message, 'error');
     }
   };
 
   const handleRejectBooking = async (booking) => {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', booking.id));
-      showNotification('Бронь отклонена');
+      showNotification(t('gaBookingRejected'));
       // Сайту: отмена (место освободится в подсчёте доступности, гость получит
       // вежливое уведомление в Telegram, статус на «Проверке брони» — «отменена»)
       if (booking.bookingCode) {
         notifySiteBooking(booking, 'cancelled').then(r => {
-          if (r?.status === 'ok' && r.notified) showNotification('Гость уведомлён об отмене в Telegram', 'info');
+          if (r?.status === 'ok' && r.notified) showNotification(t('gaGuestNotifiedCancel'), 'info');
         });
       }
     } catch (e) {
-      showNotification('Ошибка', 'error');
+      showNotification(t('gaErrorShort'), 'error');
     }
   };
 

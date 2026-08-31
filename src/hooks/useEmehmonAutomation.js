@@ -7,6 +7,7 @@ import {
   openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered,
   departEmehmonBackground, departEmehmonBulk, autoRegisterArrival, recalcEmehmonAmounts,
 } from '../utils/emehmon';
+import TRANSLATIONS from '../constants/translations';
 
 /**
  * useEmehmonAutomation — вся автоматика госпортала e-mehmon.
@@ -26,8 +27,9 @@ import {
  */
 export function useEmehmonAutomation({
   guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
-  isDataReady, showNotification, setGuestDetailsModal,
+  isDataReady, showNotification, setGuestDetailsModal, lang,
 }) {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [emehmonReminder, setEmehmonReminder] = useState(null);
   const [emehmonDepart, setEmehmonDepart] = useState(null);          // гость(и) для фонового выселения
   const [emehmonChecking, setEmehmonChecking] = useState(null);      // id гостя на проверке «Готово»
@@ -68,7 +70,7 @@ const handleEmehmonFlag = useCallback(async (guestId, updates) => {
   try {
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updates);
   } catch (e) {
-    showNotification('Ошибка: ' + e.message, 'error');
+    showNotification(t('hsError') + e.message, 'error');
   }
 }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -83,7 +85,7 @@ const handleEmehmonDepart = useCallback((guestOrList) => {
     setEmehmonDepart(arr);
   } else {
     openEmehmonDeparture(arr[0]);
-    showNotification('Открываю e-mehmon — «Выселить» или «Печать»', 'info');
+    showNotification(t('emehmonOpenDeparture'), 'info');
   }
 }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -96,19 +98,19 @@ const handleDepartOutcome = useCallback((res, list) => {
     const now = new Date().toISOString();
     ids.forEach(id => handleEmehmonFlag(id, { emehmonOut: true, emehmonOutAt: now }));
     const n = res?.selected != null ? res.selected : (list || []).length;
-    showNotification(`Выселено из e-mehmon: ${n} ✓`, 'success');
+    showNotification(t('emaDepartedCount').replace('{n}', n), 'success');
     setEmehmonReminder(null);
     // Сверка с e-mehmon: подтянуть свежий /listok, подтвердить вывод по факту
     // (на случай если «submitted» — Check-Out прошёл, но закрытие не подтвердилось).
     setTimeout(() => { if (emehmonSyncRef.current) emehmonSyncRef.current(false); }, 1500);
   } else if (status === 'need_login') {
-    showNotification('Войдите в e-mehmon (окно открыто), затем повторите выселение.', 'info');
+    showNotification(t('emaLoginRepeatDepart'), 'info');
   } else if (status === 'multiple') {
-    showNotification('Несколько совпадений в e-mehmon — завершите вручную в открытом окне.', 'warning');
+    showNotification(t('emaMultipleMatches'), 'warning');
   } else if (status === 'not_found') {
-    showNotification('Гость(и) не найдены в e-mehmon — завершите вручную в открытом окне.', 'error');
+    showNotification(t('emaNotFoundDepart'), 'error');
   } else {
-    showNotification('Не удалось выселить автоматически — завершите вручную в открытом окне.', 'error');
+    showNotification(t('emaAutoDepartFail'), 'error');
   }
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -120,7 +122,7 @@ const handleEmehmonDepartConfirm = useCallback((opts) => {
   setEmehmonDepart(null); // окно уходит в фон сразу
   const ids = list.filter(g => g && g.id).map(g => g.id);
   setEmehmonDepartingIds(prev => new Set([...prev, ...ids]));
-  showNotification(`Выселяю в e-mehmon (${list.length}) в фоне…`, 'info');
+  showNotification(t('emaDepartingBg').replace('{n}', list.length), 'info');
   (async () => {
     const res = list.length > 1
       ? await departEmehmonBulk(list, opts)
@@ -140,22 +142,22 @@ const handleEmehmonDone = useCallback(async (guest) => {
     return;
   }
   setEmehmonChecking(guest.id);
-  showNotification('Проверяю в e-mehmon…', 'info');
+  showNotification(t('emaChecking'), 'info');
   const res = await checkEmehmonActive(guest);
   setEmehmonChecking(null);
   const status = res?.status;
   if (status === 'absent') {
     handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() });
-    showNotification('Подтверждено: гость выселен в e-mehmon ✓', 'success');
+    showNotification(t('emaDepartConfirmed'), 'success');
     setEmehmonReminder(null);
   } else if (status === 'present') {
-    showNotification('Гость ещё активен в e-mehmon — сначала выселите', 'warning');
+    showNotification(t('emaStillActive'), 'warning');
     setEmehmonReminder(null);
     setEmehmonDepart([guest]);
   } else if (status === 'need_login') {
-    showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
+    showNotification(t('emaLoginRepeat'), 'info');
   } else {
-    showNotification('Не удалось проверить e-mehmon — выселите вручную.', 'error');
+    showNotification(t('emaCheckFail'), 'error');
     setEmehmonReminder(null);
     setEmehmonDepart([guest]);
   }
@@ -166,7 +168,7 @@ const handleEmehmonDone = useCallback(async (guest) => {
 // поэтому ложноотрицательные (другой филиал/аккаунт) безвредны.
 const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null) => {
   if (!window.electronAPI?.emehmonList) {
-    if (manual) showNotification('Доступно только в десктоп-приложении', 'info');
+    if (manual) showNotification(t('emaDesktopOnly'), 'info');
     return;
   }
   const hostelId = hostelOverride || emehmonHostelId;
@@ -174,7 +176,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
   if (emehmonSyncBusy.current.has(hostelId)) return;
   emehmonSyncBusy.current.add(hostelId);
   patchEmehmon(hostelId, { syncing: true });
-  if (manual) showNotification(`Проверяю e-mehmon (${HOSTELS[hostelId]?.name || hostelId})…`, 'info');
+  if (manual) showNotification(t('emaCheckingHostel').replace('{name}', HOSTELS[hostelId]?.name || hostelId), 'info');
   try {
     const res = await fetchEmehmonRegistered(hostelId);
     if (res?.status === 'ok') {
@@ -261,12 +263,12 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
             { hostelId });
           if (dep?.status === 'done' || dep?.status === 'submitted') {
             for (const r of inListok) await markRemoved(r, 'auto_expiry');
-            showNotification(`⏰ Срок истёк — авто-выведено из e-mehmon: ${inListok.length}`, 'success');
+            showNotification(t('emaExpiredAutoDeparted').replace('{n}', inListok.length), 'success');
           } else if (manual) {
-            showNotification('Авто-вывод истёкших не удался — выведите вручную.', 'warning');
+            showNotification(t('emaExpiredAutoDepartFail'), 'warning');
           }
         } else if (absent.length > 0 && manual) {
-          showNotification(`Истёкшие регистрации закрыты: ${absent.length} (уже выведены из e-mehmon)`, 'info');
+          showNotification(t('emaExpiredClosed').replace('{n}', absent.length), 'info');
         }
       }
 
@@ -298,11 +300,11 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
               await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
                 { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
                   emehmonRegError: deleteField(), emehmonAmount: emehmonAmountFor(g.country) });
-              showNotification(`${g.fullName} — зарегистрирован в e-mehmon (авто) ✓`, 'success');
+              showNotification(t('emaRegisteredAuto').replace('{name}', g.fullName), 'success');
             } else if (st === 'not_found') {
               await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
                 { emehmonRegError: 'Ошибка в паспортных данных — нужно исправить', emehmonRegErrorAt: new Date().toISOString() });
-              showNotification(`⚠️ ${g.fullName}: не найден в госбазе — проверьте паспорт и дату рождения`, 'warning');
+              showNotification(t('emaNotInGovDb').replace('{name}', g.fullName), 'warning');
             } else if (st === 'no_room') {
               // Комнату не удалось сопоставить в e-mehmon. Ошибку гостю НЕ вешаем
               // (просьба убрать её) — просто не повторяем в этой сессии, гость
@@ -317,13 +319,13 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
           }
         }
       }
-      if (manual) showNotification(`Синхронизация e-mehmon: отмечено ${toMark.length}, выведено ${toMarkOut.length}`, 'success');
+      if (manual) showNotification(t('emaSyncResult').replace('{marked}', toMark.length).replace('{out}', toMarkOut.length), 'success');
     } else if (res?.status === 'need_login') {
       patchEmehmon(hostelId, { status: 'need_login', at: Date.now() });
-      if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
+      if (manual) showNotification(t('emaLoginRepeat'), 'info');
     } else {
       patchEmehmon(hostelId, { status: 'error', at: Date.now() });
-      if (manual) showNotification('Не удалось получить список e-mehmon.', 'error');
+      if (manual) showNotification(t('emaListFail'), 'error');
     }
   } finally {
     emehmonSyncBusy.current.delete(hostelId);
@@ -365,7 +367,7 @@ useEffect(() => {
 const emehmonRecalcBusy = useRef(new Set());
 const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = null) => {
   if (!window.electronAPI?.emehmonRecalc) {
-    if (manual) showNotification('Доступно только в десктоп-приложении', 'info');
+    if (manual) showNotification(t('emaDesktopOnly'), 'info');
     return;
   }
   const hostelId = hostelOverride || emehmonHostelId;
@@ -384,10 +386,10 @@ const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = nul
     })).filter(x => x.amount > 0);
 
     if (!items.length) {
-      if (manual) showNotification('Некому пересчитывать: нет проживающих в e-mehmon', 'info');
+      if (manual) showNotification(t('emaNoOneToRecalc'), 'info');
       return;
     }
-    if (manual) showNotification(`Пересчитываю суммы в e-mehmon: ${items.length}…`, 'info');
+    if (manual) showNotification(t('emaRecalcing').replace('{n}', items.length), 'info');
 
     const res = await recalcEmehmonAmounts(items, hostelId);
     if (res?.status === 'done') {
@@ -405,15 +407,15 @@ const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = nul
       if (manual || res.updated > 0) {
         showNotification(
           res.updated > 0
-            ? `💰 Суммы в e-mehmon обновлены: ${res.updated}`
-            : 'Суммы в e-mehmon уже верные',
+            ? t('emaAmountsUpdated').replace('{n}', res.updated)
+            : t('emaAmountsAlreadyOk'),
           'success');
       }
-      if (res.failed > 0) showNotification(`Часть сумм не обновилась: ${res.failed}`, 'warning');
+      if (res.failed > 0) showNotification(t('emaAmountsPartFail').replace('{n}', res.failed), 'warning');
     } else if (res?.status === 'need_login' && manual) {
-      showNotification('Войдите в e-mehmon, затем повторите пересчёт.', 'info');
+      showNotification(t('emaLoginRecalc'), 'info');
     } else if (manual) {
-      showNotification('Не удалось пересчитать суммы: ' + (res?.message || res?.status || 'ошибка'), 'error');
+      showNotification(t('emaRecalcFail') + (res?.message || res?.status || t('error')), 'error');
     }
   } finally {
     emehmonRecalcBusy.current.delete(hostelId);
@@ -442,24 +444,24 @@ const handleEmehmonAutoArrival = useCallback(async (guest) => {
   if (!guest || !window.electronAPI?.emehmonArrivalAuto) return;
   if (guest.id && emehmonAutoBusy.current.has(guest.id)) return; // уже регистрируется
   if (guest.id) emehmonAutoBusy.current.add(guest.id);
-  showNotification(`Регистрирую ${guest.fullName} в e-mehmon (авто)…`, 'info');
+  showNotification(t('emaRegistering').replace('{name}', guest.fullName), 'info');
   const res = await autoRegisterArrival(guest);
   if (guest.id) emehmonAutoBusy.current.delete(guest.id);
   const st = res?.status;
   if (st === 'done') {
     handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
       emehmonRegError: deleteField(), emehmonAmount: emehmonAmountFor(guest.country) });
-    showNotification(`${guest.fullName} — зарегистрирован в e-mehmon ✓`, 'success');
+    showNotification(t('emaRegistered').replace('{name}', guest.fullName), 'success');
   } else if (st === 'need_login') {
-    showNotification('Войдите в e-mehmon (окно открыто) — затем регистрация продолжится.', 'info');
+    showNotification(t('emaLoginContinueReg'), 'info');
   } else if (st === 'not_found') {
-    showNotification(`${guest.fullName}: нет в госбазе — завершите регистрацию вручную (окно открыто).`, 'warning');
+    showNotification(t('emaNotInGovDbManual').replace('{name}', guest.fullName), 'warning');
   } else if (st === 'no_room') {
-    showNotification(`${guest.fullName}: комната не совпала с e-mehmon — завершите вручную (окно открыто).`, 'warning');
+    showNotification(t('emaRoomMismatch').replace('{name}', guest.fullName), 'warning');
   } else if (st === 'no_electron') {
     /* веб — пропускаем */
   } else {
-    showNotification(`${guest.fullName}: авто-регистрация не завершена — проверьте окно e-mehmon.`, 'error');
+    showNotification(t('emaAutoRegNotDone').replace('{name}', guest.fullName), 'error');
   }
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -482,7 +484,7 @@ useEffect(() => {
       const regGuest = (guestsRef.current || []).find(x => x.id === id);
       handleEmehmonFlag(id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
         emehmonAmount: emehmonAmountFor(regGuest?.country) });
-      showNotification('Гость зарегистрирован в e-mehmon ✓', 'success');
+      showNotification(t('emaGuestRegistered'), 'success');
     }
   });
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps

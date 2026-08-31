@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { doc, writeBatch, increment } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction, logSystemError } from '../utils/auditLog';
+import TRANSLATIONS from '../constants/translations';
 
 /**
  * useAutoCheckout — автоматическое выселение просроченных гостей.
@@ -20,7 +21,8 @@ import { logAction, logSystemError } from '../utils/auditLog';
  * @param {boolean}  isDataReady — ждём полной загрузки данных
  * @param {function} showNotification — тост о результате
  */
-export function useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady, showNotification }) {
+export function useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady, showNotification, lang }) {
+const t = k => TRANSLATIONS[lang]?.[k] || k;
 // ─── Авто-выселение просроченных гостей ──────────────────────────────────
 //
 // Алгоритм безопасного авто-выселения:
@@ -189,7 +191,10 @@ useEffect(() => {
     if (count > 0) {
       try {
         await batch.commit();
-        showNotification(`🏁 Авто-выселение: ${count} гост${count === 1 ? 'ь' : 'ей'}`, 'warning');
+        const guestsWord = lang === 'ru'
+          ? (count === 1 ? 'гость' : 'гостей')
+          : t('acoGuestsWord');
+        showNotification(`🏁 ${t('alAutoCheckout')}: ${count} ${guestsWord}`, 'warning');
         // Логируем в auditLog одной записью
         logAction(
           { id: 'system', name: 'System', role: 'system', hostelId: null },
@@ -215,5 +220,5 @@ useEffect(() => {
 // Намеренно НЕ включаем guests/rooms/payments в deps — они читаются через refs,
 // чтобы таймер не сбрасывался при каждом изменении Firestore-данных.
 // Refs обновляются через отдельные useEffect выше.
-}, [currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
+}, [currentUser, isDataReady, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 }

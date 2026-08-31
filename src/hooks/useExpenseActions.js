@@ -36,6 +36,8 @@ export function useExpenseActions({
   showNotification, isOnline = true,
 }) {
 
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
+
   const pushUndo = (item) => {
     setUndoStack(prev => [
       { ...item, id: Date.now(), timestamp: new Date().toISOString() },
@@ -68,17 +70,17 @@ export function useExpenseActions({
 
       pushUndo({
         type: 'expense',
-        label: `${d.category}: ${(+d.amount).toLocaleString()} сум${skipCashbox ? ' (без вычета с кассы)' : ''}${d.comment ? ' — ' + d.comment : ''}`,
+        label: `${d.category}: ${(+d.amount).toLocaleString()} ${t('sum')}${skipCashbox ? ` (${t('exaNoCashbox')})` : ''}${d.comment ? ' — ' + d.comment : ''}`,
         expenseId: expRef.id,
       });
 
       setExpenseModal(false);
-      showNotification('Расход добавлен', 'success');
+      showNotification(t('alExpenseAdd'), 'success');
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
 
       if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
-        const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${escapeTg(d.category)}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+        const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
+        const tgMsg = `💳 <b>${t('expense')}</b>\n🏨 ${hostelLabel}\n📂 ${escapeTg(d.category)}\n💰 ${(+d.amount).toLocaleString()} ${t('sum')}${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           await sendTelegramMessage(tgMsg, 'expenseAdded');
         } else {
@@ -87,7 +89,7 @@ export function useExpenseActions({
       }
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
-      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaSaveFailed')), 'error');
     }
   };
 
@@ -136,20 +138,21 @@ export function useExpenseActions({
     if (ids.length) {
       pushUndo({
         type: 'expense_bulk',
-        label: `Массовый расход: ${ids.length} шт. на ${total.toLocaleString()} сум`,
+        label: t('exaBulkUndo').replace('{n}', ids.length).replace('{total}', total.toLocaleString()),
         expenseIds: ids,
       });
       // Сводка в Telegram — одним сообщением вместо десятка
       if (currentUser.role !== 'admin' && currentUser.role !== 'super') {
-        const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const lines = list.map(i => `• ${escapeTg(i.category)}: ${i.amount.toLocaleString()} сум${i.comment ? ' — ' + escapeTg(i.comment) : ''}`).join('\n');
-        const tgMsg = `💳 <b>Расходы (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>Итого: ${total.toLocaleString()} сум</b>\n👤 Кассир: ${escapeTg(currentUser.name || currentUser.login)}`;
+        const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
+        const lines = list.map(i => `• ${escapeTg(i.category)}: ${i.amount.toLocaleString()} ${t('sum')}${i.comment ? ' — ' + escapeTg(i.comment) : ''}`).join('\n');
+        const tgMsg = `💳 <b>${t('exaExpensesTitle')} (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>${t('exaTotal')}: ${total.toLocaleString()} ${t('sum')}</b>\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) await sendTelegramMessage(tgMsg, 'expenseAdded');
         else enqueueTelegram(tgMsg, 'expenseAdded');
       }
     }
     showNotification(
-      failed ? `Добавлено ${ids.length}, ошибок ${failed}` : `Добавлено расходов: ${ids.length} на ${total.toLocaleString()} сум`,
+      failed ? t('exaBulkFailed').replace('{ok}', ids.length).replace('{failed}', failed)
+             : t('exaBulkOk').replace('{n}', ids.length).replace('{total}', total.toLocaleString()),
       failed ? 'warning' : 'success');
     return { ok: ids.length, failed, total };
   };
@@ -220,12 +223,12 @@ export function useExpenseActions({
         return { clawback };
       });
 
-      if (res.already) { showNotification('Эта запись уже удалена', 'info'); return; }
+      if (res.already) { showNotification(t('exaAlreadyDeleted'), 'info'); return; }
       if (res.clawback > 0)
-        showNotification(`С баланса клиента снята переплата ${res.clawback.toLocaleString()} сум`, 'info');
-      showNotification('Запись удалена');
+        showNotification(t('exaClawback').replace('{sum}', res.clawback.toLocaleString()), 'info');
+      showNotification(t('exaRecordDeleted'));
     } catch (e) {
-      showNotification('Не удалось удалить запись: ' + e.message, 'error');
+      showNotification(t('exaDeleteFailed') + e.message, 'error');
     }
   };
 
@@ -346,19 +349,19 @@ export function useExpenseActions({
         date: dateOverride || new Date().toISOString(),
         ...(receipt ? { receipt } : {}),
       });
-      showNotification(`✅ Инкассация записана: ${Number(amount).toLocaleString()} сум`, 'success');
+      showNotification(`✅ ${t('exaCashCollected').replace('{sum}', Number(amount).toLocaleString())}`, 'success');
       logAction(currentUser, 'cash_to_terminal', { amount, hostelId, comment });
     } catch (err) {
-      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaSaveFailed')), 'error');
     }
   };
 
   const handleEditExpenseCategory = async (expenseId, newCategory) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), { category: newCategory });
-      showNotification('Категория обновлена', 'success');
+      showNotification(t('exaCategoryUpdated'), 'success');
     } catch (err) {
-      showNotification('Ошибка: ' + (err.message || 'не удалось обновить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaUpdateFailed')), 'error');
     }
   };
 
@@ -373,7 +376,7 @@ export function useExpenseActions({
     );
 
     if (toUpdate.length === 0) {
-      showNotification('Нет записей для обновления', 'info');
+      showNotification(t('exaNoRecordsToUpdate'), 'info');
       return;
     }
 
@@ -387,16 +390,16 @@ export function useExpenseActions({
         } catch (_) { /* skip */ }
       }
     }
-    showNotification(`Обновлено ${updated} из ${toUpdate.length} записей`, 'success');
+    showNotification(t('exaUpdatedOf').replace('{n}', updated).replace('{total}', toUpdate.length), 'success');
   };
 
   /** Редактирует поля расхода (для админа) */
   const handleUpdateExpense = async (expenseId, patch) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), patch);
-      showNotification('Расход обновлён', 'success');
+      showNotification(t('exaExpenseUpdated'), 'success');
     } catch (err) {
-      showNotification('Ошибка: ' + (err.message || 'не удалось обновить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaUpdateFailed')), 'error');
     }
   };
 

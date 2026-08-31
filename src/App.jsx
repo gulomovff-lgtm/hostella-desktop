@@ -404,7 +404,7 @@ function App() {
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
 
   // Авто-выселение просроченных гостей — см. hooks/useAutoCheckout (5 гейтов защиты)
-  useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady, showNotification });
+  useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady, showNotification, lang });
 
   // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
   useOfflineQueue({ isOnline, showNotification });
@@ -786,7 +786,7 @@ function App() {
     runEmehmonSync, runEmehmonRecalc,
   } = useEmehmonAutomation({
     guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
-    isDataReady, showNotification, setGuestDetailsModal,
+    isDataReady, showNotification, setGuestDetailsModal, lang,
   });
 
   const handleLogin = (user) => {
@@ -897,7 +897,7 @@ function App() {
   } = useShiftActions({
     currentUser, setCurrentUser,
     usersList, shifts, payments,
-    showNotification, onLogout: handleLogout,
+    showNotification, onLogout: handleLogout, lang,
   });
 
   const {
@@ -914,7 +914,7 @@ function App() {
     handleRemoveCadastreReg, handleDeleteCadastreReg,
     handleAddRegToExpenses, handleAddAllToExpenses,
   } = useCadastreActions({
-    currentUser, selectedHostelFilter, showNotification, tgSettings, isOnline,
+    currentUser, selectedHostelFilter, lang, showNotification, tgSettings, isOnline,
     setUndoStack,
   });
 
@@ -928,11 +928,11 @@ function App() {
 
   const { addRecurring, updateRecurring, deleteRecurring, toggleActive: toggleRecurringActive, fireNow: fireRecurringNow, getRecurringAdvances } = useRecurringExpenses({
     currentUser, selectedHostelFilter,
-    recurringExpenses, expenses, showNotification,
+    recurringExpenses, expenses, showNotification, lang,
   });
 
   // Уведомления об истекающих кадастр-регистрациях
-  useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline });
+  useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline, lang });
 
   // 🔔 Уведомление Telegram в день дедлайна и на следующий день (срок зависит от гражданства)
   useEffect(() => {

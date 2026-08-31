@@ -19,6 +19,7 @@ import {
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_REFERRAL_SETTINGS } from './useReferralSettings';
 import { logAction } from '../utils/auditLog';
+import TRANSLATIONS from '../constants/translations';
 
 /* ── Строим дерево из плоского массива ─────────────────────────────────────── */
 export const buildReferralTree = (clients, hostelId) => {
@@ -81,7 +82,8 @@ export const getReferralParticipants = (clients) =>
   clients.filter(c => c.referredBy != null);
 
 /* ── Хук ───────────────────────────────────────────────────────────────────── */
-export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNotification, settings, currentUser }) => {
+export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNotification, settings, currentUser, lang = 'ru' }) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const cfg = { ...DEFAULT_REFERRAL_SETTINGS, ...(settings || {}) };
   // Начисление бонус-ночей пишем в аудит (currentUser). Ограничение прав НЕ ставим
   // на клиенте — это ломало рабочий процесс кассиров; защита от фрода — на уровне
@@ -104,13 +106,13 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
         visits: 0,
         createdAt: new Date().toISOString(),
       });
-      showNotification?.(`Гость "${name}" добавлен в бонусную программу`, 'success');
+      showNotification?.(t('rfsGuestAddedToProgram').replace('{name}', name), 'success');
       return docRef.id;
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка при добавлении гостя', 'error');
+      showNotification?.(t('rfsAddGuestError'), 'error');
     }
-  }, [hostelId, showNotification]);
+  }, [hostelId, showNotification, lang]);
 
   /* Привязать существующего клиента к программе (указать реферера) */
   const linkExistingClient = useCallback(async (clientId, referredById) => {
@@ -125,19 +127,19 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
         // Присваиваем хостел, чтобы клиент попал в нужную базу
         ...(hostelId ? { hostelId } : {}),
       });
-      showNotification?.('Гость добавлен в бонусную программу', 'success');
+      showNotification?.(t('rfsGuestAddedToProgramShort'), 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('error'), 'error');
     }
-  }, [hostelId, showNotification]);
+  }, [hostelId, showNotification, lang]);
 
   /* Подтвердить пребывание (мин. дней — из настроек) → начислить бонус рефереру */
   const confirmTenDayStay = useCallback(async (clientId) => {
     const guest = clients.find(c => c.id === clientId);
     if (!guest) return;
     if (guest.referralConfirmed) {
-      showNotification?.('Уже подтверждено', 'info');
+      showNotification?.(t('rfsAlreadyConfirmed'), 'info');
       return;
     }
 
@@ -173,13 +175,16 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
       logAction(currentUser, 'referral_confirm', {
         referrerId: referrer.id, referrerName: referrer.fullName, bonusDays: actualBonus, referredId: clientId,
       });
-      const dayLabel = actualBonus === 1 ? 'день' : 'дня';
-      const cap = actualBonus < bonusToAdd ? ' (достигнут лимит)' : '';
-      showNotification?.(`+${actualBonus} бонусн. ${dayLabel} начислено «${referrer.fullName}»${cap}`, 'success');
+      const dayLabel = actualBonus === 1 ? t('day') : t('dayTwo');
+      const cap = actualBonus < bonusToAdd ? t('rfsLimitReached') : '';
+      showNotification?.(t('rfsBonusAccrued')
+        .replace('{n}', actualBonus)
+        .replace('{day}', dayLabel)
+        .replace('{name}', referrer.fullName) + cap, 'success');
     } else {
-      showNotification?.('Подтверждено ✓', 'success');
+      showNotification?.(t('rfsConfirmed'), 'success');
     }
-  }, [clients, showNotification, cfg, currentUser]);
+  }, [clients, showNotification, cfg, currentUser, lang]);
 
   /* Списать бонусные дни */
   const redeemBonusDays = useCallback(async (clientId, days) => {
@@ -191,8 +196,8 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
       bonusDays: (client.bonusDays || 0) - toUse,
       totalBonusUsed: (client.totalBonusUsed || 0) + toUse,
     });
-    showNotification?.(`${toUse} бонусн. ${toUse === 1 ? 'день' : 'дня'} списано`, 'success');
-  }, [clients, showNotification]);
+    showNotification?.(t('rfsBonusRedeemed').replace('{n}', toUse).replace('{day}', toUse === 1 ? t('day') : t('dayTwo')), 'success');
+  }, [clients, showNotification, lang]);
 
   /* Начислить бонусные дни вручную */
   const addBonusDays = useCallback(async (clientId, days) => {
@@ -205,8 +210,8 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
       totalBonusEarned: (client.totalBonusEarned || 0) + toAdd,
     });
     logAction(currentUser, 'referral_bonus_add', { clientId, clientName: client.fullName || client.name, bonusDays: toAdd });
-    showNotification?.(`+${toAdd} бонусн. ${toAdd === 1 ? 'день' : 'дней'} начислено`, 'success');
-  }, [clients, showNotification, currentUser]);
+    showNotification?.(t('rfsBonusDaysAdded').replace('{n}', toAdd).replace('{day}', toAdd === 1 ? t('day') : t('dayMany')), 'success');
+  }, [clients, showNotification, currentUser, lang]);
 
   /* Обнулить бонусы */
   const resetBonuses = useCallback(async (clientId) => {
@@ -217,21 +222,21 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
       bonusDays: 0,
       totalBonusUsed: used,
     });
-    showNotification?.('Бонусы обнулены', 'success');
-  }, [clients, showNotification]);
+    showNotification?.(t('rfsBonusesReset'), 'success');
+  }, [clients, showNotification, lang]);
 
   /* Продление проживания на бонусные дни — добавляет bonusCheckOutDate к существующему гостю */
   const extendStayWithBonus = useCallback(async (clientId, guestId, numDays) => {
     const client = clients.find(c => c.id === clientId);
     const guest  = guests.find(g => g.id === guestId);
     if (!client || !guest) {
-      showNotification?.('Гость или клиент не найден', 'error');
+      showNotification?.(t('rfsGuestOrClientNotFound'), 'error');
       return;
     }
     const daysNum   = parseInt(numDays, 10) || 1;
     const available = client.bonusDays || 0;
     if (daysNum > available) {
-      showNotification?.(`Недостаточно бонусных дней (есть ${available})`, 'error');
+      showNotification?.(t('rfsNotEnoughBonusDays').replace('{n}', available), 'error');
       return;
     }
     // Старт бонуса — от уже имеющегося bonusCheckOutDate или от checkOutDate
@@ -248,12 +253,12 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
         bonusDays: available - daysNum,
         totalBonusUsed: (client.totalBonusUsed || 0) + daysNum,
       });
-      showNotification?.(`+${daysNum} бонусных дн. продлено гостю «${guest.fullName}»`, 'success');
+      showNotification?.(t('rfsStayExtended').replace('{n}', daysNum).replace('{name}', guest.fullName), 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка продления', 'error');
+      showNotification?.(t('rfsExtendError'), 'error');
     }
-  }, [clients, guests, showNotification]);
+  }, [clients, guests, showNotification, lang]);
 
   /* Убрать клиента из программы (очистить реферальные поля) */
   const removeFromProgram = useCallback(async (clientId) => {
@@ -265,8 +270,8 @@ export const useReferralSystem = ({ clients = [], guests = [], hostelId, showNot
       totalBonusUsed: 0,
       referralConfirmed: false,
     });
-    showNotification?.('Гость удалён из бонусной программы', 'success');
-  }, [showNotification]);
+    showNotification?.(t('rfsGuestRemovedFromProgram'), 'success');
+  }, [showNotification, lang]);
 
   /* Хелпер фильтрации по хостелу (hostel2 = старые legacy-клиенты) */
   const filterByHostel = useCallback((list) => {

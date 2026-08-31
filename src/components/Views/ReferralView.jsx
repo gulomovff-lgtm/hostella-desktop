@@ -646,7 +646,7 @@ const flattenTree = (nodes) => {
 /* ─── Main ────────────────────────────────────────────────────────── */
 const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, currentUser, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
-  const settingsMgr = useReferralSettings(showNotification, hostelId);
+  const settingsMgr = useReferralSettings(showNotification, hostelId, lang);
   const { settings, saving } = settingsMgr;
 
   const {
@@ -655,7 +655,7 @@ const ReferralView = ({ clients = [], guests = [], hostelId, showNotification, c
     confirmTenDayStay, redeemBonusDays, addBonusDays, resetBonuses,
     extendStayWithBonus, removeFromProgram,
     getParticipantList, getNonParticipants, getStats,
-  } = useReferralSystem({ clients, guests, hostelId, showNotification, settings, currentUser });
+  } = useReferralSystem({ clients, guests, hostelId, showNotification, settings, currentUser, lang });
 
   const [selectedId, setSelectedId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
