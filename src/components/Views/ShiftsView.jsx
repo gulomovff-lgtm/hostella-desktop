@@ -35,6 +35,7 @@ const FillButton = ({ onClick, disabled }) => (
 // --- ShiftsView ---
 const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, onAdminSplitShift, onAdminUnsplitShift, payments = [], expenses = [], onPaySalary }) => {
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
+    const t = useCallback(k => TRANSLATIONS[lang]?.[k] || k, [lang]);
 
     // Передача смены живёт в окне «Закрытие смены» — там, где кассир заканчивает работу.
     // Здесь только просмотр смен и деление 50/50 по уже отработанным (для админа).
@@ -300,8 +301,8 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
 
     const handleDeleteShift = (s) => {
         const staff = (users.find(u => u.id === s.staffId))?.name || s.staffName || '?';
-        const dur = s.endTime ? `${((new Date(s.endTime) - new Date(s.startTime)) / 60000).toFixed(0)} мин` : 'открыта';
-        if (!window.confirm(`Удалить смену ${staff} (${fmtDate(s.startTime)} ${fmtTime(s.startTime)}, ${dur})? Это действие необратимо.`)) return;
+        const dur = s.endTime ? `${((new Date(s.endTime) - new Date(s.startTime)) / 60000).toFixed(0)} ${t('minShort')}` : t('openLabel');
+        if (!window.confirm(t('deleteShiftConfirm').replace('{staff}', staff).replace('{date}', fmtDate(s.startTime)).replace('{time}', fmtTime(s.startTime)).replace('{dur}', dur))) return;
         onAdminDeleteShift?.(s.id);
         if (editingShift?.id === s.id) { setIsAddModalOpen(false); setEditingShift(null); }
     };
@@ -319,12 +320,12 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     const startSplit = (s) => {
         const cands = splitCandidates(s);
         if (!cands.length) {
-            window.alert('В этом хостеле нет второго кассира — некому отдать половину смены.');
+            window.alert(t('noSecondCashier'));
             return;
         }
         if (cands.length === 1) {
             const u = cands[0];
-            if (window.confirm(`Разделить смену 50/50 с ${u.name || u.login}?\nСутки и зарплата поделятся пополам.`)) {
+            if (window.confirm(t('splitConfirm').replace('{name}', u.name || u.login))) {
                 onAdminSplitShift?.(s, u.id);
             }
             return;
@@ -333,7 +334,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     };
 
     const doUnsplit = (s) => {
-        if (window.confirm('Отменить деление 50/50 и вернуть смену целиком одному кассиру?')) onAdminUnsplitShift?.(s);
+        if (window.confirm(t('unsplitConfirm'))) onAdminUnsplitShift?.(s);
     };
 
     // «Призрачные» смены — завершённые короче 10 минут (случайно открыли/закрыли)
@@ -344,7 +345,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     );
     const handleCleanGhosts = () => {
         if (!ghostShifts.length) return;
-        if (!window.confirm(`Удалить ${ghostShifts.length} коротких смен (< ${GHOST_MAX_MIN} мин)? Это действие необратимо.`)) return;
+        if (!window.confirm(t('cleanGhostsConfirm').replace('{n}', ghostShifts.length).replace('{min}', GHOST_MAX_MIN))) return;
         ghostShifts.forEach(s => onAdminDeleteShift?.(s.id));
     };
 
@@ -358,7 +359,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     }), [displayedShifts]);
     const handleAlignShifts = () => {
         if (!shiftsToAlign.length) return;
-        if (!window.confirm(`Выровнять ${shiftsToAlign.length} смен к формату 9:00 → 9:00 (полные сутки)?`)) return;
+        if (!window.confirm(t('alignConfirm').replace('{n}', shiftsToAlign.length))) return;
         shiftsToAlign.forEach(s => onAdminUpdateShift(s.id, { startTime: s.startTime, endTime: s.endTime }));
     };
 
@@ -370,14 +371,14 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             const salary = end ? shiftSalary(s) : 0;
             return `<tr><td>${staff}</td><td>${HOSTELS[s.hostelId]?.name||s.hostelId}</td><td>${start.toLocaleDateString('ru')}</td><td>${start.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})}</td><td>${end?end.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}):'—'}</td><td>${hours}</td><td>${fmtDays(shiftDays(s))}</td><td>${salary.toLocaleString()}</td></tr>`;
         }).join('');
-        const html = `<html><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse"><thead><tr><th>Сотрудник</th><th>Хостел</th><th>Дата</th><th>Начало</th><th>Конец</th><th>Часы</th><th>Сутки</th><th>Зарплата</th></tr></thead><tbody>${rows}<tr><td colspan="7" style="text-align:right;font-weight:bold">Итого:</td><td><b>${fmt(kpi.totalSal)}</b></td></tr></tbody></table></body></html>`;
+        const html = `<html><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse"><thead><tr><th>${t('employee')}</th><th>${t('expHostel')}</th><th>${t('date')}</th><th>${t('start')}</th><th>${t('endWord')}</th><th>${t('workedHours')}</th><th>${t('sutkiLabel')}</th><th>${t('salary')}</th></tr></thead><tbody>${rows}<tr><td colspan="7" style="text-align:right;font-weight:bold">${t('total')}:</td><td><b>${fmt(kpi.totalSal)}</b></td></tr></tbody></table></body></html>`;
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([html],{type:'application/vnd.ms-excel'}));
         a.download = 'Shifts.xls'; a.click();
     };
 
-    const MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
-    const WDAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+    const MONTHS_SHORT = t('monthsShort');
+    const WDAYS = t('weekdaysShort');
 
     return (
         <div className="space-y-4">
@@ -388,21 +389,21 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         {myActiveShift ? '🟢' : '⚫'}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div className="font-black text-slate-800 text-lg">{myActiveShift ? 'Смена активна' : 'Смена не начата'}</div>
-                        {myActiveShift && <div className="text-sm text-emerald-700 font-semibold mt-0.5">Началась в {fmtTime(myActiveShift.startTime)} · {fmtDate(myActiveShift.startTime)}</div>}
+                        <div className="font-black text-slate-800 text-lg">{myActiveShift ? t('shiftActiveNow') : t('shiftNotStarted')}</div>
+                        {myActiveShift && <div className="text-sm text-emerald-700 font-semibold mt-0.5">{t('shiftStartedAt')} {fmtTime(myActiveShift.startTime)} · {fmtDate(myActiveShift.startTime)}</div>}
                         {myActiveShift?.handedFromName && (
-                            <div className="text-xs text-indigo-600 font-bold mt-0.5">🤝 Принята от {myActiveShift.handedFromName} · смена и ЗП 50/50</div>
+                            <div className="text-xs text-indigo-600 font-bold mt-0.5">🤝 {t('acceptedFrom')} {myActiveShift.handedFromName} {t('shiftSalaryHalf')}</div>
                         )}
                     </div>
                     {!myActiveShift ? (
                         <button onClick={() => onStartShift(hostelId)} className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-sm transition-colors">
-                            <Power size={18}/> Начать смену
+                            <Power size={18}/> {t('startShift')}
                         </button>
                     ) : (
                         <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs text-slate-400 font-semibold">Передать смену — в окне «Закрытие смены»</span>
+                            <span className="text-xs text-slate-400 font-semibold">{t('transferInCloseWindow')}</span>
                             <button onClick={onEndShift} className="flex items-center gap-2 px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition-colors">
-                                <LogOut size={16}/> Завершить смену
+                                <LogOut size={16}/> {t('finishShift')}
                             </button>
                         </div>
                     )}
@@ -413,10 +414,10 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { icon:'🌙',  label:'Сутки',          value: fmtDays(kpi.sutki),   sub: `${kpi.count} смен за период`, color:'#4f46e5', bg:'#eef2ff' },
-                    { icon:'💰',  label:'Начислено ЗП',   value: fmt(kpi.totalSal),    sub: 'за период',                  color:'#0f766e', bg:'#ccfbf1' },
-                    { icon:'✅',  label:'Выплачено',      value: fmt(kpi.salaryPaid),  sub: 'зарплата + аванс',           color:'#15803d', bg:'#dcfce7' },
-                    { icon:'⚖️',  label:'Остаток к выплате', value: fmt(kpi.salaryDue), sub: kpi.salaryDue > 0 ? 'нужно доплатить' : 'закрыто', color: kpi.salaryDue > 0 ? '#b91c1c' : '#64748b', bg: kpi.salaryDue > 0 ? '#fee2e2' : '#f1f5f9' },
+                    { icon:'🌙',  label:t('sutkiLabel'),          value: fmtDays(kpi.sutki),   sub: t('shiftsForPeriod').replace('{n}', kpi.count), color:'#4f46e5', bg:'#eef2ff' },
+                    { icon:'💰',  label:t('salaryAccrued'),   value: fmt(kpi.totalSal),    sub: t('forPeriod'),                  color:'#0f766e', bg:'#ccfbf1' },
+                    { icon:'✅',  label:t('paidOut'),      value: fmt(kpi.salaryPaid),  sub: t('salaryPlusAdvance'),           color:'#15803d', bg:'#dcfce7' },
+                    { icon:'⚖️',  label:t('remainingToPay'), value: fmt(kpi.salaryDue), sub: kpi.salaryDue > 0 ? t('needToPay') : t('closedLabel'), color: kpi.salaryDue > 0 ? '#b91c1c' : '#64748b', bg: kpi.salaryDue > 0 ? '#fee2e2' : '#f1f5f9' },
                 ].map(c => (
                     <div key={c.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                         <div className="flex items-center gap-2 mb-2">
@@ -433,15 +434,15 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             {kpi.totalInc > 0 && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center flex-wrap gap-4">
                     <div className="flex flex-col">
-                        <div className="text-xs font-black text-slate-500 uppercase tracking-wide">💵 Приход за период:</div>
+                        <div className="text-xs font-black text-slate-500 uppercase tracking-wide">💵 {t('incomeForPeriod')}</div>
                         {isAdmin && <div className="text-[10px] text-slate-400 mt-0.5">{dateRange.start} — {dateRange.end}{filterCashierId ? ` · ${users.find(u=>u.id===filterCashierId)?.name || ''}` : ''}</div>}
                     </div>
                     <div className="flex gap-4 flex-wrap">
-                        {kpi.totalCash > 0 && <div><span className="text-xs text-slate-400 font-semibold">Наличные: </span><span className="font-black text-slate-800">{fmt(kpi.totalCash)}</span></div>}
-                        {kpi.totalCard > 0 && <div><span className="text-xs text-slate-400 font-semibold">Карта: </span><span className="font-black text-slate-800">{fmt(kpi.totalCard)}</span></div>}
-                        {kpi.totalQR > 0 && <div><span className="text-xs text-slate-400 font-semibold">QR: </span><span className="font-black text-slate-800">{fmt(kpi.totalQR)}</span></div>}
-                        {kpi.totalTransfer > 0 && <div><span className="text-xs text-slate-400 font-semibold">🏦 Перечисление: </span><span className="font-black text-slate-800">{fmt(kpi.totalTransfer)}</span></div>}
-                        <div className="ml-auto"><span className="text-xs text-slate-400 font-semibold">Итого: </span><span className="font-black text-emerald-600 text-base">{fmt(kpi.totalInc)}</span></div>
+                        {kpi.totalCash > 0 && <div><span className="text-xs text-slate-400 font-semibold">{t('cash')}: </span><span className="font-black text-slate-800">{fmt(kpi.totalCash)}</span></div>}
+                        {kpi.totalCard > 0 && <div><span className="text-xs text-slate-400 font-semibold">{t('cardShort')}: </span><span className="font-black text-slate-800">{fmt(kpi.totalCard)}</span></div>}
+                        {kpi.totalQR > 0 && <div><span className="text-xs text-slate-400 font-semibold">{t('qr')}: </span><span className="font-black text-slate-800">{fmt(kpi.totalQR)}</span></div>}
+                        {kpi.totalTransfer > 0 && <div><span className="text-xs text-slate-400 font-semibold">🏦 {t('transferIncome')}: </span><span className="font-black text-slate-800">{fmt(kpi.totalTransfer)}</span></div>}
+                        <div className="ml-auto"><span className="text-xs text-slate-400 font-semibold">{t('total')}: </span><span className="font-black text-emerald-600 text-base">{fmt(kpi.totalInc)}</span></div>
                     </div>
                 </div>
             )}
@@ -457,7 +458,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                             value={dateRange.end} onChange={e => setDateRange(r=>({...r, end:e.target.value}))}/>
                         <select className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 flex-1 sm:flex-none"
                             value={filterCashierId} onChange={e => setFilterCashierId(e.target.value)}>
-                            <option value="">Все сотрудники</option>
+                            <option value="">{t('allStaff')}</option>
                             {users.filter(u=>u.role==='cashier').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
                     </div>
@@ -467,52 +468,52 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                     <div className="flex rounded-xl overflow-hidden border border-slate-200">
                         <button onClick={()=>setView('grid')} className="px-3 py-2 text-sm font-bold transition-colors flex items-center gap-1.5"
                             style={view==='grid' ? {background:'#16a34a',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
-                            <LayoutDashboard size={14}/> Шахматка
+                            <LayoutDashboard size={14}/> {t('gridView')}
                         </button>
                         <button onClick={()=>setView('list')} className="px-3 py-2 text-sm font-bold transition-colors flex items-center gap-1.5 border-l border-slate-200"
                             style={view==='list' ? {background:'#16a34a',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
-                            <FileText size={14}/> Список
+                            <FileText size={14}/> {t('listView')}
                         </button>
                         <button onClick={()=>setView('salary')} className="px-3 py-2 text-sm font-bold transition-colors flex items-center gap-1.5 border-l border-slate-200"
                             style={view==='salary' ? {background:'#16a34a',color:'#fff'} : {background:'#fff',color:'#64748b'}}>
-                            <Wallet size={14}/> ЗП
+                            <Wallet size={14}/> {t('salaryShort')}
                         </button>
                     </div>
                     {isAdmin && (
                         editingRate ? (
                             <div className="flex items-center gap-1 px-2 py-1 rounded-xl border border-indigo-200 bg-indigo-50">
-                                <span className="text-[10px] font-bold text-indigo-500">Ставка/сутки</span>
+                                <span className="text-[10px] font-bold text-indigo-500">{t('ratePerDay')}</span>
                                 <input type="number" autoFocus value={rateDraft} onChange={e=>setRateDraft(e.target.value.replace(/[^0-9]/g,''))}
                                     onKeyDown={e=>{ if(e.key==='Enter') saveDailyRate(); if(e.key==='Escape') setEditingRate(false); }}
                                     className="w-24 px-2 py-1 text-sm rounded-lg border border-indigo-200 focus:outline-none" />
                                 <button onClick={saveDailyRate} className="px-2 py-1 rounded-lg bg-indigo-500 text-white text-xs font-bold">OK</button>
                             </div>
                         ) : (
-                            <button onClick={()=>{ setRateDraft(String(dailyRate)); setEditingRate(true); }} title="Ставка ЗП за сутки"
+                            <button onClick={()=>{ setRateDraft(String(dailyRate)); setEditingRate(true); }} title={t('ratePerDayTitle')}
                                 className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                                <Wallet size={14}/> {dailyRate.toLocaleString('ru-RU')}/сут
+                                <Wallet size={14}/> {dailyRate.toLocaleString('ru-RU')}{t('perDayShort')}
                             </button>
                         )
                     )}
                     {isAdmin && <>
                         <button onClick={() => { setEditingShift(null); setShiftForm({staffId:users.filter(u=>u.role==='cashier')[0]?.id||'',startTime:'',endTime:'',hostelId:'hostel1'}); setIsAddModalOpen(true); }}
                             className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-colors">
-                            <Plus size={15}/> Добавить
+                            <Plus size={15}/> {t('add')}
                         </button>
                         <button onClick={handleExportExcel}
                             className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                             <FileSpreadsheet size={15}/> Excel
                         </button>
                         {shiftsToAlign.length > 0 && (
-                            <button onClick={handleAlignShifts} title="Привести все смены к 9:00 → 9:00"
+                            <button onClick={handleAlignShifts} title={t('alignShiftsTitle')}
                                 className="flex items-center gap-1.5 px-3 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors">
-                                🕘 Выровнять 9→9 ({shiftsToAlign.length})
+                                🕘 {t('alignShifts9')} ({shiftsToAlign.length})
                             </button>
                         )}
                         {ghostShifts.length > 0 && (
-                            <button onClick={handleCleanGhosts} title={`Завершённые смены короче ${GHOST_MAX_MIN} мин`}
+                            <button onClick={handleCleanGhosts} title={t('ghostShiftsTitle').replace('{n}', GHOST_MAX_MIN)}
                                 className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-700 rounded-xl text-sm font-bold hover:bg-amber-100 transition-colors">
-                                <Trash2 size={14}/> Короткие ({ghostShifts.length})
+                                <Trash2 size={14}/> {t('shortShifts')} ({ghostShifts.length})
                             </button>
                         )}
                     </>}
@@ -531,7 +532,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                     <tr>
                                         <th className="sticky left-0 z-20 bg-slate-50 border-b border-r-2 border-slate-200 px-4 text-left text-xs font-black text-slate-400 uppercase tracking-wide"
                                             style={{minWidth:140, width:140}} rowSpan={2}>
-                                            Сотрудник
+                                            {t('employee')}
                                         </th>
                                         {gridDays.map(d => {
                                             const str = ymdLocal(d);
@@ -547,9 +548,9 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                 </th>
                                             );
                                         })}
-                                        <th className="border-b-2 border-l-2 border-slate-200 px-2 text-center text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', position:'sticky', right:260, zIndex:25, background:'#f8fafc'}} rowSpan={2}>Сутки</th>
-                                        <th className="border-b-2 border-slate-200 px-2 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', position:'sticky', right:110, zIndex:25, background:'#f8fafc'}} rowSpan={2}>Начислено</th>
-                                        <th className="border-b-2 border-slate-200 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:110, minWidth:110, maxWidth:110, boxSizing:'border-box', position:'sticky', right:0, zIndex:25, background:'#f8fafc'}} rowSpan={2}>Остаток</th>
+                                        <th className="border-b-2 border-l-2 border-slate-200 px-2 text-center text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:60, minWidth:60, maxWidth:60, boxSizing:'border-box', position:'sticky', right:260, zIndex:25, background:'#f8fafc'}} rowSpan={2}>{t('sutkiLabel')}</th>
+                                        <th className="border-b-2 border-slate-200 px-2 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', position:'sticky', right:110, zIndex:25, background:'#f8fafc'}} rowSpan={2}>{t('accrued')}</th>
+                                        <th className="border-b-2 border-slate-200 px-3 text-right text-xs font-black text-slate-400 uppercase tracking-wide" style={{width:110, minWidth:110, maxWidth:110, boxSizing:'border-box', position:'sticky', right:0, zIndex:25, background:'#f8fafc'}} rowSpan={2}>{t('remaining')}</th>
                                     </tr>
                                     <tr>
                                         {gridDays.map(d => {
@@ -631,11 +632,11 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                                     className={`relative ${half===0?'border-r border-dashed border-slate-200':'border-r border-slate-200'}`}
                                                                     style={{height:44, width:CELL_W, overflow:'visible', background:cellBg}}>
                                                                     <div onClick={() => openEdit(s)}
-                                                                        onMouseEnter={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoveredCell({ x:r.left+r.width/2, y:r.top, name: (users.find(u=>u.id===s.staffId)?.name)||staff.name, line1: `${fmtTime(s.startTime)} – ${s.endTime?fmtTime(s.endTime):'сейчас'}`, line2: `${shiftH.toFixed(1)}ч · ${fmt(effSal)} сум${half5050 ? ' · ½ 50/50' : ''}${active && effR ? ' (идёт)' : ''}` }); }}
+                                                                        onMouseEnter={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoveredCell({ x:r.left+r.width/2, y:r.top, name: (users.find(u=>u.id===s.staffId)?.name)||staff.name, line1: `${fmtTime(s.startTime)} – ${s.endTime?fmtTime(s.endTime):t('nowLabel')}`, line2: `${shiftH.toFixed(1)}${t('hoursSuffix')} · ${fmt(effSal)} ${t('sumWord')}${half5050 ? ' · ½ 50/50' : ''}${active && effR ? ` ${t('inProgress')}` : ''}` }); }}
                                                                         onMouseLeave={()=>setHoveredCell(null)}
                                                                         className="hover:brightness-110"
                                                                         style={{ position:'absolute', top:7, bottom:7, left:2, width:barW, zIndex:3, background: bg, color: fg, borderRadius: 9, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', userSelect:'none', fontSize: shiftH>=6 ? 15 : 9, fontWeight: 800, whiteSpace:'nowrap', overflow:'hidden', transition:'filter .15s' }}>
-                                                                        {active ? '💼' : half5050 ? '½' : shiftH >= 6 ? '✓' : `${shiftH.toFixed(0)}ч`}
+                                                                        {active ? '💼' : half5050 ? '½' : shiftH >= 6 ? '✓' : `${shiftH.toFixed(0)}${t('hoursSuffix')}`}
                                                                     </div>
                                                                 </td>
                                                             );
@@ -647,7 +648,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                 </td>
                                                 <td className="px-2 text-right" style={{position:'sticky', right:110, zIndex:9, width:150, minWidth:150, maxWidth:150, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
                                                     <div className="text-sm font-black text-slate-800">{fmt(totalS)}</div>
-                                                    {paidS > 0 && <div className="text-[10px] text-emerald-600 font-semibold">выпл. {fmt(paidS)}</div>}
+                                                    {paidS > 0 && <div className="text-[10px] text-emerald-600 font-semibold">{t('paidShort')} {fmt(paidS)}</div>}
                                                 </td>
                                                 <td className="px-3 text-right" style={{position:'sticky', right:0, zIndex:9, width:110, minWidth:110, maxWidth:110, boxSizing:'border-box', background: si%2===0?'#fff':'#f8fafc'}}>
                                                     <div className={`text-sm font-black ${dueS > 0 ? 'text-rose-600' : 'text-slate-300'}`}>{dueS > 0 ? fmt(dueS) : '✓'}</div>
@@ -656,7 +657,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         );
                                     })}
                                     <tr className="bg-slate-100 border-t-2 border-slate-200">
-                                        <td className="sticky left-0 bg-slate-100 px-4 py-2 text-xs font-black text-slate-500 uppercase tracking-wide border-r-2 border-slate-200">Итого</td>
+                                        <td className="sticky left-0 bg-slate-100 px-4 py-2 text-xs font-black text-slate-500 uppercase tracking-wide border-r-2 border-slate-200">{t('total')}</td>
                                         {gridDays.map(d => {
                                             const dayStr = ymdLocal(d);
                                             return [0,1].map(half => {
@@ -683,11 +684,11 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                             </table>
                         </div>
                         <div className="flex items-center gap-4 px-5 py-3 border-t border-slate-100 text-[11px] font-semibold text-slate-500 flex-wrap">
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-[10px]" style={{background:'linear-gradient(135deg,#22c55e,#15803d)'}}>💼</span>Активная</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px]" style={{background:'linear-gradient(135deg,#10b981,#059669)'}}>✓</span>Сутки (смена)</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px] font-black" style={{background:'linear-gradient(135deg,#818cf8,#4f46e5)'}}>½</span>Половина (50/50)</div>
-                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-emerald-200 inline-flex items-center justify-center text-emerald-800 text-[8px] font-black">ч</span>Короткая (&lt;6ч)</div>
-                            <div className="flex items-center gap-1.5 ml-auto text-slate-400 italic">Клик по смене = редактировать</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-[10px]" style={{background:'linear-gradient(135deg,#22c55e,#15803d)'}}>💼</span>{t('activeLegend')}</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px]" style={{background:'linear-gradient(135deg,#10b981,#059669)'}}>✓</span>{t('sutkiShiftLegend')}</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md inline-flex items-center justify-center text-white text-[10px] font-black" style={{background:'linear-gradient(135deg,#818cf8,#4f46e5)'}}>½</span>{t('halfLegend')}</div>
+                            <div className="flex items-center gap-1.5"><span className="w-5 h-5 rounded-md bg-emerald-200 inline-flex items-center justify-center text-emerald-800 text-[8px] font-black">ч</span>{t('shortLegend')}</div>
+                            <div className="flex items-center gap-1.5 ml-auto text-slate-400 italic">{t('clickToEdit')}</div>
                         </div>
                         {hoveredCell && (
                             <div style={{ position:'fixed', left:hoveredCell.x, top:hoveredCell.y-10, transform:'translate(-50%,-100%)', zIndex:9999, pointerEvents:'none' }}>
@@ -707,7 +708,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
             {view === 'list' && (
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                     {displayedShifts.length === 0 ? (
-                        <div className="py-16 text-center text-slate-400 text-sm">Нет смен за выбранный период</div>
+                        <div className="py-16 text-center text-slate-400 text-sm">{t('noShiftsForPeriod')}</div>
                     ) : (
                         <div className="divide-y divide-slate-50">
                             {displayedShifts.map(s => {
@@ -738,8 +739,8 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                     <div className="text-[11px] text-slate-500 flex items-center gap-x-2 gap-y-0.5 flex-wrap">
                                                         <span className="font-semibold">{fmtDate(s.startTime)}</span>
                                                         <span className="font-mono">{fmtTime(s.startTime)}–{active ? '…' : fmtTime(s.endTime)}</span>
-                                                        {hours !== null && <span className="text-slate-400">{hours.toFixed(1)}ч</span>}
-                                                        {sTotal > 0 && <span className="text-emerald-600 font-semibold">касса {fmt(sTotal)}</span>}
+                                                        {hours !== null && <span className="text-slate-400">{hours.toFixed(1)}{t('hoursSuffix')}</span>}
+                                                        {sTotal > 0 && <span className="text-emerald-600 font-semibold">{t('cashRegister')} {fmt(sTotal)}</span>}
                                                         {isShared(s) && (
                                                             <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-600 font-black">
                                                                 ½ 50/50{partnerName ? ` · ${partnerName}` : ''}
@@ -747,26 +748,26 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                         )}
                                                     </div>
                                                 </div>
-                                                {active && <span className="text-[10px] font-black text-emerald-600 shrink-0 hidden sm:block">● сейчас</span>}
+                                                {active && <span className="text-[10px] font-black text-emerald-600 shrink-0 hidden sm:block">● {t('nowLabel')}</span>}
                                                 <div className="text-right shrink-0 w-20">
                                                     <div className="text-sm font-black text-slate-800">{salary !== null ? fmt(salary) : '…'}</div>
-                                                    <div className="text-[9px] text-slate-400 uppercase tracking-wide">ЗП</div>
+                                                    <div className="text-[9px] text-slate-400 uppercase tracking-wide">{t('salaryShort')}</div>
                                                 </div>
                                                 {isAdmin && (
                                                     <div className="flex items-center gap-0.5 shrink-0">
                                                         {active && (
-                                                            <button onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })} title="Закрыть смену"
+                                                            <button onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })} title={t('closeShiftTitle')}
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-rose-500 hover:bg-rose-50 transition-all"><Power size={15}/></button>
                                                         )}
                                                         {!active && (isShared(s)
-                                                            ? <button onClick={() => doUnsplit(s)} title="Отменить деление 50/50"
+                                                            ? <button onClick={() => doUnsplit(s)} title={t('cancelSplitTitle')}
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-indigo-500 bg-indigo-50 hover:bg-indigo-100 text-sm font-black transition-all">½</button>
-                                                            : <button onClick={() => startSplit(s)} title="Разделить смену 50/50 с другим кассиром"
+                                                            : <button onClick={() => startSplit(s)} title={t('splitShiftTitle')}
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 text-sm font-black transition-all">½</button>
                                                         )}
-                                                        <button onClick={() => openEdit(s)} title="Изменить"
+                                                        <button onClick={() => openEdit(s)} title={t('changeTitle')}
                                                             className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"><Edit size={15}/></button>
-                                                        <button onClick={() => handleDeleteShift(s)} title="Удалить смену"
+                                                        <button onClick={() => handleDeleteShift(s)} title={t('deleteShiftTitle')}
                                                             className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"><Trash2 size={15}/></button>
                                                     </div>
                                                 )}
@@ -774,10 +775,10 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         );
                             })}
                             <div className="flex items-center justify-end gap-5 px-5 py-3 bg-slate-50 border-t border-slate-200 flex-wrap">
-                                <span className="text-xs text-slate-500 font-semibold mr-auto">{displayedShifts.length} записей · {fmtDays(kpi.sutki)} сут</span>
-                                <span className="text-xs text-slate-500">Начислено: <b className="text-slate-800">{fmt(kpi.totalSal)}</b></span>
-                                <span className="text-xs text-slate-500">Выплачено: <b className="text-emerald-600">{fmt(kpi.salaryPaid)}</b></span>
-                                <span className="text-xs text-slate-500">Остаток: <b className={kpi.salaryDue > 0 ? 'text-rose-600' : 'text-slate-400'}>{kpi.salaryDue > 0 ? fmt(kpi.salaryDue) : '✓'}</b></span>
+                                <span className="text-xs text-slate-500 font-semibold mr-auto">{displayedShifts.length} {t('recordsWord')} · {fmtDays(kpi.sutki)} {t('sutShort')}</span>
+                                <span className="text-xs text-slate-500">{t('accrued')}: <b className="text-slate-800">{fmt(kpi.totalSal)}</b></span>
+                                <span className="text-xs text-slate-500">{t('paidOut')}: <b className="text-emerald-600">{fmt(kpi.salaryPaid)}</b></span>
+                                <span className="text-xs text-slate-500">{t('remaining')}: <b className={kpi.salaryDue > 0 ? 'text-rose-600' : 'text-slate-400'}>{kpi.salaryDue > 0 ? fmt(kpi.salaryDue) : '✓'}</b></span>
                             </div>
                         </div>
                     )}
@@ -790,27 +791,27 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                     {monthlySalary.length === 0 ? (
                         <div className="py-16 text-center text-slate-400">
                             <Wallet size={36} className="mx-auto mb-3 opacity-30" />
-                            <p className="font-semibold">Нет завершённых смен в выбранном периоде</p>
-                            <p className="text-xs mt-1">Расширьте диапазон дат выше</p>
+                            <p className="font-semibold">{t('noFinishedShifts')}</p>
+                            <p className="text-xs mt-1">{t('expandDateRange')}</p>
                         </div>
                     ) : monthlySalary.map(({ ym, rows, tot }) => {
                         const [y, m] = ym.split('-');
-                        const monthName = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][parseInt(m) - 1];
+                        const monthName = t('monthsFull')[parseInt(m) - 1];
                         return (
                             <div key={ym} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                                 <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                                     <span className="font-black text-slate-800">{monthName} {y}</span>
-                                    <span className="text-xs font-semibold text-slate-500">Ставка: {dailyRate.toLocaleString('ru-RU')}/сут</span>
+                                    <span className="text-xs font-semibold text-slate-500">{t('rateLabel')} {dailyRate.toLocaleString('ru-RU')}{t('perDayShort')}</span>
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-sm">
                                         <thead>
                                             <tr className="text-[10px] uppercase text-slate-400 font-bold">
-                                                <th className="text-left px-5 py-2">Кассир</th>
-                                                <th className="text-right px-3 py-2">Сутки</th>
-                                                <th className="text-right px-3 py-2">Начислено</th>
-                                                <th className="text-right px-3 py-2">Выплачено</th>
-                                                <th className="text-right px-5 py-2">Остаток</th>
+                                                <th className="text-left px-5 py-2">{t('cashier')}</th>
+                                                <th className="text-right px-3 py-2">{t('sutkiLabel')}</th>
+                                                <th className="text-right px-3 py-2">{t('accrued')}</th>
+                                                <th className="text-right px-3 py-2">{t('paidOut')}</th>
+                                                <th className="text-right px-5 py-2">{t('remaining')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -824,8 +825,8 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                         <div className="flex items-center justify-end gap-2">
                                                             <span className={`font-black ${r.remaining > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{r.remaining > 0 ? fmt(r.remaining) : '✓'}</span>
                                                             {r.remaining > 0 && isAdmin && onPaySalary && (
-                                                                <button onClick={() => { if (window.confirm(`Выдать ${fmt(r.remaining)} сум кассиру ${r.name}? Создастся расход «Зарплата».`)) onPaySalary({ staffId: r.id, amount: r.remaining, comment: `ЗП ${r.name} (${monthName} ${y})` }); }}
-                                                                    className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black transition-colors">Выдать</button>
+                                                                <button onClick={() => { if (window.confirm(t('payoutConfirm').replace('{amount}', fmt(r.remaining)).replace('{name}', r.name))) onPaySalary({ staffId: r.id, amount: r.remaining, comment: t('salaryComment').replace('{name}', r.name).replace('{month}', monthName).replace('{year}', y) }); }}
+                                                                    className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black transition-colors">{t('payout')}</button>
                                                             )}
                                                         </div>
                                                     </td>
@@ -834,7 +835,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         </tbody>
                                         <tfoot>
                                             <tr className="border-t-2 border-slate-200 bg-slate-50/60">
-                                                <td className="text-left px-5 py-2.5 font-black text-slate-800">ИТОГО</td>
+                                                <td className="text-left px-5 py-2.5 font-black text-slate-800">{t('totalUpper')}</td>
                                                 <td className="text-right px-3 py-2.5 font-black text-slate-600">{fmtDays(tot.days)}</td>
                                                 <td className="text-right px-3 py-2.5 font-black text-slate-800">{fmt(tot.earned)}</td>
                                                 <td className="text-right px-3 py-2.5 font-black text-emerald-600">{fmt(tot.taken)}</td>
@@ -847,8 +848,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                         );
                     })}
                     <p className="text-[11px] text-slate-400 text-center">
-                        Начислено = сутки × ставка. Переданная или разделённая смена (½ 50/50) даёт каждому кассиру по 0.5 суток и половину ставки.
-                        Выплачено = расходы «Зарплата» + «Аванс» кассира за месяц. Остаток = начислено − выплачено.
+                        {t('salaryFormula')}
                     </p>
                 </div>
             )}
@@ -862,7 +862,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                         <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>
-                            <span className="font-black text-slate-700 text-sm">Сейчас на смене</span>
+                            <span className="font-black text-slate-700 text-sm">{t('nowOnShift')}</span>
                             <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black">{activeShifts.length}</span>
                         </div>
                         <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -870,7 +870,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                 const staff = resolveList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
                                 const hoursGone = ((Date.now() - new Date(s.startTime)) / 3600000).toFixed(1);
                                 const isOrphaned = !staff;
-                                const displayName = staff?.name || s.staffName || 'Удалённый пользователь';
+                                const displayName = staff?.name || s.staffName || t('deletedUser');
                                 const initial = (displayName || '?').trim().charAt(0).toUpperCase();
                                 return (
                                     <div key={s.id} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${isOrphaned ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-slate-50/60'}`}>
@@ -878,14 +878,14 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         <div className="flex-1 min-w-0">
                                             <div className={`text-sm font-bold truncate ${isOrphaned ? 'text-amber-700' : 'text-slate-800'}`}>{displayName}</div>
                                             <div className="text-[11px] text-slate-400 truncate">
-                                                {HOSTELS[s.hostelId]?.name} · с {fmtTime(s.startTime)} {fmtDate(s.startTime)} · <b className="text-emerald-600">{hoursGone}ч</b>
+                                                {HOSTELS[s.hostelId]?.name} · {t('sinceLabel')} {fmtTime(s.startTime)} {fmtDate(s.startTime)} · <b className="text-emerald-600">{hoursGone}{t('hoursSuffix')}</b>
                                             </div>
-                                            {isOrphaned && <div className="text-[10px] text-amber-600 font-bold">блокирует вход кассирам</div>}
+                                            {isOrphaned && <div className="text-[10px] text-amber-600 font-bold">{t('blocksCashierLogin')}</div>}
                                         </div>
                                         <button
                                             onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })}
                                             className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-lg transition-colors">
-                                            <Power size={12}/> Закрыть
+                                            <Power size={12}/> {t('close')}
                                         </button>
                                     </div>
                                 );
@@ -901,7 +901,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                     <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
                         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-indigo-50">
                             <div>
-                                <div className="font-black text-slate-800">Разделить смену 50/50</div>
+                                <div className="font-black text-slate-800">{t('splitShift5050')}</div>
                                 <div className="text-xs text-slate-500 font-semibold">
                                     {splitFor.staffName || users.find(u=>u.id===splitFor.staffId)?.name || '—'} · {fmtDate(splitFor.startTime)}
                                 </div>
@@ -909,7 +909,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                             <button onClick={()=>setSplitFor(null)} className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-200 text-slate-400 transition-colors"><X size={18}/></button>
                         </div>
                         <div className="p-4 space-y-2">
-                            <p className="text-xs text-slate-500">С кем разделить? Каждому зачтётся по 0.5 суток и половина ставки.</p>
+                            <p className="text-xs text-slate-500">{t('splitWithWhom')}</p>
                             {splitCandidates(splitFor).map(u => (
                                 <button key={u.id}
                                     onClick={() => { onAdminSplitShift?.(splitFor, u.id); setSplitFor(null); }}
@@ -950,7 +950,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                         {editingShift ? '✏️' : '➕'}
                                     </div>
                                     <div>
-                                        <div className="font-black text-slate-800">{editingShift ? 'Редактировать смену' : 'Новая смена'}</div>
+                                        <div className="font-black text-slate-800">{editingShift ? t('editShiftTitle') : t('newShiftTitle')}</div>
                                         {staffUser && <div className="text-xs text-slate-400 font-semibold">{staffUser.name} · {HOSTELS[shiftForm.hostelId]?.name}</div>}
                                     </div>
                                 </div>
@@ -962,14 +962,14 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                             <div className="p-6 space-y-4">
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">Сотрудник</label>
+                                        <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">{t('employee')}</label>
                                         <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white font-semibold"
                                             value={shiftForm.staffId} onChange={e=>setShiftForm(f=>({...f,staffId:e.target.value}))}>
                                             {users.filter(u=>u.role==='cashier').map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">Хостел</label>
+                                        <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-1.5">{t('expHostel')}</label>
                                         <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white font-semibold"
                                             value={shiftForm.hostelId} onChange={e=>setShiftForm(f=>({...f,hostelId:e.target.value}))}>
                                             {Object.keys(HOSTELS).map(k=><option key={k} value={k}>{HOSTELS[k].name}</option>)}
@@ -979,7 +979,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
 
                                 <div className="rounded-xl border border-slate-200 p-4 space-y-2">
                                     <div className="flex items-center justify-between mb-1">
-                                        <label className="text-xs font-black text-slate-500 uppercase tracking-wide">Начало смены</label>
+                                        <label className="text-xs font-black text-slate-500 uppercase tracking-wide">{t('shiftStart')}</label>
                                         <div className="flex gap-1">
                                             {[['09:00',9,0],['21:00',21,0]].map(([label,hh,mm])=>(
                                                 <button key={label} type="button" onClick={()=>setShiftForm(f=>({...f,startTime:setTimeOnDate(f.startTime,hh,mm)}))}
@@ -993,13 +993,13 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
 
                                 <div className="rounded-xl border border-slate-200 p-4 space-y-2">
                                     <div className="flex items-center justify-between mb-1">
-                                        <label className="text-xs font-black text-slate-500 uppercase tracking-wide">Конец смены <span className="font-normal text-slate-400 normal-case">(необязательно)</span></label>
+                                        <label className="text-xs font-black text-slate-500 uppercase tracking-wide">{t('shiftEnd')} <span className="font-normal text-slate-400 normal-case">{t('optionalLabel')}</span></label>
                                         <div className="flex gap-1">
                                             {[['09:00',9,0],['21:00',21,0]].map(([label,hh,mm])=>(
                                                 <button key={label} type="button" onClick={()=>setShiftForm(f=>({...f,endTime:setTimeOnDate(f.endTime||f.startTime,hh,mm)}))}
                                                     className="px-2 py-0.5 text-[10px] font-bold rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors">{label}</button>
                                             ))}
-                                            <button type="button" onClick={setEndAuto} title="Выставить конец = начало + 24ч"
+                                            <button type="button" onClick={setEndAuto} title={t('setEnd24Title')}
                                                 className="px-2 py-0.5 text-[10px] font-bold rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">+24ч</button>
                                         </div>
                                     </div>
@@ -1009,35 +1009,35 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
 
                                 {previewH !== null && previewH > 0 && (
                                     <div className="rounded-xl p-4 flex items-center gap-6" style={{background: '#f0fdf4', border: '1px solid #bbf7d0'}}>
-                                        <div className="text-center"><div className="text-2xl font-black text-emerald-600">{previewH.toFixed(1)}ч</div><div className="text-[10px] text-emerald-500 font-semibold uppercase">отработано</div></div>
+                                        <div className="text-center"><div className="text-2xl font-black text-emerald-600">{previewH.toFixed(1)}{t('hoursSuffix')}</div><div className="text-[10px] text-emerald-500 font-semibold uppercase">{t('workedLabel')}</div></div>
                                         <div className="w-px h-10 bg-emerald-200"/>
-                                        <div className="text-center"><div className="text-2xl font-black text-emerald-600">{fmt(previewSal)}</div><div className="text-[10px] text-emerald-500 font-semibold uppercase">зарплата</div></div>
+                                        <div className="text-center"><div className="text-2xl font-black text-emerald-600">{fmt(previewSal)}</div><div className="text-[10px] text-emerald-500 font-semibold uppercase">{t('salaryLower')}</div></div>
                                     </div>
                                 )}
                                 {previewH !== null && previewH <= 0 && (
-                                    <div className="rounded-xl p-3 text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-200">⚠ Конец раньше начала</div>
+                                    <div className="rounded-xl p-3 text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-200">⚠ {t('endBeforeStart')}</div>
                                 )}
 
                                 <div className="flex gap-3 pt-1">
-                                    <button onClick={()=>setIsAddModalOpen(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">Отмена</button>
+                                    <button onClick={()=>setIsAddModalOpen(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">{t('cancel')}</button>
                                     <button onClick={handleSaveShift} className="flex-2 flex-grow-[2] py-3 rounded-xl text-white text-sm font-bold transition-colors shadow-sm" style={{background:'#16a34a'}}>
-                                        {editingShift ? '✏️ Сохранить изменения' : '➕ Добавить смену'}
+                                        {editingShift ? `✏️ ${t('saveChanges')}` : `➕ ${t('addShift')}`}
                                     </button>
                                 </div>
                                 {editingShift && isAdmin && editingShift.endTime && (
                                     isShared(editingShift)
                                         ? <button onClick={()=>{ setIsAddModalOpen(false); doUnsplit(editingShift); }}
                                             className="w-full py-2.5 rounded-xl border border-indigo-300 bg-indigo-50 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-colors">
-                                            ½ Отменить деление 50/50
+                                            ½ {t('cancelSplitTitle')}
                                         </button>
                                         : <button onClick={()=>{ setIsAddModalOpen(false); startSplit(editingShift); }}
                                             className="w-full py-2.5 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-600 hover:bg-indigo-50 transition-colors">
-                                            ½ Разделить смену 50/50 с другим кассиром
+                                            ½ {t('splitShiftTitle')}
                                         </button>
                                 )}
                                 {editingShift && isAdmin && (
                                     <button onClick={()=>handleDeleteShift(editingShift)} className="w-full py-2.5 rounded-xl border border-rose-200 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors">
-                                        🗑 Удалить смену
+                                        🗑 {t('deleteShiftTitle')}
                                     </button>
                                 )}
                             </div>

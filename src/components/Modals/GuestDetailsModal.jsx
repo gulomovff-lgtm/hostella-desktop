@@ -282,7 +282,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
 });
 
 const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+    const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
     const debt = (guest.totalPrice || 0) - totalPaid;
@@ -307,7 +307,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         if (!file) return;
         const b64 = await compressPhotoGDM(file);
         onUpdate(guest.id, { passportPhoto: b64 });
-        notify('Фото паспорта сохранено', 'success');
+        notify(t('photoSaved'), 'success');
     };
 
     const toDateInput = (val) => {
@@ -461,12 +461,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const handlePayDebt = async () => {
         if (isPaymentSubmitting) return;
         const c=parseInt(payCash)||0, cd=parseInt(payCard)||0, q=parseInt(payQR)||0, tr=parseInt(payTransfer)||0, b=payBalance||0;
-        if (c+cd+q+tr+b<=0) return notify('Введите сумму','error');
+        if (c+cd+q+tr+b<=0) return notify(t('enterAmount'),'error');
         setIsPaymentSubmitting(true);
         try {
             await onPayment(guest.id, {cash:c, card:cd, qr:q, transfer:tr, balance:b});
         } catch(e) {
-            notify(e.message || 'Ошибка оплаты', 'error');
+            notify(e.message || t('paymentError'), 'error');
         } finally {
             setIsPaymentSubmitting(false);
         }
@@ -482,10 +482,10 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const fixedTotal = (parseInt(fixCash) || 0) + (parseInt(fixCard) || 0) + (parseInt(fixQR) || 0) + fixedOther;
     const handleFixPaid = () => {
         const c = parseInt(fixCash) || 0, k = parseInt(fixCard) || 0, q = parseInt(fixQR) || 0;
-        if (c < 0 || k < 0 || q < 0) { notify('Суммы не могут быть отрицательными', 'error'); return; }
-        if (!window.confirm(`Оплата гостя станет ${fixedTotal.toLocaleString()} сум (сейчас ${totalPaid.toLocaleString()}). Записи кассы и отчёты не меняются. Продолжить?`)) return;
+        if (c < 0 || k < 0 || q < 0) { notify(t('amountsCannotBeNegative'), 'error'); return; }
+        if (!window.confirm(t('fixPaidConfirm').replace('{new}', fixedTotal.toLocaleString()).replace('{old}', totalPaid.toLocaleString()))) return;
         onUpdate(guest.id, { paidCash: c, paidCard: k, paidQR: q, amountPaid: fixedTotal });
-        notify('Оплата исправлена', 'success');
+        notify(t('paidFixed'), 'success');
     };
     const superPayHoldRef = useRef(null);
     const superPayTriggeredRef = useRef(false);
@@ -502,14 +502,14 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
     const handleSuperPaymentLocal = async () => {
         const amount = parseInt(superPayAmount) || 0;
-        if (amount <= 0) return notify('Введите сумму', 'error');
+        if (amount <= 0) return notify(t('enterAmount'), 'error');
         if (isPaymentSubmitting) return;
         setIsPaymentSubmitting(true);
         try {
             if (onSuperPayment) await onSuperPayment(guest.id, amount);
             setSuperPayAmount('');
         } catch(e) {
-            notify(e.message || 'Ошибка', 'error');
+            notify(e.message || t('error'), 'error');
         } finally {
             setIsPaymentSubmitting(false);
         }
@@ -520,8 +520,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const days = parseInt(guest.days) || 0;
         const newTotal = MIN_NIGHT_PRICE * days;
         const extra = Math.max(0, newTotal - totalPaid);
-        const msg = `Перевести гостя на тариф ${MIN_NIGHT_PRICE.toLocaleString()} сум/ночь?\n\nСумма за ${days} дн.: ${newTotal.toLocaleString()} сум.`
-            + (extra > 0 ? `\nДоплата за уже прожитые дни: ${extra.toLocaleString()} сум.` : '');
+        const msg = t('upgradeConfirm').replace('{price}', MIN_NIGHT_PRICE.toLocaleString()).replace('{days}', days).replace('{total}', newTotal.toLocaleString())
+            + (extra > 0 ? t('upgradeConfirmExtra').replace('{extra}', extra.toLocaleString()) : '');
         if (window.confirm(msg)) {
             onUpgradeTariff(guest, MIN_NIGHT_PRICE);
             onClose();
@@ -532,12 +532,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const days = parseInt(extendDays); if (!days) return;
         // Тариф ниже 70 000 без одобрения — продлевать можно только пакетом (минимум 10 дней)
         if (packageOnly && days < PACKAGE_MIN_DAYS) {
-            return notify(`Тариф ниже ${MIN_NIGHT_PRICE.toLocaleString()} — продление только пакетом (мин. ${PACKAGE_MIN_DAYS} дн.) или по одобрению админа`, 'error');
+            return notify(t('extendPackageOnlyError').replace('{min}', MIN_NIGHT_PRICE.toLocaleString()).replace('{days}', PACKAGE_MIN_DAYS), 'error');
         }
         // Блокируем продление, если конфликт с другим заселением
         if (extendConflict?.isOver) {
             const d = new Date(extendConflict.nextGuest.checkInDate).toLocaleDateString('ru-RU');
-            return notify(`Нельзя продлить: ${extendConflict.nextGuest.fullName} заезжает ${d} на это место. Макс. ${extendConflict.maxDays} дн.`, 'error');
+            return notify(t('extendConflictError').replace('{name}', extendConflict.nextGuest.fullName).replace('{date}', d).replace('{max}', extendConflict.maxDays), 'error');
         }
         setIsPaymentSubmitting(true);
         // Прибавляем к существующим значениям — не пересчитываем из временных меток,
@@ -579,8 +579,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
             // fallback: прямой вызов
             onUpdate(guest.id, { days: newDays, totalPrice: newTotal, status:'active', checkOutDate: newCheckOut });
             if (c+cd+q>0) {
-                setTimeout(()=>{ onPayment(guest.id,{cash:c,card:cd,qr:q}); notify(`Продлено на ${days} дн.`,'success'); setIsPaymentSubmitting(false); goBack(); },300);
-            } else { notify(`Продлено на ${days} дн. (в долг)`,'success'); setIsPaymentSubmitting(false); goBack(); }
+                setTimeout(()=>{ onPayment(guest.id,{cash:c,card:cd,qr:q}); notify(t('extendedByDays').replace('{days}', days),'success'); setIsPaymentSubmitting(false); goBack(); },300);
+            } else { notify(t('extendedByDaysDebt').replace('{days}', days),'success'); setIsPaymentSubmitting(false); goBack(); }
         }
     };
 
@@ -604,25 +604,25 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const s0 = new Date(guest.checkInDate); s0.setHours(0,0,0,0);
         const ss = new Date(splitStartDate);    ss.setHours(0,0,0,0);
         const se = new Date(splitReturnDate);   se.setHours(0,0,0,0);
-        if (ss <= s0) return notify('Дата паузы после заезда','error');
-        if (se <= ss) return notify('Возврат позже ухода','error');
+        if (ss <= s0) return notify(t('pauseAfterCheckin'),'error');
+        if (se <= ss) return notify(t('returnAfterLeave'),'error');
         const ms = 1000*60*60*24;
         const before = Math.floor((ss-s0)/ms), gap = Math.floor((se-ss)/ms);
-        if (before >= parseInt(guest.days)) return notify('Дата паузы превышает срок','error');
+        if (before >= parseInt(guest.days)) return notify(t('pauseExceedsTerm'),'error');
         onSplit(guest, before, gap); onClose();
     };
 
     const handleReplaceFromDB = () => {
-        if (!selectedClient) return notify('Выберите гостя из списка', 'error');
+        if (!selectedClient) return notify(t('selectGuestFromList'), 'error');
         const { fullName, passport, birthDate, country, phone, passportIssueDate } = selectedClient;
         onUpdate(guest.id, { fullName, passport, birthDate: birthDate||'', country: country||'Узбекистан', phone: phone||'', passportIssueDate: passportIssueDate||'' });
-        notify('Гость заменён ✓', 'success');
+        notify(t('guestReplaced'), 'success');
         goBack();
     };
     const handleReplaceNew = () => {
-        if (!replaceNew.fullName.trim()) return notify('Введите ФИО', 'error');
+        if (!replaceNew.fullName.trim()) return notify(t('enterName'), 'error');
         onUpdate(guest.id, { ...replaceNew });
-        notify('Гость заменён ✓', 'success');
+        notify(t('guestReplaced'), 'success');
         goBack();
     };
 
@@ -646,9 +646,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const issueDateFormatted = guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString('ru-RU') : '—';
         const text = `${guest.fullName || '—'}\nДата рожд.: ${birthDateFormatted}\nПаспорт: ${guest.passport || '—'}\nВыдан: ${issueDateFormatted}\nСтрана: ${guest.country || '—'}`;
         navigator.clipboard.writeText(text).then(() => {
-            notify('Данные скопированы', 'success');
+            notify(t('dataCopied'), 'success');
         }).catch(() => {
-            notify('Ошибка копирования', 'error');
+            notify(t('copyError'), 'error');
         });
     };
     const handleDelete      = () => { setConfirmDeleteOpen(true); };
@@ -671,7 +671,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
             moveData.bonusCheckOutDate = new Date(new Date(guest.bonusCheckOutDate).getTime() + deltaMs).toISOString();
         }
         onUpdate(guest.id, moveData);
-        notify('Дата изменена!'); goBack();
+        notify(t('dateChanged')); goBack();
     };
     const handlePrint = type => printDocument(type, guest, hostelInfo);
 
@@ -704,17 +704,17 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
             {clientBalance > 0 && (
                 <div className="flex items-center justify-between px-3 py-2.5 border-2 rounded-xl border-blue-200 bg-blue-50">
                     <div className="flex items-center gap-2 text-blue-700 font-bold text-sm">
-                        <span>💳</span> Баланс счёта: <span className="text-blue-900">{clientBalance.toLocaleString()} сум</span>
+                        <span>💳</span> {t('accountBalance')}: <span className="text-blue-900">{clientBalance.toLocaleString()} {t('sum')}</span>
                     </div>
                     {payBalance > 0
-                        ? <button onClick={()=>setPayBalance(0)} className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700">✕ Убрать</button>
-                        : <button onClick={()=>setPayBalance(Math.min(clientBalance, Math.max(0, debt - (parseInt(payCash)||0) - (parseInt(payCard)||0) - (parseInt(payQR)||0))))} className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Списать</button>
+                        ? <button onClick={()=>setPayBalance(0)} className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700">✕ {t('removeBtn')}</button>
+                        : <button onClick={()=>setPayBalance(Math.min(clientBalance, Math.max(0, debt - (parseInt(payCash)||0) - (parseInt(payCard)||0) - (parseInt(payQR)||0))))} className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700">{t('writeOff')}</button>
                     }
                 </div>
             )}
             {payBalance > 0 && (
                 <div className="text-xs text-blue-700 font-semibold text-center">
-                    💳 Со счёта спишется: <b>{payBalance.toLocaleString()} сум</b>
+                    💳 {t('debitedFromAccount')}: <b>{payBalance.toLocaleString()} {t('sum')}</b>
                 </div>
             )}
         </div>
@@ -787,22 +787,22 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <div className="rounded-xl p-3 border border-blue-200 bg-blue-50 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <span className="text-xl">💳</span>
-                                        <div className="text-xs text-blue-700 font-bold">Баланс счёта</div>
+                                        <div className="text-xs text-blue-700 font-bold">{t('accountBalance')}</div>
                                     </div>
-                                    <div className="text-xl font-black text-blue-600">{clientBalance.toLocaleString()} сум</div>
+                                    <div className="text-xl font-black text-blue-600">{clientBalance.toLocaleString()} {t('sum')}</div>
                                 </div>
                             )}
 
                             {clientRecord && debt < 0 && !isCheckedOut && !isBooking && onTopUpBalance && !guest.overpayTransferred && (
                                 <div className="rounded-xl p-3 border border-violet-200 bg-violet-50 flex items-center justify-between">
                                     <div>
-                                        <div className="text-[10px] font-bold text-violet-500 uppercase mb-0.5">Переплата</div>
-                                        <div className="text-lg font-black text-violet-700">{Math.abs(debt).toLocaleString()} сум</div>
+                                        <div className="text-[10px] font-bold text-violet-500 uppercase mb-0.5">{t('overpayment')}</div>
+                                        <div className="text-lg font-black text-violet-700">{Math.abs(debt).toLocaleString()} {t('sum')}</div>
                                     </div>
                                     <button
-                                        onClick={() => { onUpdate(guest.id, { overpayTransferred: true }); onTopUpBalance(clientRecord.id, Math.abs(debt), 'balance', true); notify('Переплата перемещена на баланс', 'success'); }}
+                                        onClick={() => { onUpdate(guest.id, { overpayTransferred: true }); onTopUpBalance(clientRecord.id, Math.abs(debt), 'balance', true); notify(t('overpayMovedToBalance'), 'success'); }}
                                         className="px-3 py-2 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-colors"
-                                    >💳 На баланс</button>
+                                    >💳 {t('toBalance')}</button>
                                 </div>
                             )}
 
@@ -813,8 +813,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         <div>
                                             <div className="text-xs text-orange-700">
                                                 {(guest.bonusDaysAdded || 0) > 0
-                                                    ? 'Начислено гостю по реферальной'
-                                                    : 'Доступно к использованию'}
+                                                    ? t('bonusAccruedReferral')
+                                                    : t('bonusAvailableToUse')}
                                             </div>
                                         </div>
                                     </div>
@@ -843,14 +843,14 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center justify-between">
                                     <span>{t('personalData')}</span>
                                     <div className="flex items-center gap-2">
-                                        <button onClick={copyRegistrationData} className="flex items-center gap-1 text-emerald-500 hover:text-emerald-700 text-[10px] font-bold" title="Копировать данные для регистрации"><Copy size={12}/> Копировать</button>
-                                        <button onClick={()=>photoInputRef.current?.click()} className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-[10px] font-bold"><Camera size={12}/> Фото</button>
+                                        <button onClick={copyRegistrationData} className="flex items-center gap-1 text-emerald-500 hover:text-emerald-700 text-[10px] font-bold" title={t('copyRegData')}><Copy size={12}/> {t('copy')}</button>
+                                        <button onClick={()=>photoInputRef.current?.click()} className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-[10px] font-bold"><Camera size={12}/> {t('photo')}</button>
                                         <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload}/>
                                     </div>
                                 </div>
                                 {guest.passportPhoto && (
                                     <div className="mb-2 relative inline-block">
-                                        <img src={guest.passportPhoto} alt="Паспорт" className="h-20 rounded-xl border border-slate-200 object-cover shadow-sm"/>
+                                        <img src={guest.passportPhoto} alt={t('passport')} className="h-20 rounded-xl border border-slate-200 object-cover shadow-sm"/>
                                         <button onClick={()=>onUpdate(guest.id,{passportPhoto:''})} className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-xs font-bold">×</button>
                                     </div>
                                 )}
@@ -861,7 +861,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         [t('issuedLabel'),      guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru') : '—'],
                                         [t('phone'),    guest.phone || '—'],
                                         [t('country'),     guest.country || '—'],
-                                        [t('payment'),     [guest.paidCash>0&&`Нал:${(+guest.paidCash).toLocaleString()}`, guest.paidCard>0&&`Карта:${(+guest.paidCard).toLocaleString()}`, guest.paidQR>0&&`QR:${(+guest.paidQR).toLocaleString()}`].filter(Boolean).join(' · ')||'—'],
+                                        [t('payment'),     [guest.paidCash>0&&`${t('cashShort')}:${(+guest.paidCash).toLocaleString()}`, guest.paidCard>0&&`${t('cardShort')}:${(+guest.paidCard).toLocaleString()}`, guest.paidQR>0&&`QR:${(+guest.paidQR).toLocaleString()}`].filter(Boolean).join(' · ')||'—'],
                                     ].map(([l,v])=>(
                                         <div key={l}>
                                             <span className="text-[10px] text-slate-400">{l}: </span>
@@ -891,7 +891,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             <div className="bg-white rounded-xl border border-slate-200 p-3 flex items-center gap-3">
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                     <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(15,150,136,0.12)' }}><FileText size={17} className="text-teal-600"/></div>
-                                    <span className="text-sm font-bold text-slate-700">Распечатать договор</span>
+                                    <span className="text-sm font-bold text-slate-700">{t('printContractBtn')}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                     {[['uz','UZ','uz'],['ru','RU','ru'],['en','EN','gb']].map(([lc,lbl,flag])=>(
@@ -920,12 +920,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         isExpiring ? 'bg-amber-50 border-amber-300' :
                                                      'bg-emerald-50 border-emerald-200'
                                     }`}>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">🏠 Регистрация по кадастру</div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">🏠 {t('cadastreRegistration')}</div>
                                         <div className="flex items-center justify-between gap-2">
                                             <div className="space-y-0.5">
                                                 {cadReg.cadastreAddress && <div className="text-xs text-slate-500">📍 {cadReg.cadastreAddress}</div>}
                                                 <div className="text-xs font-semibold text-slate-700">
-                                                    {cadReg.startDate} → {cadReg.endDate} ({cadReg.days || '?'} дн.)
+                                                    {cadReg.startDate} → {cadReg.endDate} ({cadReg.days || '?'} {t('daysShort')})
                                                 </div>
                                                 <div className={`text-xs font-bold mt-0.5 ${
                                                     isExpired  ? 'text-rose-600' :
@@ -933,10 +933,10 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                                  'text-emerald-700'
                                                 }`}>
                                                     {isExpired
-                                                        ? `❌ Истекла ${Math.abs(daysLeft)} дн. назад`
+                                                        ? `❌ ${t('cadastreExpired').replace('{n}', Math.abs(daysLeft))}`
                                                         : isExpiring
-                                                            ? `⚠️ Осталось ${daysLeft} дн.`
-                                                            : `✅ Активна, осталось ${daysLeft} дн.`}
+                                                            ? `⚠️ ${t('cadastreExpiring').replace('{n}', daysLeft)}`
+                                                            : `✅ ${t('cadastreActive').replace('{n}', daysLeft)}`}
                                                 </div>
                                             </div>
                                         </div>
@@ -954,37 +954,37 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 const isSuper = currentUser?.role === 'super' || currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
                                 return (
                                     <div className={`rounded-xl p-3 border ${needsReg ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200'}`}>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">КПП / Регистрация</div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">{t('kppRegistration')}</div>
                                         <div className="flex items-center justify-between gap-2">
                                             <div>
-                                                <div className="text-xs font-semibold text-slate-700">Дата КПП: {new Date(guest.kppDate).toLocaleDateString('ru-RU')}</div>
+                                                <div className="text-xs font-semibold text-slate-700">{t('kppDateLabel')}: {new Date(guest.kppDate).toLocaleDateString('ru-RU')}</div>
                                                 {deadline && (
                                                     <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
-                                                        Регистрация до: <span className={overdue ? 'text-rose-600 font-bold' : 'text-slate-700 font-bold'}>{deadline.toLocaleDateString('ru-RU')}</span> <span className="text-slate-400">({regWindow} дн.)</span>
+                                                        {t('registrationUntil')}: <span className={overdue ? 'text-rose-600 font-bold' : 'text-slate-700 font-bold'}>{deadline.toLocaleDateString('ru-RU')}</span> <span className="text-slate-400">({regWindow} {t('daysShort')})</span>
                                                     </div>
                                                 )}
                                                 <div className={`text-xs font-bold mt-0.5 ${needsReg ? 'text-amber-700' : 'text-slate-500'}`}>
                                                     {guest.kppRegistered
-                                                        ? '\u2705 Регистрация подтверждена'
+                                                        ? `✅ ${t('kppConfirmed')}`
                                                         : overdue
-                                                            ? `⚠️ Просрочено! Прошло ${days} дн. — срочно зарегистрировать!`
+                                                            ? `⚠️ ${t('kppOverdue').replace('{n}', days)}`
                                                             : needsReg
-                                                            ? `\u26a0\ufe0f Прошло ${days} дн. — нужна регистрация!`
-                                                            : `День ${days} из ${regWindow}`}
+                                                            ? `⚠️ ${t('kppNeedReg').replace('{n}', days)}`
+                                                            : t('kppDayOf').replace('{n}', days).replace('{total}', regWindow)}
                                                 </div>
                                             </div>
                                             <div className="flex flex-col gap-1.5 shrink-0">
                                                 {needsReg && onKppConfirm && (
                                                     <button
-                                                        onClick={() => { onKppConfirm(guest.id); notify('Регистрация подтверждена', 'success'); }}
+                                                        onClick={() => { onKppConfirm(guest.id); notify(t('kppConfirmed'), 'success'); }}
                                                         className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
-                                                    >Подтвердить</button>
+                                                    >{t('confirm')}</button>
                                                 )}
                                                 {isSuper && onKppReset && (
                                                     <button
                                                         onClick={() => { setKppResetDate(new Date().toISOString().slice(0,10)); setKppResetModal(true); }}
                                                         className="px-3 py-1.5 bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 rounded-xl text-[10px] font-bold transition-colors border border-slate-200"
-                                                    >↺ Сбросить</button>
+                                                    >↺ {t('resetBtn')}</button>
                                                 )}
                                             </div>
                                         </div>
@@ -1006,15 +1006,15 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             if (guest.emehmonReg || hasCadastre) return null;
                                             return (
                                                 <button
-                                                    onClick={() => { openEmehmonArrival(guest); notify('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}
+                                                    onClick={() => { openEmehmonArrival(guest); notify(t('emehmonOpenArrival'), 'info'); }}
                                                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-bold hover:bg-indigo-100 transition-colors"
                                                 >
-                                                    🌐 Оформить (прибытие)
+                                                    🌐 {t('registerArrival')}
                                                 </button>
                                             );
                                         })()}
                                         {(isAdmin || currentUser.login === 'fazliddin') && (
-                                            <button onClick={() => setEmehmonCfgOpen(true)} title="Доступы e-mehmon"
+                                            <button onClick={() => setEmehmonCfgOpen(true)} title={t('emehmonAccess')}
                                                 className="p-2.5 rounded-xl border border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
                                                 <Settings size={16} />
                                             </button>
@@ -1027,11 +1027,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                 disabled={departing}
                                                 onClick={() => {
                                                     if (onEmehmonDepart) onEmehmonDepart(guest);
-                                                    else { openEmehmonDeparture(guest); notify('Открываю e-mehmon — «Выселить» или «Печать»', 'info'); }
+                                                    else { openEmehmonDeparture(guest); notify(t('emehmonOpenDeparture'), 'info'); }
                                                 }}
                                                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-bold hover:bg-rose-100 transition-colors disabled:opacity-50"
                                             >
-                                                {departing ? '⏳ Вывожу из e-mehmon…' : '✈️ Вывести из e-mehmon (фон)'}
+                                                {departing ? `⏳ ${t('emehmonDeparting')}` : `✈️ ${t('emehmonDepartBg')}`}
                                             </button>
                                         );
                                     })()}
@@ -1044,14 +1044,14 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600"
                                             checked={!!guest.emehmonReg}
                                             onChange={e => onUpdate(guest.id, { emehmonReg: e.target.checked, emehmonRegAt: e.target.checked ? new Date().toISOString() : '' })} />
-                                        Зарегистрирован в e-mehmon
+                                        {t('registeredInEmehmon')}
                                     </label>
                                     {isCheckedOut && (
                                         <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
                                             <input type="checkbox" className="w-4 h-4 rounded accent-emerald-600"
                                                 checked={!!guest.emehmonOut}
                                                 onChange={e => onUpdate(guest.id, { emehmonOut: e.target.checked, emehmonOutAt: e.target.checked ? new Date().toISOString() : '' })} />
-                                            Выведен из e-mehmon
+                                            {t('removedFromEmehmon')}
                                         </label>
                                     )}
                                 </div>
@@ -1064,7 +1064,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         // Бронь без паспорта/даты рождения: сначала дополнить данные
                                         const passOk = (guest.passport || '').replace(/\s/g, '').length >= 5;
                                         if (!passOk || !guest.birthDate) {
-                                            notify('Гость пришёл по брони — дополните паспорт и дату рождения', 'error');
+                                            notify(t('bookingNeedData'), 'error');
                                             setCurrentView('edit');
                                             return;
                                         }
@@ -1074,7 +1074,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         При заселении залог автоматически перенесётся в запись гостя. */}
                                     <button onClick={()=>setCurrentView('pay')}
                                         className="w-full py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-sm hover:bg-emerald-100 flex items-center justify-center gap-1.5">
-                                        💳 Принять залог{(guest.amountPaid || 0) > 0 ? ` (внесено ${Number(guest.amountPaid).toLocaleString()})` : ''}
+                                        💳 {t('acceptDeposit')}{(guest.amountPaid || 0) > 0 ? ` (${t('depositMade').replace('{n}', Number(guest.amountPaid).toLocaleString())})` : ''}
                                     </button>
                                     <div className="grid grid-cols-2 gap-2">
                                         <button onClick={()=>setCurrentView('moveDate')} className="py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-1"><Calendar size={14}/> {t('postpone')}</button>
@@ -1093,7 +1093,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 </div>
                                 {isBelowMinRate && onUpgradeTariff && (
                                     <button onClick={handleUpgrade} className="w-full mt-2 py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 flex items-center justify-center gap-1.5">
-                                        ⬆️ Перейти на тариф {MIN_NIGHT_PRICE.toLocaleString()}
+                                        ⬆️ {t('switchToTariff')} {MIN_NIGHT_PRICE.toLocaleString()}
                                     </button>
                                 )}
                                 </>
@@ -1108,7 +1108,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         onPointerDown={startSuperPayHold}
                                         onPointerUp={cancelSuperPayHold}
                                         onPointerLeave={cancelSuperPayHold}
-                                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title="Чек"><Printer size={17}/></button>
+                                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg" title={t('printCheck')}><Printer size={17}/></button>
                                     <button onClick={() => {
                                         setEditForm({
                                             fullName: guest.fullName || '',
@@ -1121,28 +1121,28 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             pricePerNight: guest.pricePerNight || 0,
                                         });
                                         setCurrentView('edit');
-                                    }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Редактировать"><Edit size={17}/></button>
+                                    }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title={t('edit')}><Edit size={17}/></button>
                                 </>
                             )}
-                            {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('moveDate')} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Перенос дат"><CalendarDays size={17}/></button>}
-                            {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('trimDays')} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Срезать дни"><Scissors size={17}/></button>}
+                            {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('moveDate')} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title={t('moveDatesTitle')}><CalendarDays size={17}/></button>}
+                            {!isCheckedOut && canMoveDate && <button onClick={()=>setCurrentView('trimDays')} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title={t('trimDaysTitle')}><Scissors size={17}/></button>}
                             {onOpenHistory && (
                                 <button
                                     onClick={onOpenHistory}
                                     className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
-                                    title="История заселений клиента"
+                                    title={t('clientCheckinHistory')}
                                 ><History size={17}/></button>
                             )}
-                            {!isCheckedOut && <button onClick={onOpenMove} className="ml-auto text-slate-500 hover:text-slate-800 font-bold text-xs flex items-center gap-1 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg"><ArrowLeftRight size={13}/> Переместить</button>}
+                            {!isCheckedOut && <button onClick={onOpenMove} className="ml-auto text-slate-500 hover:text-slate-800 font-bold text-xs flex items-center gap-1 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg"><ArrowLeftRight size={13}/> {t('move')}</button>}
                             {!isCheckedOut && (
                                 <button onClick={() => { setReplaceTab('db'); setReplaceSearch(''); setSelectedClient(null); setCurrentView('replaceGuest'); }}
-                                    className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Заменить гостя">
+                                    className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title={t('replaceGuestTitle')}>
                                     <UserX size={17}/>
                                 </button>
                             )}
-                            {isAdmin && <button onClick={handleDelete} className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title="Удалить"><Trash2 size={17}/></button>}
-                            {isAdmin && !isCheckedOut && <button onClick={()=>setCurrentView('admin')} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title="Админ"><Lock size={17}/></button>}
-                            {isCheckedOut && <button onClick={()=>{ if(confirm('Восстановить гостя как активного?')) { const restoredCo = (() => { try { const ci = new Date(guest.checkInDate); const d = new Date(ci); d.setDate(d.getDate() + parseInt(guest.days || 0)); d.setHours(12, 0, 0, 0); return d.toISOString(); } catch { return guest.checkOutDate; } })(); onUpdate(guest.id, { status: 'active', autoCheckedOut: false, systemComment: '', checkOutDate: restoredCo }); notify('Гость восстановлен', 'success'); onClose(); }}} className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-violet-100 text-violet-700 hover:bg-violet-200 rounded-lg text-xs font-bold" title="Восстановить гостя"><RotateCcw size={14}/> {t('restoreGuest')}</button>}
+                            {isAdmin && <button onClick={handleDelete} className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title={t('delete')}><Trash2 size={17}/></button>}
+                            {isAdmin && !isCheckedOut && <button onClick={()=>setCurrentView('admin')} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg" title={t('adminTitle')}><Lock size={17}/></button>}
+                            {isCheckedOut && <button onClick={()=>{ if(confirm(t('restoreGuestConfirm'))) { const restoredCo = (() => { try { const ci = new Date(guest.checkInDate); const d = new Date(ci); d.setDate(d.getDate() + parseInt(guest.days || 0)); d.setHours(12, 0, 0, 0); return d.toISOString(); } catch { return guest.checkOutDate; } })(); onUpdate(guest.id, { status: 'active', autoCheckedOut: false, systemComment: '', checkOutDate: restoredCo }); notify(t('guestRestored'), 'success'); onClose(); }}} className="ml-auto flex items-center gap-1.5 px-3 py-2 bg-violet-100 text-violet-700 hover:bg-violet-200 rounded-lg text-xs font-bold" title={t('restoreGuest')}><RotateCcw size={14}/> {t('restoreGuest')}</button>}
                         </div>
                     </div>
                 )}
@@ -1159,12 +1159,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             {payFields}
                             {!isOnline && (
                                 <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-xs font-semibold">
-                                    📶 Оффлайн — оплата сохранится и синхронизируется при подключении
+                                    📶 {t('offlinePaymentNote')}
                                 </div>
                             )}
                             <button onClick={handlePayDebt} disabled={isPaymentSubmitting} className="w-full py-3.5 text-white rounded-xl font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-2">
                                 {isPaymentSubmitting && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>}
-                                ПОДТВЕРДИТЬ ОПЛАТУ
+                                {t('confirmPaymentUpper')}
                             </button>
                         </div>
                     </div>
@@ -1178,7 +1178,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
                                     <ShieldCheck size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
                                     <p className="text-xs text-emerald-700 font-semibold leading-snug">
-                                        Понижение цены <b>одобрено</b>: {approvedPrice.toLocaleString()} сум/ночь. Можно продлевать по 1 дню по этой цене.
+                                        {t('priceReductionPre')}<b>{t('priceReductionBold')}</b>{t('priceReductionPost').replace('{price}', approvedPrice.toLocaleString())}
                                     </p>
                                 </div>
                             )}
@@ -1187,24 +1187,24 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     <div className="flex items-start gap-2">
                                         <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5"/>
                                         <p className="text-xs text-orange-700 font-semibold leading-snug">
-                                            Тариф ниже {MIN_NIGHT_PRICE.toLocaleString()} сум — продление <b>только пакетом</b> (мин. {PACKAGE_MIN_DAYS} дн.). Для продления по 1 дню нужно одобрение админа.
+                                            {t('tariffBelowPre').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}<b>{t('tariffBelowBold')}</b>{t('tariffBelowPost').replace('{days}', PACKAGE_MIN_DAYS)}
                                         </p>
                                     </div>
                                     {onPriceRequest && (
                                         !showPriceReq ? (
                                             <button onClick={() => { setShowPriceReq(true); setReqPrice(String(guestRate)); }}
                                                 className="w-full py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold flex items-center justify-center gap-1.5">
-                                                🔻 Запрос на понижение цены
+                                                🔻 {t('priceReductionRequest')}
                                             </button>
                                         ) : (
                                             <div className="space-y-2 bg-white rounded-xl p-2.5 border border-orange-200">
-                                                <label className="text-[11px] font-bold text-slate-500 uppercase">Желаемая цена (сум/ночь)</label>
-                                                <input type="number" className="w-full p-2.5 text-center border border-slate-200 rounded-xl outline-none font-bold focus:border-orange-400" placeholder="Цена" value={reqPrice} onChange={e=>setReqPrice(e.target.value)} onWheel={disableWheel}/>
+                                                <label className="text-[11px] font-bold text-slate-500 uppercase">{t('desiredPrice')}</label>
+                                                <input type="number" className="w-full p-2.5 text-center border border-slate-200 rounded-xl outline-none font-bold focus:border-orange-400" placeholder={t('priceShort')} value={reqPrice} onChange={e=>setReqPrice(e.target.value)} onWheel={disableWheel}/>
                                                 <div className="flex gap-2">
-                                                    <button onClick={() => setShowPriceReq(false)} className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50">Отмена</button>
+                                                    <button onClick={() => setShowPriceReq(false)} className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50">{t('cancel')}</button>
                                                     <button onClick={() => { onPriceRequest(guest, parseInt(reqPrice)||0); setShowPriceReq(false); }}
                                                         disabled={!((parseInt(reqPrice)||0) > 0)}
-                                                        className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-xs font-bold">Отправить админу</button>
+                                                        className="flex-1 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white text-xs font-bold">{t('sendToAdmin')}</button>
                                                 </div>
                                             </div>
                                         )
@@ -1224,18 +1224,18 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <div className="flex items-start gap-2 p-3 rounded-xl border bg-amber-50 border-amber-300">
                                     <span className="text-amber-500 text-base shrink-0">⚠️</span>
                                     <div>
-                                        <div className="font-black text-amber-700 text-sm">Место занято через {extendConflict.maxDays} дн.</div>
+                                        <div className="font-black text-amber-700 text-sm">{t('bedBusyInDays').replace('{n}', extendConflict.maxDays)}</div>
                                         <div className="text-xs text-amber-600 mt-0.5">
-                                            <b>{extendConflict.nextGuest.fullName}</b> заезжает {new Date(extendConflict.nextGuest.checkInDate).toLocaleDateString('ru-RU')}.
-                                            Максимум: <b>{extendConflict.maxDays} дн.</b>
-                                            {extendConflict.isOver && <span className="ml-1 text-rose-600 font-black"> ❌ Невозможно!</span>}
+                                            <b>{extendConflict.nextGuest.fullName}</b> {t('conflictArrives')} {new Date(extendConflict.nextGuest.checkInDate).toLocaleDateString('ru-RU')}.
+                                            {t('maximum')}: <b>{extendConflict.maxDays} {t('daysShort')}</b>
+                                            {extendConflict.isOver && <span className="ml-1 text-rose-600 font-black"> ❌ {t('impossible')}</span>}
                                         </div>
                                     </div>
                                 </div>
                             )}
                             {!isAdmin && (
                             <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
-                                <div className="text-xs font-bold text-slate-400 uppercase mb-3">Оплатить сейчас (опц.)</div>
+                                <div className="text-xs font-bold text-slate-400 uppercase mb-3">{t('payNowOptional')}</div>
                                 {payFields}
                             </div>
                             )}
@@ -1245,7 +1245,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             </div>
                             {!isOnline && ((parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0)) > 0 && (
                                 <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-xs font-semibold">
-                                    📶 Оффлайн — оплата сохранится и синхронизируется при подключении
+                                    📶 {t('offlinePaymentNote')}
                                 </div>
                             )}
                             <button onClick={handleExtend} disabled={isPaymentSubmitting} className={`w-full py-3.5 text-white rounded-xl font-black shadow-lg disabled:opacity-60 flex items-center justify-center gap-2 ${(!isAdmin && (parseInt(payCash)||0)+(parseInt(payCard)||0)+(parseInt(payQR)||0))>0?'bg-emerald-600 hover:bg-emerald-700':'bg-indigo-600 hover:bg-indigo-700'}`}>
@@ -1264,8 +1264,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <div className="flex items-start gap-2 px-3 py-3 bg-rose-50 border-2 border-rose-300 rounded-xl">
                                     <AlertTriangle size={18} className="text-rose-500 shrink-0 mt-0.5"/>
                                     <div>
-                                        <p className="text-sm text-rose-700 font-bold">Невозвратный пакетный тариф</p>
-                                        <p className="text-xs text-rose-600 font-semibold mt-0.5">При выселении пакет сгорает полностью — возврат оплаченной суммы не предусмотрен.</p>
+                                        <p className="text-sm text-rose-700 font-bold">{t('nonRefundablePackage')}</p>
+                                        <p className="text-xs text-rose-600 font-semibold mt-0.5">{t('nonRefundableDesc')}</p>
                                     </div>
                                 </div>
                             )}
@@ -1277,16 +1277,16 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             </div>
                             {balance < 0 ? (
                                 <div className="p-4 bg-rose-50 border-2 border-rose-100 rounded-xl text-center">
-                                    <div className="text-rose-400 font-bold text-xs uppercase mb-1">Долг</div>
+                                    <div className="text-rose-400 font-bold text-xs uppercase mb-1">{t('debt')}</div>
                                     <div className="text-3xl font-black text-rose-600">{Math.abs(balance).toLocaleString()}</div>
                                 </div>
                             ) : (
                                 <div className="p-4 bg-emerald-50 border-2 border-emerald-100 rounded-xl">
-                                    <div className="text-emerald-500 font-bold text-xs uppercase mb-1 text-center">К возврату</div>
-                                    <div className="text-3xl font-black text-emerald-600 text-center mb-3">{refundableNow.toLocaleString()} сум</div>
+                                    <div className="text-emerald-500 font-bold text-xs uppercase mb-1 text-center">{t('toRefund')}</div>
+                                    <div className="text-3xl font-black text-emerald-600 text-center mb-3">{refundableNow.toLocaleString()} {t('sum')}</div>
                                     {refundableNow <= 0 && alreadySettledRefund > 0 && (
                                         <p className="text-xs text-slate-500 font-semibold text-center mb-2">
-                                            Переплата уже была обработана ранее: {alreadySettledRefund.toLocaleString()} сум
+                                            {t('overpayProcessedEarlier').replace('{n}', alreadySettledRefund.toLocaleString())}
                                         </p>
                                     )}
                                     {refundableNow > 0 && (
@@ -1296,13 +1296,13 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                     onClick={() => { setCheckoutBalanceChoice('balance'); setCheckoutManualRefund(''); setCheckoutMixBalance(''); setCheckoutMixRefund(''); }}
                                                     className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${checkoutBalanceChoice === 'balance' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'}`}
                                                 >
-                                                    💳 На баланс
+                                                    💳 {t('toBalance')}
                                                 </button>
                                                 <button
                                                     onClick={() => { setCheckoutBalanceChoice('refund'); setCheckoutManualRefund(''); setCheckoutMixBalance(''); setCheckoutMixRefund(''); }}
                                                     className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${checkoutBalanceChoice === 'refund' ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300'}`}
                                                 >
-                                                    💸 Вернуть
+                                                    💸 {t('returnBtn')}
                                                 </button>
                                                 <button
                                                     onClick={() => {
@@ -1314,20 +1314,20 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                     }}
                                                     className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${checkoutBalanceChoice === 'mix' ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-violet-300'}`}
                                                 >
-                                                    🔀 Микс
+                                                    🔀 {t('mix')}
                                                 </button>
                                             </div>
 
                                             {checkoutBalanceChoice === 'refund' && (
-                                                <input type="number" className="w-full p-2.5 text-center border border-emerald-200 rounded-xl outline-none font-bold" placeholder="Сумма возврата (опц.)" value={checkoutManualRefund} onChange={e=>setCheckoutManualRefund(e.target.value)}/>
+                                                <input type="number" className="w-full p-2.5 text-center border border-emerald-200 rounded-xl outline-none font-bold" placeholder={t('refundAmountOptional')} value={checkoutManualRefund} onChange={e=>setCheckoutManualRefund(e.target.value)}/>
                                             )}
                                             {checkoutBalanceChoice === 'balance' && (
-                                                <p className="text-xs text-blue-600 font-semibold text-center">Сумма будет зачислена на баланс клиента и учтена при следующем заселении</p>
+                                                <p className="text-xs text-blue-600 font-semibold text-center">{t('refundToBalanceNote')}</p>
                                             )}
                                             {checkoutBalanceChoice === 'mix' && (
                                                 <div className="space-y-2">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-bold text-blue-600 w-20 shrink-0">💳 Баланс</span>
+                                                        <span className="text-xs font-bold text-blue-600 w-20 shrink-0">💳 {t('balance')}</span>
                                                         <input
                                                             type="number"
                                                             className="flex-1 p-2 text-center border border-blue-200 rounded-xl outline-none font-bold text-sm"
@@ -1341,7 +1341,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                         />
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-bold text-emerald-600 w-20 shrink-0">💸 Наличные</span>
+                                                        <span className="text-xs font-bold text-emerald-600 w-20 shrink-0">💸 {t('cash')}</span>
                                                         <input
                                                             type="number"
                                                             className="flex-1 p-2 text-center border border-emerald-200 rounded-xl outline-none font-bold text-sm"
@@ -1355,7 +1355,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                         />
                                                     </div>
                                                     <div className="flex items-center justify-between px-1">
-                                                        <span className="text-xs text-slate-400">Итого: {((parseInt(checkoutMixBalance)||0) + (parseInt(checkoutMixRefund)||0)).toLocaleString()} / {refundableNow.toLocaleString()}</span>
+                                                        <span className="text-xs text-slate-400">{t('total')}: {((parseInt(checkoutMixBalance)||0) + (parseInt(checkoutMixRefund)||0)).toLocaleString()} / {refundableNow.toLocaleString()}</span>
                                                         <button
                                                             onClick={() => { const h = Math.floor(refundableNow/2); setCheckoutMixBalance(String(h)); setCheckoutMixRefund(String(refundableNow-h)); }}
                                                             className="text-xs font-bold text-violet-600 hover:text-violet-800"
@@ -1374,42 +1374,42 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
                 {currentView === 'edit' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('Редактирование', true)}
+                        {hdr(t('editingTitle'), true)}
                         <div className="p-5 flex-1 space-y-3 overflow-y-auto">
-                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">ФИО</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.fullName} onChange={e=>setEditForm({...editForm,fullName:e.target.value})} onBlur={e=>setEditForm({...editForm,fullName:e.target.value.toUpperCase()})}/></div>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('fullNameLabel')}</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.fullName} onChange={e=>setEditForm({...editForm,fullName:e.target.value})} onBlur={e=>setEditForm({...editForm,fullName:e.target.value.toUpperCase()})}/></div>
                             <div className="grid grid-cols-2 gap-3">
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Паспорт</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passport} onChange={e=>setEditForm({...editForm,passport:e.target.value})} onBlur={e=>setEditForm({...editForm,passport:e.target.value.toUpperCase()})}/></div>
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Дата рожд.</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.birthDate} onChange={e=>setEditForm({...editForm,birthDate:e.target.value})}/></div>
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Выдан</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passportIssueDate} onChange={e=>setEditForm({...editForm,passportIssueDate:e.target.value})}/></div>
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Телефон</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('passport')}</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passport} onChange={e=>setEditForm({...editForm,passport:e.target.value})} onBlur={e=>setEditForm({...editForm,passport:e.target.value.toUpperCase()})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('birthDateShort')}</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.birthDate} onChange={e=>setEditForm({...editForm,birthDate:e.target.value})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('issuedLabel')}</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.passportIssueDate} onChange={e=>setEditForm({...editForm,passportIssueDate:e.target.value})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('phone')}</label><input className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></div>
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Страна</label>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('country')}</label>
                                 <select className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-white" value={editForm.country||'Узбекистан'} onChange={e=>setEditForm({...editForm,country:e.target.value})}>
                                     {COUNTRIES_LIST.map(c=><option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
                             {editForm.country && editForm.country !== 'Узбекистан' && (
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Дата прохода КПП</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.kppDate} onChange={e=>setEditForm({...editForm,kppDate:e.target.value})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('kppDatePassed')}</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.kppDate} onChange={e=>setEditForm({...editForm,kppDate:e.target.value})}/></div>
                             )}
-                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Тариф/ночь</label>
+                            <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('tariffPerNight')}</label>
                                 {canEditPrice ? (
                                     <input type="number" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.pricePerNight} onChange={e=>setEditForm({...editForm,pricePerNight:e.target.value})}/>
                                 ) : (
                                     <div className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 text-slate-500 flex items-center justify-between">
-                                        <span>{(parseInt(editForm.pricePerNight)||0).toLocaleString()} сум</span>
-                                        <span className="text-[10px] text-slate-400 flex items-center gap-1"><Lock size={11}/> только Fazliddin</span>
+                                        <span>{(parseInt(editForm.pricePerNight)||0).toLocaleString()} {t('sum')}</span>
+                                        <span className="text-[10px] text-slate-400 flex items-center gap-1"><Lock size={11}/> {t('onlyFazliddin')}</span>
                                     </div>
                                 )}
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Фото паспорта</label>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('passportPhoto')}</label>
                                 <button type="button" onClick={()=>photoInputRef.current?.click()} className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 font-bold text-sm flex items-center justify-center gap-2 hover:border-indigo-300 hover:text-indigo-600">
-                                    <Camera size={16}/> {guest.passportPhoto ? 'Заменить фото' : 'Загрузить фото'}
+                                    <Camera size={16}/> {guest.passportPhoto ? t('changePhoto') : t('uploadPhoto')}
                                 </button>
-                                {guest.passportPhoto && <img src={guest.passportPhoto} alt="Паспорт" className="mt-2 h-24 rounded-xl border border-slate-200 object-cover"/>}
+                                {guest.passportPhoto && <img src={guest.passportPhoto} alt={t('passport')} className="mt-2 h-24 rounded-xl border border-slate-200 object-cover"/>}
                             </div>
-                            <button onClick={handleSaveInfo} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold mt-2">СОХРАНИТЬ</button>
+                            <button onClick={handleSaveInfo} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold mt-2">{t('saveUpper')}</button>
                         </div>
                     </div>
                 )}

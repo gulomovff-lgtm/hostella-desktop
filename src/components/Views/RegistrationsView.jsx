@@ -5,6 +5,7 @@ import {
     UserX, Plane, ChevronLeft, ChevronRight, Calculator,
 } from 'lucide-react';
 import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
+import TRANSLATIONS from '../../constants/translations';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,15 +42,16 @@ const getDaysLeft = (endDate) => {
 };
 
 /** «только что» / «5 мин назад» / «в 14:30» — возраст снимка списка e-mehmon */
-const minutesAgo = (ts) => {
+const minutesAgo = (ts, t = (k) => k) => {
     const min = Math.floor((Date.now() - ts) / 60000);
-    if (min < 1) return 'только что';
-    if (min < 60) return `${min} мин назад`;
-    return `в ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+    if (min < 1) return t('justNow');
+    if (min < 60) return t('minAgo').replace('{n}', min);
+    return t('atTime').replace('{time}', new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
 };
 
 // ─── ExtendModal ─────────────────────────────────────────────────────────────
 const ExtendModal = ({ reg, onClose, onSubmit, lang }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [days, setDays] = useState('30');
     const [paidCash, setPaidCash] = useState('');
     const [paidCard, setPaidCard] = useState('');
@@ -72,37 +74,37 @@ const ExtendModal = ({ reg, onClose, onSubmit, lang }) => {
             <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
                     <h3 className="font-black text-lg text-slate-800">
-                        🔄 {lang === 'ru' ? 'Продление' : 'Uzaytirish'}
+                        🔄 {t('extendTitle')}
                     </h3>
                     <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center"><X size={16} /></button>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3 text-sm text-slate-600">
                     <p className="font-bold text-slate-800 text-base">{reg.fullName}</p>
-                    <p className="text-sm mt-0.5">{lang === 'ru' ? 'Действует до:' : 'Muddati:'} <span className="font-bold text-rose-600">{reg.endDate}</span></p>
+                    <p className="text-sm mt-0.5">{t('validUntil')} <span className="font-bold text-rose-600">{reg.endDate}</span></p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">
-                            {lang === 'ru' ? 'На сколько дней' : 'Necha kun'}
+                            {t('forHowManyDays')}
                         </label>
                         <input type="number" className={inp} value={days} min="1" onChange={e => setDays(e.target.value)} />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-slate-500 mb-1">
-                            {lang === 'ru' ? 'Будет до' : 'Yangi muddat'}
+                            {t('willBeUntil')}
                         </label>
                         <div className="px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-base font-bold text-emerald-700">{newEndDate || '—'}</div>
                     </div>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3 space-y-2">
-                    <p className="text-xs font-bold text-slate-500">{lang === 'ru' ? 'Оплата' : 'To\'lov'}</p>
+                    <p className="text-xs font-bold text-slate-500">{t('payment')}</p>
                     <div className="grid grid-cols-3 gap-2">
                         <div>
-                            <label className="text-xs text-slate-500 font-bold block mb-1">Нал.</label>
+                            <label className="text-xs text-slate-500 font-bold block mb-1">{t('cashShort')}</label>
                             <input type="number" className={inp} value={paidCash} onChange={e => setPaidCash(e.target.value)} placeholder="0" />
                         </div>
                         <div>
-                            <label className="text-xs text-slate-500 font-bold block mb-1">Терм.</label>
+                            <label className="text-xs text-slate-500 font-bold block mb-1">{t('termShort')}</label>
                             <input type="number" className={inp} value={paidCard} onChange={e => setPaidCard(e.target.value)} placeholder="0" />
                         </div>
                         <div>
@@ -112,19 +114,19 @@ const ExtendModal = ({ reg, onClose, onSubmit, lang }) => {
                     </div>
                     {total > 0 && (
                         <p className="text-base font-black text-emerald-600">
-                            {lang === 'ru' ? 'Итого:' : 'Jami:'} {total.toLocaleString()} сум
+                            {t('total')}: {total.toLocaleString()} {t('sum')}
                         </p>
                     )}
                 </div>
                 <div className="flex gap-2 pt-1">
                     <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-base font-bold text-slate-600 hover:bg-slate-50">
-                        {lang === 'ru' ? 'Отмена' : 'Bekor'}
+                        {t('cancel')}
                     </button>
                     <button
                         onClick={() => onSubmit({ days: parseInt(days), newEndDate, paidCash: Number(paidCash) || 0, paidCard: Number(paidCard) || 0, paidQR: Number(paidQR) || 0, amount: total })}
                         className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-base font-bold hover:bg-indigo-700 flex items-center justify-center gap-1.5"
                     >
-                        <RefreshCw size={16} /> {lang === 'ru' ? 'Продлить' : 'Uzaytirish'}
+                        <RefreshCw size={16} /> {t('extend')}
                     </button>
                 </div>
             </div>
@@ -150,7 +152,8 @@ const BigBtn = ({ onClick, color, children, disabled }) => {
 
 // ─── Строка человека: крупное имя + понятная инфа + одна-две больших кнопки ──
 // onClick — открыть карточку гостя (как в «Номерах»); имя подсвечивается при наведении.
-const PersonRow = ({ flag, name, line2, line3, actions, tone = 'white', onClick }) => {
+const PersonRow = ({ flag, name, line2, line3, actions, tone = 'white', onClick, lang }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const tones = {
         white:   'bg-white border-slate-200',
         rose:    'bg-rose-50/60 border-rose-200',
@@ -163,7 +166,7 @@ const PersonRow = ({ flag, name, line2, line3, actions, tone = 'white', onClick 
             <div className="shrink-0">{flag}</div>
             <Info onClick={onClick} className={`flex-1 min-w-0 text-left ${onClick ? 'cursor-pointer group' : ''}`} type={onClick ? 'button' : undefined}>
                 <p className={`text-[15px] font-black text-slate-800 truncate ${onClick ? 'group-hover:text-indigo-700 transition-colors' : ''}`}>
-                    {name}{onClick && <span className="ml-1.5 text-[11px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">открыть →</span>}
+                    {name}{onClick && <span className="ml-1.5 text-[11px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">{t('openArrow')}</span>}
                 </p>
                 {line2 && <p className="text-sm text-slate-500 truncate mt-0.5">{line2}</p>}
                 {line3 && <p className="text-sm font-semibold truncate mt-0.5">{line3}</p>}
@@ -179,19 +182,23 @@ const GroupTitle = ({ emoji, children }) => (
 );
 
 // ─── Пустой экран ─────────────────────────────────────────────────────────────
-const AllDone = ({ text }) => (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-        <span className="text-6xl mb-4">✅</span>
-        <p className="text-lg font-black text-slate-700">{text || 'Всё сделано!'}</p>
-        <p className="text-sm text-slate-400 mt-1">Здесь пока пусто</p>
-    </div>
-);
+const AllDone = ({ text, lang }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
+    return (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+            <span className="text-6xl mb-4">✅</span>
+            <p className="text-lg font-black text-slate-700">{text || t('allDone')}</p>
+            <p className="text-sm text-slate-400 mt-1">{t('emptyHere')}</p>
+        </div>
+    );
+};
 
 // ─── Итог задекларированных в e-mehmon сумм (сверка с налоговой) ─────────────
 // Считаем по гостям, у которых есть дата регистрации в e-mehmon. Сумма берётся
 // из emehmonAmount (что реально указали в портале). У старых записей поля нет —
 // тогда там стояла 1, показываем их отдельной строкой, чтобы итог был честным.
-const TaxTotals = ({ guests = [] }) => {
+const TaxTotals = ({ guests = [], lang }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [offset, setOffset] = useState(0); // 0 — текущий месяц, -1 — прошлый…
     const [open, setOpen] = useState(false);
 
@@ -223,26 +230,26 @@ const TaxTotals = ({ guests = [] }) => {
     }, [guests, period]);
 
     const fmt = n => Number(n || 0).toLocaleString('ru-RU');
-    const hostelName = h => h === 'hostel1' ? 'Хостел №1' : h === 'hostel2' ? 'Хостел №2' : h;
+    const hostelName = h => h === 'hostel1' ? t('expHostel1') : h === 'hostel2' ? t('expHostel2') : h;
 
     return (
         <div className="mt-4 bg-white border-2 border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
                 <span className="text-2xl">🧾</span>
                 <div className="flex-1 min-w-0">
-                    <div className="text-sm font-black text-slate-800">Показано в e-mehmon за месяц</div>
-                    <div className="text-xs text-slate-400">Сумма по всем регистрациям — для сверки с налоговой</div>
+                    <div className="text-sm font-black text-slate-800">{t('shownInEmehmonMonth')}</div>
+                    <div className="text-xs text-slate-400">{t('taxReconcileHint')}</div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => setOffset(o => o - 1)} title="Предыдущий месяц"
+                    <button onClick={() => setOffset(o => o - 1)} title={t('previousMonth')}
                         className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"><ChevronLeft size={16} /></button>
                     <span className="text-xs font-black text-slate-600 min-w-[110px] text-center capitalize">{period.label}</span>
-                    <button onClick={() => setOffset(o => Math.min(0, o + 1))} disabled={offset >= 0} title="Следующий месяц"
+                    <button onClick={() => setOffset(o => Math.min(0, o + 1))} disabled={offset >= 0} title={t('nextMonth')}
                         className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 disabled:opacity-30"><ChevronRight size={16} /></button>
                 </div>
                 <div className="text-right shrink-0 pl-2 border-l-2 border-slate-100">
                     <div className="text-xl font-black text-emerald-600 tabular-nums">{fmt(stats.total)}</div>
-                    <div className="text-[11px] font-bold text-slate-400">{stats.count} регистр.</div>
+                    <div className="text-[11px] font-bold text-slate-400">{stats.count} {t('regsShort')}</div>
                 </div>
                 <button onClick={() => setOpen(o => !o)}
                     className="shrink-0 p-2 rounded-lg hover:bg-slate-100 text-slate-400">
@@ -253,30 +260,30 @@ const TaxTotals = ({ guests = [] }) => {
             {open && (
                 <div className="border-t border-slate-100 px-4 py-3 space-y-2 bg-slate-50/60">
                     <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-600">🇺🇿 Местные — <b>{stats.local}</b> чел.</span>
-                        <span className="font-black text-slate-800 tabular-nums">{fmt(stats.localSum)} сум</span>
+                        <span className="text-slate-600">🇺🇿 {t('locals')} — <b>{stats.local}</b> {t('peopleShort')}</span>
+                        <span className="font-black text-slate-800 tabular-nums">{fmt(stats.localSum)} {t('sum')}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-600">🌍 Иностранцы — <b>{stats.foreign}</b> чел.</span>
-                        <span className="font-black text-slate-800 tabular-nums">{fmt(stats.foreignSum)} сум</span>
+                        <span className="text-slate-600">🌍 {t('foreigners')} — <b>{stats.foreign}</b> {t('peopleShort')}</span>
+                        <span className="font-black text-slate-800 tabular-nums">{fmt(stats.foreignSum)} {t('sum')}</span>
                     </div>
                     {Object.keys(stats.byHostel).length > 1 && (
                         <div className="pt-2 border-t border-slate-200 space-y-1">
                             {Object.entries(stats.byHostel).map(([h, sum]) => (
                                 <div key={h} className="flex items-center justify-between text-xs">
                                     <span className="text-slate-500">{hostelName(h)}</span>
-                                    <span className="font-bold text-slate-600 tabular-nums">{fmt(sum)} сум</span>
+                                    <span className="font-bold text-slate-600 tabular-nums">{fmt(sum)} {t('sum')}</span>
                                 </div>
                             ))}
                         </div>
                     )}
                     <div className="flex items-center justify-between pt-2 border-t-2 border-slate-200 text-base">
-                        <span className="font-black text-slate-700">Итого за {period.label}</span>
-                        <span className="font-black text-emerald-600 tabular-nums">{fmt(stats.total)} сум</span>
+                        <span className="font-black text-slate-700">{t('totalFor')} {period.label}</span>
+                        <span className="font-black text-emerald-600 tabular-nums">{fmt(stats.total)} {t('sum')}</span>
                     </div>
                     {stats.legacy > 0 && (
                         <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                            ⚠️ Ещё {stats.legacy} регистр. оформлены до перехода на новые ставки (в портале стояла сумма 1) — в итог не включены.
+                            ⚠️ {t('legacyRegsNote').replace('{n}', stats.legacy)}
                         </div>
                     )}
                 </div>
@@ -289,24 +296,25 @@ const TaxTotals = ({ guests = [] }) => {
 // Портал считает сбор сам: гости × прожитые сутки × % от БРВ. Тянем готовые
 // цифры по трём типам (иностранцы / местные / самостоятельные) за период.
 const TURSBOR_TYPES = [
-    { key: 'HT', label: 'Иностранцы',      emoji: '🌍', portalLabel: 'Туристический сбор с иностранных граждан' },
-    { key: 'LT', label: 'Местные',         emoji: '🇺🇿', portalLabel: 'Туристический сбор с местных граждан' },
-    { key: 'ST', label: 'Самост. туристы', emoji: '🎒', portalLabel: 'Самостоятельные туристы' },
+    { key: 'HT', labelKey: 'foreigners',   emoji: '🌍', portalLabelKey: 'tursborForeignPortal' },
+    { key: 'LT', labelKey: 'locals',       emoji: '🇺🇿', portalLabelKey: 'tursborLocalPortal' },
+    { key: 'ST', labelKey: 'selfTourists', emoji: '🎒', portalLabelKey: 'tursborSelfPortal' },
 ];
 
 // Периоды — те же пресеты, что в daterangepicker портала
 const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 const TURSBOR_RANGES = [
-    { key: 'prevMonth', label: 'За прошлый месяц', calc: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 0)]; } },
-    { key: 'thisMonth', label: 'В этом месяце',    calc: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 0)]; } },
-    { key: 'last30',    label: '30 дней ранее',    calc: () => { const n = new Date(); const f = new Date(n); f.setDate(f.getDate() - 29); return [f, n]; } },
-    { key: 'last7',     label: '7 дней ранее',     calc: () => { const n = new Date(); const f = new Date(n); f.setDate(f.getDate() - 6); return [f, n]; } },
-    { key: 'thisYear',  label: 'За текущий год',   calc: () => { const n = new Date(); return [new Date(n.getFullYear(), 0, 1), n]; } },
-    { key: 'prevYear',  label: 'За прошедший год', calc: () => { const n = new Date(); return [new Date(n.getFullYear() - 1, 0, 1), new Date(n.getFullYear() - 1, 11, 31)]; } },
-    { key: 'custom',    label: 'Другой период',    calc: null },
+    { key: 'prevMonth', labelKey: 'rangePrevMonth', calc: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 0)]; } },
+    { key: 'thisMonth', labelKey: 'rangeThisMonth', calc: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 0)]; } },
+    { key: 'last30',    labelKey: 'rangeLast30',    calc: () => { const n = new Date(); const f = new Date(n); f.setDate(f.getDate() - 29); return [f, n]; } },
+    { key: 'last7',     labelKey: 'rangeLast7',     calc: () => { const n = new Date(); const f = new Date(n); f.setDate(f.getDate() - 6); return [f, n]; } },
+    { key: 'thisYear',  labelKey: 'rangeThisYear',  calc: () => { const n = new Date(); return [new Date(n.getFullYear(), 0, 1), n]; } },
+    { key: 'prevYear',  labelKey: 'rangePrevYear',  calc: () => { const n = new Date(); return [new Date(n.getFullYear() - 1, 0, 1), new Date(n.getFullYear() - 1, 11, 31)]; } },
+    { key: 'custom',    labelKey: 'rangeCustom',    calc: null },
 ];
 
-const TursborPanel = ({ hostelId }) => {
+const TursborPanel = ({ hostelId, lang }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [rangeKey, setRangeKey] = useState('prevMonth'); // как на портале
     const [customFrom, setCustomFrom] = useState('');
     const [customTo, setCustomTo] = useState('');
@@ -317,13 +325,13 @@ const TursborPanel = ({ hostelId }) => {
 
     const period = useMemo(() => {
         if (rangeKey === 'custom') {
-            if (!customFrom || !customTo) return { range: '', label: 'выберите даты' };
+            if (!customFrom || !customTo) return { range: '', label: t('selectDates') };
             return { range: `${customFrom} ~ ${customTo}`, label: `${customFrom} — ${customTo}` };
         }
         const preset = TURSBOR_RANGES.find(r => r.key === rangeKey) || TURSBOR_RANGES[0];
         const [from, to] = preset.calc();
-        return { range: `${iso(from)} ~ ${iso(to)}`, label: preset.label };
-    }, [rangeKey, customFrom, customTo]);
+        return { range: `${iso(from)} ~ ${iso(to)}`, label: t(preset.labelKey) };
+    }, [rangeKey, customFrom, customTo, lang]); // eslint-disable-line
 
     const load = async () => {
         if (!window.electronAPI?.emehmonTursbor) return;
@@ -346,10 +354,10 @@ const TursborPanel = ({ hostelId }) => {
     const sumOf = (tp) => (res?.data?.[tp]?.rows || []).reduce((s, r) => s + (r.total || 0), 0);
     const guestsOf = (tp) => (res?.data?.[tp]?.rows || []).reduce((s, r) => s + (r.guests || 0), 0);
     const livedOf = (tp) => (res?.data?.[tp]?.rows || []).reduce((s, r) => s + (r.lived || 0), 0);
-    const grand = res?.status === 'ok' ? TURSBOR_TYPES.reduce((s, t) => s + sumOf(t.key), 0) : 0;
+    const grand = res?.status === 'ok' ? TURSBOR_TYPES.reduce((s, ty) => s + sumOf(ty.key), 0) : 0;
     // Какие типы показываем: «все» или один выбранный (фильтр как на портале)
-    const shownTypes = typeKey === 'all' ? TURSBOR_TYPES : TURSBOR_TYPES.filter(t => t.key === typeKey);
-    const shownTotal = res?.status === 'ok' ? shownTypes.reduce((s, t) => s + sumOf(t.key), 0) : 0;
+    const shownTypes = typeKey === 'all' ? TURSBOR_TYPES : TURSBOR_TYPES.filter(ty => ty.key === typeKey);
+    const shownTotal = res?.status === 'ok' ? shownTypes.reduce((s, ty) => s + sumOf(ty.key), 0) : 0;
 
     if (!window.electronAPI?.emehmonTursbor) return null;
 
@@ -358,13 +366,13 @@ const TursborPanel = ({ hostelId }) => {
             <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
                 <span className="text-2xl">🏛</span>
                 <div className="flex-1 min-w-0">
-                    <div className="text-sm font-black text-slate-800">Турсбор — к оплате</div>
-                    <div className="text-xs text-slate-400">Данные с портала e-mehmon за выбранный месяц</div>
+                    <div className="text-sm font-black text-slate-800">{t('tursborTitle')}</div>
+                    <div className="text-xs text-slate-400">{t('tursborSubtitle')}</div>
                 </div>
                 {res?.status === 'ok' && (
                     <div className="text-right shrink-0 pl-2 border-l-2 border-slate-100">
                         <div className="text-xl font-black text-indigo-600 tabular-nums">{fmt(shownTotal)}</div>
-                        <div className="text-[11px] font-bold text-slate-400">сум к оплате</div>
+                        <div className="text-[11px] font-bold text-slate-400">{t('sumToPay')}</div>
                     </div>
                 )}
             </div>
@@ -372,29 +380,29 @@ const TursborPanel = ({ hostelId }) => {
             {/* Фильтры — как на портале: Тип + Период */}
             <div className="px-4 pb-3 flex items-end gap-3 flex-wrap border-t border-slate-100 pt-3">
                 <div className="min-w-[210px]">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">Тип</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">{t('typeLabel')}</label>
                     <select value={typeKey} onChange={e => setTypeKey(e.target.value)}
                         className="w-full px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500">
-                        <option value="all">Все типы (итого)</option>
-                        {TURSBOR_TYPES.map(t => <option key={t.key} value={t.key}>{t.portalLabel}</option>)}
+                        <option value="all">{t('allTypesTotal')}</option>
+                        {TURSBOR_TYPES.map(ty => <option key={ty.key} value={ty.key}>{t(ty.portalLabelKey)}</option>)}
                     </select>
                 </div>
                 <div className="min-w-[180px]">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">Период</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1">{t('period')}</label>
                     <select value={rangeKey} onChange={e => changeRange(e.target.value)}
                         className="w-full px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500">
-                        {TURSBOR_RANGES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                        {TURSBOR_RANGES.map(r => <option key={r.key} value={r.key}>{t(r.labelKey)}</option>)}
                     </select>
                 </div>
                 {rangeKey === 'custom' && (
                     <div className="flex items-end gap-2">
                         <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">С</label>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">{t('from')}</label>
                             <input type="date" value={customFrom} onChange={e => { setCustomFrom(e.target.value); setRes(null); }}
                                 className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500" />
                         </div>
                         <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">По</label>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">{t('to')}</label>
                             <input type="date" value={customTo} onChange={e => { setCustomTo(e.target.value); setRes(null); }}
                                 className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500" />
                         </div>
@@ -403,7 +411,7 @@ const TursborPanel = ({ hostelId }) => {
                 <button onClick={() => { setOpen(true); load(); }} disabled={loading || !period.range}
                     className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-sm transition-all active:scale-95 disabled:opacity-50">
                     <Search size={15} className={loading ? 'animate-pulse' : ''} />
-                    {loading ? 'Загружаю…' : res ? 'Обновить' : 'Показать'}
+                    {loading ? t('loading2') : res ? t('update') : t('show')}
                 </button>
                 {period.range && <span className="text-[11px] text-slate-400 pb-2">{period.range}</span>}
             </div>
@@ -412,46 +420,46 @@ const TursborPanel = ({ hostelId }) => {
                 <div className="border-t border-slate-100 px-4 py-3 bg-slate-50/60">
                     {res.status === 'need_login' && (
                         <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                            ⚠️ Нужен вход в e-mehmon. Откройте любую регистрацию или вывод, войдите — затем нажмите «Показать» снова.
+                            ⚠️ {t('tursborNeedLogin')}
                         </div>
                     )}
                     {res.status === 'error' && (
                         <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                            Не удалось получить данные: {res.message || 'ошибка портала'}
+                            {t('fetchDataFailed')}: {res.message || t('portalError')}
                         </div>
                     )}
                     {res.status === 'ok' && (
                         <div className="space-y-2">
                             {res.brvText && <div className="text-[11px] text-slate-400">{res.brvText}</div>}
-                            {shownTypes.map(t => {
-                                const rows = res.data?.[t.key]?.rows || [];
-                                const err = res.data?.[t.key]?.error;
+                            {shownTypes.map(ty => {
+                                const rows = res.data?.[ty.key]?.rows || [];
+                                const err = res.data?.[ty.key]?.error;
                                 return (
-                                    <div key={t.key} className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+                                    <div key={ty.key} className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
                                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                                            <span className="text-sm font-black text-slate-700">{t.emoji} {t.label}</span>
+                                            <span className="text-sm font-black text-slate-700">{ty.emoji} {t(ty.labelKey)}</span>
                                             {err ? <span className="text-xs text-rose-500">{err}</span> : (
-                                                <span className="text-base font-black text-slate-800 tabular-nums">{fmt(sumOf(t.key))} сум</span>
+                                                <span className="text-base font-black text-slate-800 tabular-nums">{fmt(sumOf(ty.key))} {t('sum')}</span>
                                             )}
                                         </div>
                                         {!err && rows.length > 0 && (
                                             <>
                                                 <div className="text-xs text-slate-500 mt-1 flex gap-4 flex-wrap">
-                                                    <span>гостей: <b className="text-slate-700">{fmt(guestsOf(t.key))}</b></span>
-                                                    <span>суток: <b className="text-slate-700">{fmt(livedOf(t.key))}</b></span>
-                                                    {rows[0]?.rate > 0 && <span>ставка: <b className="text-slate-700">{fmt(rows[0].rate)}</b></span>}
-                                                    {rows.length > 1 && <span className="text-slate-400">строк: {rows.length}</span>}
+                                                    <span>{t('guestsCount')}: <b className="text-slate-700">{fmt(guestsOf(ty.key))}</b></span>
+                                                    <span>{t('nightsCount')}: <b className="text-slate-700">{fmt(livedOf(ty.key))}</b></span>
+                                                    {rows[0]?.rate > 0 && <span>{t('tursborRate')}: <b className="text-slate-700">{fmt(rows[0].rate)}</b></span>}
+                                                    {rows.length > 1 && <span className="text-slate-400">{t('rowsLabel')}: {rows.length}</span>}
                                                 </div>
                                                 {/* Как прислал портал — для сверки, если цифра выглядит не так */}
                                                 <details className="mt-1.5">
-                                                    <summary className="text-[11px] text-slate-400 cursor-pointer hover:text-slate-600">как в портале</summary>
+                                                    <summary className="text-[11px] text-slate-400 cursor-pointer hover:text-slate-600">{t('asInPortal')}</summary>
                                                     <div className="mt-1 space-y-0.5">
                                                         {rows.map((r, i) => (
                                                             <div key={i} className="text-[11px] text-slate-500 flex gap-2 flex-wrap border-b border-slate-100 pb-0.5">
                                                                 <span className="font-semibold text-slate-600">{r.hotel || r.company || '—'}</span>
-                                                                <span>гостей «{r.rawGuests}»</span>
-                                                                <span>суток «{r.rawLived}»</span>
-                                                                <span>итого «{r.rawTotal}»</span>
+                                                                <span>{t('guestsCount')} «{r.rawGuests}»</span>
+                                                                <span>{t('nightsCount')} «{r.rawLived}»</span>
+                                                                <span>{t('totalLower')} «{r.rawTotal}»</span>
                                                                 <span className="text-slate-400">→ {fmt(r.total)}</span>
                                                             </div>
                                                         ))}
@@ -459,18 +467,18 @@ const TursborPanel = ({ hostelId }) => {
                                                 </details>
                                             </>
                                         )}
-                                        {!err && rows.length === 0 && <div className="text-xs text-slate-400 mt-1">за период записей нет</div>}
+                                        {!err && rows.length === 0 && <div className="text-xs text-slate-400 mt-1">{t('noRecordsInPeriod')}</div>}
                                     </div>
                                 );
                             })}
                             <div className="flex items-center justify-between pt-2 border-t-2 border-slate-200 text-base">
                                 <span className="font-black text-slate-700">
-                                    Итого · {period.label}{typeKey !== 'all' && <span className="text-xs font-bold text-slate-400"> (только выбранный тип)</span>}
+                                    {t('total')} · {period.label}{typeKey !== 'all' && <span className="text-xs font-bold text-slate-400"> {t('onlySelectedType')}</span>}
                                 </span>
-                                <span className="font-black text-indigo-600 tabular-nums">{fmt(shownTotal)} сум</span>
+                                <span className="font-black text-indigo-600 tabular-nums">{fmt(shownTotal)} {t('sum')}</span>
                             </div>
                             {typeKey !== 'all' && grand !== shownTotal && (
-                                <div className="text-xs text-slate-500 text-right">По всем типам: <b>{fmt(grand)} сум</b></div>
+                                <div className="text-xs text-slate-500 text-right">{t('allTypesLabel')} <b>{fmt(grand)} {t('sum')}</b></div>
                             )}
                             {res.depositText && (
                                 <div className="text-xs text-slate-500 bg-slate-100 rounded-lg px-2.5 py-1.5">{res.depositText}</div>
@@ -508,6 +516,7 @@ const RegistrationsView = ({
     onRecalcAmounts,
     canAct = true,   // false — чужой филиал открыт на просмотр: пишем в него ничего нельзя
 }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     const canEmehmon = !!window.electronAPI?.openEmehmon;
     const isDeparting = (g) => emehmonDepartingIds && typeof emehmonDepartingIds.has === 'function' && g.id && emehmonDepartingIds.has(g.id);
@@ -609,18 +618,18 @@ const RegistrationsView = ({
     const departBtn = (g) => canAct && canEmehmon && (
         <BigBtn color="rose" onClick={() => onDepartEmehmon?.(g)} disabled={isDeparting(g)}>
             <Plane size={16} className={isDeparting(g) ? 'animate-pulse' : ''} />
-            {isDeparting(g) ? 'Вывожу…' : 'Вывести'}
+            {isDeparting(g) ? t('removing') : t('removeShort')}
         </BigBtn>
     );
 
     const regRowInfo = (r) => {
         const dl = getDaysLeft(r.endDate);
         const status = r.computedStatus;
-        const when = status === 'expired' ? `❗ Истекла ${Math.abs(dl)} дн. назад`
-            : status === 'archived' ? `🗄 Архив · истекла ${Math.abs(dl)} дн. назад`
-            : status === 'expiring' ? (dl === 0 ? '⏰ Сегодня последний день' : `⏰ Осталось ${dl} дн.`)
-            : status === 'removed' ? '✓ Выведен'
-            : `До ${r.endDate}`;
+        const when = status === 'expired' ? `❗ ${t('expiredDaysAgo').replace('{n}', Math.abs(dl))}`
+            : status === 'archived' ? `🗄 ${t('archivedExpiredDaysAgo').replace('{n}', Math.abs(dl))}`
+            : status === 'expiring' ? (dl === 0 ? `⏰ ${t('lastDayToday')}` : `⏰ ${t('daysLeftShort').replace('{n}', dl)}`)
+            : status === 'removed' ? `✓ ${t('removedMark')}`
+            : t('untilDate').replace('{date}', r.endDate);
         const cls = status === 'expired' ? 'text-rose-600' : status === 'expiring' ? 'text-amber-600' : (status === 'removed' || status === 'archived') ? 'text-slate-400' : 'text-emerald-600';
         return <span className={cls}>{when}</span>;
     };
@@ -655,13 +664,13 @@ const RegistrationsView = ({
         <div className="flex items-center gap-3 mb-4">
             <button onClick={() => setScreen('home')}
                 className="flex items-center gap-1.5 px-4 py-3 rounded-xl bg-white border-2 border-slate-200 hover:border-slate-400 text-slate-600 text-sm font-black shadow-sm transition-all active:scale-95">
-                <ChevronLeft size={18} /> Назад
+                <ChevronLeft size={18} /> {t('back')}
             </button>
             <h2 className="text-xl font-black text-slate-800">{emoji} {title}</h2>
         </div>
     );
 
-    const guestLine = (g) => [g.roomNumber ? `Комната ${g.roomNumber}` : '', g.passport || ''].filter(Boolean).join(' · ');
+    const guestLine = (g) => [g.roomNumber ? `${t('room')} ${g.roomNumber}` : '', g.passport || ''].filter(Boolean).join(' · ');
 
     return (
         <div className="min-h-full bg-slate-50">
@@ -686,20 +695,20 @@ const RegistrationsView = ({
                                             : portalLoaded ? 'bg-emerald-400'
                                             : needsEmehmonLogin ? 'bg-amber-400' : 'bg-slate-300'}`} />
                                         <span>
-                                            {emehmonSyncing ? 'Проверяю…'
-                                                : portalLoaded ? `На связи${emehmonSnapshot?.at ? ` · ${minutesAgo(emehmonSnapshot.at)}` : ''}`
-                                                : needsEmehmonLogin ? 'Нет входа в портал'
-                                                : 'Регистрация гостей'}
+                                            {emehmonSyncing ? t('checking')
+                                                : portalLoaded ? `${t('connected')}${emehmonSnapshot?.at ? ` · ${minutesAgo(emehmonSnapshot.at, t)}` : ''}`
+                                                : needsEmehmonLogin ? t('noPortalLogin')
+                                                : t('guestRegistration')}
                                         </span>
                                         {!canAct && (
                                             <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-black">
-                                                только просмотр
+                                                {t('viewOnly')}
                                             </span>
                                         )}
                                         {needsEmehmonLogin && onEmehmonLogin && (
                                             <button onClick={onEmehmonLogin}
                                                 className="ml-0.5 px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black hover:bg-amber-100 transition-colors">
-                                                Войти
+                                                {t('signIn')}
                                             </button>
                                         )}
                                     </div>
@@ -710,20 +719,20 @@ const RegistrationsView = ({
                                     <button onClick={onSyncEmehmon} disabled={emehmonSyncing}
                                         className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border-2 border-slate-200 hover:border-indigo-300 text-slate-600 text-sm font-black shadow-sm transition-all active:scale-95 disabled:opacity-50">
                                         <RefreshCw size={16} className={emehmonSyncing ? 'animate-spin' : ''} />
-                                        {emehmonSyncing ? 'Проверяю…' : 'Обновить'}
+                                        {emehmonSyncing ? t('checking') : t('update')}
                                     </button>
                                 )}
                                 {canAct && onRecalcAmounts && (
                                     <button onClick={onRecalcAmounts}
-                                        title="Поставить в e-mehmon стоимость за фактически прожитые сутки"
+                                        title={t('recalcAmountsTitle')}
                                         className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border-2 border-slate-200 hover:border-emerald-300 text-slate-600 text-sm font-black shadow-sm transition-all active:scale-95">
-                                        <Calculator size={16} /> Суммы
+                                        <Calculator size={16} /> {t('amounts')}
                                     </button>
                                 )}
                                 {canAct && (
                                     <button onClick={onOpenRegister}
                                         className="flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black shadow-md shadow-indigo-200 transition-all active:scale-95">
-                                        <Plus size={18} /> Зарегистрировать
+                                        <Plus size={18} /> {t('registerGuest')}
                                     </button>
                                 )}
                             </div>
@@ -732,30 +741,30 @@ const RegistrationsView = ({
                         {/* Плитки задач */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <TaskTile emoji="✈️" count={removeCount} color="rose" target="remove"
-                                title="Вывести из E-mehmon"
-                                hint={removeCount > 0 ? 'Выселились или истёк срок — нажмите и выведите' : 'Никого выводить не нужно'}
+                                title={t('removeFromEmehmon')}
+                                hint={removeCount > 0 ? t('removeHintActive') : t('nobodyToRemove')}
                                 disabled={removeCount === 0} />
                             <TaskTile emoji="📝" count={needRegister.length} color="indigo" target="register"
-                                title="Оформить регистрацию"
-                                hint={needRegister.length > 0 ? 'Проживают, но не зарегистрированы' : 'Все проживающие оформлены'}
+                                title={t('registerTask')}
+                                hint={needRegister.length > 0 ? t('registerHintActive') : t('allResidentsRegistered')}
                                 disabled={needRegister.length === 0} />
                             <TaskTile emoji="⏰" count={expiringRegs.length} color="amber" target="expiring"
-                                title="Скоро истекают"
-                                hint={expiringRegs.length > 0 ? 'Продлите или выведите заранее' : 'Ничего не истекает'}
+                                title={t('expiringSoon')}
+                                hint={expiringRegs.length > 0 ? t('expiringHintActive') : t('nothingExpiring')}
                                 disabled={expiringRegs.length === 0} />
                             <TaskTile emoji="✅" count={registered.length + inCadastre.length} color="emerald" target="ok"
-                                title="Всё в порядке"
-                                hint="Зарегистрированы и проживают"
+                                title={t('allGood')}
+                                hint={t('registeredAndLiving')}
                                 disabled={registered.length + inCadastre.length === 0} />
                         </div>
 
                         {/* Итог задекларированных сумм — сверка с налоговой */}
-                        <TaxTotals guests={guests} />
+                        <TaxTotals guests={guests} lang={lang} />
 
                         {/* Турсбор к оплате — с портала e-mehmon (сессия своего филиала) */}
                         {/* key по филиалу: при переключении панель перемонтируется, иначе
                             на экране остаются цифры турсбора прошлого хостела */}
-                        <TursborPanel key={emehmonHostelId} hostelId={emehmonHostelId} />
+                        <TursborPanel key={emehmonHostelId} hostelId={emehmonHostelId} lang={lang} />
 
                         {/* Поиск по всем регистрациям */}
                         <div className="mt-6">
@@ -763,7 +772,7 @@ const RegistrationsView = ({
                                 <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-slate-200 rounded-2xl text-base font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none shadow-sm"
-                                    placeholder="Найти гостя по имени или паспорту…"
+                                    placeholder={t('searchGuestByNamePassport')}
                                     value={search}
                                     onChange={e => setSearch(e.target.value)}
                                 />
@@ -775,19 +784,19 @@ const RegistrationsView = ({
                             {/* Результаты поиска сразу под полем */}
                             {search.trim() && (
                                 <div className="mt-3 space-y-2">
-                                    {searched.length === 0 && <p className="text-center text-slate-400 text-sm py-6">Никого не нашли 🤷</p>}
+                                    {searched.length === 0 && <p className="text-center text-slate-400 text-sm py-6">{t('nobodyFound')}</p>}
                                     {searched.slice(0, 10).map(r => (
-                                        <PersonRow key={r.id}
+                                        <PersonRow key={r.id} lang={lang}
                                             flag={<Flag country={r.country} />}
                                             name={r.fullName}
                                             line2={`${r.passport || ''} · ${r.startDate} → ${r.endDate}`}
                                             line3={regRowInfo(r)}
                                             actions={<>
                                                 {r.computedStatus !== 'removed' && (
-                                                    canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
+                                                    canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> {t('extend')}</BigBtn>
                                                 )}
                                                 {(r.computedStatus === 'expired' || r.computedStatus === 'expiring' || r.computedStatus === 'archived') && (
-                                                    canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
+                                                    canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> {t('removeShort')}</BigBtn>
                                                 )}
                                             </>} />
                                     ))}
@@ -797,7 +806,7 @@ const RegistrationsView = ({
                             {!search.trim() && (
                                 <button onClick={() => setScreen('all')}
                                     className="mt-3 w-full flex items-center justify-between px-5 py-4 rounded-2xl bg-white border-2 border-slate-200 hover:border-slate-400 text-slate-700 shadow-sm transition-all active:scale-[0.99]">
-                                    <span className="text-base font-black">📋 Все регистрации</span>
+                                    <span className="text-base font-black">📋 {t('allRegistrations')}</span>
                                     <span className="flex items-center gap-2 text-sm text-slate-400 font-bold">{enriched.length} <ChevronRight size={18} /></span>
                                 </button>
                             )}
@@ -808,50 +817,48 @@ const RegistrationsView = ({
                 {/* ═══ ЭКРАН: ВЫВЕСТИ ═══ */}
                 {screen === 'remove' && (
                     <>
-                        <ScreenHeader emoji="✈️" title="Вывести из E-mehmon" />
+                        <ScreenHeader emoji="✈️" title={t('removeFromEmehmon')} />
                         {/* Откуда взят список — чтобы наши отметки не читались как данные портала */}
                         {portalLoaded ? (
                             <p className="text-sm text-slate-400 -mt-1 mb-3">
-                                ✅ По списку E-mehmon{emehmonSnapshot?.at ? `, обновлён ${minutesAgo(emehmonSnapshot.at)}` : ''}.
-                                Если только что вывели кого-то на портале вручную — нажмите «Обновить».
+                                ✅ {t('byEmehmonList')}{emehmonSnapshot?.at ? `, ${t('updated')} ${minutesAgo(emehmonSnapshot.at, t)}` : ''}.
+                                {' '}{t('removeListHintOk')}
                             </p>
                         ) : (
                             <p className="text-sm text-amber-600 -mt-1 mb-3">
-                                ⚠️ Список E-mehmon не получен{emehmonSnapshot?.status === 'need_login' ? ' — нужен вход в портал' : ''}.
-                                Показываю по нашим отметкам: часть этих гостей могла быть выведена вручную.
-                                Нажмите «Обновить», чтобы свериться с порталом.
+                                ⚠️ {t('emehmonListNotLoaded')}{emehmonSnapshot?.status === 'need_login' ? ` — ${t('needPortalLogin')}` : ''}.
+                                {' '}{t('removeListHintFallback')}
                             </p>
                         )}
                         {archivedCount > 0 && (
                             <p className="text-sm text-slate-400 -mt-1 mb-3">
-                                🗄 Скрыто старых записей: {archivedCount} — прошло больше {STALE_TASK_DAYS} дн.
-                                Они остались в поиске и в списке «Все регистрации».
+                                🗄 {t('archivedHidden').replace('{n}', archivedCount).replace('{days}', STALE_TASK_DAYS)}
                             </p>
                         )}
-                        {removeCount === 0 ? <AllDone text="Никого выводить не нужно" /> : (
+                        {removeCount === 0 ? <AllDone text={t('nobodyToRemove')} lang={lang} /> : (
                             <>
                                 {/* Массовый вывод одним нажатием */}
                                 {canAct && canEmehmon && toDepart.length > 1 && (
                                     <button
                                         onClick={() => onDepartEmehmon?.(toDepart)}
                                         className="w-full mb-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-base font-black shadow-md shadow-rose-200 transition-all active:scale-[0.99]">
-                                        <Plane size={20} /> Вывести всех сразу ({toDepart.length})
+                                        <Plane size={20} /> {t('removeAllAtOnce').replace('{n}', toDepart.length)}
                                     </button>
                                 )}
 
                                 {(departedInPortal.length + departedNotRemoved.length) > 0 && (
                                     <>
                                         <GroupTitle emoji="🏠">
-                                            {portalLoaded ? 'Выселились из хостела — выведите их' : 'Выселились — по нашим отметкам, сверьтесь с порталом'}
+                                            {portalLoaded ? t('checkedOutRemoveThem') : t('checkedOutOurMarks')}
                                         </GroupTitle>
                                         <div className="space-y-2">
                                             {[...departedInPortal, ...departedNotRemoved].map(g => (
-                                                <PersonRow key={g.id} tone="rose"
+                                                <PersonRow key={g.id} tone="rose" lang={lang}
                                                     flag={<Flag country={g.country} />}
                                                     name={g.fullName}
                                                     line2={guestLine(g)}
                                                     line3={g.checkOutDate
-                                                        ? <span className="text-rose-600">Выселен {new Date(g.checkOutDate).toLocaleDateString('ru-RU')} · до сих пор в E-mehmon</span>
+                                                        ? <span className="text-rose-600">{t('stillInEmehmon').replace('{date}', new Date(g.checkOutDate).toLocaleDateString('ru-RU'))}</span>
                                                         : null}
                                                     onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                                     actions={departBtn(g)} />
@@ -862,17 +869,17 @@ const RegistrationsView = ({
 
                                 {expiredRegs.length > 0 && (
                                     <>
-                                        <GroupTitle emoji="❗">Истёк срок регистрации</GroupTitle>
+                                        <GroupTitle emoji="❗">{t('registrationExpired')}</GroupTitle>
                                         <div className="space-y-2">
                                             {expiredRegs.map(r => (
-                                                <PersonRow key={r.id} tone="rose"
+                                                <PersonRow key={r.id} tone="rose" lang={lang}
                                                     flag={<Flag country={r.country} />}
                                                     name={r.fullName}
-                                                    line2={`${r.passport || ''} · до ${r.endDate}`}
+                                                    line2={`${r.passport || ''} · ${t('untilDate').replace('{date}', r.endDate)}`}
                                                     line3={regRowInfo(r)}
                                                     actions={<>
-                                                        {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>}
-                                                        {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>}
+                                                        {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> {t('extend')}</BigBtn>}
+                                                        {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> {t('removeShort')}</BigBtn>}
                                                     </>} />
                                             ))}
                                         </div>
@@ -881,10 +888,10 @@ const RegistrationsView = ({
 
                                 {orphans.length > 0 && (
                                     <>
-                                        <GroupTitle emoji="❓">Есть в E-mehmon, но нет в программе</GroupTitle>
+                                        <GroupTitle emoji="❓">{t('inEmehmonNotInApp')}</GroupTitle>
                                         <div className="space-y-2">
                                             {orphans.map((g, i) => (
-                                                <PersonRow key={g.passport || i}
+                                                <PersonRow key={g.passport || i} lang={lang}
                                                     flag={<Flag country={g.country} />}
                                                     name={g.fullName}
                                                     line2={guestLine(g)}
@@ -901,12 +908,12 @@ const RegistrationsView = ({
                 {/* ═══ ЭКРАН: ОФОРМИТЬ ═══ */}
                 {screen === 'register' && (
                     <>
-                        <ScreenHeader emoji="📝" title="Оформить регистрацию" />
-                        <p className="text-sm text-slate-400 -mt-1 mb-3">Местных система регистрирует сама (проверка каждые 5 минут). Здесь остаются иностранцы и гости с ошибками в данных.</p>
-                        {needRegister.length === 0 ? <AllDone text="Все проживающие оформлены" /> : (
+                        <ScreenHeader emoji="📝" title={t('registerTask')} />
+                        <p className="text-sm text-slate-400 -mt-1 mb-3">{t('registerScreenHint')}</p>
+                        {needRegister.length === 0 ? <AllDone text={t('allResidentsRegistered')} lang={lang} /> : (
                             <div className="space-y-2">
                                 {needRegister.map(g => (
-                                    <PersonRow key={g.id}
+                                    <PersonRow key={g.id} lang={lang}
                                         tone={g.emehmonRegError ? 'rose' : 'white'}
                                         flag={<Flag country={g.country} />}
                                         name={g.fullName}
@@ -915,7 +922,7 @@ const RegistrationsView = ({
                                         onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                         actions={canAct && canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>
-                                                <Plus size={16} /> Оформить
+                                                <Plus size={16} /> {t('processBtn')}
                                             </BigBtn>
                                         )} />
                                 ))}
@@ -927,18 +934,18 @@ const RegistrationsView = ({
                 {/* ═══ ЭКРАН: СКОРО ИСТЕКАЮТ ═══ */}
                 {screen === 'expiring' && (
                     <>
-                        <ScreenHeader emoji="⏰" title="Скоро истекают" />
-                        {expiringRegs.length === 0 ? <AllDone text="Ничего не истекает" /> : (
+                        <ScreenHeader emoji="⏰" title={t('expiringSoon')} />
+                        {expiringRegs.length === 0 ? <AllDone text={t('nothingExpiring')} lang={lang} /> : (
                             <div className="space-y-2">
                                 {expiringRegs.map(r => (
-                                    <PersonRow key={r.id} tone="amber"
+                                    <PersonRow key={r.id} tone="amber" lang={lang}
                                         flag={<Flag country={r.country} />}
                                         name={r.fullName}
-                                        line2={`${r.passport || ''} · до ${r.endDate}`}
+                                        line2={`${r.passport || ''} · ${t('untilDate').replace('{date}', r.endDate)}`}
                                         line3={regRowInfo(r)}
                                         actions={<>
-                                            {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>}
-                                            {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>}
+                                            {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> {t('extend')}</BigBtn>}
+                                            {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> {t('removeShort')}</BigBtn>}
                                         </>} />
                                 ))}
                             </div>
@@ -949,13 +956,13 @@ const RegistrationsView = ({
                 {/* ═══ ЭКРАН: ВСЁ В ПОРЯДКЕ ═══ */}
                 {screen === 'ok' && (
                     <>
-                        <ScreenHeader emoji="✅" title="Всё в порядке" />
+                        <ScreenHeader emoji="✅" title={t('allGood')} />
                         {registered.length > 0 && (
                             <>
-                                <GroupTitle emoji="🌐">Зарегистрированы в E-mehmon</GroupTitle>
+                                <GroupTitle emoji="🌐">{t('registeredInEmehmonGroup')}</GroupTitle>
                                 <div className="space-y-2">
                                     {registered.map(g => (
-                                        <PersonRow key={g.id} tone="emerald"
+                                        <PersonRow key={g.id} tone="emerald" lang={lang}
                                             flag={<Flag country={g.country} />}
                                             name={g.fullName}
                                             line2={guestLine(g)}
@@ -967,54 +974,54 @@ const RegistrationsView = ({
                         )}
                         {inCadastre.length > 0 && (
                             <>
-                                <GroupTitle emoji="🏠">Зарегистрированы по кадастру</GroupTitle>
+                                <GroupTitle emoji="🏠">{t('registeredInCadastre')}</GroupTitle>
                                 <div className="space-y-2">
                                     {inCadastre.map(g => (
-                                        <PersonRow key={g.id} tone="emerald"
+                                        <PersonRow key={g.id} tone="emerald" lang={lang}
                                             flag={<Flag country={g.country} />}
                                             name={g.fullName}
                                             line2={guestLine(g)}
                                             onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
-                                            actions={<span className="text-sm font-black text-indigo-600">🏠 кадастр</span>} />
+                                            actions={<span className="text-sm font-black text-indigo-600">🏠 {t('cadastreBadge')}</span>} />
                                     ))}
                                 </div>
                             </>
                         )}
-                        {registered.length + inCadastre.length === 0 && <AllDone text="Пока никого нет" />}
+                        {registered.length + inCadastre.length === 0 && <AllDone text={t('nobodyYet')} lang={lang} />}
                     </>
                 )}
 
                 {/* ═══ ЭКРАН: ВСЕ РЕГИСТРАЦИИ ═══ */}
                 {screen === 'all' && (
                     <>
-                        <ScreenHeader emoji="📋" title="Все регистрации" />
+                        <ScreenHeader emoji="📋" title={t('allRegistrations')} />
                         <div className="relative mb-3">
                             <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 className="w-full pl-11 pr-4 py-3 bg-white border-2 border-slate-200 rounded-2xl text-base font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none shadow-sm"
-                                placeholder="Найти…"
+                                placeholder={t('findShort')}
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                             />
                         </div>
-                        {searched.length === 0 ? <AllDone text="Регистраций нет" /> : (
+                        {searched.length === 0 ? <AllDone text={t('noRegistrations')} lang={lang} /> : (
                             <div className="space-y-2">
                                 {searched.map(r => (
-                                    <PersonRow key={r.id}
+                                    <PersonRow key={r.id} lang={lang}
                                         tone={r.computedStatus === 'expired' ? 'rose' : r.computedStatus === 'expiring' ? 'amber' : 'white'}
                                         flag={<Flag country={r.country} />}
                                         name={r.fullName}
-                                        line2={`${r.passport || ''} · ${r.startDate} → ${r.endDate} · ${(r.amount || 0).toLocaleString()} сум${r.staffName ? ` · ${r.staffName}` : ''}`}
+                                        line2={`${r.passport || ''} · ${r.startDate} → ${r.endDate} · ${(r.amount || 0).toLocaleString()} ${t('sum')}${r.staffName ? ` · ${r.staffName}` : ''}`}
                                         line3={regRowInfo(r)}
                                         actions={<>
                                             {r.computedStatus !== 'removed' && (
-                                                canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> Продлить</BigBtn>
+                                                canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> {t('extend')}</BigBtn>
                                             )}
                                             {(r.computedStatus === 'expired' || r.computedStatus === 'expiring') && (
-                                                canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> Вывести</BigBtn>
+                                                canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> {t('removeShort')}</BigBtn>
                                             )}
                                             {isAdmin && (
-                                                <button onClick={() => onDelete(r)} title="Удалить запись"
+                                                <button onClick={() => onDelete(r)} title={t('deleteRecord')}
                                                     className="p-3 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-all active:scale-95">
                                                     <Trash2 size={16} />
                                                 </button>
