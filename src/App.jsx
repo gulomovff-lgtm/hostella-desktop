@@ -2348,6 +2348,7 @@ return (
                 bookings={websiteBookings}
                 onAccept={(b) => { closeBookingAlert(); handleAcceptBooking(b); }}
                 onClose={closeBookingAlert}
+                lang={lang}
             />
         )}
 

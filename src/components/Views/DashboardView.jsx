@@ -927,7 +927,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                                 onClick={() => {
                                                     const sel = data.activeGuests.filter(g => selectedIds.includes(g.id));
                                                     const hid = (currentHostelId && currentHostelId !== 'all') ? currentHostelId : (sel[0]?.hostelId || 'hostel1');
-                                                    printGroupReceipt(sel, hid);
+                                                    printGroupReceipt(sel, hid, { lang });
                                                 }}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-black transition-colors">
                                                 <FileText size={13}/> {t('toAccounting')}

@@ -5,6 +5,8 @@
  * Логика перенесена из ShiftClosingModal без изменений.
  */
 
+import TRANSLATIONS from '../constants/translations.js'; // .js — чтобы модуль грузился и в node --test
+
 // Экранирование для Telegram HTML (локально — модуль остаётся чистым, без
 // зависимости от firebase, чтобы юнит-тесты импортировали его напрямую).
 const escapeTg = (s = '') =>
@@ -89,49 +91,55 @@ export function computeShiftReport(user, payments = [], expenses = [], opening =
 }
 
 /** HTML-сообщение для Telegram при закрытии смены (формат — как был). */
-export function buildShiftTelegramMsg(user, r) {
+export function buildShiftTelegramMsg(user, r, lang = 'ru') {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const transferEntries = Object.entries(r.income.transferByEntity || {});
     const transferLine = r.income.transfer > 0
         ? (transferEntries.length > 0
             ? transferEntries.map(([entity, amt]) => `\n🏦 ${escapeTg(entity)}: ${amt.toLocaleString()}`).join('')
-            : `\n🏦 Перечисление: ${r.income.transfer.toLocaleString()}`)
+            : `\n🏦 ${t('scmBankTransfer')}: ${r.income.transfer.toLocaleString()}`)
         : '';
-    const refundLine = r.totalRefunds > 0 ? `\n🔄 Возврат: -${r.totalRefunds.toLocaleString()}` : '';
-    return `<b>🔒 Закрытие смены</b>\nКассир: ${escapeTg(user.name)}\n---\n💵 Наличные: ${r.income.cash.toLocaleString()}\n💳 Терминал: ${r.income.card.toLocaleString()}\n📱 QR: ${r.income.qr.toLocaleString()}${transferLine}\n---\n<b>✅ ИТОГО: ${r.totalRevenue.toLocaleString()}</b>${refundLine}\n🔴 Расходы: ${r.cashboxExpenses.toLocaleString()}\n<b>💰 В КАССЕ: ${r.cashInHand.toLocaleString()}</b>`;
+    const refundLine = r.totalRefunds > 0 ? `\n🔄 ${t('refund')}: -${r.totalRefunds.toLocaleString()}` : '';
+    return `<b>🔒 ${t('shiftClose')}</b>\n${t('cashier')}: ${escapeTg(user.name)}\n---\n💵 ${t('cash')}: ${r.income.cash.toLocaleString()}\n💳 ${t('card')}: ${r.income.card.toLocaleString()}\n📱 ${t('qr')}: ${r.income.qr.toLocaleString()}${transferLine}\n---\n<b>✅ ${t('total')}: ${r.totalRevenue.toLocaleString()}</b>${refundLine}\n🔴 ${t('expenses')}: ${r.cashboxExpenses.toLocaleString()}\n<b>💰 ${t('cashInHand')}: ${r.cashInHand.toLocaleString()}</b>`;
 }
 
 /** Плоский текст отчёта для «Копировать» (формат — как был). */
-export function buildShiftReportText(user, r) {
+export function buildShiftReportText(user, r, lang = 'ru') {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const pad = (val, len) => String(val).padStart(len, ' ');
+    const sumWord = t('sum');
+    const amt = (v) => pad(v.toLocaleString() + ' ' + sumWord, 18);
+    const negAmt = (v) => pad('-' + v.toLocaleString() + ' ' + sumWord, 18);
+    const lbl = (s) => (s + ':').padEnd(13, ' ');
     const line = '─'.repeat(30);
     const date = new Date().toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const nonRefundExpenses = r.cashboxExpenses - r.totalRefunds;
 
     const parts = [
-        `🔒 ЗАКРЫТИЕ СМЕНЫ`,
-        `👤 Кассир: ${user.name}`,
+        `🔒 ${t('shiftClose')}`,
+        `👤 ${t('cashier')}: ${user.name}`,
         `📅 ${date}`,
         line,
-        `📈 ПОСТУПЛЕНИЯ`,
-        `💵 Наличные:   ${pad(r.income.cash.toLocaleString() + ' сум', 18)}`,
-        `💳 Терминал:   ${pad(r.income.card.toLocaleString() + ' сум', 18)}`,
-        `📱 QR-код:     ${pad(r.income.qr.toLocaleString() + ' сум', 18)}`,
+        `📈 ${t('scmReceipts')}`,
+        `💵 ${lbl(t('cash'))}${amt(r.income.cash)}`,
+        `💳 ${lbl(t('card'))}${amt(r.income.card)}`,
+        `📱 ${lbl(t('qr'))}${amt(r.income.qr)}`,
         ...(r.income.transfer > 0 ? (Object.entries(r.income.transferByEntity || {}).length > 0
-            ? Object.entries(r.income.transferByEntity).map(([entity, amt]) => `🏦 ${entity}: ${pad(amt.toLocaleString() + ' сум', 18)}`)
-            : [`🏦 Перечисление: ${pad(r.income.transfer.toLocaleString() + ' сум', 18)}`]) : []),
+            ? Object.entries(r.income.transferByEntity).map(([entity, amtv]) => `🏦 ${lbl(entity)}${amt(amtv)}`)
+            : [`🏦 ${lbl(t('scmBankTransfer'))}${amt(r.income.transfer)}`]) : []),
         line,
-        `✅ Итого:      ${pad(r.totalRevenue.toLocaleString() + ' сум', 18)}`,
+        `✅ ${lbl(t('total'))}${amt(r.totalRevenue)}`,
     ];
 
     if (r.totalRefunds > 0 || nonRefundExpenses > 0) {
         parts.push(line);
-        parts.push(`➖ ВЫЧЕТЫ`);
-        if (r.totalRefunds > 0)      parts.push(`🔄 Возврат:    ${pad('-' + r.totalRefunds.toLocaleString() + ' сум', 18)}`);
-        if (nonRefundExpenses > 0)   parts.push(`🔴 Расходы:    ${pad('-' + nonRefundExpenses.toLocaleString() + ' сум', 18)}`);
+        parts.push(`➖ ${t('scmDeductions')}`);
+        if (r.totalRefunds > 0)      parts.push(`🔄 ${lbl(t('refund'))}${negAmt(r.totalRefunds)}`);
+        if (nonRefundExpenses > 0)   parts.push(`🔴 ${lbl(t('expenses'))}${negAmt(nonRefundExpenses)}`);
     }
 
     parts.push(line);
-    parts.push(`💰 В КАССЕ:     ${pad(r.cashInHand.toLocaleString() + ' сум', 18)}`);
+    parts.push(`💰 ${lbl(t('cashInHand'))}${amt(r.cashInHand)}`);
     parts.push(line);
     return parts.join('\n');
 }

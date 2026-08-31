@@ -51,12 +51,12 @@ const ShiftClosingModal = ({
     const otherExpenses = cashboxExpenses - totalRefunds;
 
     const handleEndShiftWithNotify = useCallback(() => {
-        sendTelegramMessage(buildShiftTelegramMsg(user, report), 'shiftEnd');
+        sendTelegramMessage(buildShiftTelegramMsg(user, report, lang), 'shiftEnd');
         onEndShift();
-    }, [user, report, sendTelegramMessage, onEndShift]);
+    }, [user, report, sendTelegramMessage, onEndShift, lang]);
 
     const copyReport = useCallback(async () => {
-        const text = buildShiftReportText(user, report);
+        const text = buildShiftReportText(user, report, lang);
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
@@ -72,7 +72,7 @@ const ShiftClosingModal = ({
                 document.body.removeChild(el);
             }
         } catch { notify(t('copyError'), 'error'); }
-    }, [user, report, notify, t]);
+    }, [user, report, notify, t, lang]);
 
     const dateStr = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const money = (n) => (n || 0).toLocaleString('ru-RU');

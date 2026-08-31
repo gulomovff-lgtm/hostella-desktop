@@ -2,6 +2,7 @@ import React from 'react';
 import * as XLSX from 'xlsx';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_ISO3 } from '../constants/countries';
 import { getConfig } from './appConfig';
+import TRANSLATIONS from '../constants/translations';
 
 // Renders a country flag using flag-icons CSS (works offline, SVG bundled)
 export const Flag = ({ code, size = 20 }) => {
@@ -245,16 +246,17 @@ const escHtml = (v) => String(v == null ? '' : v)
     .replace(/'/g, '&#x27;');
 
 // ? ИСПРАВЛЕНИЕ: Улучшенная печать документов (чеки, анкеты, справки)
-export const printDocument = (type, guest, hostel) => {
+export const printDocument = (type, guest, hostel, lang = 'ru') => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const w = window.open('', '', 'width=800,height=600');
     const date = new Date().toLocaleDateString('ru-RU');
     const time = new Date().toLocaleTimeString('ru-RU');
-    
+
     let html = `
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>${type === 'check' ? 'Чек' : type === 'regcard' ? 'Регистрационная карта' : 'Справка'}</title>
+        <title>${type === 'check' ? t('rcptCheckTitle') : type === 'regcard' ? t('rcptRegcardTitle') : t('rcptRefTitle')}</title>
         <style>
             body { font-family: 'Courier New', monospace; padding: 20px; max-width: 600px; margin: 0 auto; }
             .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
@@ -277,61 +279,63 @@ export const printDocument = (type, guest, hostel) => {
         <div class="header">
             <h2>${hostel.name}</h2>
             <p style="margin: 2px 0; font-size: 12px;">${hostel.address}</p>
-            <p style="margin: 2px 0; font-size: 12px;">Дата: ${date} ${time}</p>
+            <p style="margin: 2px 0; font-size: 12px;">${t('rcptDate')}: ${date} ${time}</p>
         </div>
-        <div style="text-align: center; font-size: 16px; font-weight: bold; margin: 15px 0;">КАССОВЫЙ ЧЕК</div>
-        <div class="info-row"><span class="label">Гость:</span><span>${escHtml(guest.fullName)}</span></div>
-        <div class="info-row"><span class="label">Паспорт:</span><span>${escHtml(guest.passport || '-')}</span></div>
-        <div class="info-row"><span class="label">Комната:</span><span>№${escHtml(guest.roomNumber)}, Место ${escHtml(guest.bedId)}</span></div>
-        <div class="info-row"><span class="label">Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
-        <div class="info-row"><span class="label">Дней:</span><span>${guest.days}</span></div>
-        <div class="info-row"><span class="label">Цена за ночь:</span><span>${guest.pricePerNight.toLocaleString()} сум</span></div>
+        <div style="text-align: center; font-size: 16px; font-weight: bold; margin: 15px 0;">${t('rcptCashReceipt')}</div>
+        <div class="info-row"><span class="label">${t('guest')}:</span><span>${escHtml(guest.fullName)}</span></div>
+        <div class="info-row"><span class="label">${t('passport')}:</span><span>${escHtml(guest.passport || '-')}</span></div>
+        <div class="info-row"><span class="label">${t('room')}:</span><span>№${escHtml(guest.roomNumber)}, ${t('bed2')} ${escHtml(guest.bedId)}</span></div>
+        <div class="info-row"><span class="label">${t('checkIn')}:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
+        <div class="info-row"><span class="label">${t('days')}:</span><span>${guest.days}</span></div>
+        <div class="info-row"><span class="label">${t('price')}:</span><span>${guest.pricePerNight.toLocaleString()} ${t('sum')}</span></div>
         <div class="total">
-            <div class="info-row"><span>ИТОГО:</span><span>${total.toLocaleString()} сум</span></div>
-            <div class="info-row"><span>Оплачено:</span><span>${paid.toLocaleString()} сум</span></div>
-            <div class="info-row"><span>Долг:</span><span style="color: ${(total - paid) > 0 ? '#d63031' : '#00b894'};">${Math.max(0, total - paid).toLocaleString()} сум</span></div>
+            <div class="info-row"><span>${t('total')}:</span><span>${total.toLocaleString()} ${t('sum')}</span></div>
+            <div class="info-row"><span>${t('paid')}:</span><span>${paid.toLocaleString()} ${t('sum')}</span></div>
+            <div class="info-row"><span>${t('debt')}:</span><span style="color: ${(total - paid) > 0 ? '#d63031' : '#00b894'};">${Math.max(0, total - paid).toLocaleString()} ${t('sum')}</span></div>
         </div>
-        <div class="footer">Спасибо за выбор ${hostel.name}!<br/>Приходите к нам еще!</div>
+        <div class="footer">${t('rcptThanks').replace('{name}', hostel.name)}<br/>${t('rcptComeAgain')}</div>
         `;
     } else if (type === 'regcard') {
         html += `
         <div class="header">
-            <h2>РЕГИСТРАЦИОННАЯ КАРТА ГОСТЯ</h2>
+            <h2>${t('rcptRegcardHeading')}</h2>
             <p style="margin: 2px 0;">${hostel.name}</p>
         </div>
-        <div class="info-row"><span class="label">ФИО:</span><span>${escHtml(guest.fullName)}</span></div>
-        <div class="info-row"><span class="label">Дата рождения:</span><span>${escHtml(guest.birthDate || '-')}</span></div>
-        <div class="info-row"><span class="label">Паспорт:</span><span>${escHtml(guest.passport || '-')}</span></div>
-        <div class="info-row"><span class="label">Гражданство:</span><span>${escHtml(guest.country || '-')}</span></div>
-        <div class="info-row"><span class="label">Дата заезда:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
-        <div class="info-row"><span class="label">Дата выезда:</span><span>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : '-'}</span></div>
-        <div class="info-row"><span class="label">Комната:</span><span>№${escHtml(guest.roomNumber)}</span></div>
-        <div class="info-row"><span class="label">Место:</span><span>№${escHtml(guest.bedId)}</span></div>
+        <div class="info-row"><span class="label">${t('rcptFio')}:</span><span>${escHtml(guest.fullName)}</span></div>
+        <div class="info-row"><span class="label">${t('birthDate')}:</span><span>${escHtml(guest.birthDate || '-')}</span></div>
+        <div class="info-row"><span class="label">${t('passport')}:</span><span>${escHtml(guest.passport || '-')}</span></div>
+        <div class="info-row"><span class="label">${t('rcptCitizenship')}:</span><span>${escHtml(guest.country || '-')}</span></div>
+        <div class="info-row"><span class="label">${t('checkIn')}:</span><span>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</span></div>
+        <div class="info-row"><span class="label">${t('checkOut')}:</span><span>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : '-'}</span></div>
+        <div class="info-row"><span class="label">${t('room')}:</span><span>№${escHtml(guest.roomNumber)}</span></div>
+        <div class="info-row"><span class="label">${t('bed2')}:</span><span>№${escHtml(guest.bedId)}</span></div>
         <div style="margin-top: 40px;">
-            <p>Подпись гостя: <span class="signature"></span></p>
-            <p>Дата: ${date}</p>
+            <p>${t('rcptGuestSignature')}: <span class="signature"></span></p>
+            <p>${t('rcptDate')}: ${date}</p>
         </div>
-        <div class="footer">Документ сформирован автоматически</div>
+        <div class="footer">${t('rcptAutoGenerated')}</div>
         `;
     } else if (type === 'ref') {
         html += `
         <div class="header">
-            <h2>СПРАВКА О ПРОЖИВАНИИ</h2>
+            <h2>${t('rcptRefHeading')}</h2>
             <p style="margin: 2px 0;">${hostel.name}</p>
             <p style="margin: 2px 0; font-size: 11px;">${hostel.address}</p>
         </div>
         <p style="text-align: justify; line-height: 1.6; margin: 20px 0;">
-            Настоящая справка выдана <strong>${escHtml(guest.fullName)}</strong>, паспорт ${escHtml(guest.passport || '-')}, 
-            в том, что он(а) действительно проживал(а) в ${escHtml(hostel.name)} 
-            с <strong>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</strong> 
-            по <strong>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : 'настоящее время'}</strong>.
+            ${t('rcptRefBody')
+                .replace('{name}', `<strong>${escHtml(guest.fullName)}</strong>`)
+                .replace('{passport}', escHtml(guest.passport || '-'))
+                .replace('{hostel}', escHtml(hostel.name))
+                .replace('{from}', `<strong>${new Date(guest.checkInDate).toLocaleDateString('ru-RU')}</strong>`)
+                .replace('{to}', `<strong>${guest.checkOutDate ? new Date(guest.checkOutDate).toLocaleDateString('ru-RU') : t('rcptPresentTime')}</strong>`)}
         </p>
-        <p style="margin: 20px 0;">Комната: №${escHtml(guest.roomNumber)}, Место: №${escHtml(guest.bedId)}</p>
-        <p style="margin: 20px 0;">Справка выдана для предъявления по месту требования.</p>
+        <p style="margin: 20px 0;">${t('room')}: №${escHtml(guest.roomNumber)}, ${t('bed2')}: №${escHtml(guest.bedId)}</p>
+        <p style="margin: 20px 0;">${t('rcptRefPurpose')}</p>
         <div style="margin-top: 60px;">
-            <p>Дата выдачи: ${date}</p>
-            <p>Подпись администратора: _________________</p>
-            <p style="text-align: center; margin-top: 20px;">М.П.</p>
+            <p>${t('rcptIssueDate')}: ${date}</p>
+            <p>${t('rcptAdminSignature')}: _________________</p>
+            <p style="text-align: center; margin-top: 20px;">${t('rcptStamp')}</p>
         </div>
         `;
     }

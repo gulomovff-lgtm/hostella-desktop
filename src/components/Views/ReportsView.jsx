@@ -343,8 +343,8 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     // Долги на сегодня: нужны и кнопке «Долги», и общему Excel-отчёту.
     // Считаются от текущего состояния, период фильтра на них не влияет.
     const debtReport = useMemo(
-        () => buildDebtReport({ guests, rooms, contractGroups, payments, hostelId: filters.hostelId || null }),
-        [guests, rooms, contractGroups, payments, filters.hostelId]);
+        () => buildDebtReport({ guests, rooms, contractGroups, payments, hostelId: filters.hostelId || null, lang }),
+        [guests, rooms, contractGroups, payments, filters.hostelId, lang]);
 
     const handleExport = async () => {
         if (exporting) return;
@@ -782,6 +782,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 periodNet={net}
                 periodLabel={periodLabel}
                 onClose={() => setDebtReportOpen(false)}
+                lang={lang}
             />
         )}
         </>

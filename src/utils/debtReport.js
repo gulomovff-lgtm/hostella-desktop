@@ -16,6 +16,7 @@
  */
 
 import { computeContractFinancials } from './contractFinancials.js'; // .js — чтобы модуль грузился и в node --test
+import TRANSLATIONS from '../constants/translations.js'; // .js — чтобы модуль грузился и в node --test
 
 export const DEFAULT_HOSTEL = 'hostel1';
 
@@ -64,8 +65,9 @@ const addTo = (bucket, row) => {
  * @param {string?}  opts.hostelId        оставить только этот филиал (null = все)
  */
 export const buildDebtReport = ({
-  guests = [], rooms = [], contractGroups = [], payments = [], hostelId = null,
+  guests = [], rooms = [], contractGroups = [], payments = [], hostelId = null, lang = 'ru',
 } = {}) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const inScope = (h) => !hostelId || h === hostelId;
   const rows = [];
 
@@ -81,7 +83,7 @@ export const buildDebtReport = ({
     if (!byDebtor.has(key)) {
       byDebtor.set(key, {
         source: 'guest', id: key, name: g.fullName || '—',
-        detail: g.roomNumber ? `Комната ${g.roomNumber}` : (g.phone || ''),
+        detail: g.roomNumber ? `${t('roomWord')} ${g.roomNumber}` : (g.phone || ''),
         hostelId: h, charged: 0, paid: 0, debt: 0, records: 0, guestIds: [],
       });
     }
@@ -111,8 +113,8 @@ export const buildDebtReport = ({
     const { entities } = transferInfo(pays);
     rows.push({
       source: 'rental', id: `rental|${r.id}`,
-      name: rt.tenantName || `Комната ${r.number}`,
-      detail: `Комната ${r.number}`,
+      name: rt.tenantName || `${t('roomWord')} ${r.number}`,
+      detail: `${t('roomWord')} ${r.number}`,
       hostelId: h, charged: num(rt.totalAmount), paid, debt, records: 1,
       method: num(rt.paidTransfer) > 0 ? 'transfer' : 'regular', entities,
     });
@@ -128,8 +130,8 @@ export const buildDebtReport = ({
     const { transferred, entities } = transferInfo(pays);
     rows.push({
       source: 'contract', id: `contract|${gr.id}`,
-      name: gr.name || 'Без названия',
-      detail: fin.contractRate > 0 ? `${fin.contractRate.toLocaleString('ru')} сум/чел-ночь · ${fin.totalPersonNights} чел-ночей` : '',
+      name: gr.name || t('brmUnnamed'),
+      detail: fin.contractRate > 0 ? t('dbrRateLine').replace('{rate}', fin.contractRate.toLocaleString('ru')).replace('{n}', fin.totalPersonNights) : '',
       hostelId: h, charged: fin.contractTotal, paid: fin.amountPaid, debt: fin.debt,
       records: 1, method: transferred > 0 ? 'transfer' : 'regular', entities,
       closed: !!gr.closed, completed: !!gr.completed,
@@ -154,7 +156,7 @@ export const buildDebtReport = ({
     addTo(h, row);
     h[row.source] += row.debt;
     if (row.method === 'transfer') {
-      const key = row.entities[0] || 'Получатель не указан';
+      const key = row.entities[0] || t('dbrReceiverNotSet');
       entityMap.set(key, (entityMap.get(key) || 0) + row.debt);
     }
   });
