@@ -2080,6 +2080,7 @@ return (
                         onAddCadastre={handleAddCadastre}
                         onUpdateCadastre={handleUpdateCadastre}
                         onDeleteCadastre={handleDeleteCadastre}
+                        lang={lang}
                     />
                 )}
                 
@@ -2231,6 +2232,7 @@ return (
                             hostelId={selectedHostelFilter}
                             showNotification={showNotification}
                             currentUser={currentUser}
+                            lang={lang}
                         />
                     </div>
                 )}

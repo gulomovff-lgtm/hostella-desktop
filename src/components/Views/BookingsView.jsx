@@ -92,17 +92,17 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                 {(booking.beds || 1) > 1 && (
                     <div className="col-span-2 flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center gap-1 text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg">
-                            <BedDouble size={12} /> Групповая бронь: {booking.beds} мест
+                            <BedDouble size={12} /> {t('bkGroupBooking').replace('{n}', booking.beds)}
                         </span>
                         {(booking.seatedCount || 0) > 0 && (
-                            <span className="text-xs font-bold text-indigo-600">заселено {booking.seatedCount} из {booking.beds} — каждого заселяйте отдельно</span>
+                            <span className="text-xs font-bold text-indigo-600">{t('bkSeatedOf').replace('{done}', booking.seatedCount).replace('{total}', booking.beds)}</span>
                         )}
                     </div>
                 )}
                 {!booking.depositMoved && (Number(booking.amountPaid) || 0) > 0 && (
                     <div className="col-span-2">
                         <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg">
-                            💰 Залог внесён: {Number(booking.amountPaid).toLocaleString()} сум
+                            💰 {t('bkDepositMade')} {Number(booking.amountPaid).toLocaleString()} {t('sum')}
                         </span>
                     </div>
                 )}
@@ -115,10 +115,10 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                 )}
                 {booking.totalPrice > 0 && (
                     <div className="col-span-2 flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Сумма</span>
-                        <span className="text-sm font-black text-slate-700">{Number(booking.totalPrice).toLocaleString()} сум</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{t('amount')}</span>
+                        <span className="text-sm font-black text-slate-700">{Number(booking.totalPrice).toLocaleString()} {t('sum')}</span>
                         {booking.channel === 'telegram' && (
-                            <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md" title="Цена согласована в переписке с ботом">договорная</span>
+                            <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md" title={t('bkNegotiatedTitle')}>{t('bkNegotiated')}</span>
                         )}
                     </div>
                 )}
@@ -139,7 +139,7 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                                    transition-all active:scale-[0.98]"
                     >
                         <BedDouble size={14} strokeWidth={2.5} />
-                        {(booking.seatedCount || 0) > 0 ? `Заселить ${(booking.seatedCount || 0) + 1}-го из ${booking.beds}` : t('checkin')}
+                        {(booking.seatedCount || 0) > 0 ? t('bkCheckinNth').replace('{n}', (booking.seatedCount || 0) + 1).replace('{total}', booking.beds) : t('checkin')}
                         <ChevronRight size={13} strokeWidth={3} />
                     </button>
                     <button
@@ -217,14 +217,14 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang = 'ru', 
             // 1. Get iCal URL from Firestore settings
             const cfgRef  = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
             const cfgSnap = await getDoc(cfgRef);
-            if (!cfgSnap.exists()) throw new Error('Настройки не найдены. Сохраните настройки хостела.');
+            if (!cfgSnap.exists()) throw new Error(t('bkErrNoSettings'));
             const icalUrl = cfgSnap.data()?.[hostelId]?.icalUrl;
-            if (!icalUrl) throw new Error('iCal URL не задан. Добавьте его в Настройках → хостел.');
+            if (!icalUrl) throw new Error(t('bkErrNoIcal'));
 
             // 2. Fetch iCal text via Electron IPC (no CORS)
-            if (!window.electronAPI?.fetchIcal) throw new Error('Функция доступна только в приложении Hostella.');
+            if (!window.electronAPI?.fetchIcal) throw new Error(t('bkErrElectronOnly'));
             const text = await window.electronAPI.fetchIcal(icalUrl);
-            if (!text || !text.includes('BEGIN:VCALENDAR')) throw new Error('Неверный ответ от Booking.com. Проверьте URL.');
+            if (!text || !text.includes('BEGIN:VCALENDAR')) throw new Error(t('bkErrBadIcal'));
 
             // 3. Parse
             const reservations = parseIcal(text);
@@ -341,7 +341,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang = 'ru', 
                         </div>
                         <div className="flex items-center gap-3">
                             {syncMsg && (
-                                <span className={`text-xs font-bold px-3 py-1.5 rounded-xl ${syncMsg.startsWith('Ошибка') ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                                <span className={`text-xs font-bold px-3 py-1.5 rounded-xl ${syncMsg.startsWith(t('error')) ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
                                     {syncMsg}
                                 </span>
                             )}
@@ -423,7 +423,7 @@ const BookingComCard = ({ res, matchedRoom, lang = 'ru' }) => {
                 {res.guests > 1 && (
                     <div className="flex items-center gap-2">
                         <Users size={13} className="text-slate-400 shrink-0" />
-                        <span className="text-sm text-slate-600 font-medium">{res.guests} гостя</span>
+                        <span className="text-sm text-slate-600 font-medium">{res.guests} {t('bkGuestsWord')}</span>
                     </div>
                 )}
                 {res.room && (

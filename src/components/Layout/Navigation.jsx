@@ -21,15 +21,15 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'clients',        icon: Users,             label: t('clients'),        permKey: 'viewClients'                  },
     { id: 'bookings',       icon: Globe,             label: t('bookings2'),      badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
     { id: 'registrations',  icon: ClipboardCheck,    label: t('emehmon'),        badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0, permKey: 'viewRegistrations' },
-    { id: 'cadastre',       icon: Home,              label: 'Кадастр',           permKey: 'viewCadastre'                 },
+    { id: 'cadastre',       icon: Home,              label: t('navCadastre'),    permKey: 'viewCadastre'                 },
     { id: 'tasks',          icon: CheckSquare,       label: t('tasks'),          badge: pendingTasksCount, permKey: 'viewTasks' },
     { id: 'reports',        icon: FileText,          label: t('reports'),        adminOnly: true, permKey: 'viewReports' },
     { id: 'expenses',       icon: Wallet,            label: t('expenses'),       adminOnly: true, permKey: 'viewExpenses'},
     { id: 'analytics',      icon: BarChart3,         label: t('analytics'),      adminOnly: true                        },
-    { id: 'guesthistory',   icon: History,           label: 'История гостей',    adminOnly: true                        },
-    { id: 'manualstay',     icon: Users,             label: 'Ручной учёт',       permKey: 'viewManualStay'               },
+    { id: 'guesthistory',   icon: History,           label: t('navGuestHistory'),adminOnly: true                        },
+    { id: 'manualstay',     icon: Users,             label: t('navManualStay'),  permKey: 'viewManualStay'               },
     { id: 'staff',          icon: UserCog,           label: t('staff'),          adminOnly: true                        },
-    { id: 'pricePerms',     icon: ShieldCheck,       label: 'Понижение цены',    adminOnly: true                        },
+    { id: 'pricePerms',     icon: ShieldCheck,       label: t('navPriceLowering'),adminOnly: true                       },
     { id: 'shifts',         icon: Clock,             label: t('shifts'),         adminOnly: true                        },
     { id: 'telegram',       icon: BellRing,          label: t('telegram2'),      adminOnly: true                        },
     { id: 'promos',         icon: Tag,               label: t('promos2'),        adminOnly: true                        },
@@ -37,19 +37,19 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'hostelconfig',   icon: Settings,          label: t('hostelSettings'), adminOnly: true                        },
     { id: 'auditlog',       icon: ClipboardList,     label: t('auditHistory'),   superOnly: true                        },
     { id: 'sessions',       icon: Monitor,           label: t('sessions2'),      superOnly: true                        },
-    { id: 'versions',       icon: ClipboardCheck,    label: 'Версии клиентов',   adminOnly: true                        },
+    { id: 'versions',       icon: ClipboardCheck,    label: t('navClientVersions'),adminOnly: true                      },
 ];
 
 const APP_THEMES = [
-    { id: 'green', Icon: Sun,  label: 'Светлая' },
-    { id: 'dark',  Icon: Moon, label: 'Тёмная'  },
+    { id: 'green', Icon: Sun,  labelKey: 'navThemeLight' },
+    { id: 'dark',  Icon: Moon, labelKey: 'navThemeDark'  },
 ];
 
 const POSITIONS = [
-    { id: 'left',   Icon: PanelLeft,   label: 'Слева'  },
-    { id: 'right',  Icon: PanelRight,  label: 'Справа' },
-    { id: 'top',    Icon: PanelTop,    label: 'Сверху' },
-    { id: 'bottom', Icon: PanelBottom, label: 'Снизу'  },
+    { id: 'left',   Icon: PanelLeft,   labelKey: 'navPosLeft'   },
+    { id: 'right',  Icon: PanelRight,  labelKey: 'navPosRight'  },
+    { id: 'top',    Icon: PanelTop,    labelKey: 'navPosTop'    },
+    { id: 'bottom', Icon: PanelBottom, labelKey: 'navPosBottom' },
 ];
 
 const FOLDER_ICONS = [
@@ -272,10 +272,10 @@ const Navigation = ({
     // Folder management
     const addFolder = () => {
         const id = `folder_${Date.now()}`;
-        const newF = { id, label: 'Новая папка', items: [], open: false };
+        const newF = { id, label: t('navNewFolder'), items: [], open: false };
         onNavPrefs?.({ folders: [...folders, newF] });
         setEditFolderId(id);
-        setEditFolderName('Новая папка');
+        setEditFolderName(t('navNewFolder'));
     };
 
     const renameFolder = (fid, name) => {
@@ -673,7 +673,7 @@ const Navigation = ({
                                 { label: t('checkinOneGuest'), Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
                                 { label: t('checkinGroup'),     Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
                                 { label: t('checkinRental'),    Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
-                                { label: 'Лист в бухгалтерию',  Icon: FileText,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenGroupReceipt?.(); } },
+                                { label: t('navAccountingSheet'), Icon: FileText, color: '#5eead4', action: () => { setCheckinOpen(false); onOpenGroupReceipt?.(); } },
                             ].map(({ label, Icon, color, action }) => (
                                 <button key={label} onClick={action}
                                     className="hov-row w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
@@ -763,13 +763,13 @@ const Navigation = ({
                         </div>
                         {setAppTheme && (
                             <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                                <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>Тема</div>
+                                <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>{t('navTheme')}</div>
                                 <div className="flex gap-2">
                                     {APP_THEMES.map(th => (
                                         <button key={th.id} onClick={() => setAppTheme(th.id)}
                                             className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1"
                                             style={appTheme === th.id ? { background: '#e88c40', color: '#fff' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
-                                            <th.Icon size={13}/><span>{th.label}</span>
+                                            <th.Icon size={13}/><span>{t(th.labelKey)}</span>
                                         </button>
                                     ))}
                                 </div>
@@ -780,7 +780,7 @@ const Navigation = ({
                             className="hov-indigo w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
                             style={{ color: '#a5b4fc', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)', outline: 'none', transition: 'background .15s' }}
                         >
-                            <SlidersHorizontal size={15}/> Настроить меню
+                            <SlidersHorizontal size={15}/> {t('navCustomizeMenu')}
                         </button>
                         <button
                             onClick={() => { setProfileOpen(false); onOpenChangePassword(); }}
@@ -815,7 +815,7 @@ const Navigation = ({
                         {/* Header */}
                         <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: 10 }}>
                             <SlidersHorizontal size={17} style={{ color: '#a5b4fc' }}/>
-                            <span style={{ color: '#fff', fontWeight: 800, fontSize: 15, flex: 1 }}>Настройка меню</span>
+                            <span style={{ color: '#fff', fontWeight: 800, fontSize: 15, flex: 1 }}>{t('navMenuSettings')}</span>
                             <button onClick={() => setCustomizeOpen(false)}
                                 style={{ color: 'var(--nav-muted)', cursor: 'pointer', background: 'none', border: 'none', padding: 4, fontSize: 16 }}>✕</button>
                         </div>
@@ -823,10 +823,10 @@ const Navigation = ({
                         {/* Position picker */}
                         <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                             <div style={{ color: 'rgba(158,205,208,0.5)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
-                                Расположение меню
+                                {t('navMenuPosition')}
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                                {POSITIONS.map(({ id, Icon: PosIcon, label }) => (
+                                {POSITIONS.map(({ id, Icon: PosIcon, labelKey }) => (
                                     <button key={id} onClick={() => onNavPrefs?.({ position: id })}
                                         style={{
                                             padding: '10px 4px', borderRadius: 10, cursor: 'pointer',
@@ -837,7 +837,7 @@ const Navigation = ({
                                             transition: 'all 0.15s',
                                         }}>
                                         <PosIcon size={18} strokeWidth={position === id ? 2.5 : 2}/>
-                                        <span style={{ fontSize: 10, fontWeight: 700 }}>{label}</span>
+                                        <span style={{ fontSize: 10, fontWeight: 700 }}>{t(labelKey)}</span>
                                     </button>
                                 ))}
                             </div>
@@ -847,12 +847,12 @@ const Navigation = ({
                         {!isHoriz && (
                             <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                                 <div style={{ color: 'rgba(158,205,208,0.5)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
-                                    Стиль меню
+                                    {t('navMenuStyle')}
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                                     {[
-                                        { id: 'compact', label: 'Компактное', desc: '80px · иконки' },
-                                        { id: 'wide',    label: 'Широкое',    desc: '220px · с текстом' },
+                                        { id: 'compact', label: t('navStyleCompact'), desc: t('navStyleCompactDesc') },
+                                        { id: 'wide',    label: t('navStyleWide'),    desc: t('navStyleWideDesc') },
                                     ].map(s => (
                                         <button key={s.id} onClick={() => onNavPrefs?.({ navStyle: s.id })}
                                             style={{
@@ -883,7 +883,7 @@ const Navigation = ({
                             {/* Standalone items row */}
                             <div style={{ marginBottom: 18 }}>
                                 <div style={{ color: 'rgba(158,205,208,0.45)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 10 }}>
-                                    Основные пункты
+                                    {t('navMainItems')}
                                 </div>
                                 <div
                                     style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minHeight: 80, borderRadius: 12, padding: 6, border: `1.5px dashed ${dragId ? 'rgba(232,140,64,0.4)' : 'transparent'}`, transition: 'border-color 0.15s' }}
@@ -944,11 +944,11 @@ const Navigation = ({
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                                     <span style={{ color: 'rgba(158,205,208,0.45)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.09em' }}>
-                                        Папки
+                                        {t('navFolders')}
                                     </span>
                                     <button onClick={addFolder}
                                         style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(165,180,252,0.12)', border: '1px solid rgba(165,180,252,0.25)', color: '#a5b4fc', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                                        <FolderPlus size={13}/> Добавить папку
+                                        <FolderPlus size={13}/> {t('navAddFolder')}
                                     </button>
                                 </div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -1106,7 +1106,7 @@ const Navigation = ({
                                                                     {item.label}
                                                                 </span>
                                                                 <button
-                                                                    title="Вынести из папки"
+                                                                    title={t('navMoveOutFolder')}
                                                                     onClick={() => {
                                                                         const newFolders = folders.map(f => ({ ...f, items: f.id === folder.id ? f.items.filter(id => id !== itemId) : f.items }));
                                                                         const itemEntry = 'item:' + itemId;
@@ -1124,14 +1124,14 @@ const Navigation = ({
                                                         );
                                                     })}
                                                     {visItemCount === 0 && (
-                                                        <span style={{ fontSize: 11, color: 'rgba(158,205,208,0.3)', fontStyle: 'italic', alignSelf: 'center' }}>Перетащите пункты</span>
+                                                        <span style={{ fontSize: 11, color: 'rgba(158,205,208,0.3)', fontStyle: 'italic', alignSelf: 'center' }}>{t('navDragItems')}</span>
                                                     )}
                                                 </div>
                                             </div>
                                         );
                                     })}
                                     {resolvedNavOrder.filter(e => e.startsWith('folder:')).length === 0 && (
-                                        <div style={{ fontSize: 12, color: 'rgba(158,205,208,0.3)', padding: '8px 0', fontStyle: 'italic' }}>Папок нет — нажмите «Добавить папку»</div>
+                                        <div style={{ fontSize: 12, color: 'rgba(158,205,208,0.3)', padding: '8px 0', fontStyle: 'italic' }}>{t('navNoFolders')}</div>
                                     )}
                                 </div>
                             </div>
@@ -1148,14 +1148,14 @@ const Navigation = ({
                                 className="hov-row-strong"
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'rgba(158,205,208,0.7)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
                             >
-                                <RotateCcw size={13}/> Сбросить
+                                <RotateCcw size={13}/> {t('resetBtn')}
                             </button>
                             <button
                                 onClick={() => setCustomizeOpen(false)}
                                 className="hov-accent"
                                 style={{ flex: 1, padding: '9px', borderRadius: 10, background: '#e88c40', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
                             >
-                                Готово
+                                {t('done')}
                             </button>
                         </div>
                     </div>

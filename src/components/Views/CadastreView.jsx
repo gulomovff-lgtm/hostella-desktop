@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { HOSTELS, Flag } from '../../utils/helpers';
 import { COUNTRY_FLAGS } from '../../constants/countries';
+import TRANSLATIONS from '../../constants/translations';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -37,7 +38,9 @@ export default function CadastreView({
   onAddCadastre,
   onUpdateCadastre,
   onDeleteCadastre,
+  lang = 'ru',
 }) {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   // Fazliddin полностью управляет кадастром выбранного хостела (наравне с админом)
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.login === 'fazliddin';
 
@@ -134,7 +137,7 @@ export default function CadastreView({
 
   const formatMonth = (ym) => {
     const [y, m] = ym.split('-');
-    const names = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    const names = t('monthsFull');
     return `${names[parseInt(m, 10) - 1]} ${y}`;
   };
 
@@ -206,8 +209,8 @@ export default function CadastreView({
             <Home size={18} className="text-teal-600" />
           </div>
           <div>
-            <h2 className="font-black text-slate-800 text-lg leading-tight">Кадастр-регистрация</h2>
-            <p className="text-xs text-slate-500">Регистрация гостей в частных домах</p>
+            <h2 className="font-black text-slate-800 text-lg leading-tight">{t('cadTitle')}</h2>
+            <p className="text-xs text-slate-500">{t('cadSubtitle')}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -217,14 +220,14 @@ export default function CadastreView({
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 shadow-sm"
             >
               <Receipt size={13} />
-              В расходы ({fmt(stats.pendingExpense)} сум)
+              {t('cadToExpenses').replace('{n}', fmt(stats.pendingExpense))}
             </button>
           )}
           <button
             onClick={() => setShowModal(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 shadow-sm shadow-teal-200"
           >
-            <Plus size={14} /> Регистрация
+            <Plus size={14} /> {t('registration')}
           </button>
         </div>
       </div>
@@ -232,10 +235,10 @@ export default function CadastreView({
       {/* Stats bar */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { label: 'Активных',  value: stats.active,   color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', filter: 'active' },
-          { label: 'Истекают',  value: stats.expiring, color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200',   filter: 'expiring' },
-          { label: 'Истекли',   value: stats.expired,  color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200',    filter: 'expired' },
-          { label: 'Все расходы', value: fmt(stats.totalCost) + ' сум', color: 'text-teal-700', bg: 'bg-teal-50', border: 'border-teal-200', filter: 'all' },
+          { label: t('activeCount'),  value: stats.active,   color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', filter: 'active' },
+          { label: t('cadExpiring'),  value: stats.expiring, color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200',   filter: 'expiring' },
+          { label: t('cadExpired'),   value: stats.expired,  color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200',    filter: 'expired' },
+          { label: t('cadAllExpenses'), value: fmt(stats.totalCost) + ' ' + t('cadSum'), color: 'text-teal-700', bg: 'bg-teal-50', border: 'border-teal-200', filter: 'all' },
         ].map(s => (
           <button key={s.label} onClick={() => setStatusFilter(f => f === s.filter ? 'active_expiring' : s.filter)}
             className={`${s.bg} border-2 ${statusFilter === s.filter ? s.border + ' ring-2 ring-offset-1 ring-current opacity-100' : s.border + ' opacity-70'} rounded-xl p-3 text-center hover:opacity-90 transition-all`}>
@@ -249,8 +252,8 @@ export default function CadastreView({
       {isAdmin && (
         <div className="flex gap-1 bg-slate-100 rounded-xl p-1 self-start w-fit">
           {[
-            { id: 'regs', label: 'Регистрации' },
-            { id: 'cadastres', label: 'Кадастры' },
+            { id: 'regs', label: t('registrations') },
+            { id: 'cadastres', label: t('cadCadastres') },
           ].map(t => (
             <button
               key={t.id}
@@ -272,7 +275,7 @@ export default function CadastreView({
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
-                placeholder="Поиск по гостю, адресу..."
+                placeholder={t('cadSearchPlaceholder')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -282,7 +285,7 @@ export default function CadastreView({
               value={monthFilter}
               onChange={e => setMonthFilter(e.target.value)}
             >
-              <option value="">Все месяцы</option>
+              <option value="">{t('cadAllMonths')}</option>
               {availableMonths.map(ym => (
                 <option key={ym} value={ym}>{formatMonth(ym)}</option>
               ))}
@@ -292,12 +295,12 @@ export default function CadastreView({
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
             >
-              <option value="active_expiring">Активные + Истекают</option>
-              <option value="active">Только активные</option>
-              <option value="expiring">Только истекают</option>
-              <option value="expired">Истекли</option>
-              <option value="removed">Завершённые</option>
-              <option value="all">Все записи</option>
+              <option value="active_expiring">{t('cadActiveExpiring')}</option>
+              <option value="active">{t('cadOnlyActive')}</option>
+              <option value="expiring">{t('cadOnlyExpiring')}</option>
+              <option value="expired">{t('cadExpired')}</option>
+              <option value="removed">{t('cadRemovedFilter')}</option>
+              <option value="all">{t('cadAllRecords')}</option>
             </select>
           </div>
 
@@ -305,9 +308,9 @@ export default function CadastreView({
           {filtered.length === 0 ? (
             <div className="py-16 text-center text-slate-400">
               <Home size={40} className="mx-auto mb-3 opacity-30" />
-              <p className="font-semibold">Нет записей</p>
+              <p className="font-semibold">{t('expNoRecords')}</p>
               <p className="text-xs mt-1">
-                {statusFilter === 'active_expiring' ? 'Нет активных регистраций' : 'Попробуйте изменить фильтр'}
+                {statusFilter === 'active_expiring' ? t('cadNoActiveRegs') : t('cadTryChangeFilter')}
               </p>
             </div>
           ) : (
@@ -337,15 +340,15 @@ export default function CadastreView({
               onClick={() => setCadastreModal('add')}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700"
             >
-              <Plus size={14} /> Добавить кадастр
+              <Plus size={14} /> {t('cadAddCadastre')}
             </button>
           </div>
 
           {visibleCadastres.length === 0 ? (
             <div className="py-16 text-center text-slate-400">
               <Building size={40} className="mx-auto mb-3 opacity-30" />
-              <p className="font-semibold">Кадастры не добавлены</p>
-              <p className="text-xs mt-1">Добавьте частные дома для быстрого выбора при регистрации</p>
+              <p className="font-semibold">{t('cadNoCadastres')}</p>
+              <p className="text-xs mt-1">{t('cadAddHousesHint')}</p>
             </div>
           ) : (
             visibleCadastres.map(c => (
@@ -358,7 +361,7 @@ export default function CadastreView({
                     <p className="font-bold text-sm text-slate-800">{c.name || '—'}</p>
                     <p className="text-xs text-slate-600">📍 {c.address}</p>
                     {c.owner && <p className="text-xs text-slate-500">👤 {c.owner} {c.phone && `· ${c.phone}`}</p>}
-                    <p className="text-xs text-slate-400">{hostelName(c.hostelId)} {c.dailyRate > 0 && `· ${fmt(c.dailyRate)} сум/день`}</p>
+                    <p className="text-xs text-slate-400">{hostelName(c.hostelId)} {c.dailyRate > 0 && `· ${fmt(c.dailyRate)} ${t('rrSumPerDay')}`}</p>
                   </div>
                 </div>
                 <div className="flex gap-1.5 flex-shrink-0">
@@ -395,16 +398,16 @@ export default function CadastreView({
                   <Receipt size={20} className="text-violet-600" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">Добавить все в расходы</h3>
+                  <h3 className="font-bold text-slate-800 text-base">{t('cadAddAllTitle')}</h3>
                   <p className="text-sm text-slate-500 mt-1">
-                    Будет добавлено <b className="text-violet-700">{fmt(stats.pendingExpense)} сум</b> по всем регистрациям с неучтённым расходом (включая завершённые). Дата расхода — день создания регистрации.
+                    {t('cadAddAllInfoPre')}<b className="text-violet-700">{fmt(stats.pendingExpense)} {t('cadSum')}</b>{t('cadAddAllInfoPost')}
                   </p>
                 </div>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setAddAllConfirm(false)} disabled={busyAddAll}
                   className="flex-1 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 disabled:opacity-40">
-                  Отмена
+                  {t('cancel')}
                 </button>
                 <button onClick={handleAddAllConfirmed} disabled={busyAddAll}
                   className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white font-bold text-sm hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-2">
@@ -412,7 +415,7 @@ export default function CadastreView({
                     ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     : <Receipt size={14} />
                   }
-                  Добавить
+                  {t('add')}
                 </button>
               </div>
             </div>
@@ -430,6 +433,7 @@ export default function CadastreView({
           selectedHostelFilter={selectedHostelFilter}
           onClose={() => setShowModal(false)}
           onSubmit={onAddReg}
+          lang={lang}
         />
       )}
       {extendReg && (

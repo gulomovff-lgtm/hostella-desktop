@@ -3,8 +3,10 @@ import { Check, ChevronLeft, Home, Link, MapPin, Search, User, Users, X } from '
 import { Flag } from '../../../utils/helpers';
 import { COUNTRY_FLAGS } from '../../../constants/countries';
 import { calcEndDate, inp } from './shared';
+import TRANSLATIONS from '../../../constants/translations';
 
-const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRegs = [], currentUser, selectedHostelFilter, onClose, onSubmit }) => {
+const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRegs = [], currentUser, selectedHostelFilter, onClose, onSubmit, lang = 'ru' }) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
   // Fazliddin регистрирует по выбранному хостелу (а не только по своему hostel2)
   const defaultHostel = (currentUser.login === 'fazliddin' && selectedHostelFilter && selectedHostelFilter !== 'all')
@@ -158,27 +160,27 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => { setShowResidents(false); setResidentSearch(''); }}
                   className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><ChevronLeft size={18} /></button>
-                <h3 className="font-black text-base text-slate-800">Проживающие (не Узбекистан)</h3>
+                <h3 className="font-black text-base text-slate-800">{t('cadmResidentsTitle')}</h3>
               </div>
               <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
             </div>
             <div className="overflow-y-auto p-4 space-y-4">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input className={inp + ' pl-8'} placeholder="Поиск по имени, стране, паспорту..."
+                <input className={inp + ' pl-8'} placeholder={t('cadmSearchNameCountryPassport')}
                   value={residentSearch} onChange={e => setResidentSearch(e.target.value)} />
               </div>
               {residentsByRoom.length === 0 ? (
                 <div className="py-12 text-center text-slate-400">
                   <User size={36} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm font-semibold">Нет подходящих проживающих</p>
-                  <p className="text-xs mt-1">Активные гости не из Узбекистана не найдены</p>
+                  <p className="text-sm font-semibold">{t('cadmNoResidents')}</p>
+                  <p className="text-xs mt-1">{t('cadmNoResidentsHint')}</p>
                 </div>
               ) : residentsByRoom.map(group => (
                 <div key={group.key} className="space-y-1.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wide">
                     <MapPin size={11} className="text-teal-500" />
-                    {group.room ? `Комната ${group.room.number}` : 'Без комнаты'}
+                    {group.room ? t('cadmRoomN').replace('{n}', group.room.number) : t('cadmNoRoom')}
                     <span className="text-slate-300 font-normal normal-case">· {group.guests.length}</span>
                   </div>
                   <div className="grid gap-1.5">
@@ -191,11 +193,11 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-slate-800 truncate">{g.fullName}</p>
                             <p className="text-[11px] text-slate-400 truncate">
-                              {g.country}{g.bedId ? ` · место ${g.bedId}` : ''}{g.passport ? ` · ${g.passport}` : ''}
+                              {g.country}{g.bedId ? ` · ${t('cadmPlace').replace('{n}', g.bedId)}` : ''}{g.passport ? ` · ${g.passport}` : ''}
                             </p>
                           </div>
                           {registered && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200 shrink-0">в кадастре</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200 shrink-0">{t('cadmInCadastre')}</span>
                           )}
                           <Check size={14} className="text-teal-500 opacity-0 group-hover:opacity-100 shrink-0" />
                         </button>
@@ -214,7 +216,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
             <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center">
               <Home size={16} className="text-teal-600" />
             </div>
-            <h3 className="font-black text-base text-slate-800">Новая кадастр-регистрация</h3>
+            <h3 className="font-black text-base text-slate-800">{t('cadmTitle')}</h3>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
         </div>
@@ -223,12 +225,12 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
           {/* Гость */}
           <div>
             <label className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1 uppercase tracking-wide">
-              <User size={11} /> Гость
+              <User size={11} /> {t('guest')}
             </label>
             <div className="relative">
               <input
                 className={inp + ' pr-8'}
-                placeholder="Поиск по имени, паспорту, телефону..."
+                placeholder={t('cadmSearchNamePassportPhone')}
                 value={guestSearch}
                 onChange={e => { setGuestSearch(e.target.value); if (!e.target.value) setSelectedGuest(null); }}
               />
@@ -238,7 +240,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
             </div>
             <button type="button" onClick={() => setShowResidents(true)}
               className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-teal-200 bg-teal-50 text-teal-700 text-sm font-bold hover:bg-teal-100 transition-colors">
-              <Users size={15} /> Выбрать из проживающих
+              <Users size={15} /> {t('cadmSelectFromResidents')}
             </button>
             {guestResults.length > 0 && !selectedGuest && (
               <div className="mt-1 border border-slate-200 rounded-xl overflow-hidden shadow-lg">
@@ -253,7 +255,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
             )}
             {!selectedGuest && guestSearch.trim().length >= 2 && guestResults.length === 0 && (
               <p className="mt-1.5 text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                Гость не найден в базе — будет сохранено введённое имя: <b className="text-slate-600">{guestSearch.trim()}</b>
+                {t('cadmGuestNotFound')} <b className="text-slate-600">{guestSearch.trim()}</b>
               </p>
             )}
             {selectedGuest && (
@@ -272,7 +274,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
           {/* Кадастр */}
           <div>
             <label className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1 uppercase tracking-wide">
-              <MapPin size={11} /> Кадастр (частный дом)
+              <MapPin size={11} /> {t('cadmCadastreLabel')}
             </label>
             {filteredCadastres.length > 0 && (
               <select
@@ -283,7 +285,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
                   handleSelectCadastre(c);
                 }}
               >
-                <option value="">— Выбрать из списка или ввести вручную —</option>
+                <option value="">{t('cadmSelectOrManual')}</option>
                 {filteredCadastres.map(c => (
                   <option key={c.id} value={c.id}>{c.name} — {c.address}</option>
                 ))}
@@ -291,10 +293,10 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
             )}
             {!selectedCadastre && (
               <div className="space-y-2">
-                <input className={inp} placeholder="Адрес (обязательно)" value={manualAddress} onChange={e => setManualAddress(e.target.value)} />
+                <input className={inp} placeholder={t('cadmAddressReq')} value={manualAddress} onChange={e => setManualAddress(e.target.value)} />
                 <div className="grid grid-cols-2 gap-2">
-                  <input className={inp} placeholder="Название / кадастр №" value={manualName} onChange={e => setManualName(e.target.value)} />
-                  <input className={inp} placeholder="Владелец" value={manualOwner} onChange={e => setManualOwner(e.target.value)} />
+                  <input className={inp} placeholder={t('cadmNameOrNumber')} value={manualName} onChange={e => setManualName(e.target.value)} />
+                  <input className={inp} placeholder={t('cadmOwner')} value={manualOwner} onChange={e => setManualOwner(e.target.value)} />
                 </div>
               </div>
             )}
@@ -303,35 +305,35 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
           {/* Даты */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-slate-600 mb-1 block">Дата начала</label>
+              <label className="text-xs font-bold text-slate-600 mb-1 block">{t('cadmStartDate')}</label>
               <input className={inp} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-600 mb-1 block">Количество дней</label>
+              <label className="text-xs font-bold text-slate-600 mb-1 block">{t('cadmDaysCount')}</label>
               <input className={inp} type="number" min="1" value={days} onChange={e => handleDaysChange(e.target.value)} />
             </div>
           </div>
           {endDate && (
             <p className="text-sm text-teal-700 font-semibold bg-teal-50 px-3 py-2 rounded-lg">
-              📅 Дата окончания: <b>{endDate}</b>
+              📅 {t('cadmEndDate')}: <b>{endDate}</b>
             </p>
           )}
 
           {/* Стоимость регистрации */}
           <div>
-            <label className="text-xs font-bold text-slate-600 mb-1 block">Стоимость регистрации (сум){selectedCadastre?.dailyRate > 0 && !amountManual ? <span className="ml-1 text-teal-500 font-normal normal-case">(авто: {Number(selectedCadastre.dailyRate).toLocaleString()} × {days} дн.)</span> : null}</label>
+            <label className="text-xs font-bold text-slate-600 mb-1 block">{t('cadmRegCost')}{selectedCadastre?.dailyRate > 0 && !amountManual ? <span className="ml-1 text-teal-500 font-normal normal-case">{t('cadmAutoCalc').replace('{rate}', Number(selectedCadastre.dailyRate).toLocaleString()).replace('{days}', days)}</span> : null}</label>
             <input className={inp} type="number" placeholder="0" value={amount} onChange={e => { setAmountManual(true); setAmount(e.target.value); }} />
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={addToExpenses} onChange={e => setAddToExpenses(e.target.checked)}
               className="w-4 h-4 rounded accent-teal-600" />
-            <span className="text-sm text-slate-700">Добавить стоимость регистрации в расходы</span>
+            <span className="text-sm text-slate-700">{t('cadmAddToExpenses')}</span>
           </label>
 
           {/* Ссылка на регистрацию */}
           <div>
             <label className="text-xs font-bold text-slate-500 mb-1 flex items-center gap-1 uppercase tracking-wide">
-              <Link size={11} /> Ссылка на регистрацию (для гостя)
+              <Link size={11} /> {t('cadmRegLink')}
             </label>
             <input
               className={inp}
@@ -340,18 +342,18 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
               value={regLink}
               onChange={e => setRegLink(e.target.value)}
             />
-            <p className="text-[10px] text-slate-400 mt-1">Постоянная ссылка на документ — можно отправить гостю по запросу</p>
+            <p className="text-[10px] text-slate-400 mt-1">{t('cadmRegLinkHint')}</p>
           </div>
         </div>
 
         <div className="p-5 border-t border-slate-100 flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">Отмена</button>
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">{t('cancel')}</button>
           <button
             onClick={submit}
             disabled={!canSubmit}
             className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Зарегистрировать
+            {t('cadmRegister')}
           </button>
         </div>
         </>
