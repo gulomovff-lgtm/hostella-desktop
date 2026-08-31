@@ -448,3 +448,25 @@ mainWindow.webContents.session.webRequest.onHeadersReceived((details, cb) => {
   2. Сверить текущие роли в `users` перед замком (вдруг подделаны через C1).
   3. Убедиться, что все кассы на 0.15.0.
   4. Деплой на спокойном окне: `cp firestore.rules.locked firestore.rules && firebase deploy --only firestore:rules`; сразу smoke-тест (вход кассира + оплата + бронь); откат — `git checkout firestore.rules && firebase deploy --only firestore:rules`.
+
+---
+
+# ✅ ЗАМОК ПРАВИЛ АКТИВИРОВАН — корень C1/C2/C6/C7 закрыт (2026-08-31)
+
+Все пререквизиты сошлись (0.15.0 с кастом-токенами на всех кассах, минтинг работает,
+бронь через createWebBooking). Замок задеплоен и **проверен на живой базе**:
+- аноним НЕ читает `guests`(паспорта)/`payments`/`clients` — **C6/C7 закрыты**;
+- `settings`/`users` читаемы до входа — вход не сломан;
+- кассир под claims работает штатно (подтверждено на кассе владельцем: «всё работает»).
+
+Что закрыто замком: анонимный экспорт PII, подделка/стирание финансов через SDK,
+эскалация роли через `users`-док, форж супер-claims, **самоодобрение цены кассиром**
+(`priceRequests.status` — только webhook), подмена получателей Telegram/минимума/аудита.
+
+**Ловушка деплоя:** правила ИМЕНОВАННОЙ базы `hostella` деплоятся командой
+`firebase deploy --only firestore` — вариант `--only firestore:rules` молча НЕ применяет
+их (no-op). Откат: восстановить прежний `firestore.rules` из git + `firebase deploy --only firestore`.
+
+Осталось (не корневое): ротация `siteCallbackKey`+HMAC на сайте; per-hostel scoping в
+правилах (сейчас staff видит оба филиала); запись аудита из функций (сейчас append-only
+на клиенте); H1 подпись авто-обновления; e-mehmon занижение налога; pending_payments форма.
