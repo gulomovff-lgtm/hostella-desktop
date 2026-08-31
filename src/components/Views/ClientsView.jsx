@@ -111,7 +111,8 @@ const ClientImportModal = ({ onClose, onImport, lang }) => {
 };
 
 // --- BalanceAdjustModal ---
-const BalanceAdjustModal = ({ client, onClose, onAdjust }) => {
+const BalanceAdjustModal = ({ client, onClose, onAdjust, lang }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [mode, setMode] = useState('+');
     const [amount, setAmount] = useState('');
 
@@ -126,14 +127,14 @@ const BalanceAdjustModal = ({ client, onClose, onAdjust }) => {
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
                 <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Wallet size={18} className="text-violet-600"/> Баланс клиента</h3>
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Wallet size={18} className="text-violet-600"/> {t('clClientBalance')}</h3>
                     <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">✕</button>
                 </div>
                 <p className="text-sm text-slate-500 mb-1 truncate font-medium">{client.fullName}</p>
                 <div className="mb-4 bg-slate-50 rounded-xl px-4 py-3">
-                    <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Текущий баланс</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">{t('clCurrentBalance')}</div>
                     <div className={`text-xl font-black ${(client.balance || 0) > 0 ? 'text-violet-700' : (client.balance || 0) < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
-                        {(client.balance || 0).toLocaleString()} сум
+                        {(client.balance || 0).toLocaleString()} {t('sum')}
                     </div>
                 </div>
                 <div className="flex gap-2 mb-3">
@@ -142,18 +143,18 @@ const BalanceAdjustModal = ({ client, onClose, onAdjust }) => {
                         className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
                             mode === '+' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                         }`}
-                    >+ Пополнить</button>
+                    >+ {t('clTopUp')}</button>
                     <button
                         onClick={() => setMode('-')}
                         className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
                             mode === '-' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                         }`}
-                    >− Уменьшить</button>
+                    >− {t('clReduce')}</button>
                 </div>
                 <input
                     type="number"
                     min="1"
-                    placeholder="Сумма в сумах"
+                    placeholder={t('clAmountInSum')}
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSubmit()}
@@ -161,14 +162,14 @@ const BalanceAdjustModal = ({ client, onClose, onAdjust }) => {
                     autoFocus
                 />
                 <div className="flex gap-2">
-                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
                     <button
                         onClick={handleSubmit}
                         disabled={!amount || parseInt(amount) <= 0}
                         className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white transition-colors disabled:opacity-40 ${
                             mode === '+' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
                         }`}
-                    >{mode === '+' ? `Пополнить` : `Уменьшить`}</button>
+                    >{mode === '+' ? t('clTopUp') : t('clReduce')}</button>
                 </div>
             </div>
         </div>
@@ -250,28 +251,28 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                         <input className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-medium text-slate-700" placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} />
                     </div>
                     <select className="w-full sm:w-52 py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none" value={countryFilter} onChange={e => setCountryFilter(e.target.value)}>
-                        <option value="">Все страны</option>
+                        <option value="">{t('clAllCountries')}</option>
                         {uniqueCountries.map(country => <option key={country} value={country}>{country}</option>)}
                     </select>
                     <select className="w-full sm:w-52 py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none" value={recencyFilter} onChange={e => setRecencyFilter(e.target.value)}>
-                        <option value="">Все визиты</option>
-                        <option value="30">Не были 30+ дней</option>
-                        <option value="60">Не были 60+ дней</option>
-                        <option value="90">Не были 90+ дней</option>
-                        <option value="180">Не были 180+ дней</option>
+                        <option value="">{t('clAllVisits')}</option>
+                        <option value="30">{t('clNotVisited').replace('{n}', '30')}</option>
+                        <option value="60">{t('clNotVisited').replace('{n}', '60')}</option>
+                        <option value="90">{t('clNotVisited').replace('{n}', '90')}</option>
+                        <option value="180">{t('clNotVisited').replace('{n}', '180')}</option>
                     </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <Button icon={UserPlus} onClick={() => setEditingClient({ fullName: '', passport: '', birthDate: '', country: 'Узбекистан', clientStatus: 'normal' })}>Добавить</Button>
+                    <Button icon={UserPlus} onClick={() => setEditingClient({ fullName: '', passport: '', birthDate: '', country: 'Узбекистан', clientStatus: 'normal' })}>{t('add')}</Button>
                     {isAdmin && <>
                         <Button icon={Merge} variant="secondary" onClick={onDeduplicate}>{t('deduplicate')}</Button>
                         <Button icon={Globe} variant="secondary" onClick={handleNormalize}>{t('normalizeCountries')}</Button>
                         <Button icon={FileSpreadsheet} variant="secondary" onClick={() => setIsImportModalOpen(true)}>CSV</Button>
-                        {onSyncFromGuests && <Button icon={RefreshCw} variant="secondary" onClick={() => setConfirmSyncOpen(true)}>Синхр. гостей</Button>}
-                        {selectedIds.size > 0 && <Button icon={Trash2} variant="danger" onClick={handleBulkDelete}>{selectedIds.size} уд.</Button>}
+                        {onSyncFromGuests && <Button icon={RefreshCw} variant="secondary" onClick={() => setConfirmSyncOpen(true)}>{t('clSyncGuests')}</Button>}
+                        {selectedIds.size > 0 && <Button icon={Trash2} variant="danger" onClick={handleBulkDelete}>{selectedIds.size} {t('clDeleteShort')}</Button>}
                     </>}
                     <div className="ml-auto flex items-center gap-2 text-xs text-slate-500 font-medium">
-                        <span>Найдено: <strong className="text-slate-800">{filtered.length}</strong></span>
+                        <span>{t('clFound')}: <strong className="text-slate-800">{filtered.length}</strong></span>
                         <select className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white" value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}>
                             <option value={25}>25</option><option value={50}>50</option><option value={100}>100</option>
                         </select>
@@ -297,17 +298,17 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                                         <div className="font-bold text-slate-900 text-sm leading-tight truncate">{c.fullName}</div>
                                         {c.passport && activePassports.has(c.passport) && (
                                             <span className="shrink-0 inline-flex items-center gap-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">
-                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"/>Живёт
+                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"/>{t('living')}
                                             </span>
                                         )}
                                         {c.clientStatus === 'vip' && (
                                             <span className="shrink-0 inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">⭐ VIP</span>
                                         )}
                                         {c.clientStatus === 'warning' && (
-                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-orange-100 text-orange-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">⚠️ Внимание</span>
+                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-orange-100 text-orange-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">⚠️ {t('warning')}</span>
                                         )}
                                         {c.clientStatus === 'blacklist' && (
-                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-rose-100 text-rose-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">🚫 ЧС</span>
+                                            <span className="shrink-0 inline-flex items-center gap-0.5 bg-rose-100 text-rose-700 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">🚫 {t('clBlacklistShort')}</span>
                                         )}
                                     </div>
                                     <div className="text-xs text-slate-500 mt-0.5 truncate">{c.country || '—'}</div>
@@ -320,11 +321,11 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                                 <div className="bg-slate-50 rounded-xl px-3 py-2">
-                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Паспорт</div>
+                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">{t('passport')}</div>
                                     <div className="text-xs font-mono font-bold text-indigo-700 truncate">{c.passport || '—'}</div>
                                 </div>
                                 <div className="bg-slate-50 rounded-xl px-3 py-2">
-                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Дата рожд.</div>
+                                    <div className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">{t('birthDateShort')}</div>
                                     <div className="text-xs font-medium text-slate-700">{c.birthDate || '—'}</div>
                                 </div>
                             </div>
@@ -334,13 +335,13 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                                         <Wallet size={11} className="text-violet-400 shrink-0"/>
                                         <span className={`text-xs font-bold ${
                                             (c.balance || 0) > 0 ? 'text-violet-700' : (c.balance || 0) < 0 ? 'text-rose-600' : 'text-slate-400'
-                                        }`}>{(c.balance || 0).toLocaleString()} сум</span>
+                                        }`}>{(c.balance || 0).toLocaleString()} {t('sum')}</span>
                                     </div>
                                     {isSuper && onAdjustBalance && (
                                         <button
                                             onClick={e => { e.stopPropagation(); setBalanceEditClient(c); }}
                                             className="flex items-center gap-1 px-2 py-0.5 bg-violet-50 hover:bg-violet-100 text-violet-600 rounded-lg text-[10px] font-bold transition-colors"
-                                        ><Edit size={9}/> Изменить</button>
+                                        ><Edit size={9}/> {t('clChange')}</button>
                                     )}
                                 </div>
                             )}
@@ -381,6 +382,7 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                     client={balanceEditClient}
                     onClose={() => setBalanceEditClient(null)}
                     onAdjust={onAdjustBalance}
+                    lang={lang}
                 />
             )}
             {editingClient && <ClientEditModal client={editingClient} onClose={() => setEditingClient(null)} onSave={(d) => {
@@ -398,11 +400,11 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                                 <Trash2 size={22} className="text-rose-600"/>
                             </div>
                             <h3 className="font-bold text-slate-800 text-lg">{t('deleteSelected')}</h3>
-                            <p className="text-sm text-slate-500 mt-1">Выбрано гостей: <strong>{selectedIds.size}</strong>. Действие необратимо.</p>
+                            <p className="text-sm text-slate-500 mt-1">{t('clSelectedGuests')}: <strong>{selectedIds.size}</strong>. {t('clIrreversible')}</p>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={() => setConfirmBulkDeleteOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
-                            <button onClick={() => { onBulkDelete(Array.from(selectedIds)); setSelectedIds(new Set()); setConfirmBulkDeleteOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Удалить</button>
+                            <button onClick={() => setConfirmBulkDeleteOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
+                            <button onClick={() => { onBulkDelete(Array.from(selectedIds)); setSelectedIds(new Set()); setConfirmBulkDeleteOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">{t('delete')}</button>
                         </div>
                     </div>
                 </div>
@@ -416,11 +418,11 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                                 <Globe size={22} className="text-indigo-600"/>
                             </div>
                             <h3 className="font-bold text-slate-800 text-lg">{t('normalizeCountries')}</h3>
-                            <p className="text-sm text-slate-500 mt-1">Нормализация названий стран для всех клиентов.</p>
+                            <p className="text-sm text-slate-500 mt-1">{t('clNormalizeDesc')}</p>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={() => setConfirmNormalizeOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
-                            <button onClick={() => { onNormalizeCountries(); setConfirmNormalizeOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm">Нормализовать</button>
+                            <button onClick={() => setConfirmNormalizeOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
+                            <button onClick={() => { onNormalizeCountries(); setConfirmNormalizeOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm">{t('clNormalizeBtn')}</button>
                         </div>
                     </div>
                 </div>
@@ -433,12 +435,12 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                             <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                 <RefreshCw size={22} className="text-emerald-600"/>
                             </div>
-                            <h3 className="font-bold text-slate-800 text-lg">Синхронизация гостей</h3>
-                            <p className="text-sm text-slate-500 mt-1">Все гости (проживающие и выселенные) будут добавлены в базу клиентов — в том числе без паспорта. Уже существующие записи обновятся.</p>
+                            <h3 className="font-bold text-slate-800 text-lg">{t('clSyncTitle')}</h3>
+                            <p className="text-sm text-slate-500 mt-1">{t('clSyncDesc')}</p>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={() => setConfirmSyncOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Отмена</button>
-                            <button onClick={() => { onSyncFromGuests(); setConfirmSyncOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">Синхронизировать</button>
+                            <button onClick={() => setConfirmSyncOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
+                            <button onClick={() => { onSyncFromGuests(); setConfirmSyncOpen(false); }} className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">{t('syncBtn')}</button>
                         </div>
                     </div>
                 </div>

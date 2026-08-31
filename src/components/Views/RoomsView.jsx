@@ -203,7 +203,7 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru',
             role="button" tabIndex={0}
             onClick={() => onBedClick(id, guest, false)}
             onKeyDown={e => e.key === 'Enter' && onBedClick(id, guest, false)}
-            title={`${guest?.fullName || t('nameUnknown')} | ${bed?.isExtra ? 'Доп. гость' : `${t('bed2')} ${id}`}`}
+            title={`${guest?.fullName || t('nameUnknown')} | ${bed?.isExtra ? t('extraGuest') : `${t('bed2')} ${id}`}`}
             className={`group relative flex flex-col min-w-[120px] w-full sm:w-40 min-h-[155px] shrink-0 rounded-2xl border shadow-sm
                         ${cardBg} ${cardBorder}
                         hover:shadow-md hover:-translate-y-0.5
@@ -251,14 +251,14 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru',
                 {kppAlert && (
                     <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1">
                         <div className="flex items-center gap-1 text-[9px] font-black text-amber-700">
-                            <AlertTriangle size={9} />Регистрация! {kppDays}д
+                            <AlertTriangle size={9} />{t('roomsRegAlert').replace('{n}', kppDays)}
                         </div>
                     </div>
                 )}
                 {cadastreExpired && (
                     <div className="mt-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1">
                         <div className="flex items-center gap-1 text-[9px] font-black text-rose-700">
-                            <AlertCircle size={9} />Кадастр истёк
+                            <AlertCircle size={9} />{t('roomsCadastreExpired')}
                         </div>
                     </div>
                 )}
@@ -561,29 +561,29 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             <div>
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                     <Key size={13} className="text-emerald-500" />
-                                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Аренда</span>
+                                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">{t('checkinRental')}</span>
                                 </div>
                                 <span className="text-4xl font-black text-slate-800 tracking-tighter leading-none">{room.number}</span>
                                 {room.name && <div className="text-xs font-semibold text-slate-500 mt-1">{room.name}</div>}
                             </div>
                             <div className="flex flex-col gap-1 opacity-0 group-hover/room:opacity-100 transition-opacity duration-200">
-                                <button onClick={() => onEditRental?.(room)} title="Изменить аренду" className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit size={14}/></button>
-                                <button onClick={() => onExtendRental?.(room)} title="Продлить аренду" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"><RefreshCw size={14}/></button>
-                                <button onClick={() => onEndRental?.(room)} title="Завершить аренду" className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><LogIn size={14}/></button>
+                                <button onClick={() => onEditRental?.(room)} title={t('roomsEditRental')} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit size={14}/></button>
+                                <button onClick={() => onExtendRental?.(room)} title={t('roomsExtendRental')} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"><RefreshCw size={14}/></button>
+                                <button onClick={() => onEndRental?.(room)} title={t('roomsEndRental')} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><LogIn size={14}/></button>
                             </div>
                         </div>
                         <div className="mt-auto">
                             <div className="flex justify-between items-center mb-1.5">
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Период</span>
+                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('period')}</span>
                                 {daysLeft !== null && (
                                     <span className={`text-[10px] font-black ${
                                         daysLeft < 0  ? 'text-rose-500' :
                                         daysLeft <= 1 ? 'text-orange-500' :
                                         'text-emerald-600'
                                     }`}>
-                                        {daysLeft < 0  ? `−${Math.abs(daysLeft)} дн.` :
-                                         daysLeft === 0 ? 'сегодня' :
-                                         `${daysLeft} дн.`}
+                                        {daysLeft < 0  ? `−${Math.abs(daysLeft)} ${t('daysShort')}` :
+                                         daysLeft === 0 ? t('roomsTodayShort') :
+                                         `${daysLeft} ${t('daysShort')}`}
                                     </span>
                                 )}
                             </div>
@@ -600,7 +600,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             </div>
                             <div className="flex flex-wrap gap-1.5 mt-3">
                                 <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
-                                    <Key size={9} /> {rental.days} дн.
+                                    <Key size={9} /> {rental.days} {t('daysShort')}
                                 </span>
                                 {debt > 0 && (
                                     <span className="px-2 py-1 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-[10px] font-bold flex items-center gap-1">
@@ -609,7 +609,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                                 )}
                                 {debt === 0 && totalPaid > 0 && (
                                     <span className="px-2 py-1 rounded-lg bg-teal-50 border border-teal-100 text-teal-700 text-[10px] font-bold">
-                                        ✓ оплачено
+                                        ✓ {t('paid')}
                                     </span>
                                 )}
                             </div>
@@ -658,24 +658,24 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             {charged > 0 && (
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <div className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
-                                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Итого{fin ? ' (договор)' : ''}</div>
+                                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">{t('total')}{fin ? ` (${t('roomsContract')})` : ''}</div>
                                         <div className="text-slate-700 font-black text-sm font-mono leading-none">{charged.toLocaleString()}</div>
                                     </div>
                                     {totalPaid > 0 && (
                                         <div className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-100">
-                                            <div className="text-[9px] font-black uppercase tracking-widest text-emerald-500 mb-0.5">Внесено</div>
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-emerald-500 mb-0.5">{t('roomsDeposited')}</div>
                                             <div className="text-emerald-700 font-black text-sm font-mono leading-none">{totalPaid.toLocaleString()}</div>
                                         </div>
                                     )}
                                     {debt > 0 ? (
                                         <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200">
-                                            <div className="text-[9px] font-black uppercase tracking-widest text-rose-400 mb-0.5">Долг</div>
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-rose-400 mb-0.5">{t('debt')}</div>
                                             <div className="text-rose-600 font-black text-sm font-mono leading-none">{debt.toLocaleString()}</div>
                                         </div>
                                     ) : totalPaid > 0 && (
                                         <div className="px-3 py-2 rounded-xl bg-teal-50 border border-teal-100 flex items-center gap-1.5">
                                             <CheckCircle2 size={13} className="text-teal-500" />
-                                            <div className="text-teal-700 font-black text-xs">Оплачено</div>
+                                            <div className="text-teal-700 font-black text-xs">{t('paid')}</div>
                                         </div>
                                     )}
                                 </div>
@@ -684,23 +684,23 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                                 {debt > 0 && !contract && (
                                     <button onClick={() => onPayRental?.(room)}
                                         className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-black rounded-xl bg-teal-600 text-white border border-teal-600 hover:bg-teal-700 shadow-sm shadow-teal-200 transition-colors">
-                                        <Wallet size={12} /> Оплатить
+                                        <Wallet size={12} /> {t('roomsPay')}
                                     </button>
                                 )}
                                 {debt > 0 && contract && (
-                                    <span className="px-3 py-2 text-[11px] font-bold rounded-xl bg-teal-50 border border-teal-200 text-teal-700">оплата по договору</span>
+                                    <span className="px-3 py-2 text-[11px] font-bold rounded-xl bg-teal-50 border border-teal-200 text-teal-700">{t('roomsPayByContract')}</span>
                                 )}
                                 <button onClick={() => onEditRental?.(room)}
                                     className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold rounded-xl bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors">
-                                    <Edit size={12} /> Изменить
+                                    <Edit size={12} /> {t('changeTitle')}
                                 </button>
                                 <button onClick={() => onExtendRental?.(room)}
                                     className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors">
-                                    <RefreshCw size={12} /> Продлить
+                                    <RefreshCw size={12} /> {t('extend')}
                                 </button>
                                 <button onClick={() => onEndRental?.(room)}
                                     className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold rounded-xl bg-slate-100 border border-slate-200 text-slate-500 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 transition-colors">
-                                    <LogIn size={12} /> Выселить
+                                    <LogIn size={12} /> {t('checkout')}
                                 </button>
                             </div>
                         </div>
@@ -713,22 +713,22 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                         <span className="text-2xl font-black text-slate-800 leading-none tracking-tighter w-10 shrink-0">{room.number}</span>
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-slate-700 font-black text-sm">Комната №{room.number}</span>
-                                <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">АРЕНДА</span>
+                                <span className="text-slate-700 font-black text-sm">{t('room')} №{room.number}</span>
+                                <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t('checkinRental')}</span>
                                 {daysLeft !== null && (
                                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
                                         daysLeft < 0  ? 'bg-rose-100 text-rose-600' :
                                         daysLeft <= 1 ? 'bg-orange-100 text-orange-600' :
                                         'bg-emerald-100 text-emerald-700'
                                     }`}>
-                                        {daysLeft < 0  ? `просрочка ${Math.abs(daysLeft)} дн.` :
-                                         daysLeft === 0 ? 'выезд сегодня' :
-                                         `${daysLeft} дн. осталось`}
+                                        {daysLeft < 0  ? t('roomsOverdueDays').replace('{n}', Math.abs(daysLeft)) :
+                                         daysLeft === 0 ? t('roomsCheckoutToday') :
+                                         t('roomsDaysLeft').replace('{n}', daysLeft)}
                                     </span>
                                 )}
                             </div>
                             <div className="text-slate-400 text-[10px] font-mono mt-0.5">
-                                {rental.checkInDate?.slice(0,10)} → {rental.checkOutStr || rental.checkOutDate?.slice(0,10)} · {rental.days} дн.
+                                {rental.checkInDate?.slice(0,10)} → {rental.checkOutStr || rental.checkOutDate?.slice(0,10)} · {rental.days} {t('daysShort')}
                             </div>
                         </div>
                     </div>
@@ -741,9 +741,9 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                         </div>
                         {charged > 0 && (
                             <div className="flex gap-4 mt-1.5">
-                                <span className="text-slate-600 font-black text-xs font-mono">{charged.toLocaleString()} сум{fin ? ' · договор' : ''}</span>
-                                {debt > 0 && <span className="text-rose-600 font-black text-xs font-mono">долг {debt.toLocaleString()}</span>}
-                                {debt === 0 && totalPaid > 0 && <span className="text-emerald-600 font-bold text-xs">✓ оплачено</span>}
+                                <span className="text-slate-600 font-black text-xs font-mono">{charged.toLocaleString()} {t('sum')}{fin ? ` · ${t('roomsContract')}` : ''}</span>
+                                {debt > 0 && <span className="text-rose-600 font-black text-xs font-mono">{t('debt')} {debt.toLocaleString()}</span>}
+                                {debt === 0 && totalPaid > 0 && <span className="text-emerald-600 font-bold text-xs">✓ {t('paid')}</span>}
                             </div>
                         )}
                     </div>
@@ -751,20 +751,20 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                         {debt > 0 && !contract && (
                             <button onClick={() => onPayRental?.(room)}
                                 className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-black rounded-lg bg-teal-600 text-white border border-teal-600 hover:bg-teal-700 transition-colors">
-                                <Wallet size={11} /> Оплатить
+                                <Wallet size={11} /> {t('roomsPay')}
                             </button>
                         )}
                         <button onClick={() => onEditRental?.(room)}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-amber-50 border border-amber-100 text-amber-600 hover:bg-amber-100 transition-colors">
-                            <Edit size={11} /> Изменить
+                            <Edit size={11} /> {t('changeTitle')}
                         </button>
                         <button onClick={() => onExtendRental?.(room)}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-100 transition-colors">
-                            <RefreshCw size={11} /> Продлить
+                            <RefreshCw size={11} /> {t('extend')}
                         </button>
                         <button onClick={() => onEndRental?.(room)}
                             className="ml-auto flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors">
-                            <LogIn size={11} /> Завершить
+                            <LogIn size={11} /> {t('finish')}
                         </button>
                     </div>
                 </div>
@@ -805,8 +805,8 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
 
                 {/* Баджи */}
                 <div className="flex items-center gap-1 shrink-0">
-                    {stats.free > 0 && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black">{stats.free}св</span>}
-                    {stats.debtSum > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[9px] font-black">д</span>}
+                    {stats.free > 0 && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black">{stats.free}{t('bedsFreeShort')}</span>}
+                    {stats.debtSum > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[9px] font-black">{t('roomsDebtLetter')}</span>}
                     {stats.timeout > 0 && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-black">{stats.timeout}{t('bedsTimeoutShort')}</span>}
                     {stats.booking > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[9px] font-black">{stats.booking}{t('bedsBookingShort')}</span>}
                 </div>
@@ -816,7 +816,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                     <button
                         onClick={() => onAddExtraGuest?.(room)}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-100 text-orange-700 text-[10px] font-black hover:bg-orange-200 transition-colors shrink-0"
-                        title="Заселить доп. гостя"
+                        title={t('roomsAddExtraGuestTitle')}
                     >
                         <ExtraBedIcon size={12} />
                         <span>+</span>
@@ -865,9 +865,9 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                         </div>
                         {isAdmin && (
                             <div className="flex flex-col gap-1 opacity-0 group-hover/room:opacity-100 transition-opacity duration-200">
-                                <button onClick={onEdit}   title="Изменить" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"><Edit   size={14}/></button>
-                                <button onClick={onClone}  title="Клон"     className="p-1.5 text-slate-400 hover:text-sky-600   hover:bg-sky-50   rounded-lg transition-colors"><Copy   size={14}/></button>
-                                <button onClick={onDelete} title="Удалить"  className="p-1.5 text-slate-400 hover:text-rose-600  hover:bg-rose-50  rounded-lg transition-colors"><Trash2 size={14}/></button>
+                                <button onClick={onEdit}   title={t('changeTitle')} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"><Edit   size={14}/></button>
+                                <button onClick={onClone}  title={t('roomsClone')}     className="p-1.5 text-slate-400 hover:text-sky-600   hover:bg-sky-50   rounded-lg transition-colors"><Copy   size={14}/></button>
+                                <button onClick={onDelete} title={t('delete')}  className="p-1.5 text-slate-400 hover:text-rose-600  hover:bg-rose-50  rounded-lg transition-colors"><Trash2 size={14}/></button>
                             </div>
                         )}
                     </div>
@@ -889,11 +889,11 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             {canAddExtraGuest && (
                                 <button
                                     onClick={() => onAddExtraGuest?.(room)}
-                                    title="Заселить доп. гостя"
+                                    title={t('roomsAddExtraGuestTitle')}
                                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-700 text-[10px] font-black hover:bg-orange-200 transition-colors shrink-0"
                                 >
                                     <ExtraBedIcon size={12} />
-                                    <span>Доп. гость</span>
+                                    <span>{t('extraGuest')}</span>
                                 </button>
                             )}
                         </div>
@@ -946,7 +946,7 @@ const RoomsView = ({
         { key: 'debt',     label: t('debts'),            icon: Wallet        },
         { key: 'timeout',  label: t('filterTimeout'),    icon: AlertTriangle },
         { key: 'booking',  label: t('filterBooking'),    icon: CalendarDays  },
-        { key: 'rental',   label: 'Аренда',              icon: Key           },
+        { key: 'rental',   label: t('checkinRental'),    icon: Key           },
     ];
 
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
@@ -1027,10 +1027,10 @@ const RoomsView = ({
                     <button
                         onClick={onOpenGroupReceipt}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all duration-200 shrink-0 shadow-sm active:scale-95"
-                        title="Лист в бухгалтерию"
+                        title={t('roomsAccountingListTitle')}
                     >
                         <FileText size={14} strokeWidth={3} />
-                        <span className="hidden sm:inline">Лист</span>
+                        <span className="hidden sm:inline">{t('sheet')}</span>
                     </button>
 
                     {isAdmin && (

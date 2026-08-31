@@ -85,11 +85,11 @@ export const getAutoThemeId = (h) => {
 };
 
 const THEME_OPTIONS = [
-    { id: 'auto',    emoji: '🕐', label: 'Авто'  },
-    { id: 'morning', emoji: '🌅', label: 'Утро'  },
-    { id: 'day',     emoji: '☀️',  label: 'День'  },
-    { id: 'evening', emoji: '🌆', label: 'Вечер' },
-    { id: 'night',   emoji: '🌙', label: 'Ночь'  },
+    { id: 'auto',    emoji: '🕐', label: 'loginThemeAuto'    },
+    { id: 'morning', emoji: '🌅', label: 'loginThemeMorning' },
+    { id: 'day',     emoji: '☀️',  label: 'loginThemeDay'     },
+    { id: 'evening', emoji: '🌆', label: 'loginThemeEvening' },
+    { id: 'night',   emoji: '🌙', label: 'loginThemeNight'   },
 ];
 
 /* --- Slot-machine password input --- */
@@ -284,18 +284,18 @@ function LockIcon({ open, success }) {
     );
 }
 
-const LOADING_TEXTS = [
-    'Проверка пароля...',
-    'Загрузка гостей...',
-    'Загрузка комнат...',
-    'Загрузка базы...',
-    'Загрузка платежей...',
-    'Загрузка данных...',
-    'Почти готово...',
+const LOADING_TEXT_KEYS = [
+    'loginLoadPass',
+    'loginLoadGuests',
+    'loginLoadRooms',
+    'loginLoadDb',
+    'loginLoadPayments',
+    'loginLoadData',
+    'loginAlmostReady',
 ];
 
-const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeId, hostelNames = {}, checkHostelShift }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, setThemeId, hostelNames = {}, checkHostelShift }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [login, setLogin]         = useState('');
     const [pass, setPass]           = useState('');
     const [error, setError]         = useState('');
@@ -320,7 +320,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
         if (submitPhase !== 'loading') return;
         setLoadingTextIdx(0);
         const id = setInterval(() => setLoadingTextIdx(i => {
-            if (i >= LOADING_TEXTS.length - 1) { clearInterval(id); return i; }
+            if (i >= LOADING_TEXT_KEYS.length - 1) { clearInterval(id); return i; }
             return i + 1;
         }), 700);
         return () => clearInterval(id);
@@ -345,7 +345,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
     const btnShadow     = lockSuccess
         ? '0 0 48px rgba(0,210,80,0.75), 0 0 18px rgba(0,210,80,0.50)'
         : '0 4px 20px rgba(0,0,0,0.35)';
-    const loadingPct    = lockSuccess ? 100 : isLoading ? Math.round(((loadingTextIdx + 1) / LOADING_TEXTS.length) * 90) : 0;
+    const loadingPct    = lockSuccess ? 100 : isLoading ? Math.round(((loadingTextIdx + 1) / LOADING_TEXT_KEYS.length) * 90) : 0;
 
     /* clock tick */
     useEffect(() => {
@@ -452,7 +452,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             // будет вслепую перебирать пароли, пока проблема совсем в другом.
             const isFailure = e?.code === 'functions/internal' || e?.code === 'functions/unavailable'
                 || e?.code === 'functions/deadline-exceeded' || e?.code === 'functions/not-found';
-            setError(serverSaid || (isFailure ? 'Сервер недоступен. Проверьте интернет и попробуйте ещё раз' : t('error')));
+            setError(serverSaid || (isFailure ? t('loginServerUnavailable') : t('error')));
         }
     };
 
@@ -696,10 +696,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     <div className="hidden sm:flex top-pill">
                         {THEME_OPTIONS.map(opt => (
                             <button key={opt.id} onClick={() => setThemeId(opt.id)}
-                                title={opt.label} className="top-pill-btn"
+                                title={t(opt.label)} className="top-pill-btn"
                                 style={pill(themeId === opt.id)}>
                                 <span>{opt.emoji}</span>
-                                <span className="hidden sm:inline">{opt.label}</span>
+                                <span className="hidden sm:inline">{t(opt.label)}</span>
                             </button>
                         ))}
                     </div>
@@ -819,10 +819,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                           <LockIcon open success />
                                         </motion.div>
                                         <h2 className="text-xl font-black" style={{ color: '#fff', letterSpacing: '-0.3px' }}>
-                                          Выберите хостел
+                                          {t('loginSelectHostel')}
                                         </h2>
                                         <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.38)' }}>
-                                          Несколько объектов доступны для вашего аккаунта
+                                          {t('loginMultipleHostels')}
                                         </p>
                                       </div>
 
@@ -884,7 +884,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                   {hname}
                                                 </div>
                                                 <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '11px', marginTop: '2px' }}>
-                                                  Нажмите для входа
+                                                  {t('loginClickToEnter')}
                                                 </div>
                                               </div>
                                               {/* Arrow */}
@@ -927,10 +927,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                             </svg>
                                             <div>
                                               <div style={{ fontSize: '13px', fontWeight: 700, color: '#ff9090', marginBottom: '2px' }}>
-                                                Смена уже открыта
+                                                {t('loginShiftOpen')}
                                               </div>
                                               <div style={{ fontSize: '12px', color: 'rgba(255,150,140,0.7)', lineHeight: 1.4 }}>
-                                                {hostelNames[hostelError.hostelId] || hostelError.hostelId}: сейчас работает <strong style={{ color: '#ffb0a8' }}>{hostelError.occupiedBy}</strong>
+                                                {hostelNames[hostelError.hostelId] || hostelError.hostelId}: {t('loginNowWorking')} <strong style={{ color: '#ffb0a8' }}>{hostelError.occupiedBy}</strong>
                                               </div>
                                             </div>
                                           </motion.div>
@@ -970,7 +970,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                           <polyline points="16 17 21 12 16 7"/>
                                           <line x1="21" y1="12" x2="9" y2="12"/>
                                         </svg>
-                                        Выйти
+                                        {t('logout')}
                                       </button>
                                     </motion.div>
                                   ) : (
@@ -1009,7 +1009,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                     disabled={isSubmitting}
                                                     autoComplete="username"
                                                     autoFocus
-                                                    placeholder="Введите логин"
+                                                    placeholder={t('loginPlaceholderLogin')}
                                                     className="v7-login-input"
                                                     style={{ width: '100%', height: '50px', padding: '0 16px', boxSizing: 'border-box', borderRadius: '12px',
                                                         border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)',
@@ -1031,7 +1031,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                         onFocus={() => setError('')}
                                                         disabled={isSubmitting}
                                                         autoComplete="current-password"
-                                                        placeholder="Введите пароль"
+                                                        placeholder={t('loginPlaceholderPass')}
                                                         className="v7-login-input"
                                                         style={{ width: '100%', height: '50px', padding: '0 46px 0 16px', boxSizing: 'border-box', borderRadius: '12px',
                                                             border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)',
@@ -1070,7 +1070,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                         >
                                                             {/* Заголовок + процент */}
                                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '5px' }}>
-                                                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Загрузка данных</span>
+                                                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{t('loginProgressData')}</span>
                                                                 <motion.span
                                                                     animate={{ opacity: 1 }}
                                                                     style={{ fontSize: '20px', fontWeight: 900, color: '#fff', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}
@@ -1088,7 +1088,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                                     transition={{ duration: 0.2 }}
                                                                     style={{ fontSize: '12px', color: 'rgba(255,255,255,0.28)', marginBottom: '8px' }}
                                                                 >
-                                                                    {LOADING_TEXTS[loadingTextIdx]}
+                                                                    {t(LOADING_TEXT_KEYS[loadingTextIdx])}
                                                                 </motion.div>
                                                             </AnimatePresence>
                                                             {/* Полоска прогресса */}
@@ -1163,7 +1163,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                                         }}
                                                                     />
                                                                     <span style={{ fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', color: 'rgba(255,255,255,0.65)' }}>
-                                                                        Пожалуйста подождите...
+                                                                        {t('loginPleaseWait')}
                                                                     </span>
                                                                 </motion.div>
                                                             )}
@@ -1201,7 +1201,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     <div className="top-pill">
                         {THEME_OPTIONS.map(opt => (
                             <button key={opt.id} onClick={() => setThemeId(opt.id)}
-                                title={opt.label} className="top-pill-btn"
+                                title={t(opt.label)} className="top-pill-btn"
                                 style={pill(themeId === opt.id)}>
                                 <span>{opt.emoji}</span>
                             </button>
