@@ -19,7 +19,7 @@ const EMPTY_TASK = (user, isAdmin) => ({
 });
 
 const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onUpdateTask, onDeleteTask, lang, selectedHostelFilter }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
 
     const availableCashiers = useMemo(() => {
@@ -45,7 +45,7 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
         const isOverdue = deadlineMs < nowMs;
         const diffDays = Math.ceil((deadlineMs - nowMs) / 86400000);
         const date = new Date(task.deadline).toLocaleDateString('ru');
-        return { isOverdue, diffDays, label: isOverdue ? `Просрочено ${date}` : `До ${date}` };
+        return { isOverdue, diffDays, label: isOverdue ? t('taskOverdue').replace('{date}', date) : t('taskDueBy').replace('{date}', date) };
     };
 
     const handleSubmit = () => {
@@ -118,7 +118,7 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                         {task.recurringType && task.recurringType !== 'none' && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600">
                                 <RefreshCw size={9}/>
-                                {task.recurringType === 'daily' ? 'Ежедневно' : 'Еженедельно'}
+                                {task.recurringType === 'daily' ? t('taskDaily') : t('taskWeekly')}
                             </span>
                         )}
                         {assignedUser && (
@@ -136,14 +136,14 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                                     onClick={() => onUpdateTask(task.id, { status: 'inprogress' })}
                                     className="flex-1 flex items-center justify-center gap-1 py-1.5 text-[11px] font-bold rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
                                 >
-                                    <ArrowRight size={11}/> В работу
+                                    <ArrowRight size={11}/> {t('taskToProgress')}
                                 </button>
                             ) : (
                                 <button
                                     onClick={() => onCompleteTask(task.id)}
                                     className="flex-1 flex items-center justify-center gap-1 py-1.5 text-[11px] font-bold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
                                 >
-                                    <Check size={11}/> Готово
+                                    <Check size={11}/> {t('done')}
                                 </button>
                             )}
                             {isAdmin && (
@@ -197,7 +197,7 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
         <div className="space-y-3">
             <div>
                 <label className={labelClass}>{t('description')} *</label>
-                <input className={inputClass} value={data.description} onChange={e => setData({...data, description: e.target.value})} placeholder="Что нужно сделать?" autoFocus/>
+                <input className={inputClass} value={data.description} onChange={e => setData({...data, description: e.target.value})} placeholder={t('taskWhatToDo')} autoFocus/>
             </div>
             <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -213,15 +213,15 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                     <input className={inputClass} value={data.roomNumber} onChange={e => setData({...data, roomNumber: e.target.value})} placeholder="№"/>
                 </div>
                 <div>
-                    <label className={labelClass}>Дедлайн</label>
+                    <label className={labelClass}>{t('taskDeadline')}</label>
                     <input type="date" className={inputClass} value={data.deadline || ''} onChange={e => setData({...data, deadline: e.target.value})}/>
                 </div>
                 <div>
-                    <label className={labelClass}>Повторение</label>
+                    <label className={labelClass}>{t('taskRepeat')}</label>
                     <select className={inputClass} value={data.recurringType || 'none'} onChange={e => setData({...data, recurringType: e.target.value})}>
-                        <option value="none">Нет</option>
-                        <option value="daily">Ежедневно</option>
-                        <option value="weekly">Еженедельно</option>
+                        <option value="none">{t('no')}</option>
+                        <option value="daily">{t('taskDaily')}</option>
+                        <option value="weekly">{t('taskWeekly')}</option>
                     </select>
                 </div>
             </div>
@@ -259,9 +259,9 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                     <h2 className="text-xl font-black text-slate-800">{t('tasks')}</h2>
                     <div className="flex gap-2">
                         {[
-                            { n: newTasks.length,      label: 'Новые',   color: 'text-indigo-600' },
-                            { n: progressTasks.length, label: 'В работе', color: 'text-amber-600' },
-                            { n: doneTasks.length,     label: 'Готово',   color: 'text-emerald-600' },
+                            { n: newTasks.length,      label: t('taskNew'),        color: 'text-indigo-600' },
+                            { n: progressTasks.length, label: t('taskInProgress'), color: 'text-amber-600' },
+                            { n: doneTasks.length,     label: t('done'),           color: 'text-emerald-600' },
                         ].map(({ n, label, color }) => (
                             <div key={label} className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-center shadow-sm">
                                 <div className={`text-lg font-black ${color}`}>{n}</div>
@@ -276,7 +276,7 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
             {/* Kanban board */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 <Column
-                    title="Новые" dot="bg-indigo-500" count={newTasks.length}
+                    title={t('taskNew')} dot="bg-indigo-500" count={newTasks.length}
                     bgClass="bg-slate-50" borderClass="border-slate-200"
                     countClass="bg-slate-200 text-slate-600"
                     addable
@@ -285,23 +285,23 @@ const TaskManager = ({ tasks, users, currentUser, onAddTask, onCompleteTask, onU
                 </Column>
 
                 <Column
-                    title="В работе" dot="bg-amber-500" count={progressTasks.length}
+                    title={t('taskInProgress')} dot="bg-amber-500" count={progressTasks.length}
                     bgClass="bg-amber-50/50" borderClass="border-amber-200"
                     countClass="bg-amber-200 text-amber-700"
                 >
                     {progressTasks.length === 0
-                        ? <p className="text-center py-6 text-slate-300 text-xs font-bold">Нет задач в работе</p>
+                        ? <p className="text-center py-6 text-slate-300 text-xs font-bold">{t('taskNoneInProgress')}</p>
                         : progressTasks.map(task => <TaskCard key={task.id} task={task}/>)
                     }
                 </Column>
 
                 <Column
-                    title="Готово" dot="bg-emerald-500" count={doneTasks.length}
+                    title={t('done')} dot="bg-emerald-500" count={doneTasks.length}
                     bgClass="bg-emerald-50/50" borderClass="border-emerald-200"
                     countClass="bg-emerald-200 text-emerald-700"
                 >
                     {doneTasks.length === 0
-                        ? <p className="text-center py-6 text-slate-300 text-xs font-bold">Нет выполненных задач</p>
+                        ? <p className="text-center py-6 text-slate-300 text-xs font-bold">{t('taskNoneDone')}</p>
                         : doneTasks.map(task => <TaskCard key={task.id} task={task}/>)
                     }
                 </Column>

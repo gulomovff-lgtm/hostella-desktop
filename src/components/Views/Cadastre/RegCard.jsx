@@ -96,7 +96,7 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
                 className="text-xs text-teal-600 hover:underline truncate flex-1 font-medium">
                 {reg.regLink}
               </a>
-              <CopyButton text={reg.regLink} />
+              <CopyButton text={reg.regLink} lang={lang} />
               <a href={reg.regLink} target="_blank" rel="noopener noreferrer"
                 className="p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-700">
                 <ExternalLink size={12} />

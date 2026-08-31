@@ -58,7 +58,7 @@ const PeriodEditModal = ({ group, entry, rooms, savedSpecialties, onUpdate, onRe
                         <div className="text-[9px] font-bold uppercase tracking-wide mb-1.5" style={lbl}>{t('msmBrigadeSpecs')}</div>
                         <div className="space-y-1">
                             {(entry.workerGroups || []).map((wg, wgIdx) => (
-                                <WorkerGroupRow key={wg.id || wgIdx} wg={wg} wgIdx={wgIdx} options={savedSpecialties}
+                                <WorkerGroupRow key={wg.id || wgIdx} wg={wg} wgIdx={wgIdx} lang={lang} options={savedSpecialties}
                                     onUpdate={patch => onUpdateWG(wg.id, patch)} onRemove={() => onRemoveWG(wg.id)} />
                             ))}
                             <button onClick={onAddWG}

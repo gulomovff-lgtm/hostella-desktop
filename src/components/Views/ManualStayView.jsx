@@ -973,7 +973,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                                                     {wgOpen && (
                                                                         <div className="mt-1 space-y-1">
                                                                             {(entry.workerGroups || []).map((wg, wgIdx) => (
-                                                                                <WorkerGroupRow key={wg.id || wgIdx} wg={wg} wgIdx={wgIdx}
+                                                                                <WorkerGroupRow key={wg.id || wgIdx} wg={wg} wgIdx={wgIdx} lang={lang}
                                                                                     options={savedSpecialties}
                                                                                     onUpdate={(patch) => updateWorkerGroup(group.id, entry.id, wg.id, patch)}
                                                                                     onRemove={() => removeWorkerGroup(group.id, entry.id, wg.id)}
