@@ -1,5 +1,6 @@
 // Печатная форма отчёта по долгам: открывается в новом окне и уходит в печать.
 // Держим отдельно от модалки — это чистая строка HTML, её удобно менять и читать.
+import TRANSLATIONS from '../../../constants/translations.js';
 
 const esc = (v) => String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -7,38 +8,39 @@ const esc = (v) => String(v == null ? '' : v)
 
 const money = (n) => (parseInt(n, 10) || 0).toLocaleString('ru');
 
-const SOURCE_TITLE = { guest: 'Гости', rental: 'Аренда комнат', contract: 'Договоры и бригады' };
-
-export const printDebtReport = ({ report, hostelLabel, hostelName, periodLabel, periodNet, expected }) => {
+export const printDebtReport = ({ report, hostelLabel, hostelName, periodLabel, periodNet, expected, lang = 'ru' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
+    const SOURCE_TITLE = { guest: t('drmGuests'), rental: t('drmRentals'), contract: t('drmContracts') };
     const w = window.open('', '', 'width=900,height=700');
     if (!w) return;
     const { rows, totals, byHostel, byEntity, bySource } = report;
+    const today = new Date().toLocaleDateString('ru');
 
     const section = (source) => {
         const list = rows.filter(r => r.source === source);
         if (!list.length) return '';
         return `
-        <h3>${SOURCE_TITLE[source]} — ${money(bySource[source].debt)} сум</h3>
+        <h3>${SOURCE_TITLE[source]} — ${money(bySource[source].debt)} ${t('sum')}</h3>
         <table>
             <thead><tr>
-                <th>Кто</th><th>Детали</th><th>Филиал</th>
-                <th class="r">Начислено</th><th class="r">Оплачено</th><th class="r">Долг</th><th>Ожидается</th>
+                <th>${t('drmColWho')}</th><th>${t('drmColDetails')}</th><th>${t('drmColBranch')}</th>
+                <th class="r">${t('drmColCharged')}</th><th class="r">${t('drmColPaid')}</th><th class="r">${t('drmColDebt')}</th><th>${t('drmExpectedCol')}</th>
             </tr></thead>
             <tbody>${list.map(r => `
                 <tr>
-                    <td>${esc(r.name)}${r.records > 1 ? ` <span class="muted">(${r.records} записи)</span>` : ''}</td>
+                    <td>${esc(r.name)}${r.records > 1 ? ` <span class="muted">(${t('drmRecords').replace('{n}', r.records)})</span>` : ''}</td>
                     <td class="muted">${esc(r.detail || '—')}</td>
                     <td>${esc(hostelName(r.hostelId))}</td>
                     <td class="r">${money(r.charged)}</td>
                     <td class="r">${money(r.paid)}</td>
                     <td class="r debt">${money(r.debt)}</td>
-                    <td>${r.method === 'transfer' ? `перечисление${r.entities?.length ? ` · ${esc(r.entities.join(', '))}` : ''}` : 'наличные / карта'}</td>
+                    <td>${r.method === 'transfer' ? `${t('drmTransfer')}${r.entities?.length ? ` · ${esc(r.entities.join(', '))}` : ''}` : t('drmCashCard')}</td>
                 </tr>`).join('')}
             </tbody>
         </table>`;
     };
 
-    const html = `<html><head><title>Отчёт по долгам</title><style>
+    const html = `<html><head><title>${t('dvReportHeading')}</title><style>
         body { font-family: Arial, sans-serif; padding: 24px; color: #1e293b; }
         h1 { margin: 0 0 4px; font-size: 20px; }
         h3 { margin: 22px 0 8px; font-size: 14px; }
@@ -55,17 +57,17 @@ export const printDebtReport = ({ report, hostelLabel, hostelName, periodLabel, 
         .card .val { font-size: 17px; font-weight: bold; margin-top: 3px; }
         .note { font-size: 11px; color: #64748b; margin-top: 18px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
     </style></head><body>
-        <h1>Отчёт по долгам</h1>
-        <div class="sub">${esc(hostelLabel)} · на ${new Date().toLocaleDateString('ru')}</div>
+        <h1>${t('dvReportHeading')}</h1>
+        <div class="sub">${esc(hostelLabel)} · ${today}</div>
         <div class="cards">
-            <div class="card"><div class="lbl">Всего долгов</div><div class="val debt">${money(totals.debt)}</div></div>
-            <div class="card"><div class="lbl">Перечислением</div><div class="val">${money(totals.transfer)}</div></div>
-            <div class="card"><div class="lbl">Наличные / карта</div><div class="val">${money(totals.regular)}</div></div>
-            <div class="card"><div class="lbl">Ожидаемо с учётом долгов</div><div class="val">${money(expected)}</div></div>
+            <div class="card"><div class="lbl">${t('drmCardTotalDebts')}</div><div class="val debt">${money(totals.debt)}</div></div>
+            <div class="card"><div class="lbl">${t('drmCardTransfer')}</div><div class="val">${money(totals.transfer)}</div></div>
+            <div class="card"><div class="lbl">${t('drmCashCard')}</div><div class="val">${money(totals.regular)}</div></div>
+            <div class="card"><div class="lbl">${t('dbpExpectedWithDebts')}</div><div class="val">${money(expected)}</div></div>
         </div>
-        <h3>По филиалам</h3>
+        <h3>${t('drmByBranch')}</h3>
         <table>
-            <thead><tr><th>Филиал</th><th class="r">Гости</th><th class="r">Аренда</th><th class="r">Договоры</th><th class="r">Перечислением</th><th class="r">Обычные</th><th class="r">Всего</th></tr></thead>
+            <thead><tr><th>${t('drmColBranch')}</th><th class="r">${t('drmGuests')}</th><th class="r">${t('drmColRent')}</th><th class="r">${t('drmColContracts')}</th><th class="r">${t('drmCardTransfer')}</th><th class="r">${t('drmCardRegular')}</th><th class="r">${t('drmColTotal')}</th></tr></thead>
             <tbody>${byHostel.map(h => `
                 <tr>
                     <td>${esc(hostelName(h.hostelId))}</td>
@@ -77,7 +79,7 @@ export const printDebtReport = ({ report, hostelLabel, hostelName, periodLabel, 
                     <td class="r debt">${money(h.debt)}</td>
                 </tr>`).join('')}
                 <tr>
-                    <td><b>Итого</b></td>
+                    <td><b>${t('total')}</b></td>
                     <td class="r"><b>${money(bySource.guest.debt)}</b></td>
                     <td class="r"><b>${money(bySource.rental.debt)}</b></td>
                     <td class="r"><b>${money(bySource.contract.debt)}</b></td>
@@ -88,19 +90,18 @@ export const printDebtReport = ({ report, hostelLabel, hostelName, periodLabel, 
             </tbody>
         </table>
         ${byEntity.length ? `
-        <h3>Перечисления по получателям</h3>
+        <h3>${t('dbpTransfersByRecipient')}</h3>
         <table>
-            <thead><tr><th>Получатель</th><th class="r">Ожидается</th></tr></thead>
+            <thead><tr><th>${t('dbpRecipient')}</th><th class="r">${t('drmExpectedCol')}</th></tr></thead>
             <tbody>${byEntity.map(e => `<tr><td>${esc(e.entity)}</td><td class="r">${money(e.debt)}</td></tr>`).join('')}</tbody>
         </table>` : ''}
         ${section('guest')}
         ${section('rental')}
         ${section('contract')}
         <div class="note">
-            Долги — снимок на ${new Date().toLocaleDateString('ru')}, они не зависят от выбранного периода.
-            Баланс за период ${esc(periodLabel)}: ${money(periodNet)} сум. «Ожидаемо» = баланс периода + все долги,
-            то есть сколько будет, когда должники рассчитаются.
-            Способ оплаты определён по прошлым платежам должника.
+            ${t('dbpNote1').replace('{date}', today)}
+            ${t('dbpNote2').replace('{period}', esc(periodLabel)).replace('{sum}', money(periodNet))}
+            ${t('drmInfo3')}
         </div>
     </body></html>`;
 
