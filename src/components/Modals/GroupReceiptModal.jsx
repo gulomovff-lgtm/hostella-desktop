@@ -214,7 +214,7 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                         </div>
                         <div>
                             <label className={lbl}>{t('grDocDate')}</label>
-                            <DatePicker value={date} onChange={setDate} className={inp} />
+                            <DatePicker value={date} onChange={setDate} className={inp} lang={lang} />
                         </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
@@ -238,11 +238,11 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div>
                             <label className={lbl}>{t('grStayedFrom')}</label>
-                            <DatePicker value={periodFrom} onChange={v => { setPeriodFrom(v); onPeriod(v, periodTo); }} className={inp} placeholder={t('date')} />
+                            <DatePicker value={periodFrom} onChange={v => { setPeriodFrom(v); onPeriod(v, periodTo); }} className={inp} placeholder={t('date')} lang={lang} />
                         </div>
                         <div>
                             <label className={lbl}>{t('grStayedTo')}</label>
-                            <DatePicker value={periodTo} onChange={v => { setPeriodTo(v); onPeriod(periodFrom, v); }} className={inp} placeholder={t('date')} />
+                            <DatePicker value={periodTo} onChange={v => { setPeriodTo(v); onPeriod(periodFrom, v); }} className={inp} placeholder={t('date')} lang={lang} />
                         </div>
                         <div>
                             <label className={lbl}>{t('grDaysAll')}</label>

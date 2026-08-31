@@ -446,7 +446,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     return (
         <div className="space-y-3">
             {payingGroup && (
-                <PaymentModal group={payingGroup} currentUser={currentUser} onClose={() => setPayingGroup(null)} />
+                <PaymentModal group={payingGroup} currentUser={currentUser} onClose={() => setPayingGroup(null)} lang={lang} />
             )}
             {confirmComplete && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setConfirmComplete(null)}>
@@ -475,7 +475,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                 </div>
             )}
             {payingMergedGroups && (
-                <PaymentModal groups={payingMergedGroups} currentUser={currentUser} onClose={() => { setPayingMergedGroups(null); setMergeMode(false); setSelectedGroupIds(new Set()); }} />
+                <PaymentModal groups={payingMergedGroups} currentUser={currentUser} onClose={() => { setPayingMergedGroups(null); setMergeMode(false); setSelectedGroupIds(new Set()); }} lang={lang} />
             )}
             {transferModal && (() => {
                 const src = transferModal.group;
@@ -567,6 +567,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                         onUpdateWG={(wgId, patch) => updateWorkerGroup(g.id, en.id, wgId, patch)}
                         onRemoveWG={(wgId) => removeWorkerGroup(g.id, en.id, wgId)}
                         onClose={() => setEditEntryModal(null)}
+                        lang={lang}
                     />
                 );
             })()}
@@ -917,6 +918,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                         onAddPeriod={(ci, co) => addEntryDates(group.id, ci, co)}
                                         onEditPeriod={(id) => setEditEntryModal({ groupId: group.id, entryId: id })}
                                         onDeletePeriod={(id) => removeEntry(group.id, id)}
+                                        lang={lang}
                                     />
                                 )}
                                 <div className="pb-2">
@@ -943,7 +945,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                                                                         style={{ border: '1px solid rgba(94,234,212,0.25)', background: 'rgba(94,234,212,0.07)', color: '#e2f7f8' }} />
                                                                 </div>
                                                                 <div className="flex items-center gap-1.5">
-                                                                    <div className="flex-1 min-w-0"><RoomPicker rooms={rooms} selected={Array.isArray(entry.roomIds) ? entry.roomIds : []} onChange={roomIds => updateEntry(group.id, entry.id, { roomIds })} /></div>
+                                                                    <div className="flex-1 min-w-0"><RoomPicker rooms={rooms} selected={Array.isArray(entry.roomIds) ? entry.roomIds : []} onChange={roomIds => updateEntry(group.id, entry.id, { roomIds })} lang={lang} /></div>
                                                                     {(entry.workerGroups || []).reduce((s, wg) => s + (wg.specialty ? (parseInt(wg.count) || 0) : 0), 0) > 0 ? (
                                                                         <input type="text" readOnly title={t('msFromBrigade')}
                                                                             value={(entry.workerGroups || []).reduce((s, wg) => s + (wg.specialty ? (parseInt(wg.count) || 0) : 0), 0)}

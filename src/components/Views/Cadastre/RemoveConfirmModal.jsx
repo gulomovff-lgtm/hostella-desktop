@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { UserX } from 'lucide-react';
 import { fmt } from './shared';
+import TRANSLATIONS from '../../../constants/translations';
 
-const RemoveConfirmModal = ({ reg, onClose, onConfirm }) => {
+const RemoveConfirmModal = ({ reg, onClose, onConfirm, lang = 'ru' }) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [addToExpenses, setAddToExpenses] = useState(false);
   const [busy, setBusy] = useState(false);
   const hasAmount = Number(reg.amount) > 0 && !reg.expenseAdded;
@@ -24,9 +26,9 @@ const RemoveConfirmModal = ({ reg, onClose, onConfirm }) => {
               <UserX size={20} className="text-amber-600" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800 text-base">Завершить регистрацию</h3>
+              <h3 className="font-bold text-slate-800 text-base">{t('cdmFinishRegTitle')}</h3>
               <p className="text-sm text-slate-500 mt-1">
-                Регистрация <b>{reg.guestName}</b> будет завершена.
+                {t('cdmRegPrefix')} <b>{reg.guestName}</b> {t('cdmWillBeFinished')}
               </p>
             </div>
           </div>
@@ -36,8 +38,8 @@ const RemoveConfirmModal = ({ reg, onClose, onConfirm }) => {
               <input type="checkbox" checked={addToExpenses} onChange={e => setAddToExpenses(e.target.checked)}
                 className="w-4 h-4 rounded accent-violet-600 flex-shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-violet-800">Добавить сумму в расходы</p>
-                <p className="text-xs text-violet-600">{fmt(reg.amount)} сум</p>
+                <p className="text-sm font-semibold text-violet-800">{t('cdmAddSumToExpenses')}</p>
+                <p className="text-xs text-violet-600">{fmt(reg.amount)} {t('cadSum')}</p>
               </div>
             </label>
           )}
@@ -45,7 +47,7 @@ const RemoveConfirmModal = ({ reg, onClose, onConfirm }) => {
           <div className="flex gap-3">
             <button onClick={onClose} disabled={busy}
               className="flex-1 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 disabled:opacity-40">
-              Отмена
+              {t('cancel')}
             </button>
             <button onClick={handleConfirm} disabled={busy}
               className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white font-bold text-sm hover:bg-amber-600 disabled:opacity-40 flex items-center justify-center gap-2">
@@ -53,7 +55,7 @@ const RemoveConfirmModal = ({ reg, onClose, onConfirm }) => {
                 ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 : <UserX size={14} />
               }
-              Завершить
+              {t('cdmFinish')}
             </button>
           </div>
         </div>

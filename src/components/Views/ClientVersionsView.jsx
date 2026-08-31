@@ -5,8 +5,9 @@
  */
 import React, { useState, useMemo } from 'react';
 import { Monitor, Globe, Clock, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
-const HOSTELS = { hostel1: 'Хостел №1', hostel2: 'Хостел №2', all: 'Оба' };
+const HOSTEL_KEYS = { hostel1: 'cvvHostel1', hostel2: 'cvvHostel2', all: 'cvvBoth' };
 
 const formatTime = (iso) => {
   if (!iso) return '—';
@@ -30,7 +31,8 @@ const isStale = (lastSeen) => {
   return Date.now() - new Date(lastSeen).getTime() > 7 * 24 * 60 * 60 * 1000; // > 7 дней
 };
 
-const ClientVersionsView = ({ clientVersions = [] }) => {
+const ClientVersionsView = ({ clientVersions = [], lang = 'ru' }) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [filterPlatform, setFilterPlatform] = useState('');
 
   // Максимальная (самая свежая) известная версия среди всех клиентов — эталон
@@ -56,14 +58,14 @@ const ClientVersionsView = ({ clientVersions = [] }) => {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-            <Monitor size={20} className="text-indigo-500" /> Версии клиентов
+            <Monitor size={20} className="text-indigo-500" /> {t('cvvTitle')}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Свежая версия: <span className="font-bold text-emerald-600">{latestVersion}</span>
+            {t('cvvLatest')} <span className="font-bold text-emerald-600">{latestVersion}</span>
             &nbsp;·&nbsp;
-            <span className="font-bold text-amber-600">{outdatedCount}</span> на старой
+            <span className="font-bold text-amber-600">{outdatedCount}</span> {t('cvvOnOld')}
             &nbsp;·&nbsp;
-            {clientVersions.length} устройств
+            {t('cvvDevices').replace('{n}', clientVersions.length)}
           </p>
         </div>
         <select
@@ -71,9 +73,9 @@ const ClientVersionsView = ({ clientVersions = [] }) => {
           onChange={e => setFilterPlatform(e.target.value)}
           className="px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         >
-          <option value="">Все платформы</option>
-          <option value="desktop">Десктоп</option>
-          <option value="web">Веб</option>
+          <option value="">{t('cvvAllPlatforms')}</option>
+          <option value="desktop">{t('cvvDesktop')}</option>
+          <option value="web">{t('cvvWeb')}</option>
         </select>
       </div>
 
@@ -82,8 +84,8 @@ const ClientVersionsView = ({ clientVersions = [] }) => {
         {displayed.length === 0 ? (
           <div className="py-16 text-center">
             <div className="text-4xl mb-2">📊</div>
-            <div className="text-slate-400 font-semibold">Нет данных о версиях</div>
-            <div className="text-xs text-slate-400 mt-1">Записи появятся после входа клиентов в обновлённую версию</div>
+            <div className="text-slate-400 font-semibold">{t('cvvNoData')}</div>
+            <div className="text-xs text-slate-400 mt-1">{t('cvvNoDataHint')}</div>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -106,11 +108,11 @@ const ClientVersionsView = ({ clientVersions = [] }) => {
                         v{v.appVersion || '?'}
                       </span>
                       <span className="text-[11px] text-slate-400 font-medium">
-                        {v.platform === 'desktop' ? 'Десктоп' : 'Веб'}
+                        {v.platform === 'desktop' ? t('cvvDesktop') : t('cvvWeb')}
                       </span>
-                      {v.hostelId && HOSTELS[v.hostelId] && (
+                      {v.hostelId && HOSTEL_KEYS[v.hostelId] && (
                         <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
-                          {HOSTELS[v.hostelId]}
+                          {t(HOSTEL_KEYS[v.hostelId])}
                         </span>
                       )}
                     </div>
@@ -120,7 +122,7 @@ const ClientVersionsView = ({ clientVersions = [] }) => {
                       {v.buildTs && <span className="font-mono">build {v.buildTs}</span>}
                       <span className={`flex items-center gap-1 ${stale ? 'text-rose-400' : ''}`}>
                         <Clock size={11} /> {formatTime(v.lastSeenAt)}
-                        {stale && ' (давно не заходил)'}
+                        {stale && ` ${t('cvvStale')}`}
                       </span>
                     </div>
                   </div>
@@ -132,7 +134,7 @@ const ClientVersionsView = ({ clientVersions = [] }) => {
       </div>
 
       <p className="text-xs text-slate-400 text-center">
-        Версия пишется при входе и раз в 30 минут. «Свежая версия» — максимальная среди всех клиентов.
+        {t('cvvFooter')}
       </p>
     </div>
   );

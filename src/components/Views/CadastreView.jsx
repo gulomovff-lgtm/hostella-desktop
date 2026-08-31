@@ -325,6 +325,7 @@ export default function CadastreView({
                   onRemove={r => setRemoveConfirmReg(r)}
                   onDelete={onDeleteReg}
                   onAddToExpenses={onAddToExpenses}
+                  lang={lang}
                 />
               ))}
             </div>
@@ -386,6 +387,7 @@ export default function CadastreView({
           reg={removeConfirmReg}
           onClose={() => setRemoveConfirmReg(null)}
           onConfirm={onRemoveReg}
+          lang={lang}
         />
       )}
       {addAllConfirm && (
@@ -441,6 +443,7 @@ export default function CadastreView({
           reg={extendReg}
           onClose={() => setExtendReg(null)}
           onSubmit={data => onExtendReg(extendReg, data)}
+          lang={lang}
         />
       )}
       {editReg && (
@@ -448,6 +451,7 @@ export default function CadastreView({
           reg={editReg}
           onClose={() => setEditReg(null)}
           onSubmit={data => onUpdateReg(editReg, data)}
+          lang={lang}
         />
       )}
       {cadastreModal && (
@@ -455,6 +459,7 @@ export default function CadastreView({
           cadastre={cadastreModal === 'add' ? null : cadastreModal}
           selectedHostelFilter={selectedHostelFilter}
           onClose={() => setCadastreModal(null)}
+          lang={lang}
           onSubmit={data =>
             cadastreModal === 'add'
               ? onAddCadastre(data)

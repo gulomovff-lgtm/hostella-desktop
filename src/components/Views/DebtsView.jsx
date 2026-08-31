@@ -294,11 +294,11 @@ const DebtsView = ({ guests, users, lang = 'ru', onPayDebt, currentUser, onAdmin
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">{t('dvFrom')}</label>
-                        <DatePicker value={startDate} onChange={setStartDate} placeholder={t('dvDatePh')} className={fInput} />
+                        <DatePicker value={startDate} onChange={setStartDate} placeholder={t('dvDatePh')} className={fInput} lang={lang} />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5 block">{t('dvTo')}</label>
-                        <DatePicker value={endDate} onChange={setEndDate} placeholder={t('dvDatePh')} className={fInput} />
+                        <DatePicker value={endDate} onChange={setEndDate} placeholder={t('dvDatePh')} className={fInput} lang={lang} />
                     </div>
                 </div>
             </div>

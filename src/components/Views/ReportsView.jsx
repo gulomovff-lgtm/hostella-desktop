@@ -473,12 +473,12 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
                     <div>
                         <label className={fLabel}>{t('from')}</label>
-                        <DatePicker value={(tempFilters.start||'').slice(0,10)} placeholder={t('date')} className={fInput}
+                        <DatePicker value={(tempFilters.start||'').slice(0,10)} placeholder={t('date')} className={fInput} lang={lang}
                             onChange={(d)=>{ setTempFilters({...tempFilters, start: d ? d + 'T00:00' : ''}); setActivePreset(''); }}/>
                     </div>
                     <div>
                         <label className={fLabel}>{t('to')}</label>
-                        <DatePicker value={(tempFilters.end||'').slice(0,10)} placeholder={t('date')} className={fInput}
+                        <DatePicker value={(tempFilters.end||'').slice(0,10)} placeholder={t('date')} className={fInput} lang={lang}
                             onChange={(d)=>{ setTempFilters({...tempFilters, end: d ? d + 'T23:59' : ''}); setActivePreset(''); }}/>
                     </div>
                     <div>

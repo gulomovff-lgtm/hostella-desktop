@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
+import TRANSLATIONS from '../../../constants/translations';
 
-const RoomPicker = ({ rooms, selected, onChange }) => {
+const RoomPicker = ({ rooms, selected, onChange, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [open, setOpen] = useState(false);
     const ref = useRef(null);
 
@@ -20,7 +22,7 @@ const RoomPicker = ({ rooms, selected, onChange }) => {
     };
 
     const label = selected.length === 0
-        ? 'Комнаты'
+        ? t('roomsWord')
         : rooms.filter(r => selSet.has(r.id)).map(r => `№${r.number}`).join(', ');
 
     const btnRef = useRef(null);
@@ -48,7 +50,7 @@ const RoomPicker = ({ rooms, selected, onChange }) => {
             {open && (
                 <div className="fixed z-[200] bg-white border border-slate-200 rounded-xl shadow-xl p-2 min-w-[170px] max-h-52 overflow-y-auto" style={{ top: dropPos.top, left: dropPos.left }}>
                     {rooms.length === 0
-                        ? <div className="text-xs text-slate-400 px-2 py-1.5">Нет комнат</div>
+                        ? <div className="text-xs text-slate-400 px-2 py-1.5">{t('msmNoRooms')}</div>
                         : rooms.map(room => {
                             const checked = selSet.has(room.id);
                             return (

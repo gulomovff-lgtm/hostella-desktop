@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Calendar, ChevronDown, ChevronUp, Edit2, ExternalLink, Link, MapPin, Receipt, RefreshCw, Trash2, UserX } from 'lucide-react';
 import { STATUS_CFG, fmt, getDaysLeft, getStatus } from './shared';
 import CopyButton from './CopyButton';
+import TRANSLATIONS from '../../../constants/translations';
 
-const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, isAdmin }) => {
+const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, isAdmin, lang = 'ru' }) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [expanded, setExpanded] = useState(false);
   const [busyExpense, setBusyExpense] = useState(false);
 
@@ -34,22 +36,22 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
               <h3 className="font-black text-slate-800 text-sm">{reg.guestName}</h3>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text} border ${cfg.border}`}>
                 {cfg.label}
-                {status === 'active'   && daysLeft > 0 && ` · ${daysLeft} дн.`}
+                {status === 'active'   && daysLeft > 0 && ` · ${daysLeft} ${t('daysShort')}`}
                 {status === 'expiring' && (
-                  daysLeft === 0 ? ' · сегодня!' :
-                  daysLeft === 1 ? ' · завтра' :
-                  ` · ${daysLeft} дн.`
+                  daysLeft === 0 ? ` · ${t('cdmTodayExcl')}` :
+                  daysLeft === 1 ? ` · ${t('cdmTomorrow')}` :
+                  ` · ${daysLeft} ${t('daysShort')}`
                 )}
-                {status === 'expired'  && (daysLeft === 0 ? ' · сегодня' : ` · ${Math.abs(daysLeft)} дн. назад`)}
+                {status === 'expired'  && (daysLeft === 0 ? ` · ${t('today')}` : ` · ${Math.abs(daysLeft)} ${t('daysShort')} ${t('cdmAgo')}`)}
               </span>
               {reg.expenseAdded && unexpensed <= 0 && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
-                  📊 В расходах
+                  📊 {t('cdmInExpenses')}
                 </span>
               )}
               {unexpensed > 0 && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                  ⚠️ Не в расходах: {fmt(unexpensed)} сум
+                  ⚠️ {t('cdmNotInExpenses')}: {fmt(unexpensed)} {t('cadSum')}
                 </span>
               )}
             </div>
@@ -62,11 +64,11 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
               <p className="text-xs text-slate-500 flex items-center gap-1">
                 <Calendar size={10} className="text-slate-400" />
                 {reg.startDate} → {reg.endDate}
-                <span className="text-slate-400">({reg.days} дн.)</span>
+                <span className="text-slate-400">({reg.days} {t('daysShort')})</span>
               </p>
               {reg.amount > 0 && (
                 <p className="text-xs font-semibold text-teal-700 flex items-center gap-1">
-                  <Receipt size={10} /> Стоимость рег.: {fmt(reg.amount)} сум
+                  <Receipt size={10} /> {t('cdmRegCostShort')}: {fmt(reg.amount)} {t('cadSum')}
                 </p>
               )}
             </div>
@@ -84,7 +86,7 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
             {reg.passport && <p>🪪 <b>{reg.passport}</b></p>}
             {reg.country  && <p>🌍 {reg.country}</p>}
             {reg.phone    && <p>📞 {reg.phone}</p>}
-            {reg.cadastreOwner && <p>👤 Владелец: {reg.cadastreOwner}</p>}
+            {reg.cadastreOwner && <p>👤 {t('cadmOwner')}: {reg.cadastreOwner}</p>}
           </div>
           {/* Ссылка на регистрацию */}
           {reg.regLink && (
@@ -107,15 +109,15 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
               <>
                 <button onClick={() => onExtend(reg)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
-                  <RefreshCw size={11} /> Продлить
+                  <RefreshCw size={11} /> {t('cdmExtend')}
                 </button>
                 <button onClick={() => onEdit(reg)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-600 text-white text-xs font-bold hover:bg-slate-700">
-                  <Edit2 size={11} /> Изменить
+                  <Edit2 size={11} /> {t('cdmEdit')}
                 </button>
                 <button onClick={() => onRemove(reg)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600">
-                  <UserX size={11} /> Завершить
+                  <UserX size={11} /> {t('cdmFinish')}
                 </button>
               </>
             )}
@@ -126,13 +128,13 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
                   ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   : <Receipt size={11} />
                 }
-                В расходы {fmt(unexpensed)} сум
+                {t('cdmToExpense')} {fmt(unexpensed)} {t('cadSum')}
               </button>
             )}
             {isAdmin && (
               <button onClick={() => onDelete(reg)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500 text-white text-xs font-bold hover:bg-rose-600">
-                <Trash2 size={11} /> Удалить
+                <Trash2 size={11} /> {t('delete')}
               </button>
             )}
           </div>

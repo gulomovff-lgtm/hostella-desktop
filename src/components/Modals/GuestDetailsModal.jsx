@@ -1748,7 +1748,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         />
 
         {emehmonCfgOpen && (
-            <EmehmonAccountsModal onClose={() => setEmehmonCfgOpen(false)} notify={notify} />
+            <EmehmonAccountsModal onClose={() => setEmehmonCfgOpen(false)} notify={notify} lang={lang} />
         )}
 
         {kppResetModal && (

@@ -1836,6 +1836,7 @@ return (
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
                 <EmehmonPendingBanner
+                    lang={lang}
                     guests={filteredGuests}
                     onDepart={(g) => handleEmehmonDepart(g)}
                     onDone={(g) => handleEmehmonDone(g)}
@@ -2172,7 +2173,7 @@ return (
                 )}
 
                 {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
-                    <ClientVersionsView clientVersions={clientVersions} />
+                    <ClientVersionsView clientVersions={clientVersions} lang={lang} />
                 )}
 
                 {activeTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
@@ -2324,6 +2325,7 @@ return (
                 room={rentalPayModal}
                 onClose={() => setRentalPayModal(null)}
                 onSubmit={handlePayRentalDebt}
+                lang={lang}
             />
         )}
 
@@ -2572,6 +2574,7 @@ return (
 
             {emehmonDepart && emehmonDepart.length > 0 && (
                 <EmehmonDepartureModal
+                    lang={lang}
                     guests={emehmonDepart}
                     onClose={() => setEmehmonDepart(null)}
                     onConfirm={handleEmehmonDepartConfirm}
@@ -2650,6 +2653,7 @@ return (
                     undoStack={undoStack}
                     onClose={() => setUndoHistoryOpen(false)}
                     onUndo={handleUndo}
+                    lang={lang}
                 />
             )}
 
