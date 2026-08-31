@@ -544,7 +544,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                 );
             })()}
             {reportGroup && (
-                <BrigadeReportModal group={reportGroup} onClose={() => setReportGroup(null)} />
+                <BrigadeReportModal group={reportGroup} onClose={() => setReportGroup(null)} lang={lang} />
             )}
             {reportOpen && (() => {
                 const sel = selectedGroupIds.size ? visibleGroups.filter(g => selectedGroupIds.has(g.id)) : visibleGroups;
@@ -552,7 +552,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                     ? t('msSelectedColon').replace('{n}', selectedGroupIds.size)
                     : (groupFilter === 'closed' ? t('msHistoryClosed') : groupFilter === 'all' ? t('msAllContracts') : t('msActiveContracts'));
                 const hLabel = effectiveHostel === 'hostel1' ? t('expHostel1') : effectiveHostel === 'hostel2' ? t('expHostel2') : t('expAllHostels');
-                return <OverallReportModal groups={sel} payments={payments} scopeLabel={label} hostelLabel={hLabel} onClose={() => setReportOpen(false)} />;
+                return <OverallReportModal groups={sel} payments={payments} scopeLabel={label} hostelLabel={hLabel} lang={lang} onClose={() => setReportOpen(false)} />;
             })()}
             {editEntryModal && (() => {
                 const g = contractGroups.find(x => x.id === editEntryModal.groupId);

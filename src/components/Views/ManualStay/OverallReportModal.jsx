@@ -1,25 +1,26 @@
 import { pmcFmtISO, PMC_MONTHS_FULL } from './shared';
 import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
+import TRANSLATIONS from '../../../constants/translations';
 
 const orPayAmt = (p) => ((parseInt(p.cash) || 0) + (parseInt(p.transfer) || 0) + (parseInt(p.card) || 0) + (parseInt(p.qr) || 0)) || (parseInt(p.amount) || 0);
 
-const OR_COLS = [
-    { key: 'members',      label: 'Участн.',   num: true,  val: r => r.members },
-    { key: 'pn',           label: 'Чел-ночи',  num: true,  val: r => r.pn,           accent: true },
-    { key: 'rate',         label: 'Ставка',    num: true,  money: true, val: r => r.rate },
-    { key: 'charged',      label: 'Начислено', num: true,  money: true, val: r => r.charged },
-    { key: 'paid',         label: 'Оплачено',  num: true,  money: true, green: true, val: r => r.paid },
-    { key: 'paidCash',     label: 'Наличные',  num: true,  money: true, val: r => r.paidCash },
-    { key: 'paidTransfer', label: 'Перечисл.', num: true,  money: true, val: r => r.paidTransfer },
-    { key: 'paidCard',     label: 'Карта',     num: true,  money: true, val: r => r.paidCard },
-    { key: 'paidQR',       label: 'QR',        num: true,  money: true, val: r => r.paidQR },
-    { key: 'debt',         label: 'Долг',      num: true,  money: true, red: true, val: r => r.debt },
-    { key: 'period',       label: 'Период',    num: false, text: true, val: r => r.period },
-    { key: 'status',       label: 'Статус',    num: false, text: true, val: r => r.closed ? 'Архив' : r.completed ? 'Завершён' : 'Активен' },
-];
-
-const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все договоры', hostelLabel = '', onClose }) => {
+const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все договоры', hostelLabel = '', onClose, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
+    const OR_COLS = [
+        { key: 'members',      label: t('ormColMembers'), num: true,  val: r => r.members },
+        { key: 'pn',           label: t('ormColPn'),      num: true,  val: r => r.pn,           accent: true },
+        { key: 'rate',         label: t('msRate'),        num: true,  money: true, val: r => r.rate },
+        { key: 'charged',      label: t('msChargedUpper'),num: true,  money: true, val: r => r.charged },
+        { key: 'paid',         label: t('msPaidUpper'),   num: true,  money: true, green: true, val: r => r.paid },
+        { key: 'paidCash',     label: t('cash'),          num: true,  money: true, val: r => r.paidCash },
+        { key: 'paidTransfer', label: t('transferShort'), num: true,  money: true, val: r => r.paidTransfer },
+        { key: 'paidCard',     label: t('ormCardCol'),    num: true,  money: true, val: r => r.paidCard },
+        { key: 'paidQR',       label: t('qr'),            num: true,  money: true, val: r => r.paidQR },
+        { key: 'debt',         label: t('msDebtUpper'),   num: true,  money: true, red: true, val: r => r.debt },
+        { key: 'period',       label: t('period'),        num: false, text: true, val: r => r.period },
+        { key: 'status',       label: t('status'),        num: false, text: true, val: r => r.closed ? t('archived') : r.completed ? t('msCompletedBadge') : t('pcActive') },
+    ];
     const dk = document.documentElement.dataset.theme === 'dark';
     const [ym, setYm] = useState('');
     const [copied, setCopied] = useState(false);
@@ -115,7 +116,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
             .map(d => ({ ...d, contracts: [...d.byContract.values()].sort((a, b) => b.total - a.total) }))
             .sort((a, b) => (b.day || '').localeCompare(a.day || ''));
     }, [scopedPayments]);
-    const methodParts = (o) => [['нал', o.cash], ['переч', o.transfer], ['карта', o.card], ['QR', o.qr]].filter(([, v]) => v > 0).map(([l, v]) => `${l} ${fm(v)}`).join(' · ') || '—';
+    const methodParts = (o) => [[t('ormPmCash'), o.cash], [t('ormPmTransfer'), o.transfer], [t('ormPmCard'), o.card], [t('qr'), o.qr]].filter(([, v]) => v > 0).map(([l, v]) => `${l} ${fm(v)}`).join(' · ') || '—';
 
     // Детальные периоды проживания всех договоров (с учётом выбранного месяца)
     const periodRows = useMemo(() => {
@@ -144,26 +145,26 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
     }, [groups]);
 
     const copyText = () => {
-        const L = [`Отчёт — ${titleScope}`, ''];
-        L.push(['Договор', ...activeCols.map(c => c.label)].join('\t'));
+        const L = [t('ormReportDash').replace('{n}', titleScope), ''];
+        L.push([t('ormContract'), ...activeCols.map(c => c.label)].join('\t'));
         rows.forEach(r => L.push([r.name, ...activeCols.map(c => c.key === 'debt' ? Math.max(0, r.debt) : c.val(r))].join('\t')));
-        L.push(['ИТОГО', ...activeCols.map(c => c.num ? totals[c.key] : '')].join('\t'));
+        L.push([t('ormTotalUpper'), ...activeCols.map(c => c.num ? totals[c.key] : '')].join('\t'));
         if (sec.periods && periodRows.length) {
-            L.push('', 'Периоды проживания:');
-            periodRows.forEach(p => L.push(`  ${p.contract}: ${p.checkIn || '?'} → ${p.checkOut || '?'} · ${p.nights} н · ${p.people} чел · ${p.personNights} чел-ноч`));
+            L.push('', t('ormPeriodsColon'));
+            periodRows.forEach(p => L.push(`  ${p.contract}: ${p.checkIn || '?'} → ${p.checkOut || '?'} · ${p.nights} ${t('msNightShort')} · ${p.people} ${t('msPeopleWord')} · ${p.personNights} ${t('ormPnShort')}`));
         }
         if (sec.members) {
-            L.push('', 'Участники (сколько прожили):');
-            groups.forEach(g => { if ((g.members || []).length) L.push(`  ${g.name}: ${g.members.map(m => `${m.name} (${m.totalNights || 0}н)`).join(', ')}`); });
+            L.push('', t('ormMembersLivedColon'));
+            groups.forEach(g => { if ((g.members || []).length) L.push(`  ${g.name}: ${g.members.map(m => `${m.name} (${m.totalNights || 0}${t('msNightShort')})`).join(', ')}`); });
         }
         if (sec.specs && specsTotal.length) {
-            L.push('', 'Специальности (чел-дней):');
+            L.push('', t('ormSpecsColon'));
             specsTotal.forEach(([sp, v]) => L.push(`  ${sp}: ${v}`));
         }
         if (sec.payments && paymentsByDay.length) {
-            L.push('', 'Оплаты по дням:');
+            L.push('', t('ormPaymentsColon'));
             paymentsByDay.forEach(d => {
-                L.push(`  ${d.day} — итого ${fm(d.total)} (${methodParts(d)})`);
+                L.push(`  ${d.day} — ${t('ormTotalLc')} ${fm(d.total)} (${methodParts(d)})`);
                 d.contracts.forEach(c => L.push(`     ↳ ${gname(c.id)}: ${fm(c.total)} (${methodParts(c)})`));
             });
         }
@@ -218,9 +219,9 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
         // ── 1) Сводка ──
         {
             const ncol = activeCols.length + 1;
-            const ws = wb.addWorksheet('Сводка', { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
-            titleRow(ws, ncol, `Отчёт по договорам — ${titleScope}${hostelLabel ? ' · ' + hostelLabel : ''}`);
-            addHeader(ws, ['Договор', ...activeCols.map(c => c.label)]);
+            const ws = wb.addWorksheet(t('ormSheetSummary'), { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
+            titleRow(ws, ncol, t('ormReportByContracts').replace('{n}', titleScope) + (hostelLabel ? ' · ' + hostelLabel : ''));
+            addHeader(ws, [t('ormContract'), ...activeCols.map(c => c.label)]);
 
             const accentCell = (cell, col, value, { isTotal = false } = {}) => {
                 if (col.money) cell.numFmt = MONEY;
@@ -239,7 +240,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
                     cell.font = { bold: true, color: { argb: C_TEAL } };
                 } else if (col.key === 'status') {
                     cell.alignment = { horizontal: 'center' };
-                    cell.font = { bold: true, color: { argb: value === 'Архив' ? C_GREY : value === 'Завершён' ? C_SLATE : C_TEAL } };
+                    cell.font = { bold: true, color: { argb: value === t('archived') ? C_GREY : value === t('msCompletedBadge') ? C_SLATE : C_TEAL } };
                 } else if (isTotal) {
                     cell.font = { bold: true };
                 }
@@ -255,7 +256,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
                 activeCols.forEach((c, i) => accentCell(row.getCell(i + 2), c, vals[i]));
             });
 
-            const tr = ws.addRow(['ИТОГО', ...activeCols.map(c => c.num ? totals[c.key] : '')]);
+            const tr = ws.addRow([t('ormTotalUpper'), ...activeCols.map(c => c.num ? totals[c.key] : '')]);
             tr.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = { ...box, top: { style: 'medium', color: { argb: HEAD } } }; });
             tr.getCell(1).font = { bold: true, size: 12, color: { argb: C_SLATE } };
             activeCols.forEach((c, i) => { if (c.num) accentCell(tr.getCell(i + 2), c, totals[c.key], { isTotal: true }); });
@@ -265,9 +266,9 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
         // ── 2) Периоды (по договорам, с подытогами) ──
         if (sec.periods && periodRows.length) {
-            const ws = wb.addWorksheet('Периоды', { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
-            titleRow(ws, 7, `Периоды проживания — ${titleScope}`);
-            addHeader(ws, ['Договор', 'Заезд', 'Выезд', 'Ночей', 'Чел.', 'Чел-ночей', 'Специальности']);
+            const ws = wb.addWorksheet(t('ormSheetPeriods'), { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
+            titleRow(ws, 7, t('ormPeriodsLivingDash').replace('{n}', titleScope));
+            addHeader(ws, [t('ormContract'), t('tplVarCheckIn'), t('tplVarCheckOut'), t('tplVarNights'), t('ormPeopleCol'), t('ormPersonNightsFull'), t('ormSpecialties')]);
             const byC = periodRows.reduce((acc, p) => { (acc[p.contract] = acc[p.contract] || []).push(p); return acc; }, {});
             const entries = Object.entries(byC);
             entries.forEach(([contract, list], gi) => {
@@ -282,7 +283,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
                     const pnCell = row.getCell(6); pnCell.alignment = { horizontal: 'right' }; pnCell.font = { bold: true, color: { argb: C_TEAL } };
                     row.getCell(7).alignment = { horizontal: 'left', wrapText: true };
                 });
-                const sub = ws.addRow([`Итого: ${contract}`, '', '', list.reduce((s, p) => s + p.nights, 0), '', list.reduce((s, p) => s + p.personNights, 0), '']);
+                const sub = ws.addRow([t('ormTotalColon').replace('{n}', contract), '', '', list.reduce((s, p) => s + p.nights, 0), '', list.reduce((s, p) => s + p.personNights, 0), '']);
                 sub.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
                 sub.getCell(1).font = { bold: true, color: { argb: C_SLATE } };
                 sub.getCell(1).alignment = { horizontal: 'left' };
@@ -296,9 +297,9 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
         // ── 3) Участники (сколько прожили) ──
         if (sec.members && memberRows.length) {
-            const ws = wb.addWorksheet('Участники', { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
-            titleRow(ws, 3, `Участники — ${titleScope}`);
-            addHeader(ws, ['Договор', 'Участник', 'Прожил ночей']);
+            const ws = wb.addWorksheet(t('msParticipants'), { views: [{ state: 'frozen', xSplit: 1, ySplit: 2 }] });
+            titleRow(ws, 3, t('ormMembersDash').replace('{n}', titleScope));
+            addHeader(ws, [t('ormContract'), t('ormMember'), t('ormLivedNights')]);
             memberRows.forEach((m, idx) => {
                 const row = ws.addRow([m.contract, m.member, m.nights]);
                 boxRow(row);
@@ -311,9 +312,9 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
         // ── 4) Специальности ──
         if (sec.specs && specsTotal.length) {
-            const ws = wb.addWorksheet('Специальности', { views: [{ state: 'frozen', ySplit: 2 }] });
-            titleRow(ws, 2, `Специальности (чел-дней) — ${titleScope}`);
-            addHeader(ws, ['Специальность', 'Чел-дней']);
+            const ws = wb.addWorksheet(t('ormSpecialties'), { views: [{ state: 'frozen', ySplit: 2 }] });
+            titleRow(ws, 2, t('ormSpecsPersonDaysDash').replace('{n}', titleScope));
+            addHeader(ws, [t('ormSpecialty'), t('ormPersonDays')]);
             specsTotal.forEach(([sp, v], idx) => {
                 const row = ws.addRow([sp, v]);
                 boxRow(row);
@@ -326,11 +327,11 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
         // ── 5) Оплаты по дням (итог дня + кому) ──
         if (sec.payments && paymentsByDay.length) {
-            const ws = wb.addWorksheet('Оплаты', { views: [{ state: 'frozen', ySplit: 2 }] });
-            titleRow(ws, 7, `Оплаты по дням — ${titleScope}`);
-            addHeader(ws, ['Дата', 'Договор', 'Наличные', 'Перечисл.', 'Карта', 'QR', 'Итого']);
+            const ws = wb.addWorksheet(t('ormSheetPayments'), { views: [{ state: 'frozen', ySplit: 2 }] });
+            titleRow(ws, 7, t('ormPaymentsByDayDash').replace('{n}', titleScope));
+            addHeader(ws, [t('date'), t('ormContract'), t('cash'), t('transferShort'), t('ormCardCol'), t('qr'), t('total')]);
             paymentsByDay.forEach((d, di) => {
-                const dr = ws.addRow([d.day, 'Итого за день', d.cash, d.transfer, d.card, d.qr, d.total]);
+                const dr = ws.addRow([d.day, t('ormDayTotal'), d.cash, d.transfer, d.card, d.qr, d.total]);
                 dr.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
                 dr.getCell(7).font = { bold: true, color: { argb: C_TEAL } };
                 d.contracts.forEach(c0 => {
@@ -340,7 +341,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
                 });
                 if (di < paymentsByDay.length - 1) ws.addRow([]);
             });
-            const tot = ws.addRow(['ВСЕГО', '', paymentsByDay.reduce((s, d) => s + d.cash, 0), paymentsByDay.reduce((s, d) => s + d.transfer, 0), paymentsByDay.reduce((s, d) => s + d.card, 0), paymentsByDay.reduce((s, d) => s + d.qr, 0), paymentsByDay.reduce((s, d) => s + d.total, 0)]);
+            const tot = ws.addRow([t('ormGrandTotal'), '', paymentsByDay.reduce((s, d) => s + d.cash, 0), paymentsByDay.reduce((s, d) => s + d.transfer, 0), paymentsByDay.reduce((s, d) => s + d.card, 0), paymentsByDay.reduce((s, d) => s + d.qr, 0), paymentsByDay.reduce((s, d) => s + d.total, 0)]);
             tot.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = { ...box, top: { style: 'medium', color: { argb: HEAD } } }; });
             tot.getCell(7).font = { bold: true, size: 12, color: { argb: C_GREEN } };
             widths(ws, [14, 28, 14, 14, 14, 12, 16]);
@@ -348,17 +349,17 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
         }
 
         // ── Скачивание ──
-        if (wb.worksheets.length === 0) wb.addWorksheet('Отчёт'); // на всякий случай: книга не пустая
+        if (wb.worksheets.length === 0) wb.addWorksheet(t('ormReport')); // на всякий случай: книга не пустая
         const buf = await wb.xlsx.writeBuffer();
         const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `Отчёт_${(hostelLabel || '').replace(/\s/g, '') || 'договоры'}_${ym || 'все'}.xlsx`;
+        a.href = url; a.download = `${t('ormReport')}_${(hostelLabel || '').replace(/\s/g, '') || t('ormContractsWord')}_${ym || t('ormAllWord')}.xlsx`;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1500);
         } catch (e) {
             console.error('Excel export failed:', e);
-            alert('Не удалось сформировать Excel: ' + (e?.message || 'неизвестная ошибка'));
+            alert(t('ormExcelFail').replace('{n}', e?.message || t('ormUnknownError')));
         } finally {
             setExporting(false);
         }
@@ -381,34 +382,34 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
             <div className="rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col" style={{ background: bg }} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: `1px solid ${bd}` }}>
                     <div>
-                        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#0f9688' }}>Общий отчёт{hostelLabel ? ` · ${hostelLabel}` : ''}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#0f9688' }}>{t('ormOverall')}{hostelLabel ? ` · ${hostelLabel}` : ''}</div>
                         <div className="text-lg font-black mt-0.5" style={{ color: txt }}>{titleScope}</div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap justify-end">
                         <select value={ym} onChange={e => setYm(e.target.value)}
                             className="px-2.5 py-1.5 text-xs font-semibold rounded-lg focus:outline-none"
                             style={{ background: dk ? '#0f172a' : '#f1f5f9', color: txt, border: `1px solid ${bd}` }}>
-                            <option value="">Все месяцы (итоги)</option>
+                            <option value="">{t('ormAllMonthsTotals')}</option>
                             {months.map(m => <option key={m} value={m}>{PMC_MONTHS_FULL[parseInt(m.slice(5, 7)) - 1]} {m.slice(0, 4)}</option>)}
                         </select>
-                        <button onClick={copyText} className="px-3 py-1.5 text-xs font-bold rounded-lg" style={{ background: copied ? '#22c55e' : '#0f9688', color: '#fff' }}>{copied ? '✓ Скопировано' : 'Копировать'}</button>
-                        <button onClick={exportXlsx} disabled={exporting} className="px-3 py-1.5 text-xs font-bold rounded-lg disabled:opacity-60" style={{ background: '#6366f1', color: '#fff' }}>{exporting ? 'Формирую…' : 'Excel'}</button>
+                        <button onClick={copyText} className="px-3 py-1.5 text-xs font-bold rounded-lg" style={{ background: copied ? '#22c55e' : '#0f9688', color: '#fff' }}>{copied ? t('ormCopiedCheck') : t('copy')}</button>
+                        <button onClick={exportXlsx} disabled={exporting} className="px-3 py-1.5 text-xs font-bold rounded-lg disabled:opacity-60" style={{ background: '#6366f1', color: '#fff' }}>{exporting ? t('ormBuilding') : 'Excel'}</button>
                         <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg" style={{ color: sub }}><X size={16} /></button>
                     </div>
                 </div>
 
                 {/* Что показать */}
                 <div className="px-5 py-3 shrink-0" style={{ borderBottom: `1px solid ${bd}` }}>
-                    <div className="text-[9px] font-bold uppercase tracking-wide mb-1.5" style={{ color: sub }}>Колонки</div>
+                    <div className="text-[9px] font-bold uppercase tracking-wide mb-1.5" style={{ color: sub }}>{t('ormColumns')}</div>
                     <div className="flex flex-wrap gap-1.5">
                         {OR_COLS.map(c => <Chip key={c.key} on={cols[c.key]} onClick={() => setCols(s => ({ ...s, [c.key]: !s[c.key] }))}>{c.label}</Chip>)}
                     </div>
-                    <div className="text-[9px] font-bold uppercase tracking-wide mt-2.5 mb-1.5" style={{ color: sub }}>Разделы</div>
+                    <div className="text-[9px] font-bold uppercase tracking-wide mt-2.5 mb-1.5" style={{ color: sub }}>{t('staffSecView')}</div>
                     <div className="flex flex-wrap gap-1.5">
-                        <Chip on={sec.payments} onClick={() => setSec(s => ({ ...s, payments: !s.payments }))}>Оплаты по дням</Chip>
-                        <Chip on={sec.periods} onClick={() => setSec(s => ({ ...s, periods: !s.periods }))}>Периоды подробно</Chip>
-                        <Chip on={sec.members} onClick={() => setSec(s => ({ ...s, members: !s.members }))}>Участники (ночи)</Chip>
-                        <Chip on={sec.specs} onClick={() => setSec(s => ({ ...s, specs: !s.specs }))}>Специальности</Chip>
+                        <Chip on={sec.payments} onClick={() => setSec(s => ({ ...s, payments: !s.payments }))}>{t('ormPaymentsByDay')}</Chip>
+                        <Chip on={sec.periods} onClick={() => setSec(s => ({ ...s, periods: !s.periods }))}>{t('ormPeriodsDetailed')}</Chip>
+                        <Chip on={sec.members} onClick={() => setSec(s => ({ ...s, members: !s.members }))}>{t('ormMembersNights')}</Chip>
+                        <Chip on={sec.specs} onClick={() => setSec(s => ({ ...s, specs: !s.specs }))}>{t('ormSpecialties')}</Chip>
                     </div>
                 </div>
 
@@ -416,7 +417,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr>
-                                <th style={{ ...th, textAlign: 'left' }}>Договор</th>
+                                <th style={{ ...th, textAlign: 'left' }}>{t('ormContract')}</th>
                                 {activeCols.map(c => <th key={c.key} style={{ ...th, textAlign: c.text ? 'left' : 'right' }}>{c.label}</th>)}
                             </tr>
                         </thead>
@@ -434,13 +435,13 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
                                 </tr>
                             ))}
                             {rows.length === 0 && (
-                                <tr><td colSpan={activeCols.length + 1} style={{ ...tdBase, color: sub, textAlign: 'center' }}>Нет данных</td></tr>
+                                <tr><td colSpan={activeCols.length + 1} style={{ ...tdBase, color: sub, textAlign: 'center' }}>{t('noData')}</td></tr>
                             )}
                         </tbody>
                         {rows.length > 0 && (
                             <tfoot>
                                 <tr>
-                                    <td style={{ ...tdBase, color: txt, textAlign: 'left', fontWeight: 900, borderTop: `2px solid ${bd}` }}>ИТОГО</td>
+                                    <td style={{ ...tdBase, color: txt, textAlign: 'left', fontWeight: 900, borderTop: `2px solid ${bd}` }}>{t('ormTotalUpper')}</td>
                                     {activeCols.map(c => (
                                         <td key={c.key} style={{ ...tdBase, color: c.accent ? '#0f9688' : c.green ? '#16a34a' : c.red ? '#ef4444' : txt, textAlign: c.text ? 'left' : 'right', fontWeight: 900, borderTop: `2px solid ${bd}` }}>
                                             {c.num ? (c.money ? fm(totals[c.key]) : totals[c.key]) : ''}
@@ -453,24 +454,24 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
                     {sec.periods && periodRows.length > 0 && (
                         <div className="mt-5">
-                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>Периоды проживания · по договорам</div>
+                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>{t('ormPeriodsByContract')}</div>
                             <div className="space-y-3">
                                 {Object.entries(periodRows.reduce((acc, p) => { (acc[p.contract] = acc[p.contract] || []).push(p); return acc; }, {})).map(([contract, list]) => (
                                     <div key={contract} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${bd}` }}>
                                         <div className="flex items-center justify-between gap-2 px-3 py-2" style={{ background: dk ? '#0f172a' : '#f1f5f9' }}>
                                             <span style={{ color: txt, fontSize: 12, fontWeight: 800 }}>{contract}</span>
-                                            <span style={{ color: sub, fontSize: 10 }}>{list.reduce((s, p) => s + p.nights, 0)} ноч · {list.reduce((s, p) => s + p.personNights, 0)} чел-ноч</span>
+                                            <span style={{ color: sub, fontSize: 10 }}>{list.reduce((s, p) => s + p.nights, 0)} {t('ormNochShort')} · {list.reduce((s, p) => s + p.personNights, 0)} {t('ormPnShort')}</span>
                                         </div>
                                         <div className="overflow-x-auto">
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                                 <thead>
                                                     <tr>
-                                                        <th style={{ ...th, textAlign: 'left' }}>Заезд</th>
-                                                        <th style={{ ...th, textAlign: 'left' }}>Выезд</th>
-                                                        <th style={th}>Ночей</th>
-                                                        <th style={th}>Чел.</th>
-                                                        <th style={th}>Чел-ноч.</th>
-                                                        <th style={{ ...th, textAlign: 'left' }}>Специальности</th>
+                                                        <th style={{ ...th, textAlign: 'left' }}>{t('tplVarCheckIn')}</th>
+                                                        <th style={{ ...th, textAlign: 'left' }}>{t('tplVarCheckOut')}</th>
+                                                        <th style={th}>{t('tplVarNights')}</th>
+                                                        <th style={th}>{t('ormPeopleCol')}</th>
+                                                        <th style={th}>{t('ormPnCol')}</th>
+                                                        <th style={{ ...th, textAlign: 'left' }}>{t('ormSpecialties')}</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -495,12 +496,12 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
                     {sec.members && memberRows.length > 0 && (
                         <div className="mt-5">
-                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>Участники — сколько прожили</div>
+                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>{t('ormMembersLived')}</div>
                             <div className="space-y-1.5">
                                 {groups.filter(g => (g.members || []).length).map(g => (
                                     <div key={g.id} className="px-3 py-1.5 rounded-lg" style={{ background: dk ? '#0f172a' : '#f8fafc' }}>
                                         <span style={{ color: txt, fontSize: 12, fontWeight: 700 }}>{g.name}:</span>{' '}
-                                        <span style={{ color: sub, fontSize: 11 }}>{g.members.map(m => `${m.name} (${m.totalNights || 0}н)`).join(', ')}</span>
+                                        <span style={{ color: sub, fontSize: 11 }}>{g.members.map(m => `${m.name} (${m.totalNights || 0}${t('msNightShort')})`).join(', ')}</span>
                                     </div>
                                 ))}
                             </div>
@@ -509,7 +510,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
                     {sec.specs && specsTotal.length > 0 && (
                         <div className="mt-5">
-                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>Специальности (чел-дней)</div>
+                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>{t('ormSpecsPersonDays')}</div>
                             <div className="flex flex-wrap gap-2">
                                 {specsTotal.map(([sp, v]) => (
                                     <div key={sp} className="px-3 py-1.5 rounded-lg flex items-center gap-2" style={{ background: dk ? '#0f172a' : '#f8fafc' }}>
@@ -523,7 +524,7 @@ const OverallReportModal = ({ groups = [], payments = [], scopeLabel = 'Все �
 
                     {sec.payments && paymentsByDay.length > 0 && (
                         <div className="mt-5">
-                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>Оплаты по дням ({paymentsByDay.length})</div>
+                            <div className="text-[11px] font-bold uppercase tracking-wide mb-2" style={{ color: sub }}>{t('ormPaymentsByDayN').replace('{n}', paymentsByDay.length)}</div>
                             <div className="space-y-2">
                                 {paymentsByDay.map((d) => (
                                     <div key={d.day} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${bd}` }}>

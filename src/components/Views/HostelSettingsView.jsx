@@ -662,7 +662,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
 
             {/* ── Цены ── */}
             {tab === 'pricing' && (
-                <PricingSettingsPanel notify={notify} />
+                <PricingSettingsPanel notify={notify} lang={lang} />
             )}
 
             {/* ── Уведомления ── */}

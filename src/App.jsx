@@ -2168,7 +2168,7 @@ return (
                 )}
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (
-                    <SessionsView sessions={sessions} users={usersList} />
+                    <SessionsView sessions={sessions} users={usersList} lang={lang} />
                 )}
 
                 {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
