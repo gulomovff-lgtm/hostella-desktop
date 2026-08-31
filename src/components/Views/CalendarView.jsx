@@ -537,13 +537,23 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         if (isExp) return { cls: 'border-red-700 text-white', bg: '#dc2626' };
         if (isOut && debt > 0) return { cls: 'border-rose-300 text-rose-700', bg: '#fecdd3' };
         if (isOut) return { cls: 'border-slate-300 text-slate-500', bg: '#e2e8f0' };
-        // Бонус В СЕРЕДИНЕ бара: зелёный → оранжевый → зелёный
+        // Бонус В СЕРЕДИНЕ бара: зелёный → оранжевый(бонус) → зелёный[/красный если долг]
         if (bonusCo && co && bonusCo <= co && bonusPct1 != null && bonusPct2 != null) {
+            if (debt > 0 && g.totalPrice > 0) {
+                // Неоплаченный «хвост» показываем красным (после бонусной вставки).
+                const redStart = Math.max(bonusPct2, Math.min(100, Math.round(rawPct * 100)));
+                return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${bonusPct1}%,#f97316 ${bonusPct1}%,#ea580c ${bonusPct2}%,#16a34a ${bonusPct2}%,#22c55e ${redStart}%,#ef4444 ${redStart}%,#dc2626 100%)` };
+            }
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${bonusPct1}%,#f97316 ${bonusPct1}%,#ea580c ${bonusPct2}%,#16a34a ${bonusPct2}%,#22c55e 100%)` };
         }
-        // Бонус В КОНЦЕ бара: зелёный → оранжевый
+        // Бонус В КОНЦЕ бара: зелёный[/красный долг] → оранжевый(бонус)
         if (bonusCo && co && bonusCo > co) {
-            const pp = bonusColorPct ?? 70;
+            const pp = bonusColorPct ?? 70;   // граница конца оплачиваемого периода
+            if (debt > 0 && g.totalPrice > 0) {
+                // Внутри платного участка (0→pp) делим на зелёный(оплачено) и красный(долг).
+                const paidEdge = Math.max(0, Math.min(pp, Math.round(rawPct * pp)));
+                return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${paidEdge}%,#ef4444 ${paidEdge}%,#dc2626 ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
+            }
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
         }
         if (debt > 0 && paid > 0) return { cls: 'border-red-600 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${gradPct}%,#ef4444 ${gradPct}%,#dc2626 100%)` };
