@@ -117,12 +117,13 @@ const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon:
 );
 
 // Дата через единый кастомный календарь приложения (как в бронированиях/отчётах)
-const DateField = ({ label, value, onChange, error, placeholder }) => (
+const DateField = ({ label, value, onChange, error, placeholder, lang = 'ru' }) => (
     <div className="space-y-1">
         {label && <label className={`text-xs font-bold uppercase ml-1 ${error ? 'text-rose-500' : 'text-slate-600'}`}>{label}{error && ' *'}</label>}
         <DatePicker
             value={value}
             onChange={onChange}
+            lang={lang}
             placeholder={placeholder || 'дд.мм.гггг'}
             className={`w-full bg-white border rounded-xl py-2.5 px-3 font-medium text-slate-800 shadow-sm transition-all ${error ? 'border-rose-400 ring-2 ring-rose-200 bg-rose-50' : 'border-slate-200'}`}
         />
@@ -313,7 +314,27 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const appliedBalance = formData.paidBalance || 0;
     const totalPaid = (parseInt(formData.paidCash) || 0) + (parseInt(formData.paidCard) || 0) + (parseInt(formData.paidQR) || 0) + (parseInt(formData.paidTransfer) || 0) + (parseInt(formData.paidBalance) || 0);
     const effectiveTotal = Math.max(0, totalPrice - appliedBalance);
-    const balance = effectiveTotal - totalPaid;
+    /**
+     * Деньги, РЕАЛЬНО принятые в кассу, — без зачтённого баланса.
+     *
+     * Здесь была ошибка, и стоила она денег. Остаток считался как
+     * `effectiveTotal - totalPaid`, но баланс клиента вычитался в ОБОИХ
+     * слагаемых: из цены (`effectiveTotal`) и внутри `totalPaid`, куда
+     * `paidBalance` входит. При цене 300 000 и балансе 100 000 окно
+     * показывало остаток 100 000 вместо 200 000 — кассир брал с гостя
+     * на сумму баланса меньше, чем нужно, и недостача всплывала
+     * на закрытии смены.
+     *
+     * Заметно это было только у клиентов с балансом, то есть
+     * у постоянных. Кнопка «вся сумма» при этом считала верно
+     * (`effectiveTotal - others`, без баланса) — то есть магнит
+     * и надпись рядом показывали разное.
+     *
+     * `totalPaid` остаётся прежним: в документ гостя пишется всё
+     * оплаченное, включая зачтённый баланс.
+     */
+    const collected = totalPaid - appliedBalance;
+    const balance = effectiveTotal - collected;
 
     // Конвертация для USD-режима
     const fromDisplay = (val) => {
@@ -1006,12 +1027,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                                 <SimpleInput label={t('passport')} value={formData.passport} onChange={val => handleChange('passport', val)} placeholder="AA 1234567" icon={FileText} error={errors.passport}/>
-                                <DateField label={t('birthDate')} placeholder={t('dateFmt')} value={formData.birthDate} onChange={val => handleChange('birthDate', val)} error={errors.birthDate}/>
+                                <DateField label={t('birthDate')} lang={lang} placeholder={t('dateFmt')} value={formData.birthDate} onChange={val => handleChange('birthDate', val)} error={errors.birthDate}/>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                                 {formData.country && formData.country !== 'Узбекистан' && (
-                                    <DateField label={t('passportIssueDateLabel')} placeholder={t('dateFmt')} value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)} error={errors.passportIssueDate}/>
+                                    <DateField label={t('passportIssueDateLabel')} lang={lang} placeholder={t('dateFmt')} value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)} error={errors.passportIssueDate}/>
                                 )}
                                 <SimpleInput label={t('phone')} value={formData.phone} onChange={val => handleChange('phone', val)} placeholder="+998..." icon={Phone}/>
                             </div>
@@ -1034,6 +1055,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             {formData.country && formData.country !== 'Узбекистан' && (
                                 <DateField
                                     label={t('kppDatePassed')}
+                                    lang={lang}
                                     placeholder={t('dateFmt')}
                                     value={formData.kppDate}
                                     onChange={val => handleChange('kppDate', val)}
@@ -1067,7 +1089,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 )}
 
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
-                                    <DateField label={t('checkIn')} placeholder={t('dateFmt')} value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
+                                    <DateField label={t('checkIn')} lang={lang} placeholder={t('dateFmt')} value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
                                     {formData.tariff === 'package' ? (
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold uppercase ml-1 text-slate-600 block">{t('price')}</label>
@@ -1401,7 +1423,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 onMouseLeave={e => e.currentTarget.style.opacity='1'}>
                                 {isSubmitting ? <span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full inline-block"/> : <CheckCircle2 size={20}/>} {t('checkin').toUpperCase()}
                             </button>
-                            {totalPaid === 0 && totalPrice > 0 && (
+                            {collected === 0 && totalPrice > 0 && (
                                 <button type="button" onClick={() => handleSubmit('active')}
                                     disabled={isSubmitting || !!rentalConflict}
                                     className="ml-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
