@@ -17,7 +17,7 @@ const checkCollision = (existingCheckIn, existingDays, newCheckIn, newDays) => {
 
 // --- MoveGuestModal ---
 const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [targetRoomId, setTargetRoomId] = useState(guest.roomId);
     const [targetBedId, setTargetBedId] = useState('');
     
@@ -26,11 +26,11 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
     const now = new Date();
 
     const handleMove = () => {
-        if (!targetRoomId || !targetBedId) return notify("Выберите место", 'error');
+        if (!targetRoomId || !targetBedId) return notify(t('mgSelectPlace'), 'error');
         // Защита: перемещение в то же самое место — бессмысленно и раньше ошибочно
         // запускало сплит (выселение + новая запись). Просто блокируем.
         if (String(targetRoomId) === String(guest.roomId) && String(targetBedId) === String(guest.bedId)) {
-            return notify('Гость уже на этом месте — выберите другое', 'error');
+            return notify(t('mgSamePlace'), 'error');
         }
 
         const conflicts = guests.filter(g => {
@@ -50,7 +50,7 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
             return checkCollision(g.checkInDate, g.days, guest.checkInDate, guest.days);
         });
         
-        if (conflicts.length > 0) return notify(`Занято! (${conflicts[0].fullName})`, 'error');
+        if (conflicts.length > 0) return notify(t('mgOccupied').replace('{name}', conflicts[0].fullName), 'error');
         
         onMove(guest, targetRoomId, selectedRoom.number, String(targetBedId));
     };
@@ -72,24 +72,24 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
                 <div className="p-6 space-y-5 overflow-y-auto">
                     <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 flex justify-between items-center">
                         <div>
-                            <div className="text-xs text-indigo-500 font-bold uppercase mb-0.5">Гость</div>
+                            <div className="text-xs text-indigo-500 font-bold uppercase mb-0.5">{t('guest')}</div>
                             <div className="font-bold text-indigo-900">{guest.fullName}</div>
                         </div>
                         <div className="text-right">
-                            <div className="text-xs text-indigo-500 font-bold uppercase mb-0.5">Текущее место</div>
-                            <div className="font-bold text-indigo-900">Комн. {guest.roomNumber} / {guest.bedId}</div>
+                            <div className="text-xs text-indigo-500 font-bold uppercase mb-0.5">{t('mgCurrentPlace')}</div>
+                            <div className="font-bold text-indigo-900">{t('mgRoomBed').replace('{room}', guest.roomNumber).replace('{bed}', guest.bedId)}</div>
                         </div>
                     </div>
 
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Выберите комнату</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">{t('mgSelectRoom')}</label>
                         <select 
                             className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm transition-all"
                             value={targetRoomId} 
                             onChange={e => { setTargetRoomId(e.target.value); setTargetBedId(''); }}
                         >
                             {allRooms.map(r => (
-                                <option key={r.id} value={r.id}>Комната №{r.number} ({r.capacity} мест)</option>
+                                <option key={r.id} value={r.id}>{t('mgRoomOption').replace('{n}', r.number).replace('{cap}', r.capacity)}</option>
                             ))}
                         </select>
                     </div>
@@ -97,7 +97,7 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
                     {selectedRoom && (
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">
-                                Доступные места (Комната {selectedRoom.number})
+                                {t('mgAvailablePlaces').replace('{n}', selectedRoom.number)}
                             </label>
                             
                             <div className="grid grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1">
@@ -110,12 +110,12 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
                                     );
 
                                     let status = 'free';
-                                    let statusText = 'Свободно';
-                                    
+                                    let statusText = t('free');
+
                                     if (occupant) {
                                         if (occupant.status === 'booking') {
                                             status = 'booking';
-                                            statusText = 'Бронь';
+                                            statusText = t('booking');
                                         } else {
                                             const checkOut = new Date(occupant.checkOutDate);
                                             if (typeof occupant.checkOutDate === 'string' && !occupant.checkOutDate.includes('T')) {
@@ -167,7 +167,7 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
                                                     <span className={`text-xs font-bold ${textClass}`}>№{bedId}</span>
                                                 </div>
                                                 <span className="text-[9px] uppercase font-bold text-slate-400 bg-white/50 px-1 rounded">
-                                                    {bedId % 2 === 0 ? 'Верх' : 'Низ'}
+                                                    {bedId % 2 === 0 ? t('mgTop') : t('mgBottom')}
                                                 </span>
                                             </div>
                                             <div className={`text-xs font-medium truncate ${status === 'timeout' ? 'text-slate-500' : textClass}`}>
@@ -186,14 +186,14 @@ const MoveGuestModal = ({ guest, allRooms, guests, onClose, onMove, notify, lang
 
                 <div className="p-6 bg-slate-50 border-t border-slate-200 flex gap-3">
                     <button onClick={onClose} className="flex-1 py-3 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-white text-sm transition-colors">
-                        Отмена
+                        {t('cancel')}
                     </button>
                     <button 
                         onClick={handleMove} 
                         disabled={!targetBedId}
                         className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 text-sm shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:shadow-none"
                     >
-                        Переместить
+                        {t('move')}
                     </button>
                 </div>
             </div>

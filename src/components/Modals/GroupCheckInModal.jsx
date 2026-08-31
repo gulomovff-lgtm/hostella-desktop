@@ -166,10 +166,10 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                     status: 'active',
                 });
             }
-            notify?.(`Заселено ${guestList.length} гостей`, 'success');
+            notify?.(t('gciCheckedInN').replace('{n}', guestList.length), 'success');
             onClose();
         } catch (e) {
-            notify?.('Ошибка: ' + e.message, 'error');
+            notify?.(t('error') + ': ' + e.message, 'error');
         } finally {
             setSubmitting(false);
         }
@@ -193,7 +193,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                         <div>
                             <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>{t('checkinGroupTitle')}</div>
                             <div style={{ color: '#e2f7f8', fontSize: 14, fontWeight: 700 }}>
-                                {guestList.length} {lang === 'uz' ? 'mehmon' : 'гостей'} {grandTotal > 0 ? '· ' + grandTotal.toLocaleString() + (lang === 'uz' ? " so'm" : ' сум') : ''}
+                                {guestList.length} {t('gciGuests')} {grandTotal > 0 ? '· ' + grandTotal.toLocaleString() + ' ' + t('sum') : ''}
                             </div>
                         </div>
                     </div>
@@ -208,7 +208,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                         <div>
                             <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('room')}</label>
                             <select className={inputClass} value={selectedRoomId} onChange={e => setSelectedRoomId(e.target.value)}>
-                                {allRooms.map(r => <option key={r.id} value={r.id}>№{r.number} — {r.capacity} мест</option>)}
+                                {allRooms.map(r => <option key={r.id} value={r.id}>№{r.number} — {r.capacity} {t('gciSeats')}</option>)}
                             </select>
                         </div>
                         <div>
@@ -230,7 +230,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                     placeholder={room ? String(parseInt(room.price) || 0) : '0'}
                                     value={fmtSum(commonPrice)}
                                     onChange={e => setCommonPrice(parseSum(e.target.value))}/>
-                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">сум</span>
+                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">{t('sum')}</span>
                             </div>
                         </div>
                     </div>
@@ -269,8 +269,8 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                         <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-black" style={{ background: '#0f9688' }}>{idx + 1}</div>
                                         <span className="text-sm font-bold text-slate-700">{g.fullName || `${t('guestNum')} ${idx + 1}`}</span>
                                         {g.bedId && <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: 'rgba(15,150,136,0.12)', color: '#0f766e' }}>{t('bed2')} {g.bedId}</span>}
-                                        {total > 0 && <span className="text-xs text-slate-400 font-semibold">{total.toLocaleString()} сум</span>}
-                                        {debt > 0 && <span className="text-xs text-rose-600 font-bold">долг: {debt.toLocaleString()}</span>}
+                                        {total > 0 && <span className="text-xs text-slate-400 font-semibold">{total.toLocaleString()} {t('sum')}</span>}
+                                        {debt > 0 && <span className="text-xs text-rose-600 font-bold">{t('debt')}: {debt.toLocaleString()}</span>}
                                     </div>
                                     {guestList.length > 1 && (
                                         <button onClick={() => removeGuest(g.id)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={15}/></button>
@@ -291,13 +291,13 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                     {/* ФИО */}
                                     <div className="md:col-span-2">
                                         <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{t('guestName')} *</label>
-                                        <input className={inputClass} placeholder="ИВАНОВ ИВАН ИВАНОВИЧ" value={g.fullName}
+                                        <input className={inputClass} placeholder={t('placeholderFullName')} value={g.fullName}
                                             onChange={e => updateGuest(g.id, 'fullName', e.target.value)}/>
                                     </div>
                                     {/* Страна */}
                                     <div>
                                         <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{t('country')}</label>
-                                        <input className={inputClass} placeholder="Узбекистан" value={g.country}
+                                        <input className={inputClass} placeholder={t('gciCountryPh')} value={g.country}
                                             onChange={e => updateGuest(g.id, 'country', e.target.value)}/>
                                     </div>
                                     {/* Паспорт */}
@@ -309,7 +309,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                     {/* Оплата */}
                                     {canPay && (
                                         <>
-                                            {[['paidCash', DollarSign, t('cashShort')], ['paidCard', CreditCard, t('cardShort')], ['paidQR', QrCode, 'QR'], ['paidTransfer', ArrowRightLeft, 'Перечисл.']].map(([field, Icon, lbl]) => (
+                                            {[['paidCash', DollarSign, t('cashShort')], ['paidCard', CreditCard, t('cardShort')], ['paidQR', QrCode, 'QR'], ['paidTransfer', ArrowRightLeft, t('transferShort')]].map(([field, Icon, lbl]) => (
                                                 <div key={field}>
                                                     <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">{lbl}</label>
                                                     <div className="relative">
@@ -341,7 +341,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                         {t('addGuest')}
                     </button>
                     <div className="flex items-center gap-3">{grandTotal > 0 && (
-                            <span className="text-sm font-bold text-slate-600 hidden md:block">{t('total')}: {grandTotal.toLocaleString()} {lang === 'uz' ? "so'm" : 'сум'}</span>
+                            <span className="text-sm font-bold text-slate-600 hidden md:block">{t('total')}: {grandTotal.toLocaleString()} {t('sum')}</span>
                         )}<button onClick={onClose} className="px-4 py-2.5 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors text-sm">
                             {t('cancel')}
                         </button>
@@ -351,7 +351,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                             onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
                             onMouseLeave={e => e.currentTarget.style.opacity='1'}>
                             <Users size={16}/>
-                            {submitting ? t('checkingIn') : `${t('checkin')} ${guestList.length} ${lang === 'uz' ? 'mehmon' : 'гостей'}`}
+                            {submitting ? t('checkingIn') : `${t('checkin')} ${guestList.length} ${t('gciGuests')}`}
                         </button>
                     </div>
                 </div>

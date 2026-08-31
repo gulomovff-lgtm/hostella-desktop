@@ -7,7 +7,7 @@ const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl
 const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
 
 const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, lang }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [oldPassword, setOldPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -23,7 +23,7 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
         }
 
         if (newPassword.length < 4) {
-            setError('Пароль должен быть не менее 4 символов');
+            setError(t('cpmMinLen'));
             return;
         }
 
@@ -105,7 +105,7 @@ const ChangePasswordModal = ({ currentUser, users, onClose, onChangePassword, la
                 </div>
 
                 <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-500">
-                    <strong>Текущий пользователь:</strong> {currentUser.name} ({currentUser.login})
+                    <strong>{t('cpmCurrentUser')}</strong> {currentUser.name} ({currentUser.login})
                 </div>
             </div>
         </div>

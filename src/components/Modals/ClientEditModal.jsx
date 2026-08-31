@@ -8,14 +8,14 @@ const inputClass = "w-full px-4 py-2.5 bg-white border border-slate-300 rounded-
 const labelClass = "flex items-center gap-1.5 text-[11px] font-bold text-slate-400 mb-1.5 uppercase tracking-wide";
 
 const STATUS_OPTS = [
-    { v: 'normal',    l: 'Обычный' },
-    { v: 'vip',       l: '⭐ VIP' },
-    { v: 'warning',   l: '⚠️ Предупреждение' },
-    { v: 'blacklist', l: '🚫 Чёрный список' },
+    { v: 'normal',    k: 'tariffStandard' },
+    { v: 'vip',       k: 'ceVip' },
+    { v: 'warning',   k: 'ceWarning' },
+    { v: 'blacklist', k: 'ceBlacklist' },
 ];
 
 const ClientEditModal = ({ client, onClose, onSave, lang }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [form, setForm] = useState({ ...client });
     const initials = (form.fullName || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?';
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -31,7 +31,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                     <div className="flex items-center gap-3 min-w-0">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shrink-0" style={{ background: BRAND }}>{initials}</div>
                         <div className="min-w-0">
-                            <div className="font-black text-slate-800 leading-tight">Редактировать клиента</div>
+                            <div className="font-black text-slate-800 leading-tight">{t('ceTitle')}</div>
                             <div className="text-xs text-slate-400 truncate">{client.fullName || '—'}</div>
                         </div>
                     </div>
@@ -56,7 +56,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}><Phone size={12}/> Телефон</label>
+                            <label className={labelClass}><Phone size={12}/> {t('phone')}</label>
                             <input className={inputClass} value={form.phone || ''} onChange={e => set('phone', e.target.value)} placeholder="+998 ..." />
                         </div>
                         <div>
@@ -67,7 +67,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                         </div>
                     </div>
                     <div>
-                        <label className={labelClass}><ShieldCheck size={12}/> Статус клиента</label>
+                        <label className={labelClass}><ShieldCheck size={12}/> {t('ceStatusLabel')}</label>
                         <div className="grid grid-cols-2 gap-2">
                             {STATUS_OPTS.map(o => {
                                 const active = (form.clientStatus || 'normal') === o.v;
@@ -75,7 +75,7 @@ const ClientEditModal = ({ client, onClose, onSave, lang }) => {
                                     <button key={o.v} type="button" onClick={() => set('clientStatus', o.v)}
                                         className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${active ? 'text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
                                         style={active ? { background: BRAND } : {}}>
-                                        {o.l}
+                                        {t(o.k)}
                                     </button>
                                 );
                             })}

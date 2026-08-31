@@ -38,7 +38,7 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
                 </div>
 
                 {/* Search button */}
-                <button onClick={onOpenSearch} title="Поиск (Ctrl+K)"
+                <button onClick={onOpenSearch} title={t('tbSearchTip')}
                     className="tb-search flex items-center gap-2.5 px-4 py-1.5 text-xs font-bold"
                     style={{...btnBase, transition:'all .18s cubic-bezier(.4,0,.2,1)', WebkitAppRegion:'no-drag',
                         background:'rgba(255,255,255,0.06)', color:'var(--nav-muted)',
@@ -73,19 +73,19 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
 
                 {/* Window controls */}
                 <div className="flex items-center gap-1 shrink-0" style={{WebkitAppRegion:'no-drag'}}>
-                    <button onClick={handleMinimize} aria-label="Свернуть окно" className="tb-win p-2 transition-colors"
+                    <button onClick={handleMinimize} aria-label={t('tbMinimize')} className="tb-win p-2 transition-colors"
                         style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
-                        title="Свернуть">
+                        title={t('msCollapse')}>
                         <Minus size={18}/>
                     </button>
-                    <button onClick={handleMaximize} aria-label="Развернуть окно" className="tb-win p-2 transition-colors"
+                    <button onClick={handleMaximize} aria-label={t('tbMaximize')} className="tb-win p-2 transition-colors"
                         style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
-                        title="Развернуть">
+                        title={t('psExpand')}>
                         <Square size={16}/>
                     </button>
-                    <button onClick={handleClose} aria-label="Закрыть окно" className="tb-close p-2 transition-colors"
+                    <button onClick={handleClose} aria-label={t('tbCloseWin')} className="tb-close p-2 transition-colors"
                         style={{background:'transparent', border:'none', borderRadius:8, color:'var(--nav-muted)', cursor:'pointer', outline:'none', transition:'all .15s'}}
-                        title="Закрыть">
+                        title={t('close')}>
                         <X size={18}/>
                     </button>
                 </div>
