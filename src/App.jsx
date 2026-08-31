@@ -2149,6 +2149,7 @@ return (
                         onSaveSettings={handleSaveTgSettings}
                         onTestMessage={handleTestTgMessage}
                         currentUser={currentUser}
+                        lang={lang}
                     />
                 )}
 
@@ -2158,11 +2159,12 @@ return (
                         onSave={handleSavePromo}
                         onDelete={handleDeletePromo}
                         currentUser={currentUser}
+                        lang={lang}
                     />
                 )}
 
                 {activeTab === 'auditlog' && currentUser.role === 'super' && (
-                    <AuditLogView auditLog={auditLog} currentUser={currentUser} />
+                    <AuditLogView auditLog={auditLog} currentUser={currentUser} lang={lang} />
                 )}
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (

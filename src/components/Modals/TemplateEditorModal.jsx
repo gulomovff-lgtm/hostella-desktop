@@ -6,6 +6,7 @@ import {
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { getConfig } from '../../utils/appConfig';
+import TRANSLATIONS from '../../constants/translations';
 
 // ─── Default templates ────────────────────────────────────────────────────────
 const DEFAULT_RECEIPT = `<!DOCTYPE html>
@@ -198,64 +199,67 @@ export const applyGuestVars = (html, guest, room, staff, hostelSettings) => {
 };
 
 // ─── Variable palette (grouped) ───────────────────────────────────────────────
+// Each `group`/`d`/`label` is a translation KEY resolved via t() at render time.
 const VAR_GROUPS = [
-    { group: 'Хостел', items: [
-        { v: '{{LOGO}}',           d: 'Логотип' },
-        { v: '{{HOSTEL_NAME}}',    d: 'Название' },
-        { v: '{{HOSTEL_ADDRESS}}', d: 'Адрес' },
-        { v: '{{HOSTEL_PHONE}}',   d: 'Телефон' },
+    { group: 'tplGrpHostel', items: [
+        { v: '{{LOGO}}',           d: 'tplVarLogo' },
+        { v: '{{HOSTEL_NAME}}',    d: 'tplVarName' },
+        { v: '{{HOSTEL_ADDRESS}}', d: 'tplVarAddress' },
+        { v: '{{HOSTEL_PHONE}}',   d: 'tplVarPhone' },
     ]},
-    { group: 'Гость', items: [
-        { v: '{{GUEST_NAME}}', d: 'ФИО' },
-        { v: '{{PASSPORT}}',   d: 'Паспорт' },
-        { v: '{{BIRTH_DATE}}', d: 'Дата рождения' },
-        { v: '{{COUNTRY}}',    d: 'Гражданство' },
-        { v: '{{PHONE}}',      d: 'Телефон гостя' },
-        { v: '{{PURPOSE}}',    d: 'Цель визита' },
+    { group: 'tplGrpGuest', items: [
+        { v: '{{GUEST_NAME}}', d: 'tplVarFullName' },
+        { v: '{{PASSPORT}}',   d: 'passport' },
+        { v: '{{BIRTH_DATE}}', d: 'birthDate' },
+        { v: '{{COUNTRY}}',    d: 'tplVarCitizenship' },
+        { v: '{{PHONE}}',      d: 'tplVarGuestPhone' },
+        { v: '{{PURPOSE}}',    d: 'tplVarPurpose' },
     ]},
-    { group: 'Проживание', items: [
-        { v: '{{CHECK_IN}}',    d: 'Заезд' },
-        { v: '{{CHECK_OUT}}',   d: 'Выезд' },
-        { v: '{{DAYS}}',        d: 'Ночей' },
-        { v: '{{ROOM_NUMBER}}', d: 'Комната' },
-        { v: '{{BED_ID}}',      d: 'Место' },
+    { group: 'tplGrpStay', items: [
+        { v: '{{CHECK_IN}}',    d: 'tplVarCheckIn' },
+        { v: '{{CHECK_OUT}}',   d: 'tplVarCheckOut' },
+        { v: '{{DAYS}}',        d: 'tplVarNights' },
+        { v: '{{ROOM_NUMBER}}', d: 'room' },
+        { v: '{{BED_ID}}',      d: 'tplVarBed' },
     ]},
-    { group: 'Оплата', items: [
-        { v: '{{PRICE_PER_NIGHT}}', d: 'Цена/ночь' },
-        { v: '{{TOTAL_PRICE}}',     d: 'Итого' },
-        { v: '{{PAID}}',            d: 'Оплачено' },
-        { v: '{{DEBT}}',            d: 'Долг' },
-        { v: '{{DISCOUNT}}',        d: 'Скидка' },
-        { v: '{{TAX}}',             d: 'Налог/комиссия' },
-        { v: '{{PAYMENT_METHOD}}',  d: 'Способ оплаты' },
+    { group: 'tplGrpPayment', items: [
+        { v: '{{PRICE_PER_NIGHT}}', d: 'tplVarPricePerNight' },
+        { v: '{{TOTAL_PRICE}}',     d: 'total' },
+        { v: '{{PAID}}',            d: 'paid' },
+        { v: '{{DEBT}}',            d: 'debt' },
+        { v: '{{DISCOUNT}}',        d: 'tplVarDiscount' },
+        { v: '{{TAX}}',             d: 'tplVarTax' },
+        { v: '{{PAYMENT_METHOD}}',  d: 'tplVarPaymentMethod' },
     ]},
-    { group: 'Прочее', items: [
-        { v: '{{DATE}}',        d: 'Дата и время' },
-        { v: '{{STAFF_NAME}}',  d: 'Кассир' },
-        { v: '{{REG_NUMBER}}',  d: '№ документа' },
-        { v: '{{FOOTER}}',      d: 'Подпись чека' },
-        { v: '{{QR}}',          d: 'QR-код' },
+    { group: 'tplGrpOther', items: [
+        { v: '{{DATE}}',        d: 'tplVarDateTime' },
+        { v: '{{STAFF_NAME}}',  d: 'tplVarCashier' },
+        { v: '{{REG_NUMBER}}',  d: 'tplVarDocNo' },
+        { v: '{{FOOTER}}',      d: 'tplVarReceiptFooter' },
+        { v: '{{QR}}',          d: 'tplQrCode' },
     ]},
 ];
 
 // ─── Insertable snippets ──────────────────────────────────────────────────────
+// `label` is a translation KEY; `code` is inserted verbatim (stored template text).
 const SNIPPETS = [
-    { label: 'Строка',       code: '\n<div class="row"><span>Метка:</span><span>{{TOTAL_PRICE}}</span></div>' },
-    { label: 'Разделитель',  code: '\n<hr style="border:none;border-top:1px dashed #ccc;margin:8px 0">' },
-    { label: 'Заголовок',    code: '\n<h2>ЗАГОЛОВОК</h2>' },
-    { label: 'Подпись',      code: '\n<div class="footer">{{FOOTER}}</div>' },
-    { label: 'QR-код',       code: '\n<div class="qr">{{QR}}</div>' },
+    { label: 'tplSnippetRow',     code: '\n<div class="row"><span>Метка:</span><span>{{TOTAL_PRICE}}</span></div>' },
+    { label: 'tplSnippetDivider', code: '\n<hr style="border:none;border-top:1px dashed #ccc;margin:8px 0">' },
+    { label: 'tplSnippetHeading', code: '\n<h2>ЗАГОЛОВОК</h2>' },
+    { label: 'tplSnippetFooter',  code: '\n<div class="footer">{{FOOTER}}</div>' },
+    { label: 'tplQrCode',         code: '\n<div class="qr">{{QR}}</div>' },
 ];
 
-// Paper presets — width of the preview "sheet" in px
+// Paper presets — width of the preview "sheet" in px. `label` is a translation KEY.
 const PAPER = [
-    { id: '58', label: '58 мм', w: 220 },
-    { id: '80', label: '80 мм', w: 320 },
-    { id: 'a4', label: 'A4',    w: 794 },
+    { id: '58', label: 'tplPaper58', w: 220 },
+    { id: '80', label: 'tplPaper80', w: 320 },
+    { id: 'a4', label: 'tplPaperA4', w: 794 },
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-const TemplateEditorModal = ({ onClose, notify }) => {
+const TemplateEditorModal = ({ onClose, notify, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const TEMPLATES_DOC = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'templates');
 
     const [tab,       setTab      ] = useState('receipt');   // 'receipt' | 'regcard'
@@ -300,7 +304,7 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                     if (d.regCard) setRegCard(d.regCard);
                 }
             })
-            .catch(e => notify?.('Ошибка загрузки шаблонов: ' + e.message, 'error'))
+            .catch(e => notify?.(t('tplErrLoad') + ': ' + e.message, 'error'))
             .finally(() => setLoading(false));
     }, []);
 
@@ -309,9 +313,9 @@ const TemplateEditorModal = ({ onClose, notify }) => {
         try {
             await setDoc(TEMPLATES_DOC, { receipt, regCard }, { merge: true });
             setDirty(false);
-            notify?.('Шаблоны сохранены', 'success');
+            notify?.(t('tplSavedOk'), 'success');
         } catch (e) {
-            notify?.('Ошибка: ' + e.message, 'error');
+            notify?.(t('error') + ': ' + e.message, 'error');
         } finally {
             setSaving(false);
         }
@@ -320,7 +324,7 @@ const TemplateEditorModal = ({ onClose, notify }) => {
     const doReset = () => {
         setTemplate(tab === 'receipt' ? DEFAULT_RECEIPT : DEFAULT_REG_CARD);
         setConfirmReset(false);
-        notify?.('Шаблон сброшен к стандартному', 'info');
+        notify?.(t('tplResetDone'), 'info');
     };
 
     const handlePrintPreview = () => {
@@ -368,8 +372,8 @@ const TemplateEditorModal = ({ onClose, notify }) => {
     };
 
     const handleCopyHtml = async () => {
-        try { await navigator.clipboard.writeText(template); notify?.('HTML скопирован', 'success'); }
-        catch { notify?.('Не удалось скопировать', 'error'); }
+        try { await navigator.clipboard.writeText(template); notify?.(t('tplHtmlCopied'), 'success'); }
+        catch { notify?.(t('tplCopyFailed'), 'error'); }
     };
 
     const handleDownloadHtml = () => {
@@ -389,9 +393,9 @@ const TemplateEditorModal = ({ onClose, notify }) => {
         const q = search.trim().toLowerCase();
         if (!q) return VAR_GROUPS;
         return VAR_GROUPS
-            .map(g => ({ ...g, items: g.items.filter(it => it.v.toLowerCase().includes(q) || it.d.toLowerCase().includes(q)) }))
+            .map(g => ({ ...g, items: g.items.filter(it => it.v.toLowerCase().includes(q) || t(it.d).toLowerCase().includes(q)) }))
             .filter(g => g.items.length);
-    }, [search]);
+    }, [search, lang]);
 
     const ToolBtn = ({ active, onClick, children, title }) => (
         <button title={title} onClick={onClick}
@@ -408,13 +412,13 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                 <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 shrink-0">
                     <div className="flex items-center gap-3 min-w-0">
                         <FileText size={18} className="text-white/80 shrink-0"/>
-                        <span className="font-black text-white truncate">Редактор шаблонов</span>
-                        {dirty && <span className="text-[10px] font-bold text-amber-200 bg-amber-500/30 px-2 py-0.5 rounded-full shrink-0">не сохранено</span>}
+                        <span className="font-black text-white truncate">{t('tplEditorTitle')}</span>
+                        {dirty && <span className="text-[10px] font-bold text-amber-200 bg-amber-500/30 px-2 py-0.5 rounded-full shrink-0">{t('tplUnsaved')}</span>}
                     </div>
                     <div className="flex items-center gap-2">
                         <button onClick={handleSave} disabled={saving}
                             className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-400 hover:bg-emerald-300 text-white rounded-lg text-xs font-black disabled:opacity-60">
-                            <Save size={13}/>{saving ? 'Сохр...' : 'Сохранить'}
+                            <Save size={13}/>{saving ? t('tplSaving') : t('save')}
                         </button>
                         <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full text-white">
                             <X size={15}/>
@@ -426,7 +430,7 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                 <div className="flex items-center gap-2 px-4 sm:px-6 py-2.5 bg-gradient-to-r from-violet-600/95 to-indigo-600/95 border-t border-white/10 shrink-0 overflow-x-auto scrollbar-hide">
                     {/* Doc tabs */}
                     <div className="flex gap-1 bg-black/15 rounded-xl p-1 shrink-0">
-                        {[['receipt','Чек',Receipt],['regcard','Регкарта',Contact]].map(([k, l, Icon]) => (
+                        {[['receipt',t('tplTabReceipt'),Receipt],['regcard',t('tplTabRegcard'),Contact]].map(([k, l, Icon]) => (
                             <button key={k} onClick={() => setTab(k)}
                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === k ? 'bg-white text-violet-700 shadow-sm' : 'text-white/80 hover:text-white'}`}>
                                 <Icon size={13}/>{l}
@@ -436,29 +440,29 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                     <div className="w-px h-6 bg-white/20 shrink-0"/>
                     {/* View mode */}
                     <div className="flex gap-1 shrink-0">
-                        <ToolBtn active={viewMode==='preview'} onClick={() => setViewMode('preview')} title="Только просмотр"><Eye size={13}/><span className="hidden sm:inline">Просмотр</span></ToolBtn>
-                        <ToolBtn active={viewMode==='split'} onClick={() => setViewMode('split')} title="Код + просмотр"><Columns size={13}/><span className="hidden sm:inline">Разделить</span></ToolBtn>
-                        <ToolBtn active={viewMode==='code'} onClick={() => setViewMode('code')} title="Только код"><Code2 size={13}/><span className="hidden sm:inline">Код</span></ToolBtn>
+                        <ToolBtn active={viewMode==='preview'} onClick={() => setViewMode('preview')} title={t('tplViewPreviewTitle')}><Eye size={13}/><span className="hidden sm:inline">{t('preview')}</span></ToolBtn>
+                        <ToolBtn active={viewMode==='split'} onClick={() => setViewMode('split')} title={t('tplViewSplitTitle')}><Columns size={13}/><span className="hidden sm:inline">{t('tplSplit')}</span></ToolBtn>
+                        <ToolBtn active={viewMode==='code'} onClick={() => setViewMode('code')} title={t('tplViewCodeTitle')}><Code2 size={13}/><span className="hidden sm:inline">{t('tplCode')}</span></ToolBtn>
                     </div>
                     <div className="w-px h-6 bg-white/20 shrink-0"/>
                     {/* Paper + zoom (preview-related) */}
                     <div className="flex gap-1 shrink-0">
                         {PAPER.map(p => (
-                            <ToolBtn key={p.id} active={paper===p.id} onClick={() => setPaper(p.id)} title={`Формат ${p.label}`}>{p.label}</ToolBtn>
+                            <ToolBtn key={p.id} active={paper===p.id} onClick={() => setPaper(p.id)} title={t('tplFormat').replace('{n}', t(p.label))}>{t(p.label)}</ToolBtn>
                         ))}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                        <ToolBtn onClick={() => setZoom(z => Math.max(0.5, +(z - 0.1).toFixed(2)))} title="Уменьшить"><ZoomOut size={13}/></ToolBtn>
+                        <ToolBtn onClick={() => setZoom(z => Math.max(0.5, +(z - 0.1).toFixed(2)))} title={t('tplZoomOut')}><ZoomOut size={13}/></ToolBtn>
                         <span className="text-[11px] font-bold text-white/90 w-9 text-center">{Math.round(zoom*100)}%</span>
-                        <ToolBtn onClick={() => setZoom(z => Math.min(2, +(z + 0.1).toFixed(2)))} title="Увеличить"><ZoomIn size={13}/></ToolBtn>
+                        <ToolBtn onClick={() => setZoom(z => Math.min(2, +(z + 0.1).toFixed(2)))} title={t('tplZoomIn')}><ZoomIn size={13}/></ToolBtn>
                     </div>
                     <div className="w-px h-6 bg-white/20 shrink-0"/>
                     {/* Actions */}
                     <div className="flex gap-1 shrink-0 ml-auto">
-                        <ToolBtn onClick={handlePrintPreview} title="Печать"><Printer size={13}/><span className="hidden lg:inline">Печать</span></ToolBtn>
-                        <ToolBtn onClick={handleCopyHtml} title="Копировать HTML"><Copy size={13}/></ToolBtn>
-                        <ToolBtn onClick={handleDownloadHtml} title="Скачать .html"><Download size={13}/></ToolBtn>
-                        <ToolBtn onClick={() => setConfirmReset(true)} title="Сбросить к стандарту"><RefreshCw size={13}/></ToolBtn>
+                        <ToolBtn onClick={handlePrintPreview} title={t('print')}><Printer size={13}/><span className="hidden lg:inline">{t('print')}</span></ToolBtn>
+                        <ToolBtn onClick={handleCopyHtml} title={t('tplCopyHtml')}><Copy size={13}/></ToolBtn>
+                        <ToolBtn onClick={handleDownloadHtml} title={t('tplDownloadHtml')}><Download size={13}/></ToolBtn>
+                        <ToolBtn onClick={() => setConfirmReset(true)} title={t('tplResetToDefault')}><RefreshCw size={13}/></ToolBtn>
                     </div>
                 </div>
 
@@ -469,22 +473,22 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                         <div className="p-3 border-b border-slate-200">
                             <div className="relative">
                                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск переменной…"
+                                <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('tplSearchVar')}
                                     className="w-full pl-8 pr-2 py-2 text-xs rounded-lg border border-slate-200 outline-none focus:border-violet-400 bg-white"/>
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-1.5">Нажмите — вставится в текст</div>
+                            <div className="text-[10px] text-slate-400 mt-1.5">{t('tplClickToInsert')}</div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-3 space-y-3">
                             {filteredGroups.map(g => (
                                 <div key={g.group}>
-                                    <div className="text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">{g.group}</div>
+                                    <div className="text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">{t(g.group)}</div>
                                     <div className="space-y-1">
                                         {g.items.map(({ v, d }) => (
                                             <button key={v} onClick={() => copyVar(v)}
                                                 className="w-full text-left px-2 py-1.5 hover:bg-violet-50 rounded-lg transition-colors group flex items-center justify-between gap-1">
                                                 <span className="min-w-0">
                                                     <span className="block text-[10px] font-black text-violet-600 font-mono truncate">{v}</span>
-                                                    <span className="block text-[10px] text-slate-400 group-hover:text-violet-500 truncate">{d}</span>
+                                                    <span className="block text-[10px] text-slate-400 group-hover:text-violet-500 truncate">{t(d)}</span>
                                                 </span>
                                                 {copied === v
                                                     ? <Check size={13} className="text-emerald-500 shrink-0"/>
@@ -494,16 +498,16 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                                     </div>
                                 </div>
                             ))}
-                            {!filteredGroups.length && <div className="text-xs text-slate-400 text-center py-4">Ничего не найдено</div>}
+                            {!filteredGroups.length && <div className="text-xs text-slate-400 text-center py-4">{t('tplNothingFound')}</div>}
 
                             {/* Snippets */}
                             <div>
-                                <div className="text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Блоки</div>
+                                <div className="text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">{t('tplBlocks')}</div>
                                 <div className="grid grid-cols-2 gap-1.5">
                                     {SNIPPETS.map(s => (
                                         <button key={s.label} onClick={() => insertAtCursor(s.code)}
                                             className="px-2 py-1.5 text-[10px] font-bold text-slate-600 bg-white hover:bg-violet-50 hover:text-violet-700 border border-slate-200 rounded-lg transition-colors">
-                                            {s.label}
+                                            {t(s.label)}
                                         </button>
                                     ))}
                                 </div>
@@ -547,12 +551,15 @@ const TemplateEditorModal = ({ onClose, notify }) => {
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3 mb-3">
                             <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><RefreshCw size={18} className="text-amber-600"/></div>
-                            <div className="font-black text-slate-800">Сбросить шаблон?</div>
+                            <div className="font-black text-slate-800">{t('tplResetTitle')}</div>
                         </div>
-                        <p className="text-sm text-slate-500 mb-4">Текущий <b>{tab === 'receipt' ? 'чек' : 'регкарта'}</b> вернётся к стандартному виду. Это действие нельзя отменить.</p>
+                        <p className="text-sm text-slate-500 mb-4">{(() => {
+                            const parts = t('tplResetWarn').split('{n}');
+                            return <>{parts[0]}<b>{tab === 'receipt' ? t('tplDocReceipt') : t('tplDocRegcard')}</b>{parts[1]}</>;
+                        })()}</p>
                         <div className="flex gap-2 justify-end">
-                            <button onClick={() => setConfirmReset(false)} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">Отмена</button>
-                            <button onClick={doReset} className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-amber-500 hover:bg-amber-600">Сбросить</button>
+                            <button onClick={() => setConfirmReset(false)} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">{t('cancel')}</button>
+                            <button onClick={doReset} className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-amber-500 hover:bg-amber-600">{t('tplReset')}</button>
                         </div>
                     </div>
                 </div>

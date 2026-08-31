@@ -15,6 +15,7 @@ import { sendTelegramMessage } from '../../utils/telegram';
 import { APP_VERSION } from '../../constants/config';
 import { getDeviceId } from '../../utils/clientTelemetry';
 import PricingSettingsPanel from './PricingSettingsPanel';
+import TRANSLATIONS from '../../constants/translations';
 
 const inputClass = "w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
 const labelClass = "block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide";
@@ -37,8 +38,9 @@ const HOSTEL_META = {
     hostel2: { display: 'Хостел №2', color: 'teal' },
 };
 
-const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChange }) => {
+const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChange, t }) => {
     const meta = HOSTEL_META[hostelId];
+    const displayName = t(hostelId === 'hostel1' ? 'hsHostel1' : 'hsHostel2') || meta.display;
     const accent = hostelId === 'hostel1' ? '#6366f1' : '#0f9688';
     const tint   = hostelId === 'hostel1' ? 'rgba(99,102,241,0.08)' : 'rgba(15,150,136,0.08)';
     const secLabel = "text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5";
@@ -51,8 +53,8 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                     {s.logoUrl ? <img src={s.logoUrl} alt="logo" className="w-full h-full object-contain"/> : <Building2 size={22} style={{ color: accent }}/>}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="font-black text-slate-800 text-base truncate">{s.name || meta.display}</div>
-                    <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: accent }}>{meta.display}</div>
+                    <div className="font-black text-slate-800 text-base truncate">{s.name || displayName}</div>
+                    <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: accent }}>{displayName}</div>
                 </div>
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: accent }}/>
             </div>
@@ -60,7 +62,7 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
             <div className="p-5 space-y-4">
                 {/* Бренд */}
                 <div>
-                    <div className={secLabel}><ImageIcon size={12}/> Логотип и название</div>
+                    <div className={secLabel}><ImageIcon size={12}/> {t('hsLogoName')}</div>
                     <div className="flex items-center gap-3 mb-2.5">
                         <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center bg-slate-50 overflow-hidden shrink-0">
                             {s.logoUrl ? <img src={s.logoUrl} alt="logo" className="w-full h-full object-contain"/> : <ImageIcon size={24} className="text-slate-300"/>}
@@ -70,26 +72,26 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => onLogoClick(hostelId, e.target.files[0])}/>
                             <button onClick={() => fileRef.current?.click()} disabled={uploadingLogo}
                                 className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors border border-slate-200">
-                                <Upload size={13}/> {uploadingLogo ? 'Загрузка...' : 'Загрузить файл'}
+                                <Upload size={13}/> {uploadingLogo ? t('hsUploading') : t('hsUploadFile')}
                             </button>
                         </div>
                     </div>
-                    <input className={inputClass} value={s.name} onChange={e => onChange(hostelId, 'name', e.target.value)} placeholder="Название хостела"/>
+                    <input className={inputClass} value={s.name} onChange={e => onChange(hostelId, 'name', e.target.value)} placeholder={t('hsHostelNamePh')}/>
                 </div>
 
                 <Divider/>
 
                 {/* Контакты */}
                 <div>
-                    <div className={secLabel}><Phone size={12}/> Контакты</div>
+                    <div className={secLabel}><Phone size={12}/> {t('hsContacts')}</div>
                     <div className="space-y-2.5">
                         <div className="relative"><MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                            <input className={inputClass + ' pl-8'} value={s.address || ''} onChange={e => onChange(hostelId, 'address', e.target.value)} placeholder="Адрес"/></div>
+                            <input className={inputClass + ' pl-8'} value={s.address || ''} onChange={e => onChange(hostelId, 'address', e.target.value)} placeholder={t('address')}/></div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                             <div className="relative"><Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                                <input className={inputClass + ' pl-8'} value={s.phone || ''} onChange={e => onChange(hostelId, 'phone', e.target.value)} placeholder="Телефон"/></div>
+                                <input className={inputClass + ' pl-8'} value={s.phone || ''} onChange={e => onChange(hostelId, 'phone', e.target.value)} placeholder={t('phone')}/></div>
                             <div className="relative"><Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                                <input className={inputClass + ' pl-8'} value={s.website || ''} onChange={e => onChange(hostelId, 'website', e.target.value)} placeholder="Сайт"/></div>
+                                <input className={inputClass + ' pl-8'} value={s.website || ''} onChange={e => onChange(hostelId, 'website', e.target.value)} placeholder={t('hsWebsite')}/></div>
                         </div>
                     </div>
                 </div>
@@ -98,16 +100,16 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
 
                 {/* Время */}
                 <div>
-                    <div className={secLabel}><Clock size={12}/> Время заезда / выезда</div>
+                    <div className={secLabel}><Clock size={12}/> {t('hsCheckInOutTime')}</div>
                     <div className="grid grid-cols-2 gap-2.5">
                         <div>
-                            <label className="text-[10px] text-slate-400 font-semibold mb-1 block">Заезд</label>
+                            <label className="text-[10px] text-slate-400 font-semibold mb-1 block">{t('hsCheckInLabel')}</label>
                             <select className={inputClass} value={s.checkInHour ?? 14} onChange={e => onChange(hostelId, 'checkInHour', parseInt(e.target.value))}>
                                 {Array.from({length:24},(_,i)=><option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="text-[10px] text-slate-400 font-semibold mb-1 block">Выезд</label>
+                            <label className="text-[10px] text-slate-400 font-semibold mb-1 block">{t('hsCheckOutLabel')}</label>
                             <select className={inputClass} value={s.checkOutHour ?? 12} onChange={e => onChange(hostelId, 'checkOutHour', parseInt(e.target.value))}>
                                 {Array.from({length:24},(_,i)=><option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>)}
                             </select>
@@ -119,13 +121,13 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
 
                 {/* Автоматизация */}
                 <div>
-                    <div className={secLabel}><RefreshCw size={12}/> Автоматизация</div>
+                    <div className={secLabel}><RefreshCw size={12}/> {t('hsAutomation')}</div>
                     <div className="space-y-2">
                     <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
                         <RefreshCw size={16} style={{ color: BRAND }} className="shrink-0"/>
                         <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold text-slate-700">Авто-выселение</div>
-                            <div className="text-[10px] text-slate-400">Просроченные гости выселяются автоматически</div>
+                            <div className="text-sm font-semibold text-slate-700">{t('hsAutoCheckout')}</div>
+                            <div className="text-[10px] text-slate-400">{t('hsAutoCheckoutDesc')}</div>
                         </div>
                         <Toggle on={s.autoCheckoutEnabled ?? true} onClick={() => onChange(hostelId, 'autoCheckoutEnabled', !(s.autoCheckoutEnabled ?? true))}/>
                     </div>
@@ -133,8 +135,8 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                         <div className="flex items-center gap-3">
                             <RefreshCw size={16} style={{ color: BRAND }} className="shrink-0"/>
                             <div className="flex-1 min-w-0">
-                                <div className="text-sm font-semibold text-slate-700">Авто-синхронизация клиентов</div>
-                                <div className="text-[10px] text-slate-400">Гости → база клиентов по расписанию</div>
+                                <div className="text-sm font-semibold text-slate-700">{t('hsAutoSync')}</div>
+                                <div className="text-[10px] text-slate-400">{t('hsAutoSyncDesc')}</div>
                             </div>
                             <Toggle on={!!s.autoSync?.enabled} onClick={() => onChange(hostelId, 'autoSync', { ...(s.autoSync || {}), enabled: !(s.autoSync?.enabled) })}/>
                         </div>
@@ -144,9 +146,9 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
                                 value={s.autoSync?.frequency || 'daily'}
                                 onChange={e => onChange(hostelId, 'autoSync', { ...(s.autoSync || {}), frequency: e.target.value })}
                             >
-                                <option value="daily">Каждый день</option>
-                                <option value="weekly">Каждую неделю</option>
-                                <option value="monthly">Каждый месяц</option>
+                                <option value="daily">{t('hsDaily')}</option>
+                                <option value="weekly">{t('hsWeekly')}</option>
+                                <option value="monthly">{t('hsMonthly')}</option>
                             </select>
                         )}
                     </div>
@@ -157,12 +159,12 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
 
                 {/* Booking.com iCal */}
                 <div>
-                    <div className={secLabel}><span className="inline-flex items-center gap-1 bg-[#003580] text-white text-[9px] font-black px-1.5 py-0.5 rounded">booking</span> Синхронизация</div>
+                    <div className={secLabel}><span className="inline-flex items-center gap-1 bg-[#003580] text-white text-[9px] font-black px-1.5 py-0.5 rounded">booking</span> {t('hsSync')}</div>
                     <div className="relative">
                         <Link size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                        <input className={inputClass + ' pl-8'} value={s.icalUrl || ''} onChange={e => onChange(hostelId, 'icalUrl', e.target.value)} placeholder="iCal URL Booking.com"/>
+                        <input className={inputClass + ' pl-8'} value={s.icalUrl || ''} onChange={e => onChange(hostelId, 'icalUrl', e.target.value)} placeholder={t('hsIcalPh')}/>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1.5">Booking.com → Объект → Синхронизация календаря → iCal. Сопоставьте «Уникальное название» комнаты в разделе «Комнаты».</p>
+                    <p className="text-[10px] text-slate-400 mt-1.5">{t('hsIcalHint')}</p>
                 </div>
             </div>
         </div>
@@ -172,7 +174,7 @@ const HostelBlock = ({ hostelId, s, uploadingLogo, fileRef, onLogoClick, onChang
 // --- CurrencyCard ---
 const CUR_FLAG = { USD: 'us', EUR: 'eu', RUB: 'ru', CNY: 'cn', KZT: 'kz', GBP: 'gb', TRY: 'tr' };
 const CUR_SYMBOL = { USD: '$', EUR: '€', RUB: '₽', CNY: '¥', KZT: '₸', GBP: '£', TRY: '₺' };
-const CurrencyCard = ({ code, data, bg, text }) => {
+const CurrencyCard = ({ code, data, bg, text, t }) => {
     const color = data.diff > 0 ? 'text-emerald-600' : data.diff < 0 ? 'text-rose-500' : 'text-slate-400';
     const flag = CUR_FLAG[code];
     return (
@@ -186,13 +188,14 @@ const CurrencyCard = ({ code, data, bg, text }) => {
                 <span className={`text-xs font-bold ${color}`}>{data.diff > 0 ? '▲' : data.diff < 0 ? '▼' : ''} {data.diff > 0 ? '+' : ''}{data.diff.toFixed(2)}</span>
             </div>
             <div className={`text-2xl font-black ${text}`}>{Math.round(data.rate).toLocaleString()}</div>
-            <div className="text-[10px] text-slate-400 mt-1 font-semibold">сум / {code === 'RUB' ? '100' : '1'} {data.name}</div>
+            <div className="text-[10px] text-slate-400 mt-1 font-semibold">{t('hsSum')} / {code === 'RUB' ? '100' : '1'} {data.name}</div>
         </div>
     );
 };
 
 // --- Main ---
-const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, users, tasks, shifts, lang, notify, onOpenTemplateEditor }) => {
+const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, users, tasks, shifts, lang = 'ru', notify, onOpenTemplateEditor }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const { rates, loading: ratesLoading, updatedAt, error: ratesError, refresh: refreshRates } = useExchangeRate();
 
     const SETTINGS_DOC = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
@@ -230,7 +233,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
         const name = (newExpCat.name || '').trim();
         if (!name) return;
         const list = appCfg.expenseCategories || [];
-        if (list.some(c => c.name === name)) { notify && notify('Такая категория уже есть', 'error'); return; }
+        if (list.some(c => c.name === name)) { notify && notify(t('hsCatExists'), 'error'); return; }
         cfgChange('expenseCategories', [...list, { name, icon: newExpCat.icon || '📦' }]);
         setNewExpCat({ name: '', icon: '📦' });
     };
@@ -255,7 +258,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 setRestoreData({ data, stats, exportedAt: parsed.exportedAt, exportedBy: parsed.exportedBy });
                 setRestoreText('');
             } catch (e) {
-                notify && notify('Неверный файл резервной копии: ' + e.message, 'error');
+                notify && notify(t('hsBadBackupFile') + e.message, 'error');
             }
         };
         reader.readAsText(file);
@@ -280,10 +283,10 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     await batch.commit();
                 }
             }
-            notify && notify(`Восстановлено записей: ${written}`, 'success');
+            notify && notify(t('hsRestoredCount').replace('{n}', written), 'success');
             setRestoreData(null); setRestoreText('');
         } catch (e) {
-            notify && notify('Ошибка восстановления: ' + e.message, 'error');
+            notify && notify(t('hsRestoreError') + e.message, 'error');
         } finally {
             setRestoring(false);
         }
@@ -291,18 +294,18 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
 
     const handleTestAlert = async () => {
         const chatId = (appCfg.errorAlertChatId || '').trim();
-        if (!chatId) { notify && notify('Укажите Telegram ID', 'error'); return; }
+        if (!chatId) { notify && notify(t('hsEnterTelegramId'), 'error'); return; }
         setTestingAlert(true);
         try {
             await saveAppConfig(appCfg);
             const res = await sendTelegramMessage(
-                `🧪 <b>Тест уведомления</b>\nЕсли вы это видите — алерты об ошибках настроены верно.\n👤 ${currentUser?.name || currentUser?.login || '—'}`,
+                `🧪 <b>${t('hsTestMsgTitle')}</b>\n${t('hsTestMsgBody')}\n👤 ${currentUser?.name || currentUser?.login || '—'}`,
                 null, [chatId], true
             );
-            if (res && (res.success || res.sent > 0)) notify && notify('Тестовое сообщение отправлено ✅', 'success');
-            else notify && notify('Не доставлено. Откройте бота и нажмите /start под этим аккаунтом.', 'error');
+            if (res && (res.success || res.sent > 0)) notify && notify(t('hsTestSent'), 'success');
+            else notify && notify(t('hsTestNotDelivered'), 'error');
         } catch (e) {
-            notify && notify('Ошибка отправки: ' + (e?.message || ''), 'error');
+            notify && notify(t('hsSendError') + (e?.message || ''), 'error');
         } finally {
             setTestingAlert(false);
         }
@@ -349,11 +352,11 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             lastSavedRef.current = { settings: JSON.parse(JSON.stringify(settings)), appCfg: JSON.parse(JSON.stringify(appCfg)) };
             setDirty(false);
             setSaved(true);
-            notify && notify('Настройки сохранены', 'success');
+            notify && notify(t('hsSettingsSaved'), 'success');
             setTimeout(() => setSaved(false), 3000);
             return true;
         } catch (e) {
-            notify && notify('Ошибка сохранения: ' + e.message, 'error');
+            notify && notify(t('hsSaveError') + e.message, 'error');
             return false;
         } finally {
             setSaving(false);
@@ -377,7 +380,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
     const handleLogoUpload = async (hostelId, file) => {
         if (!file) return;
         if (file.size > 2 * 1024 * 1024) {
-            notify && notify('Файл слишком большой (макс. 2 МБ)', 'error');
+            notify && notify(t('hsFileTooBig'), 'error');
             return;
         }
         setUploadingLogo(u => ({ ...u, [hostelId]: true }));
@@ -388,13 +391,13 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             await uploadBytes(sRef, file);
             const url = await getDownloadURL(sRef);
             handleChange(hostelId, 'logoUrl', url);
-            notify && notify('Логотип загружен', 'success');
+            notify && notify(t('hsLogoUploaded'), 'success');
         } catch (e) {
             // Fallback: base64 encode and store directly
             const reader = new FileReader();
             reader.onload = (ev) => handleChange(hostelId, 'logoUrl', ev.target.result);
             reader.readAsDataURL(file);
-            notify && notify('Логотип в локальном режиме', 'info');
+            notify && notify(t('hsLogoLocal'), 'info');
         } finally {
             setUploadingLogo(u => ({ ...u, [hostelId]: false }));
         }
@@ -435,9 +438,9 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            notify && notify('Резервная копия скачана', 'success');
+            notify && notify(t('hsBackupDownloaded'), 'success');
         } catch (e) {
-            notify && notify('Ошибка: ' + e.message, 'error');
+            notify && notify(t('hsError') + e.message, 'error');
         } finally {
             setBackupLoading(false);
         }
@@ -460,8 +463,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         <Settings size={20} style={{ color: BRAND }}/>
                     </div>
                     <div>
-                        <h2 className="text-xl font-black text-slate-800">Настройки системы</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">Хостелы, шаблоны, данные и безопасность</p>
+                        <h2 className="text-xl font-black text-slate-800">{t('hsTitle')}</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">{t('hsSubtitle')}</p>
                     </div>
                 </div>
                 <button
@@ -471,22 +474,22 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     style={{ background: BRAND }}
                 >
                     {saved ? <CheckCircle2 size={16}/> : <Save size={16}/>}
-                    {saving ? 'Сохранение...' : saved ? 'Сохранено!' : 'Сохранить'}
+                    {saving ? t('hsSaving') : saved ? t('hsSavedBang') : t('save')}
                 </button>
             </div>
 
             {/* ── Tabs ── */}
             <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
                 {[
-                    { id: 'hostels',  label: '🏨 Хостелы' },
-                    { id: 'general',  label: '⚙️ Общие' },
-                    { id: 'finance',  label: '💰 Финансы и смены' },
-                    { id: 'pricing',  label: '💵 Цены' },
-                    { id: 'notify',   label: '🔔 Уведомления' },
-                    { id: 'templates', label: '📄 Шаблоны' },
-                    { id: 'data',     label: '💾 Данные' },
-                    { id: 'rates',    label: '💱 Курсы валют' },
-                    { id: 'security', label: '🛡️ Безопасность' },
+                    { id: 'hostels',  label: '🏨 ' + t('hsTabHostels') },
+                    { id: 'general',  label: '⚙️ ' + t('hsTabGeneral') },
+                    { id: 'finance',  label: '💰 ' + t('hsTabFinance') },
+                    { id: 'pricing',  label: '💵 ' + t('hsTabPricing') },
+                    { id: 'notify',   label: '🔔 ' + t('hsTabNotify') },
+                    { id: 'templates', label: '📄 ' + t('hsTabTemplates') },
+                    { id: 'data',     label: '💾 ' + t('hsTabData') },
+                    { id: 'rates',    label: '💱 ' + t('hsTabRates') },
+                    { id: 'security', label: '🛡️ ' + t('hsTabSecurity') },
                 ].map(tb => (
                     <button key={tb.id} onClick={() => requestTab(tb.id)}
                         className="shrink-0 px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95"
@@ -501,8 +504,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             {/* ── Hostel Cards ── */}
             {tab === 'hostels' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <HostelBlock hostelId="hostel1" s={settings.hostel1} uploadingLogo={uploadingLogo.hostel1} fileRef={fileRef1} onLogoClick={handleLogoUpload} onChange={handleChange}/>
-                <HostelBlock hostelId="hostel2" s={settings.hostel2} uploadingLogo={uploadingLogo.hostel2} fileRef={fileRef2} onLogoClick={handleLogoUpload} onChange={handleChange}/>
+                <HostelBlock hostelId="hostel1" s={settings.hostel1} uploadingLogo={uploadingLogo.hostel1} fileRef={fileRef1} onLogoClick={handleLogoUpload} onChange={handleChange} t={t}/>
+                <HostelBlock hostelId="hostel2" s={settings.hostel2} uploadingLogo={uploadingLogo.hostel2} fileRef={fileRef2} onLogoClick={handleLogoUpload} onChange={handleChange} t={t}/>
             </div>
             )}
 
@@ -511,20 +514,20 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 max-w-2xl">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(15,150,136,0.12)' }}><Palette size={18} style={{ color: BRAND }}/></div>
-                        <div><div className="font-black text-slate-800">Общие</div><div className="text-xs text-slate-400">Название, валюта, акцентный цвет</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsGeneral')}</div><div className="text-xs text-slate-400">{t('hsGeneralDesc')}</div></div>
                     </div>
                     <div>
-                        <label className={labelClass}>Название системы</label>
+                        <label className={labelClass}>{t('hsSystemName')}</label>
                         <input className={inputClass} value={appCfg.appName || ''} onChange={e => cfgChange('appName', e.target.value)} placeholder="Hostella"/>
-                        <p className="text-[10px] text-slate-400 mt-1">Показывается во вкладке браузера/заголовке окна.</p>
+                        <p className="text-[10px] text-slate-400 mt-1">{t('hsSystemNameHint')}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>Валюта</label>
-                            <input className={inputClass} value={appCfg.currency || ''} onChange={e => cfgChange('currency', e.target.value)} placeholder="сум"/>
+                            <label className={labelClass}>{t('hsCurrency')}</label>
+                            <input className={inputClass} value={appCfg.currency || ''} onChange={e => cfgChange('currency', e.target.value)} placeholder={t('hsSum')}/>
                         </div>
                         <div>
-                            <label className={labelClass}>Акцентный цвет</label>
+                            <label className={labelClass}>{t('hsAccentColor')}</label>
                             <div className="flex items-center gap-2">
                                 <input type="color" value={appCfg.brandColor || '#0f9688'} onChange={e => cfgChange('brandColor', e.target.value)} className="w-11 h-10 rounded-lg border border-slate-200 cursor-pointer shrink-0"/>
                                 <input className={inputClass} value={appCfg.brandColor || ''} onChange={e => cfgChange('brandColor', e.target.value)} placeholder="#0f9688"/>
@@ -532,20 +535,20 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div><label className={labelClass}>Адрес компании</label><input className={inputClass} value={appCfg.companyAddress || ''} onChange={e => cfgChange('companyAddress', e.target.value)} placeholder="г. Ташкент, ..."/></div>
-                        <div><label className={labelClass}>Телефон компании</label><input className={inputClass} value={appCfg.companyPhone || ''} onChange={e => cfgChange('companyPhone', e.target.value)} placeholder="+998 ..."/></div>
-                        <div><label className={labelClass}>Язык по умолчанию</label>
+                        <div><label className={labelClass}>{t('hsCompanyAddress')}</label><input className={inputClass} value={appCfg.companyAddress || ''} onChange={e => cfgChange('companyAddress', e.target.value)} placeholder={t('hsCompanyAddressPh')}/></div>
+                        <div><label className={labelClass}>{t('hsCompanyPhone')}</label><input className={inputClass} value={appCfg.companyPhone || ''} onChange={e => cfgChange('companyPhone', e.target.value)} placeholder="+998 ..."/></div>
+                        <div><label className={labelClass}>{t('hsDefaultLang')}</label>
                             <select className={inputClass} value={appCfg.defaultLang || 'ru'} onChange={e => cfgChange('defaultLang', e.target.value)}>
                                 <option value="ru">Русский</option><option value="uz">O‘zbek</option>
                             </select>
                         </div>
-                        <div><label className={labelClass}>Тема по умолчанию</label>
+                        <div><label className={labelClass}>{t('hsDefaultTheme')}</label>
                             <select className={inputClass} value={appCfg.defaultTheme || 'green'} onChange={e => cfgChange('defaultTheme', e.target.value)}>
-                                <option value="green">Светлая</option><option value="dark">Тёмная</option>
+                                <option value="green">{t('hsThemeLight')}</option><option value="dark">{t('hsThemeDark')}</option>
                             </select>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>Язык и тема применяются по умолчанию для новых устройств/входов.</span></div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>{t('hsLangThemeHint')}</span></div>
                 </div>
             )}
 
@@ -556,51 +559,51 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center"><DollarSign size={18} className="text-emerald-600"/></div>
-                        <div><div className="font-black text-slate-800">Финансы и смены</div><div className="text-xs text-slate-400">Значения по умолчанию</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsFinanceShifts')}</div><div className="text-xs text-slate-400">{t('hsDefaults')}</div></div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>Курс USD по умолчанию</label>
+                            <label className={labelClass}>{t('hsDefaultUsdRate')}</label>
                             <input className={inputClass} type="number" value={appCfg.defaultUsdRate || ''} onChange={e => cfgChange('defaultUsdRate', e.target.value)} placeholder="12900"/>
-                            <p className="text-[10px] text-slate-400 mt-1">Подставляется в расходе при валюте $.</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{t('hsDefaultUsdRateHint')}</p>
                         </div>
                         <div>
-                            <label className={labelClass}>Ставка регистрации (сум/день)</label>
+                            <label className={labelClass}>{t('hsRegRate')}</label>
                             <input className={inputClass} type="number" value={appCfg.registrationDailyRate || ''} onChange={e => cfgChange('registrationDailyRate', e.target.value)} placeholder="8240"/>
-                            <p className="text-[10px] text-slate-400 mt-1">По умолчанию для кадастр-регистрации.</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{t('hsRegRateHint')}</p>
                         </div>
                         <div>
-                            <label className={labelClass}>Час начала суток смены</label>
+                            <label className={labelClass}>{t('hsShiftDayHour')}</label>
                             <select className={inputClass} value={appCfg.shiftDayHour ?? 9} onChange={e => cfgChange('shiftDayHour', parseInt(e.target.value))}>
                                 {Array.from({length:24},(_,i)=><option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className={labelClass}>Мин. длительность смены (ч)</label>
+                            <label className={labelClass}>{t('hsMinShiftHours')}</label>
                             <input className={inputClass} type="number" min="1" max="24" value={appCfg.minFullShiftHours ?? 6} onChange={e => cfgChange('minFullShiftHours', parseInt(e.target.value) || 6)}/>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>Смена дольше указанного порога считается полными сутками (с этого часа).</span></div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>{t('hsShiftHint')}</span></div>
                 </div>
 
                 {/* #6 Налоги / комиссии */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center"><Percent size={18} className="text-rose-600"/></div>
-                        <div className="flex-1"><div className="font-black text-slate-800">Налоги и комиссии</div><div className="text-xs text-slate-400">Добавляются в чек автоматически</div></div>
+                        <div className="flex-1"><div className="font-black text-slate-800">{t('hsTaxes')}</div><div className="text-xs text-slate-400">{t('hsTaxesDesc')}</div></div>
                         <Toggle on={!!appCfg.taxEnabled} onClick={() => cfgChange('taxEnabled', !appCfg.taxEnabled)}/>
                     </div>
                     {appCfg.taxEnabled && (
                         <>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div><label className={labelClass}>Название</label><input className={inputClass} value={appCfg.taxName || ''} onChange={e => cfgChange('taxName', e.target.value)} placeholder="НДС / Комиссия"/></div>
-                                <div><label className={labelClass}>Ставка, %</label><input className={inputClass} type="number" min="0" max="100" step="0.1" value={appCfg.taxRate ?? 0} onChange={e => cfgChange('taxRate', parseFloat(e.target.value) || 0)} placeholder="12"/></div>
+                                <div><label className={labelClass}>{t('hsLabelName')}</label><input className={inputClass} value={appCfg.taxName || ''} onChange={e => cfgChange('taxName', e.target.value)} placeholder={t('hsTaxNamePh')}/></div>
+                                <div><label className={labelClass}>{t('hsRatePercent')}</label><input className={inputClass} type="number" min="0" max="100" step="0.1" value={appCfg.taxRate ?? 0} onChange={e => cfgChange('taxRate', parseFloat(e.target.value) || 0)} placeholder="12"/></div>
                             </div>
                             <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
-                                <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">Налог включён в цену</div><div className="text-[10px] text-slate-400">Иначе добавляется сверх суммы</div></div>
+                                <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">{t('hsTaxInclusive')}</div><div className="text-[10px] text-slate-400">{t('hsTaxInclusiveDesc')}</div></div>
                                 <Toggle on={!!appCfg.taxInclusive} onClick={() => cfgChange('taxInclusive', !appCfg.taxInclusive)}/>
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>Переменная <code className="font-mono">{'{{TAX}}'}</code> доступна в редакторе шаблонов чека.</span></div>
+                            <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>{t('hsTaxVarHintPre')} <code className="font-mono">{'{{TAX}}'}</code> {t('hsTaxVarHintPost')}</span></div>
                         </>
                     )}
                 </div>
@@ -609,7 +612,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center"><Wallet size={18} className="text-blue-600"/></div>
-                        <div><div className="font-black text-slate-800">Способы оплаты</div><div className="text-xs text-slate-400">Какие методы доступны при оплате</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsPaymentMethods')}</div><div className="text-xs text-slate-400">{t('hsPaymentMethodsDesc')}</div></div>
                     </div>
                     {[
                         { key: 'cash',     icon: <Banknote size={16} className="text-emerald-600"/> },
@@ -621,7 +624,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         return (
                             <div key={key} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
                                 <span className="shrink-0">{icon}</span>
-                                <input className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-slate-700 outline-none" value={m.label || ''} onChange={e => setPm(key, { label: e.target.value })} placeholder="Название метода"/>
+                                <input className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-slate-700 outline-none" value={m.label || ''} onChange={e => setPm(key, { label: e.target.value })} placeholder={t('hsMethodNamePh')}/>
                                 <Toggle on={m.enabled !== false} onClick={() => setPm(key, { enabled: !(m.enabled !== false) })}/>
                             </div>
                         );
@@ -632,7 +635,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Tags size={18} className="text-amber-600"/></div>
-                        <div><div className="font-black text-slate-800">Категории расходов</div><div className="text-xs text-slate-400">Общий список — появляется во всех хостелах</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsExpCategories')}</div><div className="text-xs text-slate-400">{t('hsExpCategoriesDesc')}</div></div>
                     </div>
                     {(appCfg.expenseCategories || []).length > 0 && (
                         <div className="flex flex-wrap gap-2">
@@ -649,10 +652,10 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                             {EXP_ICONS.map(ic => <option key={ic} value={ic}>{ic}</option>)}
                         </select>
                         <input className={inputClass} value={newExpCat.name} onChange={e => setNewExpCat(c => ({ ...c, name: e.target.value }))}
-                            onKeyDown={e => { if (e.key === 'Enter') addExpCat(); }} placeholder="Новая категория (напр. Реклама)"/>
+                            onKeyDown={e => { if (e.key === 'Enter') addExpCat(); }} placeholder={t('hsNewCatPh')}/>
                         <button onClick={addExpCat} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-white font-bold text-sm shrink-0" style={{ background: BRAND }}><Plus size={15}/></button>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>Персональные категории и архив у каждого хостела остаются прежними.</span></div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>{t('hsExpCatHint')}</span></div>
                 </div>
               </div>
             )}
@@ -667,24 +670,24 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 max-w-2xl">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Bell size={18} className="text-amber-600"/></div>
-                        <div><div className="font-black text-slate-800">Уведомления об ошибках</div><div className="text-xs text-slate-400">Алерты в Telegram при сбоях приложения</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsErrorNotify')}</div><div className="text-xs text-slate-400">{t('hsErrorNotifyDesc')}</div></div>
                     </div>
                     <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
                         <Bell size={16} style={{ color: BRAND }} className="shrink-0"/>
-                        <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">Слать алерты об ошибках</div><div className="text-[10px] text-slate-400">При сбое — сообщение в Telegram</div></div>
+                        <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">{t('hsSendErrorAlerts')}</div><div className="text-[10px] text-slate-400">{t('hsSendErrorAlertsDesc')}</div></div>
                         <Toggle on={appCfg.errorAlertsEnabled !== false} onClick={() => cfgChange('errorAlertsEnabled', !(appCfg.errorAlertsEnabled !== false))}/>
                     </div>
                     <div>
-                        <label className={labelClass}>Telegram ID получателя</label>
+                        <label className={labelClass}>{t('hsTelegramId')}</label>
                         <div className="relative">
                             <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
                             <input className={inputClass + ' pl-8'} value={appCfg.errorAlertChatId || ''} onChange={e => cfgChange('errorAlertChatId', e.target.value.trim())} placeholder="7029598539"/>
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-1">Этот аккаунт должен хотя бы раз написать боту (/start), иначе Telegram не доставит сообщение.</p>
+                        <p className="text-[10px] text-slate-400 mt-1">{t('hsTelegramIdHint')}</p>
                     </div>
                     <button onClick={handleTestAlert} disabled={testingAlert}
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white font-bold text-sm transition-opacity hover:opacity-90 disabled:opacity-60" style={{ background: BRAND }}>
-                        <Send size={15}/> {testingAlert ? 'Отправка...' : 'Отправить тест'}
+                        <Send size={15}/> {testingAlert ? t('hsSending') : t('hsSendTest')}
                     </button>
                 </div>
             )}
@@ -696,20 +699,20 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center"><Receipt size={18} className="text-violet-600"/></div>
-                        <div><div className="font-black text-slate-800">Брендинг чеков</div><div className="text-xs text-slate-400">Подпись и QR-код в чеке</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsReceiptBranding')}</div><div className="text-xs text-slate-400">{t('hsReceiptBrandingDesc')}</div></div>
                     </div>
                     <div>
-                        <label className={labelClass}>Текст в подвале чека</label>
-                        <input className={inputClass} value={appCfg.receiptFooter || ''} onChange={e => cfgChange('receiptFooter', e.target.value)} placeholder="Спасибо за визит!"/>
-                        <p className="text-[10px] text-slate-400 mt-1">Переменная <code className="font-mono">{'{{FOOTER}}'}</code> в шаблоне чека.</p>
+                        <label className={labelClass}>{t('hsReceiptFooter')}</label>
+                        <input className={inputClass} value={appCfg.receiptFooter || ''} onChange={e => cfgChange('receiptFooter', e.target.value)} placeholder={t('hsReceiptFooterPh')}/>
+                        <p className="text-[10px] text-slate-400 mt-1">{t('hsFooterVarHintPre')} <code className="font-mono">{'{{FOOTER}}'}</code> {t('hsFooterVarHintPost')}</p>
                     </div>
                     <div>
-                        <label className={labelClass}>Подпись / реквизиты</label>
-                        <input className={inputClass} value={appCfg.receiptSignature || ''} onChange={e => cfgChange('receiptSignature', e.target.value)} placeholder="С уважением, администрация"/>
+                        <label className={labelClass}>{t('hsSignature')}</label>
+                        <input className={inputClass} value={appCfg.receiptSignature || ''} onChange={e => cfgChange('receiptSignature', e.target.value)} placeholder={t('hsSignaturePh')}/>
                     </div>
                     <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
                         <Hash size={16} style={{ color: BRAND }} className="shrink-0"/>
-                        <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">QR-код на чеке</div><div className="text-[10px] text-slate-400">Печатать QR с данными чека</div></div>
+                        <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">{t('hsReceiptQr')}</div><div className="text-[10px] text-slate-400">{t('hsReceiptQrDesc')}</div></div>
                         <Toggle on={!!appCfg.receiptShowQr} onClick={() => cfgChange('receiptShowQr', !appCfg.receiptShowQr)}/>
                     </div>
                 </div>
@@ -720,13 +723,13 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center"><FileText size={18} className="text-indigo-600"/></div>
                         <div>
-                            <div className="font-black text-slate-800">Редактор шаблонов</div>
-                            <div className="text-xs text-slate-400">Настройка чеков и регистрационных карт с логотипом</div>
+                            <div className="font-black text-slate-800">{t('hsTemplateEditor')}</div>
+                            <div className="text-xs text-slate-400">{t('hsTemplateEditorDesc')}</div>
                         </div>
                     </div>
                     <button onClick={onOpenTemplateEditor}
                         className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow transition-colors text-sm">
-                        <FileText size={15}/> Открыть
+                        <FileText size={15}/> {t('hsOpen')}
                     </button>
                 </div>
                 )}
@@ -740,8 +743,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center"><Database size={18} className="text-emerald-600"/></div>
                     <div>
-                        <div className="font-black text-slate-800">Резервная копия</div>
-                        <div className="text-xs text-slate-400">JSON-экспорт всех данных системы</div>
+                        <div className="font-black text-slate-800">{t('hsBackup')}</div>
+                        <div className="text-xs text-slate-400">{t('hsBackupDesc')}</div>
                     </div>
                     <button
                         onClick={handleBackup}
@@ -749,15 +752,15 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         className="ml-auto flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition-colors disabled:opacity-60 text-sm"
                     >
                         <Download size={15}/>
-                        {backupLoading ? 'Экспорт...' : 'Скачать копию'}
+                        {backupLoading ? t('hsExporting') : t('hsDownloadBackup')}
                     </button>
                 </div>
                 <div className="grid grid-cols-4 gap-3">
                     {[
-                        { label: 'Гостей',   val: (guests   || []).length, emoji: '👤', color: 'bg-blue-50 text-blue-700' },
-                        { label: 'Комнат',   val: (rooms    || []).length, emoji: '🛏️', color: 'bg-purple-50 text-purple-700' },
-                        { label: 'Расходов', val: (expenses || []).length, emoji: '💸', color: 'bg-rose-50 text-rose-700' },
-                        { label: 'Платежей', val: (payments || []).length, emoji: '💰', color: 'bg-emerald-50 text-emerald-700' },
+                        { label: t('hsStatGuests'),   val: (guests   || []).length, emoji: '👤', color: 'bg-blue-50 text-blue-700' },
+                        { label: t('hsStatRooms'),   val: (rooms    || []).length, emoji: '🛏️', color: 'bg-purple-50 text-purple-700' },
+                        { label: t('hsStatExpenses'), val: (expenses || []).length, emoji: '💸', color: 'bg-rose-50 text-rose-700' },
+                        { label: t('hsStatPayments'), val: (payments || []).length, emoji: '💰', color: 'bg-emerald-50 text-emerald-700' },
                     ].map(d => (
                         <div key={d.label} className={`rounded-xl p-3 text-center ${d.color}`}>
                             <div className="text-xl mb-1">{d.emoji}</div>
@@ -768,7 +771,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 </div>
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
                     <Info size={12}/>
-                    <span>Пароли сотрудников в резервной копии заменены на «***» в целях безопасности</span>
+                    <span>{t('hsBackupPassNote')}</span>
                 </div>
               </div>
 
@@ -776,40 +779,40 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center"><CalendarClock size={18} className="text-teal-600"/></div>
-                    <div className="flex-1"><div className="font-black text-slate-800">Авто-бэкап</div><div className="text-xs text-slate-400">Резервная копия Firestore по расписанию</div></div>
+                    <div className="flex-1"><div className="font-black text-slate-800">{t('hsAutoBackup')}</div><div className="text-xs text-slate-400">{t('hsAutoBackupDesc')}</div></div>
                     <Toggle on={appCfg.autoBackupEnabled !== false} onClick={() => cfgChange('autoBackupEnabled', !(appCfg.autoBackupEnabled !== false))}/>
                 </div>
                 {appCfg.autoBackupEnabled !== false && (
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>Частота</label>
+                            <label className={labelClass}>{t('hsFrequency')}</label>
                             <select className={inputClass} value={appCfg.autoBackupFreq || 'daily'} onChange={e => cfgChange('autoBackupFreq', e.target.value)}>
-                                <option value="daily">Ежедневно</option><option value="weekly">Еженедельно</option><option value="monthly">Ежемесячно</option>
+                                <option value="daily">{t('hsFreqDaily')}</option><option value="weekly">{t('hsFreqWeekly')}</option><option value="monthly">{t('hsFreqMonthly')}</option>
                             </select>
                         </div>
                         <div>
-                            <label className={labelClass}>Время (Ташкент)</label>
+                            <label className={labelClass}>{t('hsTimeTashkent')}</label>
                             <input className={inputClass} type="time" value={appCfg.autoBackupTime || '04:00'} onChange={e => cfgChange('autoBackupTime', e.target.value)}/>
                         </div>
                     </div>
                 )}
-                <div className="flex items-start gap-2 text-xs text-slate-400"><Info size={12} className="mt-0.5 shrink-0"/><span>Серверная копия выгружается в облако (Cloud Storage). Эти параметры — желаемое расписание; фактический запуск управляется серверной функцией.</span></div>
+                <div className="flex items-start gap-2 text-xs text-slate-400"><Info size={12} className="mt-0.5 shrink-0"/><span>{t('hsAutoBackupHint')}</span></div>
               </div>
 
               {/* #4 Восстановление */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
                 <div className="flex items-center gap-3 mb-1">
                     <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center"><HardDriveUpload size={18} className="text-orange-600"/></div>
-                    <div><div className="font-black text-slate-800">Восстановление из копии</div><div className="text-xs text-slate-400">Импорт записей из JSON-файла</div></div>
+                    <div><div className="font-black text-slate-800">{t('hsRestore')}</div><div className="text-xs text-slate-400">{t('hsRestoreDesc')}</div></div>
                 </div>
                 <input ref={restoreRef} type="file" accept="application/json,.json" className="hidden" onChange={e => { handleRestoreFile(e.target.files?.[0]); e.target.value = ''; }}/>
                 <button onClick={() => restoreRef.current?.click()}
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
-                    <UploadCloud size={15}/> Выбрать файл .json
+                    <UploadCloud size={15}/> {t('hsChooseJson')}
                 </button>
                 <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-50 rounded-xl p-3">
                     <AlertTriangle size={14} className="mt-0.5 shrink-0"/>
-                    <span>Импорт <b>дополняет/обновляет</b> записи по их ID (merge), существующие данные не удаляются. Сотрудники и пароли не восстанавливаются.</span>
+                    <span>{t('hsRestoreWarnPre')} <b>{t('hsRestoreWarnBold')}</b> {t('hsRestoreWarnPost')}</span>
                 </div>
               </div>
             </div>
@@ -823,9 +826,9 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         <span className="text-lg">💱</span>
                     </div>
                     <div>
-                        <div className="font-black text-slate-800">Курс валют ЦБ РУз</div>
+                        <div className="font-black text-slate-800">{t('hsCbuRates')}</div>
                         <div className="text-xs text-slate-400">
-                            {updatedAt ? `Обновлено: ${new Date(updatedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}` : 'Загрузка...'}
+                            {updatedAt ? t('hsUpdatedAt').replace('{time}', new Date(updatedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })) : t('hsLoading')}
                         </div>
                     </div>
                     <button
@@ -834,12 +837,12 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         className="ml-auto flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-xs border border-slate-200 transition-colors"
                     >
                         <RefreshCw size={13} className={ratesLoading ? 'animate-spin' : ''}/>
-                        Обновить
+                        {t('hsRefresh')}
                     </button>
                 </div>
                 {ratesError && (
                     <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-xl p-3 text-sm mb-3">
-                        <AlertTriangle size={14}/> Нет соединения с ЦБ РУз, показаны кешированные данные
+                        <AlertTriangle size={14}/> {t('hsCbuOffline')}
                     </div>
                 )}
                 {rates ? (
@@ -850,7 +853,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                             { code: 'RUB', bg: 'bg-rose-50',   text: 'text-rose-800' },
                             { code: 'CNY', bg: 'bg-amber-50',  text: 'text-amber-800' },
                         ].filter(c => rates[c.code]).map(c => (
-                            <CurrencyCard key={c.code} code={c.code} data={rates[c.code]} bg={c.bg} text={c.text}/>
+                            <CurrencyCard key={c.code} code={c.code} data={rates[c.code]} bg={c.bg} text={c.text} t={t}/>
                         ))}
                     </div>
                 ) : (
@@ -868,14 +871,14 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
                     <div className="flex items-center gap-3 mb-4">
                         <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center"><Shield size={18} className="text-slate-600"/></div>
-                        <div><div className="font-black text-slate-800">Система</div><div className="text-xs text-slate-400">Сведения об этом устройстве</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsSystemSection')}</div><div className="text-xs text-slate-400">{t('hsDeviceInfo')}</div></div>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                            { label: 'Версия',    val: 'v' + APP_VERSION, color: 'bg-indigo-50 text-indigo-700' },
-                            { label: 'Платформа', val: /electron/i.test(navigator.userAgent) ? 'Десктоп' : 'Веб', color: 'bg-violet-50 text-violet-700' },
-                            { label: 'Сеть',      val: navigator.onLine ? 'Онлайн' : 'Оффлайн', color: navigator.onLine ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700' },
-                            { label: 'Роль',      val: currentUser?.role || '—', color: 'bg-amber-50 text-amber-700' },
+                            { label: t('hsVersion'),    val: 'v' + APP_VERSION, color: 'bg-indigo-50 text-indigo-700' },
+                            { label: t('hsPlatform'), val: /electron/i.test(navigator.userAgent) ? t('hsDesktop') : t('hsWeb'), color: 'bg-violet-50 text-violet-700' },
+                            { label: t('hsNetwork'),      val: navigator.onLine ? t('hsOnline') : t('hsOffline'), color: navigator.onLine ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700' },
+                            { label: t('hsRole'),      val: currentUser?.role || '—', color: 'bg-amber-50 text-amber-700' },
                         ].map(d => (
                             <div key={d.label} className={`rounded-xl p-3 ${d.color}`}>
                                 <div className="font-black text-sm truncate">{d.val}</div>
@@ -884,12 +887,12 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         ))}
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                        <span className="text-[10px] font-bold uppercase text-slate-400">ID устройства</span>
+                        <span className="text-[10px] font-bold uppercase text-slate-400">{t('hsDeviceId')}</span>
                         <span className="text-xs font-mono text-slate-500 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200 truncate">{(() => { try { return getDeviceId(); } catch { return '—'; } })()}</span>
                     </div>
                     <button onClick={() => { try { window.location.reload(); } catch { /* ignore */ } }}
                         className="mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
-                        <RefreshCw size={15}/> Перезагрузить приложение
+                        <RefreshCw size={15}/> {t('hsReloadApp')}
                     </button>
                 </div>
 
@@ -897,24 +900,24 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
                     <div className="flex items-center gap-3 mb-1">
                         <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center"><KeyRound size={18} className="text-indigo-600"/></div>
-                        <div><div className="font-black text-slate-800">Пароли и сессия</div><div className="text-xs text-slate-400">Требования к паролям сотрудников</div></div>
+                        <div><div className="font-black text-slate-800">{t('hsPasswordSession')}</div><div className="text-xs text-slate-400">{t('hsPasswordReq')}</div></div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                            <label className={labelClass}>Мин. длина пароля</label>
+                            <label className={labelClass}>{t('hsPassMinLen')}</label>
                             <input className={inputClass} type="number" min="3" max="32" value={appCfg.passwordMinLength ?? 4} onChange={e => cfgChange('passwordMinLength', parseInt(e.target.value) || 4)}/>
                         </div>
                         <div>
-                            <label className={labelClass}>Смена раз в, дней</label>
-                            <input className={inputClass} type="number" min="0" max="365" value={appCfg.passwordChangeDays ?? 0} onChange={e => cfgChange('passwordChangeDays', parseInt(e.target.value) || 0)} placeholder="0 = выкл"/>
+                            <label className={labelClass}>{t('hsPassChangeDays')}</label>
+                            <input className={inputClass} type="number" min="0" max="365" value={appCfg.passwordChangeDays ?? 0} onChange={e => cfgChange('passwordChangeDays', parseInt(e.target.value) || 0)} placeholder={t('hsZeroOff')}/>
                         </div>
                         <div>
-                            <label className={labelClass}>Авто-выход, мин</label>
-                            <input className={inputClass} type="number" min="0" max="240" value={appCfg.autoLogoutMin ?? 0} onChange={e => cfgChange('autoLogoutMin', parseInt(e.target.value) || 0)} placeholder="0 = выкл"/>
+                            <label className={labelClass}>{t('hsAutoLogout')}</label>
+                            <input className={inputClass} type="number" min="0" max="240" value={appCfg.autoLogoutMin ?? 0} onChange={e => cfgChange('autoLogoutMin', parseInt(e.target.value) || 0)} placeholder={t('hsZeroOff')}/>
                         </div>
                     </div>
                     <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
-                        <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">Буквы + цифры обязательны</div><div className="text-[10px] text-slate-400">Усложняет подбор пароля</div></div>
+                        <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-700">{t('hsPassMix')}</div><div className="text-[10px] text-slate-400">{t('hsPassMixDesc')}</div></div>
                         <Toggle on={!!appCfg.passwordRequireMix} onClick={() => cfgChange('passwordRequireMix', !appCfg.passwordRequireMix)}/>
                     </div>
                 </div>
@@ -923,22 +926,22 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center"><ScrollText size={18} className="text-slate-600"/></div>
-                        <div className="flex-1"><div className="font-black text-slate-800">Журнал действий</div><div className="text-xs text-slate-400">Что записывать в аудит</div></div>
+                        <div className="flex-1"><div className="font-black text-slate-800">{t('hsAuditLog')}</div><div className="text-xs text-slate-400">{t('hsAuditDesc')}</div></div>
                         <Toggle on={appCfg.auditEnabled !== false} onClick={() => cfgChange('auditEnabled', !(appCfg.auditEnabled !== false))}/>
                     </div>
                     {appCfg.auditEnabled !== false && (
                         <>
                             <div>
-                                <label className={labelClass}>Хранить записи, дней</label>
+                                <label className={labelClass}>{t('hsAuditRetention')}</label>
                                 <input className={inputClass} type="number" min="7" max="3650" value={appCfg.auditRetentionDays ?? 90} onChange={e => cfgChange('auditRetentionDays', parseInt(e.target.value) || 90)}/>
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 {[
-                                    ['logins', 'Входы'],
-                                    ['payments', 'Платежи'],
-                                    ['expenses', 'Расходы'],
-                                    ['edits', 'Изменения'],
-                                    ['deletions', 'Удаления'],
+                                    ['logins', t('hsAuditLogins')],
+                                    ['payments', t('hsAuditPayments')],
+                                    ['expenses', t('hsAuditExpenses')],
+                                    ['edits', t('hsAuditEdits')],
+                                    ['deletions', t('hsAuditDeletions')],
                                 ].map(([k, l]) => {
                                     const on = appCfg.auditActions?.[k] !== false;
                                     return (
@@ -958,19 +961,19 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
                     <div className="flex items-center gap-3 mb-3">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(15,150,136,0.12)' }}><CheckCircle2 size={18} style={{ color: BRAND }}/></div>
-                        <div className="font-black text-slate-800">Защита данных</div>
+                        <div className="font-black text-slate-800">{t('hsDataProtection')}</div>
                     </div>
                     <div className="space-y-2">
                         {[
-                            'Данные хранятся в Google Firebase (Firestore + Storage)',
-                            'Соединение зашифровано по TLS',
-                            'Доступ разграничен по ролям: cashier → admin → super',
-                            'Пароли хранятся в виде хешей, не в открытом виде',
-                            'Авто-выход при удалении/блокировке сотрудника на всех устройствах',
-                        ].map((t, i) => (
+                            t('hsSec1'),
+                            t('hsSec2'),
+                            t('hsSec3'),
+                            t('hsSec4'),
+                            t('hsSec5'),
+                        ].map((line, i) => (
                             <div key={i} className="flex items-start gap-2 text-sm text-slate-600">
                                 <CheckCircle2 size={15} style={{ color: BRAND }} className="shrink-0 mt-0.5"/>
-                                <span>{t}</span>
+                                <span>{line}</span>
                             </div>
                         ))}
                     </div>
@@ -984,19 +987,19 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3 mb-2">
                             <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><AlertTriangle size={18} className="text-amber-600"/></div>
-                            <div className="font-black text-slate-800">Изменения не сохранены</div>
+                            <div className="font-black text-slate-800">{t('hsUnsavedTitle')}</div>
                         </div>
-                        <p className="text-sm text-slate-500 mb-4">Вы изменили настройки, но не сохранили их. Если перейти на другую вкладку, изменения потеряются.</p>
+                        <p className="text-sm text-slate-500 mb-4">{t('hsUnsavedDesc')}</p>
                         <div className="flex flex-col gap-2">
                             <button onClick={confirmSwitchSave} disabled={saving}
                                 className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60" style={{ background: BRAND }}>
-                                {saving ? 'Сохранение…' : 'Сохранить и перейти'}
+                                {saving ? t('hsSavingEllipsis') : t('hsSaveAndSwitch')}
                             </button>
                             <div className="flex gap-2">
                                 <button onClick={confirmSwitchDiscard} disabled={saving}
-                                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-60">Не сохранять</button>
+                                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-60">{t('hsDiscard')}</button>
                                 <button onClick={() => setPendingTab(null)} disabled={saving}
-                                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 disabled:opacity-60">Отмена</button>
+                                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 disabled:opacity-60">{t('cancel')}</button>
                             </div>
                         </div>
                     </div>
@@ -1009,8 +1012,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3 mb-3">
                             <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center"><HardDriveUpload size={18} className="text-orange-600"/></div>
-                            <div><div className="font-black text-slate-800">Восстановить данные?</div>
-                                {restoreData.exportedAt && <div className="text-[11px] text-slate-400">Копия от {new Date(restoreData.exportedAt).toLocaleString('ru')}</div>}</div>
+                            <div><div className="font-black text-slate-800">{t('hsRestoreConfirmTitle')}</div>
+                                {restoreData.exportedAt && <div className="text-[11px] text-slate-400">{t('hsCopyFrom').replace('{date}', new Date(restoreData.exportedAt).toLocaleString('ru'))}</div>}</div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mb-3">
                             {Object.entries(restoreData.stats).map(([k, v]) => (
@@ -1022,14 +1025,14 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         </div>
                         <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-50 rounded-xl p-3 mb-3">
                             <AlertTriangle size={14} className="mt-0.5 shrink-0"/>
-                            <span>Записи будут записаны в базу по их ID (merge). Для подтверждения введите <b>ВОССТАНОВИТЬ</b>.</span>
+                            <span>{t('hsRestoreConfirmWarn')} <b>{t('hsRestoreWord')}</b>.</span>
                         </div>
-                        <input className={inputClass + ' mb-3'} value={restoreText} onChange={e => setRestoreText(e.target.value)} placeholder="ВОССТАНОВИТЬ"/>
+                        <input className={inputClass + ' mb-3'} value={restoreText} onChange={e => setRestoreText(e.target.value)} placeholder={t('hsRestoreWord')}/>
                         <div className="flex gap-2 justify-end">
-                            <button onClick={() => setRestoreData(null)} disabled={restoring} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-60">Отмена</button>
-                            <button onClick={handleRestoreConfirm} disabled={restoring || restoreText.trim() !== 'ВОССТАНОВИТЬ'}
+                            <button onClick={() => setRestoreData(null)} disabled={restoring} className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-60">{t('cancel')}</button>
+                            <button onClick={handleRestoreConfirm} disabled={restoring || restoreText.trim() !== t('hsRestoreWord')}
                                 className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-40">
-                                {restoring ? 'Восстановление…' : 'Восстановить'}
+                                {restoring ? t('hsRestoring') : t('hsRestoreBtn')}
                             </button>
                         </div>
                     </div>
