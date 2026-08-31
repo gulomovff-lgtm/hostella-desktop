@@ -644,7 +644,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const copyRegistrationData = () => {
         const birthDateFormatted = guest.birthDate ? new Date(guest.birthDate).toLocaleDateString('ru-RU') : '—';
         const issueDateFormatted = guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString('ru-RU') : '—';
-        const text = `${guest.fullName || '—'}\nДата рожд.: ${birthDateFormatted}\nПаспорт: ${guest.passport || '—'}\nВыдан: ${issueDateFormatted}\nСтрана: ${guest.country || '—'}`;
+        const text = `${guest.fullName || '—'}\n${t('birthDateShort')}: ${birthDateFormatted}\n${t('passport')}: ${guest.passport || '—'}\n${t('issuedLabel')}: ${issueDateFormatted}\n${t('country')}: ${guest.country || '—'}`;
         navigator.clipboard.writeText(text).then(() => {
             notify(t('dataCopied'), 'success');
         }).catch(() => {
@@ -686,10 +686,10 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const payFields = (
         <div className="space-y-3">
             {[
-                ['payCash','Наличные',<DollarSign size={16}/>, payCash, setPayCash],
-                ['payCard','Карта',<CreditCard size={16}/>, payCard, setPayCard],
+                ['payCash',t('cash'),<DollarSign size={16}/>, payCash, setPayCash],
+                ['payCard',t('cardShort'),<CreditCard size={16}/>, payCard, setPayCard],
                 ['payQR','QR',<QrCode size={16}/>, payQR, setPayQR],
-                ['payTransfer','Перечисление',<ArrowRightLeft size={16}/>, payTransfer, setPayTransfer],
+                ['payTransfer',t('transfer'),<ArrowRightLeft size={16}/>, payTransfer, setPayTransfer],
             ].map(([f,pl,ic,val,setter])=>(
                 <div key={f} className="relative">
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">{ic}</div>
@@ -752,14 +752,14 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <div>
                                     <h2 className="font-black text-slate-800 text-lg leading-tight">{guest.fullName}</h2>
                                     <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                        <span className="text-xs text-slate-400">К.{guest.roomNumber} · Место {guest.bedId}</span>
-                                        {isBooking    && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">БРОНЬ</span>}
-                                        {isCheckedOut && <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">ВЫЕХАЛ</span>}
-                                        {isNonRefundable && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">ПАКЕТ · невозвр.</span>}
+                                        <span className="text-xs text-slate-400">{t('roomShort')}{guest.roomNumber} · {t('bed2')} {guest.bedId}</span>
+                                        {isBooking    && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{t('bookingBadge')}</span>}
+                                        {isCheckedOut && <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{t('checkedOutBadge')}</span>}
+                                        {isNonRefundable && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">{t('packageNonRefundBadge')}</span>}
                                         {!isNonRefundable && isBelowMinRate && (
                                             isPriceApproved
-                                                ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ снижение одобрено</span>
-                                                : <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">тариф &lt;70к · только пакет</span>
+                                                ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ {t('priceApprovedBadge')}</span>
+                                                : <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{t('tariffBelow70Badge')}</span>
                                         )}
                                     </div>
                                 </div>
@@ -1416,35 +1416,35 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
                 {currentView === 'split' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('Пауза', true)}
+                        {hdr(t('pauseBtn'), true)}
                         <div className="p-5 flex-1 flex flex-col space-y-4 overflow-y-auto">
-                            <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-900 font-medium">Выберите даты отсутствия. Место освободится на это время.</div>
-                            <div><label className="font-bold block mb-1.5 text-sm text-slate-500">Дата уезда</label><input type="date" className="w-full p-3.5 border-2 border-slate-200 rounded-xl text-base font-bold" value={splitStartDate} onChange={e=>setSplitStartDate(e.target.value)}/></div>
-                            <div><label className="font-bold block mb-1.5 text-sm text-slate-500">Дата возвращения</label><input type="date" className="w-full p-3.5 border-2 border-slate-200 rounded-xl text-base font-bold" value={splitReturnDate} onChange={e=>setSplitReturnDate(e.target.value)}/></div>
-                            <div className="mt-auto text-center text-sm font-bold text-slate-500">Пауза: <span className="text-amber-600 text-lg">{Math.max(0,Math.ceil((new Date(splitReturnDate)-new Date(splitStartDate))/(1000*60*60*24)))} дн.</span></div>
-                            <button onClick={handleDoSplit} className="w-full py-3.5 bg-amber-500 text-white rounded-xl font-bold">ПОДТВЕРДИТЬ ПАУЗУ</button>
+                            <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-900 font-medium">{t('selectAbsenceDates')}</div>
+                            <div><label className="font-bold block mb-1.5 text-sm text-slate-500">{t('departureDate')}</label><input type="date" className="w-full p-3.5 border-2 border-slate-200 rounded-xl text-base font-bold" value={splitStartDate} onChange={e=>setSplitStartDate(e.target.value)}/></div>
+                            <div><label className="font-bold block mb-1.5 text-sm text-slate-500">{t('returnDate')}</label><input type="date" className="w-full p-3.5 border-2 border-slate-200 rounded-xl text-base font-bold" value={splitReturnDate} onChange={e=>setSplitReturnDate(e.target.value)}/></div>
+                            <div className="mt-auto text-center text-sm font-bold text-slate-500">{t('pauseBtn')}: <span className="text-amber-600 text-lg">{Math.max(0,Math.ceil((new Date(splitReturnDate)-new Date(splitStartDate))/(1000*60*60*24)))} {t('daysShort')}</span></div>
+                            <button onClick={handleDoSplit} className="w-full py-3.5 bg-amber-500 text-white rounded-xl font-bold">{t('confirmPauseUpper')}</button>
                         </div>
                     </div>
                 )}
 
                 {currentView === 'admin' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('Админ', true)}
+                        {hdr(t('adminTitle'), true)}
                         <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="p-4 border-2 border-amber-200 bg-amber-50 rounded-xl space-y-3">
-                                <div className="text-xs font-bold text-amber-700 uppercase">Сократить дни (без возврата)</div>
+                                <div className="text-xs font-bold text-amber-700 uppercase">{t('reduceDaysNoRefundTitle')}</div>
                                 <div className="flex gap-2">
                                     <input type="number" className="w-20 p-2.5 border rounded-xl font-bold text-center" value={reduceDaysNoRefund} onChange={e=>setReduceDaysNoRefund(e.target.value)}/>
-                                    <button onClick={handleReduceNR} className="flex-1 px-3 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm">Сократить</button>
+                                    <button onClick={handleReduceNR} className="flex-1 px-3 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm">{t('reduce')}</button>
                                 </div>
                             </div>
                             <div className="p-4 border-2 border-indigo-200 bg-indigo-50 rounded-xl space-y-3">
-                                <div className="text-xs font-bold text-indigo-700 uppercase">Исправить оплату</div>
+                                <div className="text-xs font-bold text-indigo-700 uppercase">{t('fixPayment')}</div>
                                 <p className="text-[11px] font-semibold text-indigo-500 leading-snug">
-                                    Ставит фактически оплаченную сумму по гостю. Кассу, смену и отчёты не трогает — только карточку.
+                                    {t('fixPaymentDesc')}
                                 </p>
                                 <div className="grid grid-cols-3 gap-2">
-                                    {[['Наличные', fixCash, setFixCash], ['Карта', fixCard, setFixCard], ['QR', fixQR, setFixQR]].map(([label, val, set]) => (
+                                    {[[t('cash'), fixCash, setFixCash], [t('cardShort'), fixCard, setFixCard], ['QR', fixQR, setFixQR]].map(([label, val, set]) => (
                                         <div key={label}>
                                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{label}</label>
                                             <input type="number" min="0" className="w-full p-2 border-2 border-indigo-200 rounded-xl font-bold text-center focus:border-indigo-400 outline-none"
@@ -1453,24 +1453,24 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     ))}
                                 </div>
                                 {fixedOther > 0 && (
-                                    <div className="text-[11px] font-semibold text-slate-500">Перевод и баланс ({fixedOther.toLocaleString()} сум) остаются как есть</div>
+                                    <div className="text-[11px] font-semibold text-slate-500">{t('transferAndBalanceKept').replace('{n}', fixedOther.toLocaleString())}</div>
                                 )}
                                 <div className="flex items-center justify-between text-xs font-bold">
-                                    <span className="text-slate-500">Сейчас: {totalPaid.toLocaleString()} сум</span>
-                                    <span className="text-indigo-700">Станет: {fixedTotal.toLocaleString()} сум</span>
+                                    <span className="text-slate-500">{t('nowLabel')}: {totalPaid.toLocaleString()} {t('sum')}</span>
+                                    <span className="text-indigo-700">{t('willBecome')}: {fixedTotal.toLocaleString()} {t('sum')}</span>
                                 </div>
                                 <button onClick={handleFixPaid} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors">
-                                    Сохранить оплату
+                                    {t('savePayment')}
                                 </button>
                             </div>
                             <div className="p-4 border-2 border-rose-200 bg-rose-50 rounded-xl space-y-3">
-                                <div className="text-xs font-bold text-rose-700 uppercase">Опасная зона</div>
-                                {!isCheckedOut && <button onClick={()=>setCurrentView('checkout')} className="w-full py-3 bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2"><LogOut size={15}/> ПРИНУДИТЕЛЬНО ВЫСЕЛИТЬ</button>}
-                                <button onClick={handleDelete} className="w-full py-3 bg-rose-600 text-white rounded-xl font-bold flex items-center justify-center gap-2"><Trash2 size={15}/> УДАЛИТЬ ГОСТЯ</button>
+                                <div className="text-xs font-bold text-rose-700 uppercase">{t('dangerZone')}</div>
+                                {!isCheckedOut && <button onClick={()=>setCurrentView('checkout')} className="w-full py-3 bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2"><LogOut size={15}/> {t('forceEvictUpper')}</button>}
+                                <button onClick={handleDelete} className="w-full py-3 bg-rose-600 text-white rounded-xl font-bold flex items-center justify-center gap-2"><Trash2 size={15}/> {t('deleteGuestUpper')}</button>
                             </div>
                             {currentUser.role === 'super' && !isCheckedOut && (
                                 <button onClick={()=>setCurrentView('superPay')} className="w-full py-3 bg-violet-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors">
-                                    <ShieldCheck size={15}/> Зачёт суммы
+                                    <ShieldCheck size={15}/> {t('sumOffset')}
                                 </button>
                             )}
                         </div>
@@ -1479,43 +1479,43 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
                 {currentView === 'superPay' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('Зачёт суммы', true)}
+                        {hdr(t('sumOffset'), true)}
                         <div className="p-5 space-y-4">
                             <div className="p-4 border-2 border-violet-200 bg-violet-50 rounded-xl space-y-1">
-                                <div className="text-xs font-bold text-violet-700 uppercase">Текущий долг</div>
-                                <div className="text-2xl font-black text-violet-800">{debt.toLocaleString()} сум</div>
+                                <div className="text-xs font-bold text-violet-700 uppercase">{t('currentDebt')}</div>
+                                <div className="text-2xl font-black text-violet-800">{debt.toLocaleString()} {t('sum')}</div>
                             </div>
                             {guest.superAdjusted ? (
-                                <div className="text-xs text-violet-500 font-semibold">Ранее зачтено: {(guest.superAdjusted).toLocaleString()} сум</div>
+                                <div className="text-xs text-violet-500 font-semibold">{t('previouslyCredited')}: {(guest.superAdjusted).toLocaleString()} {t('sum')}</div>
                             ) : null}
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Сумма к зачёту</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t('amountToOffset')}</label>
                                 <input type="number" className="w-full p-4 border-2 border-violet-200 rounded-xl font-bold text-xl text-center focus:border-violet-400 outline-none"
                                     placeholder="0" value={superPayAmount} onChange={e => setSuperPayAmount(e.target.value)} onWheel={disableWheel}/>
                             </div>
                             <button onClick={handleSuperPaymentLocal} className="w-full py-3.5 text-white rounded-xl font-bold flex items-center justify-center gap-2" style={{background:'#7c3aed'}}>
-                                <ShieldCheck size={16}/> ЗАЧЕСТЬ СУММУ
+                                <ShieldCheck size={16}/> {t('offsetSumUpper')}
                             </button>
-                            <p className="text-xs text-slate-400 text-center">Не учитывается как выручка, но фиксируется в истории операций</p>
+                            <p className="text-xs text-slate-400 text-center">{t('offsetNote')}</p>
                         </div>
                     </div>
                 )}
 
                 {currentView === 'trimDays' && (
                     <div className="flex flex-col overflow-hidden h-full">
-                        {hdr('✂️ Срезать дни', true)}
+                        {hdr(`✂️ ${t('trimDaysTitle')}`, true)}
                         <div className="p-5 flex-1 overflow-y-auto space-y-4">
                             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                                <div className="text-xs font-bold text-amber-700 uppercase mb-1">Текущий срок</div>
+                                <div className="text-xs font-bold text-amber-700 uppercase mb-1">{t('currentTerm')}</div>
                                 <div className="text-2xl font-black text-amber-800">
                                     {guest.bonusCheckOutDate
-                                        ? `${guest.days} дн. + ${bonusDaysAvailForTrim}б → ${effectiveEndDateForTrim.toLocaleDateString('ru')}`
-                                        : `${guest.days} дн. → ${new Date(guest.checkOutDate).toLocaleDateString('ru')}`
+                                        ? `${guest.days} ${t('daysShort')} + ${bonusDaysAvailForTrim}${t('bonusShort')} → ${effectiveEndDateForTrim.toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru')}`
+                                        : `${guest.days} ${t('daysShort')} → ${new Date(guest.checkOutDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru')}`
                                     }
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Срезать дней</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">{t('trimDaysLabel')}</label>
                                 <div className="flex items-center gap-3">
                                     <button onClick={()=>setTrimDays(d=>Math.max(1,d-1))} className="w-12 h-12 rounded-xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center hover:bg-slate-200 text-2xl font-bold">−</button>
                                     <input type="number" min="1" max={maxTrimDays}
@@ -1528,50 +1528,51 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             </div>
                             {trimDays >= 1 && (
                                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 flex justify-between">
-                                    <span>Новый выезд:</span>
+                                    <span>{t('newCheckout')}:</span>
                                     <span className="font-black text-amber-700">
                                         {(()=>{
+                                            const loc = lang === 'uz' ? 'uz-UZ' : 'ru';
                                             if (trimDays <= bonusDaysAvailForTrim) {
                                                 const d = new Date(guest.bonusCheckOutDate);
                                                 d.setDate(d.getDate() - trimDays);
-                                                return `${d.toLocaleDateString('ru')} · ${guest.days} дн. (бонус -${trimDays}д)`;
+                                                return `${d.toLocaleDateString(loc)} · ${guest.days} ${t('daysShort')} (${t('trimBonusSuffix').replace('{n}', trimDays)})`;
                                             }
                                             const d = new Date(guest.checkOutDate);
                                             d.setDate(d.getDate() - regularDaysToTrimPreview);
-                                            return `${d.toLocaleDateString('ru')} · ${Math.max(1, parseInt(guest.days||1) - regularDaysToTrimPreview)} дн.`;
+                                            return `${d.toLocaleDateString(loc)} · ${Math.max(1, parseInt(guest.days||1) - regularDaysToTrimPreview)} ${t('daysShort')}`;
                                         })()}
                                     </span>
                                 </div>
                             )}
                             {trimDays > 0 && regularDaysToTrimPreview > 0 && parseInt(guest.pricePerNight) > 0 && (
                                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-700 flex justify-between">
-                                    <span>Изменение цены:</span>
-                                    <span className="font-black">−{(regularDaysToTrimPreview*parseInt(guest.pricePerNight)).toLocaleString()} сум</span>
+                                    <span>{t('priceChange')}:</span>
+                                    <span className="font-black">−{(regularDaysToTrimPreview*parseInt(guest.pricePerNight)).toLocaleString()} {t('sum')}</span>
                                 </div>
                             )}
                             {trimDays > 0 && trimDays <= bonusDaysAvailForTrim && (
                                 <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm font-semibold text-orange-700">
-                                    Срезаются только бонусные дни — цена не изменится
+                                    {t('onlyBonusTrimmed')}
                                 </div>
                             )}
                             <button
                                 onClick={()=>{ if(onTrimDays) onTrimDays(guest.id, trimDays); }}
                                 className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-black shadow-lg"
                             >
-                                СРЕЗАТЬ {trimDays} {trimDays===1?'ДЕНЬ':trimDays<5?'ДНЯ':'ДНЕЙ'}
+                                {t('trimUpper')} {trimDays} {trimDays===1?t('dayU1'):trimDays<5?t('dayU2'):t('dayUMany')}
                             </button>
-                            <p className="text-xs text-slate-400 text-center">Отменить можно через кнопку «Отмена действий» в течение 30 мин.</p>
+                            <p className="text-xs text-slate-400 text-center">{t('undoHint30')}</p>
                         </div>
                     </div>
                 )}
 
                 {currentView === 'moveDate' && (
                     <div className="flex flex-col overflow-hidden">
-                        {hdr('Перенос даты', true)}
+                        {hdr(t('moveDate'), true)}
                         <div className="p-5">
-                            <label className="font-bold block mb-2 text-sm text-slate-500">Новая дата заезда</label>
+                            <label className="font-bold block mb-2 text-sm text-slate-500">{t('newCheckinDate')}</label>
                             <input type="date" className="w-full p-4 border-2 border-slate-200 rounded-xl font-bold text-lg mb-5" value={newStartDate} onChange={e=>setNewStartDate(e.target.value)}/>
-                            <button onClick={handleMoveBooking} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold">СОХРАНИТЬ</button>
+                            <button onClick={handleMoveBooking} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold">{t('saveUpper')}</button>
                         </div>
                     </div>
                 )}
@@ -1587,11 +1588,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
                     return (
                         <div className="flex flex-col overflow-hidden h-full">
-                            {hdr('Заменить гостя', true)}
+                            {hdr(t('replaceGuestTitle'), true)}
 
                             {/* Tabs */}
                             <div className="flex border-b border-slate-100 bg-white shrink-0">
-                                {[['db','Из базы клиентов'],['new','Ввести вручную']].map(([tab, label]) => (
+                                {[['db',t('fromClientBase')],['new',t('enterManually')]].map(([tab, label]) => (
                                     <button key={tab} onClick={() => setReplaceTab(tab)}
                                         className={`flex-1 py-3 text-sm font-bold transition-colors border-b-2 ${
                                             replaceTab === tab
@@ -1613,7 +1614,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             <input
                                                 autoFocus
                                                 className="w-full pl-9 pr-3 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:border-amber-400 outline-none"
-                                                placeholder="ФИО или паспорт..."
+                                                placeholder={t('fullNameOrPassport')}
                                                 value={replaceSearch}
                                                 onChange={e => { setReplaceSearch(e.target.value); setSelectedClient(null); }}
                                             />
@@ -1624,7 +1625,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     <div className="flex-1 overflow-y-auto">
                                         {filteredClients.length === 0 ? (
                                             <div className="py-10 text-center text-slate-400 text-sm">
-                                                {replaceSearch ? 'Ничего не найдено' : 'Начните вводить ФИО или паспорт'}
+                                                {replaceSearch ? t('nothingFound') : t('startTypingFullName')}
                                             </div>
                                         ) : (
                                             <div className="divide-y divide-slate-50">
@@ -1664,7 +1665,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             </div>
                                             <button onClick={handleReplaceFromDB}
                                                 className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold shadow-sm shadow-amber-100 transition-colors">
-                                                ПОДТВЕРДИТЬ ЗАМЕНУ
+                                                {t('confirmReplaceUpper')}
                                             </button>
                                         </div>
                                     )}
@@ -1675,42 +1676,42 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             {replaceTab === 'new' && (
                                 <div className="flex-1 overflow-y-auto p-4 pb-8 space-y-3">
                                     <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-medium">
-                                        Заменит ФИО, паспорт и личные данные гостя. Комната, даты и оплата останутся.
+                                        {t('replaceGuestDesc')}
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">ФИО *</label>
-                                        <input className={INP2} placeholder="ИВАНОВ ИВАН ИВАНОВИЧ"
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('fullNameRequired')}</label>
+                                        <input className={INP2} placeholder={t('placeholderFullName')}
                                             value={replaceNew.fullName}
                                             onChange={e => setReplaceNew({...replaceNew, fullName: e.target.value.toUpperCase()})} />
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Паспорт</label>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('passport')}</label>
                                             <input className={INP2} placeholder="AA1234567"
                                                 value={replaceNew.passport}
                                                 onChange={e => setReplaceNew({...replaceNew, passport: e.target.value.toUpperCase()})} />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Дата рожд.</label>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('birthDateShort')}</label>
                                             <input type="date" className={INP2}
                                                 value={replaceNew.birthDate}
                                                 onChange={e => setReplaceNew({...replaceNew, birthDate: e.target.value})} />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Выдан</label>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('issuedLabel')}</label>
                                             <input type="date" className={INP2}
                                                 value={replaceNew.passportIssueDate}
                                                 onChange={e => setReplaceNew({...replaceNew, passportIssueDate: e.target.value})} />
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Телефон</label>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('phone')}</label>
                                             <input className={INP2} placeholder="+998..."
                                                 value={replaceNew.phone}
                                                 onChange={e => setReplaceNew({...replaceNew, phone: e.target.value})} />
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Страна</label>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('country')}</label>
                                         <div className="relative">
                                             <select className={INP2 + ' pr-8 appearance-none'}
                                                 value={replaceNew.country}
@@ -1722,7 +1723,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     </div>
                                     <button onClick={handleReplaceNew}
                                         className="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black shadow-sm shadow-amber-100 transition-colors mt-2">
-                                        СОХРАНИТЬ И ЗАМЕНИТЬ
+                                        {t('saveAndReplaceUpper')}
                                     </button>
                                 </div>
                             )}
@@ -1736,7 +1737,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         <ConfirmDialog
             open={confirmDeleteOpen}
             title={t('deleteGuest')}
-            message={`${guest.fullName || ''}${guest.roomNumber ? ` — К.${guest.roomNumber}` : ''}`}
+            message={`${guest.fullName || ''}${guest.roomNumber ? ` — ${t('roomShort')}${guest.roomNumber}` : ''}`}
             confirmText={t('delete')}
             onConfirm={() => { setConfirmDeleteOpen(false); onDelete(guest); }}
             onCancel={() => setConfirmDeleteOpen(false)}
@@ -1757,33 +1758,33 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <span className="text-lg">↺</span>
                             </div>
                             <div>
-                                <div className="font-black text-slate-800 text-sm">Сбросить отсчёт КПП</div>
-                                <div className="text-xs text-slate-500 mt-0.5">Подтверждение регистрации будет снято</div>
+                                <div className="font-black text-slate-800 text-sm">{t('resetKppTitle')}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{t('regConfirmWillBeRemoved')}</div>
                             </div>
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Новая дата пересечения КПП</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">{t('newKppCrossDate')}</label>
                             <input
                                 type="date"
                                 value={kppResetDate}
                                 onChange={e => setKppResetDate(e.target.value)}
                                 className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold focus:border-rose-400 outline-none"
                             />
-                            <p className="text-[10px] text-slate-400 mt-1">Оставьте поле пустым, чтобы сохранить текущую дату КПП</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{t('leaveEmptyKeepKpp')}</p>
                         </div>
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setKppResetModal(false)}
                                 className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50"
-                            >Отмена</button>
+                            >{t('cancel')}</button>
                             <button
                                 onClick={() => {
                                     onKppReset(guest.id, kppResetDate || null);
                                     setKppResetModal(false);
-                                    notify('Отсчёт КПП сброшен', 'success');
+                                    notify(t('kppReset'), 'success');
                                 }}
                                 className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"
-                            >Сбросить</button>
+                            >{t('resetBtn')}</button>
                         </div>
                     </div>
                 </div>

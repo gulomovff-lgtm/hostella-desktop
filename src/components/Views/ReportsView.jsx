@@ -10,8 +10,10 @@ import { buildDebtReport, expectedProfit } from '../../utils/debtReport';
 // --- Styles ---
 
 // --- Utilities ---
-const METHOD_LABELS = { cash: 'Наличные', card: 'Терминал', qr: 'QR', transfer: 'Перечисление' };
-const methodLabel = m => METHOD_LABELS[m] || m || '—';
+const methodLabel = (m, t) => {
+    const labels = { cash: t('cash'), card: t('card'), qr: t('qr'), transfer: t('transferMethod') };
+    return labels[m] || m || '—';
+};
 
 const getLocalDatetimeString = (dateObj) => {
     if (!dateObj) return '';
@@ -19,11 +21,11 @@ const getLocalDatetimeString = (dateObj) => {
     return new Date(dateObj.getTime() - offset).toISOString().slice(0, 16);
 };
 
-const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = 'Все хостелы', periodStr = '', debt = null) => {
+const exportToExcel = async (t, data, filename, totalIncome = 0, totalExpense = 0, totalRefund = 0, hostelLabel = '', periodStr = '', debt = null) => {
     const ExcelJS = (await import('exceljs')).default;
     const net = totalIncome - totalExpense - totalRefund;
-    const mLabel = methodLabel;
-    const typeLabel = r => r.type === 'income' ? 'Приход' : r.category === 'Возврат' ? 'Возврат' : 'Расход';
+    const mLabel = (m) => methodLabel(m, t);
+    const typeLabel = r => r.type === 'income' ? t('income') : r.category === 'Возврат' ? t('refund') : t('expense');
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Hostella';
@@ -40,19 +42,19 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
     const moneyFmt = (ws, idxs) => idxs.forEach(i => { ws.getColumn(i).numFmt = MONEY; ws.getColumn(i).alignment = { horizontal: 'right' }; });
     const widths = (ws, ws_w) => ws_w.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
     const titleBlock = (ws, span) => {
-        const t1 = ws.addRow([`Финансовый отчёт — ${hostelLabel}`]);
+        const t1 = ws.addRow([`${t('financialReport')} — ${hostelLabel}`]);
         ws.mergeCells(t1.number, 1, t1.number, span);
         const c1 = t1.getCell(1); c1.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }; c1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TITLE } }; c1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }; t1.height = 28;
-        const t2 = ws.addRow([`Период: ${periodStr}    ·    Сформировано: ${new Date().toLocaleString('ru')}`]);
+        const t2 = ws.addRow([`${t('period')}: ${periodStr}    ·    ${t('generatedAt')}: ${new Date().toLocaleString('ru')}`]);
         ws.mergeCells(t2.number, 1, t2.number, span);
         t2.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
         ws.addRow([]);
     };
 
     // ── Лист 1: Операции ──
-    const ws1 = wb.addWorksheet('Операции', { views: [{ state: 'frozen', ySplit: 4 }] });
+    const ws1 = wb.addWorksheet(t('operations'), { views: [{ state: 'frozen', ySplit: 4 }] });
     titleBlock(ws1, 9);
-    addHeader(ws1, ['№', 'Дата и время', 'Тип', 'Хостел', 'Кассир', 'Категория', 'Сумма (сум)', 'Метод', 'Комментарий']);
+    addHeader(ws1, ['№', t('dateTime'), t('typeLabel'), t('expHostel'), t('cashier2'), t('category'), t('amountSumLabel'), t('method'), t('comment')]);
     data.forEach((r, i) => {
         const row = ws1.addRow([i + 1, r.date, typeLabel(r), r.hostel, r.staff, r.category || '—', r.type === 'expense' ? -Math.abs(r.amount) : r.amount, mLabel(r.method), r.comment]);
         boxRow(row);
@@ -66,34 +68,34 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
         if (fill) fillRow(r, fill);
         return r;
     };
-    addTot('Приход', totalIncome);
-    addTot('Расход', -totalExpense);
-    if (totalRefund > 0) addTot('Возврат', -totalRefund);
-    addTot('БАЛАНС', net, TOTAL_FILL);
+    addTot(t('income'), totalIncome);
+    addTot(t('expense'), -totalExpense);
+    if (totalRefund > 0) addTot(t('refund'), -totalRefund);
+    addTot(t('balanceUpper'), net, TOTAL_FILL);
     widths(ws1, [5, 20, 10, 14, 18, 16, 16, 12, 38]);
     moneyFmt(ws1, [7]);
 
     // ── Лист 2: Сводка ──
-    const ws2 = wb.addWorksheet('Сводка');
+    const ws2 = wb.addWorksheet(t('sheetSummary'));
     titleBlock(ws2, 3);
-    addHeader(ws2, ['Показатель', 'Значение', 'Операций']);
+    addHeader(ws2, [t('indicator'), t('valueWord'), t('operationsHeader')]);
     const sumRows = [
-        ['ВСЕГО ПРИХОД', totalIncome, data.filter(r => r.type === 'income').length],
-        ['ВСЕГО РАСХОД', -totalExpense, data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length],
-        ['ВСЕГО ВОЗВРАТ', -totalRefund, data.filter(r => r.category === 'Возврат').length],
+        [t('sheetTotalIncome'), totalIncome, data.filter(r => r.type === 'income').length],
+        [t('sheetTotalExpense'), -totalExpense, data.filter(r => r.type === 'expense' && r.category !== 'Возврат').length],
+        [t('sheetTotalRefund'), -totalRefund, data.filter(r => r.category === 'Возврат').length],
     ];
     sumRows.forEach(rw => { const r = ws2.addRow(rw); boxRow(r); });
-    const balR = ws2.addRow(['БАЛАНС', net, data.length]); balR.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
+    const balR = ws2.addRow([t('balanceUpper'), net, data.length]); balR.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
     // Долги: остаток на сегодня, не за период — поэтому отдельным блоком под балансом
     if (debt) {
         ws2.addRow([]);
         const dRows = [
-            ['ДОЛГИ на сегодня', debt.report.totals.debt, debt.report.totals.count],
-            ['  из них перечислением', debt.report.totals.transfer, ''],
-            ['  из них наличные / карта', debt.report.totals.regular, ''],
+            [t('debtsTodayUpper'), debt.report.totals.debt, debt.report.totals.count],
+            [t('ofWhichTransfer'), debt.report.totals.transfer, ''],
+            [t('ofWhichCashCard'), debt.report.totals.regular, ''],
         ];
         dRows.forEach(rw => { const r = ws2.addRow(rw); boxRow(r); });
-        const expR = ws2.addRow(['ОЖИДАЕМО (баланс + долги)', debt.expected, '']);
+        const expR = ws2.addRow([t('expectedBalanceDebts'), debt.expected, '']);
         expR.eachCell(c => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }; c.border = box; });
     }
     widths(ws2, [26, 20, 12]);
@@ -111,8 +113,8 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
     });
     const staffEntries = Object.entries(byStaff).sort((a, b) => b[1].income - a[1].income);
     if (staffEntries.length) {
-        const ws3 = wb.addWorksheet('По кассирам', { views: [{ state: 'frozen', ySplit: 1 }] });
-        addHeader(ws3, ['Кассир', 'Операций', 'Приход', 'Расход', 'Возврат', 'Баланс']);
+        const ws3 = wb.addWorksheet(t('sheetByCashiers'), { views: [{ state: 'frozen', ySplit: 1 }] });
+        addHeader(ws3, [t('cashier2'), t('operationsHeader'), t('income'), t('expense'), t('refund'), t('balance')]);
         staffEntries.forEach(([name, v], i) => {
             const r = ws3.addRow([name, v.count, v.income, -v.expense, -v.refund, v.income - v.expense - v.refund]);
             boxRow(r); if (i % 2) fillRow(r, ZEBRA);
@@ -126,8 +128,8 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
     data.filter(r => r.type === 'income').forEach(r => { const m = mLabel(r.method); byMethod[m] = (byMethod[m] || 0) + r.amount; });
     const methodEntries = Object.entries(byMethod).sort((a, b) => b[1] - a[1]);
     if (methodEntries.length) {
-        const ws4 = wb.addWorksheet('По методам', { views: [{ state: 'frozen', ySplit: 1 }] });
-        addHeader(ws4, ['Метод оплаты', 'Сумма (сум)', 'Доля (%)']);
+        const ws4 = wb.addWorksheet(t('sheetByMethods'), { views: [{ state: 'frozen', ySplit: 1 }] });
+        addHeader(ws4, [t('paymentMethod'), t('amountSumLabel'), t('sharePercent')]);
         methodEntries.forEach(([method, sum], i) => {
             const r = ws4.addRow([method, sum, totalIncome > 0 ? +((sum / totalIncome) * 100).toFixed(1) : 0]);
             boxRow(r); if (i % 2) fillRow(r, ZEBRA);
@@ -140,7 +142,7 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
     if (debt) addDebtSheets(wb, { report: debt.report, hostelLabel, hostelName: debt.hostelName, periodLabel: periodStr, periodNet: net, expected: debt.expected });
 
     // ── Скачивание ──
-    if (wb.worksheets.length === 0) wb.addWorksheet('Отчёт');
+    if (wb.worksheets.length === 0) wb.addWorksheet(t('reportSingular'));
     const buf = await wb.xlsx.writeBuffer();
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
@@ -150,7 +152,7 @@ const exportToExcel = async (data, filename, totalIncome = 0, totalExpense = 0, 
     setTimeout(() => URL.revokeObjectURL(url), 1500);
 };
 
-const printReport = (data, totalIncome, totalExpense, totalRefund, filters, users) => {
+const printReport = (t, data, totalIncome, totalExpense, totalRefund, filters, users) => {
     const w = window.open('', '', 'width=800,height=600');
     const esc = (v) => String(v == null ? '' : v)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -158,7 +160,7 @@ const printReport = (data, totalIncome, totalExpense, totalRefund, filters, user
     const startStr = new Date(filters.start).toLocaleString();
     const endStr = new Date(filters.end).toLocaleString();
     const netBalance = totalIncome - totalExpense - totalRefund;
-    let html = `<html><head><title>Финансовый отчет</title>
+    let html = `<html><head><title>${t('financialReport')}</title>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -169,17 +171,17 @@ const printReport = (data, totalIncome, totalExpense, totalRefund, filters, user
         .income { color: green; } .expense { color: red; }
         .balance { font-weight: bold; font-size: 14px; }
     </style></head><body>
-    <div class="header"><h2>Финансовый отчет</h2><p>${startStr} — ${endStr}</p></div>
+    <div class="header"><h2>${t('financialReport')}</h2><p>${startStr} — ${endStr}</p></div>
     <div class="summary">
-        <div>Приход: <span class="income">+${totalIncome.toLocaleString()}</span></div>
-        <div>Расход: <span class="expense">-${totalExpense.toLocaleString()}</span></div>
-        ${totalRefund > 0 ? `<div>Возврат: <span class="expense">-${totalRefund.toLocaleString()}</span></div>` : ''}
-        <div class="balance">Итого: ${netBalance.toLocaleString()}</div>
+        <div>${t('income')}: <span class="income">+${totalIncome.toLocaleString()}</span></div>
+        <div>${t('expense')}: <span class="expense">-${totalExpense.toLocaleString()}</span></div>
+        ${totalRefund > 0 ? `<div>${t('refund')}: <span class="expense">-${totalRefund.toLocaleString()}</span></div>` : ''}
+        <div class="balance">${t('total')}: ${netBalance.toLocaleString()}</div>
     </div>
-    <table><thead><tr><th>Дата</th><th>Тип</th><th>Сумма</th><th>Метод</th><th>Кассир</th><th>Описание</th></tr></thead><tbody>`;
+    <table><thead><tr><th>${t('date')}</th><th>${t('typeLabel')}</th><th>${t('amount')}</th><th>${t('method')}</th><th>${t('cashier2')}</th><th>${t('description')}</th></tr></thead><tbody>`;
     data.forEach(row => {
-        const staffName = users.find(u => u.id === row.staffId || u.login === row.staffId)?.name || '(Удалённый кассир)';
-        const typeLabel = row.type === 'income' ? 'Приход' : 'Расход';
+        const staffName = users.find(u => u.id === row.staffId || u.login === row.staffId)?.name || t('deletedCashier');
+        const typeLabel = row.type === 'income' ? t('income') : t('expense');
         const typeClass = row.type === 'income' ? 'income' : 'expense';
         html += `<tr><td>${new Date(row.date).toLocaleString()}</td><td class="${typeClass}">${typeLabel}</td>
             <td>${parseInt(row.amount).toLocaleString()}</td><td>${esc(row.method || '-')}</td>
@@ -195,8 +197,8 @@ const printReport = (data, totalIncome, totalExpense, totalRefund, filters, user
 const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, selectedHostelFilter, hostels, lang, rooms = [], contractGroups = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const HOSTEL_LIST = [
-        { id: 'hostel1', name: hostels?.hostel1?.name || 'Хостел №1' },
-        { id: 'hostel2', name: hostels?.hostel2?.name || 'Хостел №2' }
+        { id: 'hostel1', name: hostels?.hostel1?.name || t('expHostel1') },
+        { id: 'hostel2', name: hostels?.hostel2?.name || t('expHostel2') }
     ];
     // Отчёт привязан к хостелу из верхнего переключателя (данные уже отфильтрованы по нему)
     const initialHostel = (selectedHostelFilter && selectedHostelFilter !== 'all')
@@ -228,7 +230,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const [exporting, setExporting] = useState(false);
     const [debtReportOpen, setDebtReportOpen] = useState(false);
     const hostelName = (id) => hostels?.[id]?.name
-        || (id === 'hostel1' ? 'Хостел №1' : id === 'hostel2' ? 'Хостел №2' : id || '—');
+        || (id === 'hostel1' ? t('expHostel1') : id === 'hostel2' ? t('expHostel2') : id || '—');
     const [activePreset, setActivePreset] = useState('today');
     const fInput = "w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
     const fLabel = "block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wide ml-1";
@@ -257,8 +259,10 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const askDelete = async (id, type, item) => {
         if (deletingId) return;
         const sum = (parseInt(item?.amount) || 0).toLocaleString('ru');
-        const what = type === 'income' ? 'приход' : 'расход';
-        if (!window.confirm(`Удалить ${what} на ${sum} сум?${item?.guestId ? '\nОплата гостя уменьшится на эту сумму.' : ''}`)) return;
+        const what = type === 'income' ? t('deleteIncomeWord') : t('deleteExpenseWord');
+        const msg = t('deleteConfirmMsg').replace('{what}', what).replace('{sum}', sum)
+            + (item?.guestId ? '\n' + t('deletePaymentReduceNote') : '');
+        if (!window.confirm(msg)) return;
         setDeletingId(id);
         try { await onDeletePayment(id, type, item); }
         finally { setDeletingId(null); }
@@ -348,13 +352,13 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         try {
         const hostelLabel = filters.hostelId
             ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId)
-            : 'Все хостелы';
+            : t('expAllHostels');
         const periodStr = `${new Date(filters.start).toLocaleString('ru')} — ${new Date(filters.end).toLocaleString('ru')}`;
-        const CATEGORY_RU = { accommodation: 'Проживание' };
+        const CATEGORY_RU = { accommodation: t('accommodation') };
         const exportData = filteredData.map(item => ({
             date: new Date(item.date).toLocaleString('ru'),
             type: item.type,
-            category: CATEGORY_RU[item.category] || item.category || (item.type === 'income' ? 'Оплата' : 'Расход'),
+            category: CATEGORY_RU[item.category] || item.category || (item.type === 'income' ? t('payment') : t('expense')),
             staff: users.find(u => u.id === item.staffId || u.login === item.staffId)?.name || '—',
             hostel: HOSTEL_LIST.find(h => h.id === item.hostelId)?.name || item.hostelId || '—',
             amount: parseInt(item.amount) || 0,
@@ -368,14 +372,14 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId).replace(/\s/g, '_')
             : 'Все_хостелы';
         const fname = `Hostella_${dateFrom}_${dateTo}_${sortLabel}_${hostelSlug}.xls`;
-        await exportToExcel(exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr, {
+        await exportToExcel(t, exportData, fname, totalIncome, totalExpense, totalRefund, hostelLabel, periodStr, {
             report: debtReport,
             expected: expectedProfit(net, debtReport.totals.debt),
             hostelName,
         });
         } catch (e) {
             console.error('Excel export failed:', e);
-            alert('Не удалось сформировать Excel: ' + (e?.message || 'неизвестная ошибка'));
+            alert(t('excelFailedError').replace('{msg}', e?.message || t('unknownError')));
         } finally {
             setExporting(false);
         }
@@ -406,7 +410,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
     const hostelBadge = (selectedHostelFilter && selectedHostelFilter !== 'all')
         ? (HOSTEL_LIST.find(h => h.id === selectedHostelFilter)?.name || selectedHostelFilter)
-        : (filters.hostelId ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId) : 'Все хостелы');
+        : (filters.hostelId ? (HOSTEL_LIST.find(h => h.id === filters.hostelId)?.name || filters.hostelId) : t('expAllHostels'));
     const periodLabel = `${new Date(filters.start).toLocaleDateString('ru')} — ${new Date(filters.end).toLocaleDateString('ru')}`;
 
     return (
@@ -415,7 +419,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             {/* -- HEADER -- */}
             <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                    <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">Финансовый отчёт</h1>
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">{t('financialReport')}</h1>
                     <p className="text-xs text-slate-400 font-semibold mt-0.5">{periodLabel}</p>
                 </div>
                 <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-black border border-indigo-100 shadow-sm">
@@ -426,10 +430,10 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             {/* -- SUMMARY CARDS -- */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 {[
-                    { label: 'Приход',  Icon: TrendingUp,   grad: 'from-emerald-500 to-teal-600',  shadow: 'rgba(16,185,129,0.35)', val: `+${totalIncome.toLocaleString()}`,  count: filteredData.filter(x=>x.type==='income').length },
-                    { label: 'Расход',  Icon: TrendingDown, grad: 'from-rose-500 to-pink-600',     shadow: 'rgba(244,63,94,0.35)',  val: `-${totalExpense.toLocaleString()}`, count: filteredData.filter(x=>x.type==='expense'&&x.category!=='Возврат').length },
-                    { label: 'Возврат', Icon: TrendingDown, grad: 'from-amber-500 to-orange-600',  shadow: 'rgba(245,158,11,0.35)', val: `-${totalRefund.toLocaleString()}`,  count: filteredData.filter(x=>x.type==='expense'&&x.category==='Возврат').length },
-                    { label: 'Баланс',  Icon: Wallet,       grad: net >= 0 ? 'from-indigo-500 to-purple-600' : 'from-slate-600 to-slate-700', shadow: 'rgba(99,102,241,0.35)', val: `${net >= 0 ? '+' : ''}${net.toLocaleString()}`, count: `${filteredData.length} всего` },
+                    { label: t('income'),  Icon: TrendingUp,   grad: 'from-emerald-500 to-teal-600',  shadow: 'rgba(16,185,129,0.35)', val: `+${totalIncome.toLocaleString()}`,  count: filteredData.filter(x=>x.type==='income').length },
+                    { label: t('expense'),  Icon: TrendingDown, grad: 'from-rose-500 to-pink-600',     shadow: 'rgba(244,63,94,0.35)',  val: `-${totalExpense.toLocaleString()}`, count: filteredData.filter(x=>x.type==='expense'&&x.category!=='Возврат').length },
+                    { label: t('refund'), Icon: TrendingDown, grad: 'from-amber-500 to-orange-600',  shadow: 'rgba(245,158,11,0.35)', val: `-${totalRefund.toLocaleString()}`,  count: filteredData.filter(x=>x.type==='expense'&&x.category==='Возврат').length },
+                    { label: t('balance'),  Icon: Wallet,       grad: net >= 0 ? 'from-indigo-500 to-purple-600' : 'from-slate-600 to-slate-700', shadow: 'rgba(99,102,241,0.35)', val: `${net >= 0 ? '+' : ''}${net.toLocaleString()}`, count: `${filteredData.length} ${t('allTotalWord')}` },
                 ].map(({ label, Icon, grad, shadow, val, count }) => (
                     <div key={label} className={`relative overflow-hidden rounded-3xl p-5 text-white bg-gradient-to-br ${grad}`} style={{ boxShadow: `0 12px 28px -8px ${shadow}` }}>
                         <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/10 pointer-events-none" />
@@ -438,7 +442,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             <span className="text-xs font-black uppercase tracking-wider opacity-90">{label}</span>
                         </div>
                         <div className="relative text-2xl sm:text-3xl font-black tracking-tight tabular-nums leading-none">{val}</div>
-                        <div className="relative inline-block text-[10px] font-bold mt-2.5 px-2 py-0.5 rounded-full bg-white/15">{typeof count === 'number' ? `${count} операций` : count}</div>
+                        <div className="relative inline-block text-[10px] font-bold mt-2.5 px-2 py-0.5 rounded-full bg-white/15">{typeof count === 'number' ? `${count} ${t('operationsCount')}` : count}</div>
                     </div>
                 ))}
             </div>
@@ -447,16 +451,16 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl px-5 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-blue-700">
                         <span className="text-lg">🏦</span>
-                        <span className="font-bold text-sm">Инкассация за период</span>
+                        <span className="font-bold text-sm">{t('incassationForPeriod')}</span>
                     </div>
-                    <span className="font-black text-blue-800 text-lg">{totalCTT.toLocaleString()} сум</span>
+                    <span className="font-black text-blue-800 text-lg">{totalCTT.toLocaleString()} {t('sum')}</span>
                 </div>
             )}
 
             {/* -- FILTERS -- */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
                 <div className="flex gap-1.5 p-2.5 border-b border-slate-100 bg-slate-50/70 overflow-x-auto scrollbar-hide rounded-t-2xl">
-                    {[['today','Сегодня'],['yesterday','Вчера'],['week','7 дней'],['month','Этот месяц']].map(([k,l]) => {
+                    {[['today',t('today2')],['yesterday',t('yesterday')],['week',t('exp7Days')],['month',t('thisMonth')]].map(([k,l]) => {
                         const on = activePreset === k;
                         return (
                             <button key={k} onClick={() => applyPreset(k)}
@@ -468,59 +472,59 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 </div>
                 <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
                     <div>
-                        <label className={fLabel}>С</label>
-                        <DatePicker value={(tempFilters.start||'').slice(0,10)} placeholder="Дата" className={fInput}
+                        <label className={fLabel}>{t('from')}</label>
+                        <DatePicker value={(tempFilters.start||'').slice(0,10)} placeholder={t('date')} className={fInput}
                             onChange={(d)=>{ setTempFilters({...tempFilters, start: d ? d + 'T00:00' : ''}); setActivePreset(''); }}/>
                     </div>
                     <div>
-                        <label className={fLabel}>По</label>
-                        <DatePicker value={(tempFilters.end||'').slice(0,10)} placeholder="Дата" className={fInput}
+                        <label className={fLabel}>{t('to')}</label>
+                        <DatePicker value={(tempFilters.end||'').slice(0,10)} placeholder={t('date')} className={fInput}
                             onChange={(d)=>{ setTempFilters({...tempFilters, end: d ? d + 'T23:59' : ''}); setActivePreset(''); }}/>
                     </div>
                     <div>
-                        <label className={fLabel}>Тип</label>
+                        <label className={fLabel}>{t('typeLabel')}</label>
                         <select className={fInput} value={tempFilters.type} onChange={e=>setTempFilters({...tempFilters,type:e.target.value})}>
-                            <option value="">Все</option>
-                            <option value="income">Приход</option>
-                            <option value="expense">Расход</option>
-                            <option value="refund">Возврат</option>
-                            <option value="ctt">Инкассация</option>
+                            <option value="">{t('all')}</option>
+                            <option value="income">{t('income')}</option>
+                            <option value="expense">{t('expense')}</option>
+                            <option value="refund">{t('refund')}</option>
+                            <option value="ctt">{t('incassation')}</option>
                         </select>
                     </div>
                     <div>
-                        <label className={fLabel}>Метод</label>
+                        <label className={fLabel}>{t('method')}</label>
                         <select className={fInput} value={tempFilters.method} onChange={e=>setTempFilters({...tempFilters,method:e.target.value})}>
-                            <option value="">Все</option>
+                            <option value="">{t('all')}</option>
                             <option value="cash">{t('cash')}</option>
                             <option value="card">{t('card')}</option>
                             <option value="qr">{t('qr')}</option>
-                            <option value="transfer">Перечисление</option>
+                            <option value="transfer">{t('transferMethod')}</option>
                         </select>
                     </div>
                     <div className="col-span-2 sm:col-span-1">
                         <label className={fLabel}>{t('staff')}</label>
                         <select className={fInput} value={tempFilters.staffId} onChange={e=>setTempFilters({...tempFilters,staffId:e.target.value})}>
-                            <option value="">Все</option>
+                            <option value="">{t('all')}</option>
                             {availableCashiers.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
                     </div>
                 </div>
                 <div className="px-3 pb-3 flex flex-wrap gap-2 border-t border-slate-100 pt-2.5">
                     <button onClick={handleApplyFilters} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95">
-                        <Check size={15}/> Применить
+                        <Check size={15}/> {t('apply')}
                     </button>
-                    <button onClick={() => printReport(filteredData, totalIncome, totalExpense, totalRefund, filters, users)} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors">
+                    <button onClick={() => printReport(t, filteredData, totalIncome, totalExpense, totalRefund, filters, users)} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors">
                         <Printer size={15}/> {t('printReport')}
                     </button>
                     <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors disabled:opacity-60">
-                        <Download size={15}/> {exporting ? 'Формирую…' : 'Excel'}
+                        <Download size={15}/> {exporting ? t('generating') : 'Excel'}
                     </button>
                     <button onClick={() => setDebtReportOpen(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
-                        <Coins size={15}/> Долги
+                        <Coins size={15}/> {t('debts')}
                     </button>
                     {onCashToTerminal && (
                         <button onClick={openCTT} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
-                            🏦 Инкассация
+                            🏦 {t('incassation')}
                         </button>
                     )}
                 </div>
@@ -552,9 +556,9 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-blue-100">
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800">ИНКАССАЦИЯ</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800">{t('incassationUpper')}</span>
                                 {item.receipt && (
-                                    <button onClick={() => setReceiptViewer(item.receipt)} className="ml-1 text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1">🧾 Чек</button>
+                                    <button onClick={() => setReceiptViewer(item.receipt)} className="ml-1 text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1">🧾 {t('printCheck')}</button>
                                 )}
                                 {currentUser.role==='super' && (
                                     <button onClick={()=>askDelete(item.id,'income',item)} disabled={deletingId===item.id} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={13}/></button>
@@ -583,9 +587,9 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             </div>
                             <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-slate-100">
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : item.category === 'Возврат' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700' }`}>
-                                    {isIncome ? 'ПРИХОД' : item.category === 'Возврат' ? 'ВОЗВРАТ' : 'РАСХОД'}
+                                    {isIncome ? t('incomeUpper') : item.category === 'Возврат' ? t('refundUpper') : t('expenseUpper')}
                                 </span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{methodLabel(item.method)}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{methodLabel(item.method, t)}</span>
                                 {currentUser.role==='super' && (
                                     <button onClick={()=>askDelete(item.id,item.type,item)} disabled={deletingId===item.id} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={13}/></button>
                                 )}
@@ -602,12 +606,12 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                         <thead>
                             <tr className="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
                                 <th className="px-4 py-3">{t('date')}</th>
-                                <th className="px-4 py-3">Хостел</th>
-                                <th className="px-4 py-3">Тип</th>
+                                <th className="px-4 py-3">{t('expHostel')}</th>
+                                <th className="px-4 py-3">{t('typeLabel')}</th>
                                 <th className="px-4 py-3">{t('amount')}</th>
-                                <th className="px-4 py-3">Метод</th>
+                                <th className="px-4 py-3">{t('method')}</th>
                                 <th className="px-4 py-3">{t('staff')}</th>
-                                <th className="px-4 py-3">Детали</th>
+                                <th className="px-4 py-3">{t('details')}</th>
                                 {currentUser.role==='super' && <th className="px-4 py-3"/>}
                             </tr>
                         </thead>
@@ -625,15 +629,15 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className="px-4 py-3 text-blue-500 text-xs whitespace-nowrap">{new Date(item.date).toLocaleString('ru')}</td>
                                         <td className="px-4 py-3 text-xs font-semibold text-blue-600">{hostelName}</td>
                                         <td className="px-4 py-3">
-                                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-blue-200 text-blue-800">🏦 ИНКАССАЦИЯ</span>
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-blue-200 text-blue-800">🏦 {t('incassationUpper')}</span>
                                         </td>
                                         <td className="px-4 py-3 font-black text-sm text-blue-700">{parseInt(item.amount).toLocaleString()}</td>
-                                        <td className="px-4 py-3 uppercase text-[10px] font-bold text-blue-400">НАЛИ</td>
+                                        <td className="px-4 py-3 uppercase text-[10px] font-bold text-blue-400">{t('cashAbbr')}</td>
                                         <td className="px-4 py-3 text-sm text-blue-700">{staffName}</td>
                                         <td className="px-4 py-3 text-xs text-blue-500 max-w-[200px]">
                                             <span className="truncate block">{detail}</span>
                                             {item.receipt && (
-                                                <button onClick={() => setReceiptViewer(item.receipt)} className="text-blue-600 font-bold hover:underline flex items-center gap-1 mt-0.5">🧾 Чек</button>
+                                                <button onClick={() => setReceiptViewer(item.receipt)} className="text-blue-600 font-bold hover:underline flex items-center gap-1 mt-0.5">🧾 {t('printCheck')}</button>
                                             )}
                                         </td>
                                         {currentUser.role==='super' && (
@@ -650,13 +654,13 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         <td className="px-4 py-3">
                                             <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full ${ isIncome ? 'bg-emerald-100 text-emerald-700' : item.category === 'Возврат' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700' }`}>
                                                 {isIncome ? <TrendingUp size={10}/> : <TrendingDown size={10}/>}
-                                                {isIncome ? 'ПРИХОД' : item.category === 'Возврат' ? 'ВОЗВРАТ' : 'РАСХОД'}
+                                                {isIncome ? t('incomeUpper') : item.category === 'Возврат' ? t('refundUpper') : t('expenseUpper')}
                                             </span>
                                         </td>
                                         <td className={`px-4 py-3 font-black text-sm tabular-nums ${ isIncome ? 'text-emerald-600' : 'text-rose-600' }`}>
                                             {isIncome?'+':'-'}{parseInt(item.amount).toLocaleString()}
                                         </td>
-                                        <td className="px-4 py-3"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{methodLabel(item.method)}</span></td>
+                                        <td className="px-4 py-3"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{methodLabel(item.method, t)}</span></td>
                                         <td className="px-4 py-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-black shrink-0">{initials(staffName)}</div>
@@ -684,12 +688,12 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <div className="flex items-center gap-3">
                         <span className="text-2xl">🏦</span>
                         <div>
-                            <h2 className="font-black text-slate-800 text-lg">Инкассация</h2>
-                            <p className="text-xs text-slate-400">Перевод наличных в терминал</p>
+                            <h2 className="font-black text-slate-800 text-lg">{t('incassation')}</h2>
+                            <p className="text-xs text-slate-400">{t('incassationTransferDesc')}</p>
                         </div>
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Сумма (сум)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t('amountSumLabel')}</label>
                         <input
                             type="number"
                             className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl font-bold text-slate-800 focus:border-blue-500 outline-none text-lg"
@@ -700,7 +704,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Дата и время</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t('dateTime')}</label>
                         <input
                             type="datetime-local"
                             className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl font-medium text-slate-700 focus:border-blue-500 outline-none"
@@ -709,20 +713,20 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Комментарий (опц.)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t('commentOpt')}</label>
                         <input
                             type="text"
                             className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl font-medium text-slate-700 focus:border-blue-500 outline-none"
-                            placeholder="Инкассация — перевод наличных в терминал"
+                            placeholder={t('incassationCommentPlaceholder')}
                             value={cttComment}
                             onChange={e => setCttComment(e.target.value)}
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Чек (фото)</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t('receiptPhoto')}</label>
                         {cttReceipt ? (
                             <div className="relative">
-                                <img src={cttReceipt} alt="Чек" className="w-full max-h-48 object-contain rounded-xl border border-slate-200"/>
+                                <img src={cttReceipt} alt={t('printCheck')} className="w-full max-h-48 object-contain rounded-xl border border-slate-200"/>
                                 <button onClick={() => setCttReceipt(null)} className="absolute top-1 right-1 w-6 h-6 bg-rose-500 text-white rounded-full text-xs font-black flex items-center justify-center hover:bg-rose-600">×</button>
                             </div>
                         ) : (
@@ -733,7 +737,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 onDrop={e => { e.preventDefault(); setCttDragOver(false); loadReceiptFile(e.dataTransfer.files[0]); }}
                             >
                                 <span className="text-2xl">🧾</span>
-                                <span className="text-xs text-slate-400 font-semibold">Перетащите фото или нажмите</span>
+                                <span className="text-xs text-slate-400 font-semibold">{t('dragPhotoOrClick')}</span>
                                 <input type="file" accept="image/*" className="hidden" onChange={e => loadReceiptFile(e.target.files[0])}/>
                             </label>
                         )}
@@ -744,13 +748,13 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                             disabled={!(parseInt(cttAmount) > 0)}
                             className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-black text-sm transition-colors"
                         >
-                            Записать
+                            {t('recordBtn')}
                         </button>
                         <button
                             onClick={closeCTT}
                             className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm"
                         >
-                            Отмена
+                            {t('cancel')}
                         </button>
                     </div>
                 </div>
@@ -762,7 +766,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 onClick={() => setReceiptViewer(null)}
             >
                 <div className="relative max-w-[90vw] max-h-[90vh]" onClick={e => e.stopPropagation()}>
-                    <img src={receiptViewer} alt="Чек" className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl"/>
+                    <img src={receiptViewer} alt={t('printCheck')} className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl"/>
                     <button
                         onClick={() => setReceiptViewer(null)}
                         className="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full text-slate-700 font-black text-lg flex items-center justify-center shadow-lg hover:bg-rose-500 hover:text-white transition-colors"

@@ -5,11 +5,10 @@ import {
     Banknote, CreditCard, QrCode, Building2, ArrowRight, RefreshCw,
     Eye, EyeOff, Plus,
 } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-const HOSTELS = { hostel1: 'Хостел №1', hostel2: 'Хостел №2' };
-const METHOD_LABEL = { cash: 'Нал', card: 'Карта', qr: 'QR' };
 const METHOD_COLOR = {
     cash: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     card: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -56,8 +55,9 @@ const StatCard = ({ icon: Icon, label, value, sub, highlight }) => (
     </div>
 );
 
-const MethodChip = ({ method, amount }) => {
+const MethodChip = ({ method, amount, t }) => {
     const Icon = METHOD_ICON[method] || Banknote;
+    const METHOD_LABEL = { cash: t('cashShort'), card: t('cardShort'), qr: t('qr') };
     return (
         <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${METHOD_COLOR[method] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
             <Icon size={10}/> {METHOD_LABEL[method] || method} {fmt(amount)}
@@ -67,7 +67,9 @@ const MethodChip = ({ method, amount }) => {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [], currentUser, auditLog = [] }) => {
+const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [], currentUser, auditLog = [], lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
+    const HOSTELS = { hostel1: t('expHostel1'), hostel2: t('expHostel2') };
     const [search,             setSearch            ] = useState('');
     const [filterHostel,       setFilterHostel      ] = useState('');
     const [filterDateFrom,     setFilterDateFrom    ] = useState('');
@@ -102,7 +104,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
     const resolveUser = (staffId) => {
         if (!staffId) return '—';
         const u = users.find(u => u.id === staffId || u.uid === staffId || u.login === staffId);
-        return u?.name || u?.login || '(Удалённый кассир)';
+        return u?.name || u?.login || t('deletedCashier');
     };
 
     // Unique cashiers from payments (for filter dropdown)
@@ -431,11 +433,11 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                 sc(grp.hostels.map(h=>HOSTELS[h]||h).join(', '), es),
                 nc(grp.stayCount, ns),
                 sc(grp.validPrices.map(p=>p.toLocaleString('ru')).join(' / '), es),
-                sc(varied ? 'Да' : 'Нет', varied ? 'warn' : 'ok'),
+                sc(varied ? t('yes') : t('no'), varied ? 'warn' : 'ok'),
                 nc(grp.totalAmount, ns),
                 nc(grp.totalPaid,   s?'ge':'go'),
                 nc(grp.totalDebt,   grp.totalDebt>0 ? (s?'de':'do') : (s?'ge':'go')),
-                sc(grp.isActive ? 'Живет' : 'Выехал', es),
+                sc(grp.isActive ? t('living') : t('checkedOutWord'), es),
             );
         }).join('');
 
@@ -444,15 +446,15 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
         const tD = filtered.reduce((s,g)=>s+g.totalDebt,0);
         const tS = filtered.reduce((s,g)=>s+g.stayCount,0);
 
-        const sheet1 = `<Worksheet ss:Name="Гости (экран)"><Table>${s1cols}
-          ${hR(sc(`HOSTELLA — Список гостей    Дата: ${today}    Гостей: ${filtered.length}`,'title'))}
+        const sheet1 = `<Worksheet ss:Name="${t('xlsSheetGuestsScreen')}"><Table>${s1cols}
+          ${hR(sc(t('xlsScreenTitle').replace('{date}', today).replace('{count}', filtered.length),'title'))}
           ${eR()}
-          ${hR(sc('N','hdr'),sc('ФИО гостя','hdr'),sc('Хостел(ы)','hdr'),sc('Заселений','hdr'),
-               sc('Цены сум/ночь','hdr'),sc('Разные цены','hdr'),sc('Начислено','hdr'),
-               sc('Оплачено','hdr'),sc('Долг','hdr'),sc('Статус','hdr'))}
+          ${hR(sc('N','hdr'),sc(t('guestName'),'hdr'),sc(t('xlsHostels'),'hdr'),sc(t('staysColumn'),'hdr'),
+               sc(t('pricesPerNightCol'),'hdr'),sc(t('differentPrices'),'hdr'),sc(t('accrued'),'hdr'),
+               sc(t('paid'),'hdr'),sc(t('debt'),'hdr'),sc(t('status'),'hdr'))}
           ${s1rows}
           ${eR()}
-          ${row(sc('','totl'),sc('ИТОГО','totl'),sc('','totl'),nc(tS,'tot'),sc('','totl'),sc('','totl'),
+          ${row(sc('','totl'),sc(t('totalUpper'),'totl'),sc('','totl'),nc(tS,'tot'),sc('','totl'),sc('','totl'),
                nc(tA,'tot'),nc(tP,'tot'),nc(tD,'tot'),sc('','totl'))}
         </Table></Worksheet>`;
 
@@ -474,7 +476,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
                     stay.roomNumber||'', stay.bedId||'',
                     dl(stay.checkInDate), dl(stay.checkOutDate),
                     nights, parseInt(stay.pricePerNight)||0,
-                    stay.status==='active'?'Живет':'Выехал'];
+                    stay.status==='active'?t('living'):t('checkedOutWord')];
 
                 if (stay.guestPayments.length === 0) {
                     const i = rowN++; const s=i%2===0, es=s?'e':'o', ns=s?'ne':'no';
@@ -504,13 +506,13 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
             }).join('')
         ).join('');
 
-        const sheet2 = `<Worksheet ss:Name="Платежи (детально)"><Table>${s2cols}
-          ${hR(sc(`HOSTELLA — Детальные платежи    Дата: ${today}`,'title'))}
+        const sheet2 = `<Worksheet ss:Name="${t('xlsSheetPaymentsDetail')}"><Table>${s2cols}
+          ${hR(sc(t('xlsDetailTitle').replace('{date}', today),'title'))}
           ${eR()}
-          ${hR(sc('N','hdr'),sc('ФИО гостя','hdr'),sc('Хостел','hdr'),sc('Комната','hdr'),sc('Место','hdr'),
-               sc('Дата заезда','hdr'),sc('Дата выезда','hdr'),sc('Ночей','hdr'),sc('Цена/ночь','hdr'),sc('Статус','hdr'),
-               sc('Дата оплаты','hdr'),sc('Сумма','hdr'),sc('Наличные','hdr'),sc('Карта','hdr'),sc('QR','hdr'),
-               sc('Кассир','hdr'),sc('Хостел кассира','hdr'))}
+          ${hR(sc('N','hdr'),sc(t('guestName'),'hdr'),sc(t('expHostel'),'hdr'),sc(t('room'),'hdr'),sc(t('bed2'),'hdr'),
+               sc(t('checkInDateCol'),'hdr'),sc(t('checkOutDateCol'),'hdr'),sc(t('nights2'),'hdr'),sc(t('pricePerNightCol'),'hdr'),sc(t('status'),'hdr'),
+               sc(t('paymentDateCol'),'hdr'),sc(t('amount'),'hdr'),sc(t('cash'),'hdr'),sc(t('cardShort'),'hdr'),sc(t('qr'),'hdr'),
+               sc(t('cashier'),'hdr'),sc(t('cashierHostelCol'),'hdr'))}
           ${s2rows}
         </Table></Worksheet>`;
 
@@ -529,10 +531,10 @@ ${styles}${sheet1}${sheet2}
 
     const handleExport = () => {
         const rows = [[
-            'ФИО гостя', 'Хостел (заселение)', 'Комната', 'Место',
-            'Дата заезда', 'Дата выезда', 'Цена/ночь', 'Статус',
-            'Дата оплаты', 'Сумма оплаты', 'Наличные', 'Карта', 'QR',
-            'Кассир', 'Хостел (кассир)',
+            t('guestName'), t('hostelCheckinCol'), t('room'), t('bed2'),
+            t('checkInDateCol'), t('checkOutDateCol'), t('pricePerNightCol'), t('status'),
+            t('paymentDateCol'), t('paymentAmountCol'), t('cash'), t('cardShort'), t('qr'),
+            t('cashier'), t('hostelCashierCol'),
         ]];
         filtered.forEach(grp => {
             grp.stays.forEach(stay => {
@@ -544,7 +546,7 @@ ${styles}${sheet1}${sheet2}
                         stay.roomNumber || '—', stay.bedId || '—',
                         fmtDate(stay.checkInDate), fmtDate(stay.checkOutDate),
                         parseInt(stay.pricePerNight) || 0,
-                        stay.status === 'active' ? 'Живёт' : 'Выехал',
+                        stay.status === 'active' ? t('living') : t('checkedOutWord'),
                         '—', 0, 0, 0, 0, '—', '—',
                     ]);
                 } else {
@@ -555,7 +557,7 @@ ${styles}${sheet1}${sheet2}
                             stay.roomNumber || '—', stay.bedId || '—',
                             fmtDate(stay.checkInDate), fmtDate(stay.checkOutDate),
                             parseInt(stay.pricePerNight) || 0,
-                            stay.status === 'active' ? 'Живёт' : 'Выехал',
+                            stay.status === 'active' ? t('living') : t('checkedOutWord'),
                             p.date ? new Date(p.date).toLocaleString('ru') : '—',
                             parseInt(p.amount) || 0,
                             parseInt(p.cash)   || 0,
@@ -590,10 +592,10 @@ ${styles}${sheet1}${sheet2}
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                     <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                        <History size={20} className="text-indigo-500"/> История проживания
+                        <History size={20} className="text-indigo-500"/> {t('stayHistoryTitle')}
                     </h1>
                     <p className="text-sm text-slate-500 mt-0.5">
-                        {filtered.length.toLocaleString()} гостей · {enriched.length.toLocaleString()} заселений
+                        {filtered.length.toLocaleString()} {t('guestsCount')} · {enriched.length.toLocaleString()} {t('staysLower')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -606,12 +608,12 @@ ${styles}${sheet1}${sheet2}
                                         : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                                 }`}>
                                 {showHidden ? <EyeOff size={13}/> : <Eye size={13}/>}
-                                {showHidden ? 'Спрятать скрытые' : `Скрытые (${hiddenKeys.size})`}
+                                {showHidden ? t('hideHidden') : t('hiddenCount').replace('{n}', hiddenKeys.size)}
                             </button>
                             {showHidden && (
                                 <button onClick={unhideAll}
                                     className="text-xs font-bold text-rose-500 hover:text-rose-700 px-2 py-2">
-                                    Восстановить все
+                                    {t('restoreAll')}
                                 </button>
                             )}
                         </div>
@@ -629,24 +631,24 @@ ${styles}${sheet1}${sheet2}
 
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                <StatCard icon={Users}       label="Уникальных гостей"  value={stats.count.toLocaleString()} />
-                <StatCard icon={Minus}       label="Средняя цена/ночь"  value={`${fmt(stats.avg)} сум`} highlight />
-                <StatCard icon={TrendingDown} label="Мин. цена"         value={stats.min !== null ? `${fmt(stats.min)} сум` : '—'} sub={stats.minGuest?.fullName} />
-                <StatCard icon={TrendingUp}   label="Макс. цена"        value={stats.max !== null ? `${fmt(stats.max)} сум` : '—'} sub={stats.maxGuest?.fullName} />
+                <StatCard icon={Users}       label={t('uniqueGuests')}  value={stats.count.toLocaleString()} />
+                <StatCard icon={Minus}       label={t('avgPricePerNight')}  value={`${fmt(stats.avg)} ${t('sum')}`} highlight />
+                <StatCard icon={TrendingDown} label={t('minPrice')}         value={stats.min !== null ? `${fmt(stats.min)} ${t('sum')}` : '—'} sub={stats.minGuest?.fullName} />
+                <StatCard icon={TrendingUp}   label={t('maxPrice')}        value={stats.max !== null ? `${fmt(stats.max)} ${t('sum')}` : '—'} sub={stats.maxGuest?.fullName} />
                 <StatCard
                     icon={RefreshCw}
-                    label="С разными ценами"
-                    value={stats.withVariation ? `${stats.withVariation} гост.` : '—'}
-                    sub={stats.withVariation ? `из ${stats.count} гостей` : 'все по одной цене'}
+                    label={t('withDifferentPrices')}
+                    value={stats.withVariation ? `${stats.withVariation} ${t('guestsAbbr')}` : '—'}
+                    sub={stats.withVariation ? `${t('ofLabel')} ${stats.count} ${t('guestsCount')}` : t('allSamePrice')}
                 />
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
-                        <h2 className="text-base font-black text-slate-800">Контрактные группы</h2>
+                        <h2 className="text-base font-black text-slate-800">{t('contractGroups')}</h2>
                         <p className="text-xs text-slate-500 mt-0.5">
-                            Собирайте людей в одну группу и сразу смотрите общее количество прожитых суток.
+                            {t('contractGroupsDesc')}
                         </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -654,21 +656,21 @@ ${styles}${sheet1}${sheet2}
                             value={contractGroupName}
                             onChange={e => setContractGroupName(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter') createContractGroup(); }}
-                            placeholder="Название группы / контракта"
+                            placeholder={t('contractGroupNamePlaceholder')}
                             className={INP + ' min-w-[220px]'}
                         />
                         <button
                             onClick={createContractGroup}
                             className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors"
                         >
-                            Создать группу
+                            {t('createGroup')}
                         </button>
                     </div>
                 </div>
 
                 {detailedContractGroups.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
-                        Групп пока нет. Создайте группу и добавляйте в нее людей прямо из списка ниже.
+                        {t('noGroupsYet')}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -684,12 +686,12 @@ ${styles}${sheet1}${sheet2}
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <h3 className="font-black text-slate-800">{group.name}</h3>
                                                 {isSelected && (
-                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">активная</span>
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">{t('activeFemLower')}</span>
                                                 )}
                                             </div>
                                             <p className="text-xs text-slate-500 mt-1">
-                                                {group.memberCount} чел. · {group.effectiveTotalNights.toLocaleString()} суток · {group.members.reduce((sum, member) => sum + member.stayCount, 0)} заселений
-                                                {group.manualPersonNights > 0 ? ` · +${group.manualPersonNights.toLocaleString()} ручных` : ''}
+                                                {group.memberCount} {t('peopleShort')} · {group.effectiveTotalNights.toLocaleString()} {t('sutkiLower')} · {group.members.reduce((sum, member) => sum + member.stayCount, 0)} {t('staysLower')}
+                                                {group.manualPersonNights > 0 ? ` · +${group.manualPersonNights.toLocaleString()} ${t('manualCountLower')}` : ''}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
@@ -697,48 +699,48 @@ ${styles}${sheet1}${sheet2}
                                                 onClick={() => setSelectedContractGroupId(isSelected ? '' : group.id)}
                                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
                                             >
-                                                {isSelected ? 'Выбрана' : 'Выбрать'}
+                                                {isSelected ? t('selectedFem') : t('select')}
                                             </button>
                                             <button
                                                 onClick={() => deleteContractGroup(group.id)}
                                                 className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 border border-rose-200 hover:bg-rose-50 transition-colors"
                                             >
-                                                Удалить
+                                                {t('delete')}
                                             </button>
                                         </div>
                                     </div>
 
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                                         <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Всего суток</div>
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('totalSutki')}</div>
                                             <div className="text-lg font-black text-slate-800">{group.effectiveTotalNights.toLocaleString()}</div>
                                             {group.manualPersonNights > 0 && (
-                                                <div className="text-[10px] text-slate-500">авто {group.totalNights.toLocaleString()} + ручные {group.manualPersonNights.toLocaleString()}</div>
+                                                <div className="text-[10px] text-slate-500">{t('autoLower')} {group.totalNights.toLocaleString()} + {t('manualPluralLower')} {group.manualPersonNights.toLocaleString()}</div>
                                             )}
                                         </div>
                                         <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Начислено</div>
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('accrued')}</div>
                                             <div className="text-lg font-black text-slate-800">{fmt(group.totalAmount)}</div>
                                         </div>
                                         <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Оплачено</div>
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('paid')}</div>
                                             <div className="text-lg font-black text-emerald-600">{fmt(group.totalPaid)}</div>
                                         </div>
                                         <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">По договору</div>
+                                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('byContract')}</div>
                                             <div className="text-lg font-black text-indigo-700">{group.contractRate > 0 ? fmt(group.contractTotal) : '—'}</div>
                                         </div>
                                     </div>
 
                                     <div className="mt-3 flex items-center gap-2 flex-wrap">
-                                        <span className="text-xs font-bold text-slate-500">Ставка по договору за сутки:</span>
+                                        <span className="text-xs font-bold text-slate-500">{t('contractRatePerDay')}</span>
                                         <input
                                             value={group.contractRate || ''}
                                             onChange={e => updateContractGroup(group.id, { contractRate: e.target.value.replace(/[^0-9]/g, '') })}
                                             placeholder="0"
                                             className={INP + ' w-[140px]'}
                                         />
-                                        <span className="text-xs text-slate-400">сум / сутки</span>
+                                        <span className="text-xs text-slate-400">{t('sumPerSutki')}</span>
                                         {group.contractRate > 0 && (
                                             <span className="text-xs font-bold text-indigo-600">
                                                 {group.effectiveTotalNights.toLocaleString()} × {fmt(group.contractRate)} = {fmt(group.contractTotal)}
@@ -749,20 +751,20 @@ ${styles}${sheet1}${sheet2}
                                     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                                         <div className="flex items-center justify-between gap-2 mb-2">
                                             <div>
-                                                <div className="text-xs font-black text-slate-700">Ручной учёт проживания</div>
-                                                <div className="text-[11px] text-slate-500">Добавляйте вручную: дата, комнаты, люди и дни</div>
+                                                <div className="text-xs font-black text-slate-700">{t('manualStayAccounting')}</div>
+                                                <div className="text-[11px] text-slate-500">{t('manualStayHint')}</div>
                                             </div>
                                             <button
                                                 onClick={() => addManualEntryToGroup(group.id)}
                                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50 transition-colors"
                                             >
                                                 <Plus size={12} />
-                                                Добавить
+                                                {t('add')}
                                             </button>
                                         </div>
 
                                         {group.manualEntries.length === 0 ? (
-                                            <div className="text-[11px] text-slate-400">Нет ручных записей</div>
+                                            <div className="text-[11px] text-slate-400">{t('noManualEntries')}</div>
                                         ) : (
                                             <div className="space-y-2">
                                                 {group.manualEntries.map((entry) => {
@@ -782,7 +784,7 @@ ${styles}${sheet1}${sheet2}
                                                             <input
                                                                 type="number"
                                                                 min="0"
-                                                                placeholder="Комнат"
+                                                                placeholder={t('roomsPlaceholder')}
                                                                 value={entry.rooms || ''}
                                                                 onChange={e => updateManualEntryInGroup(group.id, entry.id, { rooms: e.target.value.replace(/[^0-9]/g, '') })}
                                                                 className={INP + ' col-span-4 md:col-span-2'}
@@ -790,7 +792,7 @@ ${styles}${sheet1}${sheet2}
                                                             <input
                                                                 type="number"
                                                                 min="0"
-                                                                placeholder="Людей"
+                                                                placeholder={t('peoplePlaceholder')}
                                                                 value={entry.people || ''}
                                                                 onChange={e => updateManualEntryInGroup(group.id, entry.id, { people: e.target.value.replace(/[^0-9]/g, '') })}
                                                                 className={INP + ' col-span-4 md:col-span-2'}
@@ -798,18 +800,18 @@ ${styles}${sheet1}${sheet2}
                                                             <input
                                                                 type="number"
                                                                 min="1"
-                                                                placeholder="Дней"
+                                                                placeholder={t('days')}
                                                                 value={entry.nights || '1'}
                                                                 onChange={e => updateManualEntryInGroup(group.id, entry.id, { nights: e.target.value.replace(/[^0-9]/g, '') || '1' })}
                                                                 className={INP + ' col-span-4 md:col-span-2'}
                                                             />
                                                             <div className="col-span-10 md:col-span-2 text-[11px] text-slate-600 font-semibold">
-                                                                {roomNights.toLocaleString()} комн-сут / {personNights.toLocaleString()} чел-сут
+                                                                {roomNights.toLocaleString()} {t('roomNightsShort')} / {personNights.toLocaleString()} {t('personNightsShort')}
                                                             </div>
                                                             <button
                                                                 onClick={() => removeManualEntryFromGroup(group.id, entry.id)}
                                                                 className="col-span-2 md:col-span-1 w-8 h-8 rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50 inline-flex items-center justify-center"
-                                                                title="Удалить запись"
+                                                                title={t('deleteRecord')}
                                                             >
                                                                 <X size={12} />
                                                             </button>
@@ -822,14 +824,14 @@ ${styles}${sheet1}${sheet2}
 
                                     <div className="mt-3 flex flex-wrap gap-2">
                                         {group.members.length === 0 ? (
-                                            <span className="text-xs text-slate-400">Пока нет участников</span>
+                                            <span className="text-xs text-slate-400">{t('noMembersYet')}</span>
                                         ) : group.members.map(member => (
                                             <span
                                                 key={member.key}
                                                 className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700"
                                             >
                                                 {member.name}
-                                                <span className="text-slate-400">· {member.stays.reduce((sum, stay) => sum + getStayNights(stay), 0)} сут.</span>
+                                                <span className="text-slate-400">· {member.stays.reduce((sum, stay) => sum + getStayNights(stay), 0)} {t('sutShort')}</span>
                                                 <button
                                                     onClick={() => toggleMemberInContractGroup(group.id, member.key)}
                                                     className="text-rose-500 hover:text-rose-700"
@@ -849,41 +851,41 @@ ${styles}${sheet1}${sheet2}
             {/* Filters */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase">
-                    <Filter size={12}/> Фильтры
+                    <Filter size={12}/> {t('filtersLabel')}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="relative">
                         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
                         <input value={search} onChange={e => setSearch(e.target.value)}
-                            placeholder="Поиск по имени, комнате, кассиру…"
+                            placeholder={t('searchByNameRoomCashier')}
                             className={INP + ' w-full pl-8'}/>
                     </div>
                     <select value={filterHostel} onChange={e => setFilterHostel(e.target.value)} className={INP + ' w-full'}>
-                        <option value="">Все хостелы</option>
-                        <option value="hostel1">Хостел №1</option>
-                        <option value="hostel2">Хостел №2</option>
+                        <option value="">{t('expAllHostels')}</option>
+                        <option value="hostel1">{t('expHostel1')}</option>
+                        <option value="hostel2">{t('expHostel2')}</option>
                     </select>
                     <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className={INP + ' w-full'}>
-                        <option value="all">Все статусы</option>
-                        <option value="active">Сейчас живут</option>
-                        <option value="checked_out">Выехавшие</option>
+                        <option value="all">{t('allStatuses')}</option>
+                        <option value="active">{t('currentlyLiving')}</option>
+                        <option value="checked_out">{t('checkedOutPlural')}</option>
                     </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <select value={filterCashier} onChange={e => setFilterCashier(e.target.value)} className={INP + ' w-full'}>
-                        <option value="">Все кассиры</option>
+                        <option value="">{t('allCashiers')}</option>
                         {cashierOptions.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                     </select>
                     <div className="flex items-center gap-2">
                         <div className="relative flex-1">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">Заезд с</label>
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">{t('checkInFrom')}</label>
                             <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className={INP + ' w-full'}/>
                         </div>
                         <span className="text-slate-300 font-bold shrink-0">—</span>
                         <div className="relative flex-1">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">по</label>
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">{t('to')}</label>
                             <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className={INP + ' w-full'}/>
                         </div>
                     </div>
@@ -895,12 +897,12 @@ ${styles}${sheet1}${sheet2}
                                     ? 'bg-amber-100 text-amber-700 border-amber-300'
                                     : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
                             }`}>
-                            <RefreshCw size={14}/> С разными ценами
+                            <RefreshCw size={14}/> {t('withDifferentPrices')}
                         </button>
                         {hasFilter && (
                             <button onClick={resetFilters}
                                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors">
-                                <X size={12}/> Сбросить
+                                <X size={12}/> {t('resetBtn')}
                             </button>
                         )}
                     </div>
@@ -911,21 +913,21 @@ ${styles}${sheet1}${sheet2}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                 {/* Table header */}
                 <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_1fr] px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase gap-2">
-                    <span>Гость</span>
-                    <span><SortBtn k="stayCount"   label="Заселений"/></span>
-                    <span>Цены сум/ночь</span>
-                    <span><SortBtn k="totalAmount" label="Итого"/></span>
-                    <span>Оплачено</span>
-                    <span>Долг</span>
+                    <span>{t('guest')}</span>
+                    <span><SortBtn k="stayCount"   label={t('staysColumn')}/></span>
+                    <span>{t('pricesPerNightCol')}</span>
+                    <span><SortBtn k="totalAmount" label={t('total')}/></span>
+                    <span>{t('paid')}</span>
+                    <span>{t('debt')}</span>
                 </div>
 
                 {filtered.length === 0 ? (
                     <div className="py-16 text-center">
                         <div className="text-4xl mb-3">🏨</div>
-                        <div className="text-slate-500 font-bold">Нет записей</div>
+                        <div className="text-slate-500 font-bold">{t('expNoRecords')}</div>
                         {hasFilter && (
                             <button onClick={resetFilters} className="mt-2 text-xs font-bold text-indigo-600">
-                                Сбросить фильтры
+                                {t('resetFilters')}
                             </button>
                         )}
                     </div>
@@ -951,12 +953,12 @@ ${styles}${sheet1}${sheet2}
                                                 <div className="min-w-0 flex-1">
                                                     <div className="font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
                                                         {grp.name}
-                                                        {isHidden && <span className="text-[9px] font-normal text-slate-400 italic">(скрыт)</span>}
+                                                        {isHidden && <span className="text-[9px] font-normal text-slate-400 italic">{t('hiddenMark')}</span>}
                                                         {grp.hasPriceVariation && (
-                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">разные цены</span>
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">{t('differentPricesLower')}</span>
                                                         )}
                                                         {grp.isActive && (
-                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">живёт</span>
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t('livingLower')}</span>
                                                         )}
                                                         {memberGroupIds.map(groupId => {
                                                             const group = detailedContractGroups.find(item => item.id === groupId);
@@ -985,16 +987,16 @@ ${styles}${sheet1}${sheet2}
                                                             toggleMemberInContractGroup(selectedContractGroup.id, grp.key);
                                                         }}
                                                         className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${isInSelectedContractGroup ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'}`}
-                                                        title={isInSelectedContractGroup ? `Убрать из группы ${selectedContractGroup.name}` : `Добавить в группу ${selectedContractGroup.name}`}
+                                                        title={isInSelectedContractGroup ? t('removeFromGroup').replace('{name}', selectedContractGroup.name) : t('addToGroup').replace('{name}', selectedContractGroup.name)}
                                                     >
-                                                        {isInSelectedContractGroup ? 'В группе' : 'В группу'}
+                                                        {isInSelectedContractGroup ? t('inGroup') : t('toGroup')}
                                                     </button>
                                                 )}
                                                 {currentUser.role === 'super' && (
                                                     <button
                                                         onClick={e => { e.stopPropagation(); isHidden ? unhideGroup(grp.key) : hideGroup(grp.key); }}
                                                         className="opacity-0 group-hover/g:opacity-100 transition-opacity shrink-0 p-1.5 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"
-                                                        title={isHidden ? 'Показать гостя' : 'Скрыть из аналитики'}
+                                                        title={isHidden ? t('showGuest') : t('hideFromAnalytics')}
                                                     >
                                                         {isHidden ? <Eye size={14}/> : <EyeOff size={14}/>}
                                                     </button>
@@ -1003,7 +1005,7 @@ ${styles}${sheet1}${sheet2}
                                             {/* Stay count */}
                                             <div>
                                                 <div className="font-bold text-slate-700">{grp.stayCount}</div>
-                                                <div className="text-[10px] text-slate-400">заселений</div>
+                                                <div className="text-[10px] text-slate-400">{t('staysLower')}</div>
                                             </div>
                                             {/* Prices */}
                                             <div>
@@ -1016,26 +1018,26 @@ ${styles}${sheet1}${sheet2}
                                                 ) : (
                                                     <div>
                                                         <div className="font-bold text-slate-700">{fmt(grp.validPrices[0] || 0)}</div>
-                                                        <div className="text-[10px] text-slate-400">сум/ночь</div>
+                                                        <div className="text-[10px] text-slate-400">{t('sumPerNight')}</div>
                                                     </div>
                                                 )}
                                             </div>
                                             {/* Total */}
                                             <div>
                                                 <div className="font-black text-slate-700">{fmt(grp.totalAmount)}</div>
-                                                <div className="text-[10px] text-slate-400">итого</div>
+                                                <div className="text-[10px] text-slate-400">{t('totalLower')}</div>
                                             </div>
                                             {/* Paid */}
                                             <div>
                                                 <div className="font-bold text-emerald-600">{fmt(grp.totalPaid)}</div>
-                                                <div className="text-[10px] text-slate-400">оплачено</div>
+                                                <div className="text-[10px] text-slate-400">{t('paidLower')}</div>
                                             </div>
                                             {/* Debt */}
                                             <div>
                                                 <div className={`font-bold ${hasDebt ? 'text-rose-600' : 'text-slate-400'}`}>
                                                     {hasDebt ? fmt(grp.totalDebt) : '—'}
                                                 </div>
-                                                {hasDebt && <div className="text-[10px] text-rose-400">долг</div>}
+                                                {hasDebt && <div className="text-[10px] text-rose-400">{t('debtLower')}</div>}
                                             </div>
                                         </div>
 
@@ -1058,19 +1060,19 @@ ${styles}${sheet1}${sheet2}
                                                                 <div className="text-xs text-slate-600 min-w-[180px]">
                                                                     🟢 {fmtDate(stay.checkInDate)}
                                                                     <span className="mx-1.5 text-slate-300">→</span>
-                                                                    {stay.checkOutDate ? `🔴 ${fmtDate(stay.checkOutDate)}` : <span className="text-emerald-500">живёт</span>}
-                                                                    {stay.days && <span className="text-slate-400 ml-1.5">· {stay.days} н.</span>}
+                                                                    {stay.checkOutDate ? `🔴 ${fmtDate(stay.checkOutDate)}` : <span className="text-emerald-500">{t('livingLower')}</span>}
+                                                                    {stay.days && <span className="text-slate-400 ml-1.5">· {stay.days} {t('nightAbbr')}</span>}
                                                                 </div>
                                                                 {/* Room */}
                                                                 <div className="text-xs font-bold text-slate-600">
-                                                                    Ком.{stay.roomNumber || '—'} · {stay.bedId || '—'}
+                                                                    {t('roomShortLabel')}{stay.roomNumber || '—'} · {stay.bedId || '—'}
                                                                     <span className="text-[10px] font-normal text-slate-400 ml-1">({HOSTELS[stay.hostelId] || stay.hostelId})</span>
                                                                 </div>
                                                                 {/* Price highlight */}
                                                                 <div className={`text-xs font-black px-2 py-1 rounded-lg ${
                                                                     grp.hasPriceVariation ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
                                                                 }`}>
-                                                                    {fmt(stay.pricePerNight)} сум/н.
+                                                                    {fmt(stay.pricePerNight)} {t('sumPerNightShort')}
                                                                 </div>
                                                                 {/* Totals */}
                                                                 <div className="text-xs text-slate-600 ml-auto">
@@ -1097,9 +1099,9 @@ ${styles}${sheet1}${sheet2}
                                                                         return (
                                                                             <div key={p.id || idx}
                                                                                 className="flex flex-wrap items-center gap-2 bg-white border border-slate-100 rounded-xl px-3 py-1.5 text-xs">
-                                                                                <MethodChip method={p.method} amount={p.amount}/>
+                                                                                <MethodChip method={p.method} amount={p.amount} t={t}/>
                                                                                 <span className="font-bold text-slate-700">{p.cashierName}</span>
-                                                                                {shiftLabel && <span className="text-slate-400">смена {shiftLabel}</span>}
+                                                                                {shiftLabel && <span className="text-slate-400">{t('shiftLower')} {shiftLabel}</span>}
                                                                                 <span className="text-slate-400 ml-auto">
                                                                                     {new Date(p.date).toLocaleDateString('ru', { day:'numeric', month:'short' })}
                                                                                     {' '}{new Date(p.date).toLocaleTimeString('ru', { hour:'2-digit', minute:'2-digit' })}
@@ -1123,7 +1125,7 @@ ${styles}${sheet1}${sheet2}
                             <div className="py-4 text-center border-t border-slate-100">
                                 <button onClick={() => setPageSize(p => p + 50)}
                                     className="flex items-center gap-2 mx-auto px-5 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                                    <ChevronDown size={15}/> Показать ещё ({(filtered.length - pageSize).toLocaleString()} гостей)
+                                    <ChevronDown size={15}/> {t('showMore')} ({(filtered.length - pageSize).toLocaleString()} {t('guestsCount')})
                                 </button>
                             </div>
                         )}

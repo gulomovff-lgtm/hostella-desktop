@@ -2180,6 +2180,7 @@ return (
                         users={usersList}
                         currentUser={currentUser}
                         auditLog={auditLog}
+                        lang={lang}
                     />
                 )}
 
@@ -2190,6 +2191,7 @@ return (
                         currentUser={currentUser}
                         payments={filteredPayments}
                         hostelFilter={selectedHostelFilter}
+                        lang={lang}
                     />
                 )}
 
