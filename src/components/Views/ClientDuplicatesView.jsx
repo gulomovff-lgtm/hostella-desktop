@@ -18,7 +18,7 @@ import {
   Users, Wallet, Phone, CalendarDays, LogIn, Monitor,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
-import { findDuplicateGroups, computeMergedClient, normalizeName } from '../../utils/clientDuplicates';
+import { findDuplicateGroups, computeMergedClient, normalizeName, pickFallbackMain } from '../../utils/clientDuplicates';
 
 // Портал ждёт дату рождения в виде дд.мм.гггг, а в базе она лежит как ГГГГ-ММ-ДД.
 const toDmy = (iso) => {
@@ -125,13 +125,18 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
   };
 
   /**
-   * Автоматический прогон: проверяет группы подряд и сливает те, где всё однозначно.
+   * Автоматический прогон: идёт по группам, проверяет записи и сливает.
    *
-   * Правило безопасности: сливаем ТОЛЬКО когда в группе ровно одна запись прошла
-   * госбазу. Если прошли две — это разные живые люди с одинаковой датой рождения
-   * и похожим именем, сливать их нельзя (пропали бы деньги и история одного из них).
-   * Если не прошла ни одна — тоже оставляем на ручной разбор.
-   * Расхождение в ФИО решается в пользу госбазы, как и просил владелец.
+   * Правила:
+   *  1. Нашли подтверждённую госбазой — она главная, остальные сливаются в неё
+   *     сразу; оставшиеся записи группы уже не проверяем (экономим запросы).
+   *  2. Госбаза ответила «нет такого» по ВСЕМ записям — это заведомо один и тот же
+   *     человек, введённый по-разному: сливаем в одну, главной берём самую живую
+   *     (больше визитов, свежее визит, есть паспорт).
+   *  3. Проверка не дала ответа (таймаут, ошибка, нужен вход) — НЕ сливаем:
+   *     «не ответил» и «не нашёл» — разные вещи, вслепую тут терять деньги нельзя.
+   *
+   * Расхождение в ФИО решается в пользу госбазы.
    */
   const runAuto = async () => {
     if (autoRunning || runningId) return;
@@ -149,6 +154,7 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
       for (const group of groups) {
         if (stopRef.current) break;
         const results = {};
+        let confirmed = null;      // запись, подтверждённая госбазой
         for (const c of group.clients) {
           if (stopRef.current) break;
           if (!c.passport || !c.birthDate) continue;   // проверять нечего
@@ -160,13 +166,23 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
           setRunningId(null);
           // Портал требует вход — дальше без кассира не пройти, останавливаемся.
           if (res?.status === 'need_login') { needLogin = true; stopRef.current = true; break; }
+          // Нашли подтверждённую — остальные проверять незачем, сливаем в неё.
+          if (res?.status === 'valid') { confirmed = c; break; }
         }
         if (stopRef.current) break;
 
-        const valid = group.clients.filter(c => results[c.id]?.status === 'valid');
         done++;
-        if (valid.length === 1) {
-          const main = valid[0];
+        let main = confirmed;
+        if (!main) {
+          // Подтверждённой нет. Сливаем, только если по всем проверенным записям
+          // портал дал внятное «нет такого»; невнятный ответ — на ручной разбор.
+          const checked = group.clients.filter(c => results[c.id]);
+          const allNotFound = checked.length > 0
+            && checked.every(c => results[c.id].status === 'not_found');
+          if (allNotFound) main = pickFallbackMain(group.clients);
+        }
+
+        if (main) {
           const official = results[main.id]?.officialName || '';
           const patch = (official && normalizeName(official) !== normalizeName(main.fullName))
             ? { fullName: official }
@@ -175,7 +191,7 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
           const ok = otherIds.length ? await onMerge?.(main.id, otherIds, patch) : true;
           if (ok) merged++; else skipped++;
         } else {
-          skipped++;   // ноль прошедших или несколько — только вручную
+          skipped++;   // проверка не дала ответа — не трогаем
         }
         setAutoProgress({ done, total, merged, skipped, needLogin });
       }

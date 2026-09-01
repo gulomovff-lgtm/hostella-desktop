@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     normalizeName, editDistance, namesSimilar,
-    findDuplicateGroups, computeMergedClient,
+    findDuplicateGroups, computeMergedClient, pickFallbackMain,
 } from '../src/utils/clientDuplicates.js';
 
 // ── нормализация имени ───────────────────────────────────────────────────────
@@ -151,4 +151,41 @@ test('computeMergedClient: слияние без дублей возвращае
     assert.equal(r.balance, 1000);
     assert.equal(r.visits, 1);
     assert.equal(r.lastVisit, '2026-02-02');
+});
+
+// ── выбор главной, когда госбаза никого не подтвердила ───────────────────────
+test('pickFallbackMain: побеждает запись с большим числом визитов', () => {
+    const r = pickFallbackMain([
+        { id: 'a', visits: 1, lastVisit: '2026-08-01' },
+        { id: 'b', visits: 5, lastVisit: '2025-01-01' },
+    ]);
+    assert.equal(r.id, 'b');
+});
+
+test('pickFallbackMain: при равных визитах — у кого визит позже', () => {
+    const r = pickFallbackMain([
+        { id: 'a', visits: 2, lastVisit: '2025-01-01' },
+        { id: 'b', visits: 2, lastVisit: '2026-08-01' },
+    ]);
+    assert.equal(r.id, 'b');
+});
+
+test('pickFallbackMain: при прочих равных — с паспортом', () => {
+    const r = pickFallbackMain([
+        { id: 'a', visits: 1, lastVisit: '2026-01-01' },
+        { id: 'b', visits: 1, lastVisit: '2026-01-01', passport: 'AC1234567' },
+    ]);
+    assert.equal(r.id, 'b');
+});
+
+test('pickFallbackMain: результат не зависит от порядка записей', () => {
+    const a = { id: 'a', visits: 1 };
+    const b = { id: 'b', visits: 9 };
+    assert.equal(pickFallbackMain([a, b]).id, 'b');
+    assert.equal(pickFallbackMain([b, a]).id, 'b');
+});
+
+test('pickFallbackMain: пустой список не ломает', () => {
+    assert.equal(pickFallbackMain([]), null);
+    assert.equal(pickFallbackMain(), null);
 });
