@@ -455,3 +455,255 @@ html, body, #root {
   width: 100% !important;
   height: 100dvh !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ОКНО ЗАСЕЛЕНИЯ — БЛАНК В ТРИ ГРАФЫ
+   ───────────────────────────────────────────────────────────────────────────
+
+   Заселение — это семь полей о госте, пять об условиях и четыре о деньгах.
+   Раньше они шли тремя шагами: высота окна одна на все три, под самый
+   длинный, — и на коротких шагах пустовала треть экрана. Плюс два нажатия
+   «Далее» на каждое заселение: при сорока за смену это восемьдесят нажатий,
+   и цена становилась видна только на третьем шаге.
+
+   Теперь три графы рядом, как в регистрационной книге: кто, на каких
+   условиях, за сколько.
+
+   ── ПОЧЕМУ СВОИ ПЕРЕМЕННЫЕ, А НЕ УТИЛИТЫ ────────────────────────────────
+   Тёмная тема здесь построена на двухстах правилах вида
+   `[data-theme="dark"] .bg-white { … !important }`. Писать бланк утилитами
+   значит зависеть от того, попала ли очередная утилита в этот список.
+   Поэтому у бланка свой небольшой набор переменных, объявленный дважды —
+   для светлой и тёмной, — и дальше всё оформление ссылается только на них.
+   Набор локальный: он живёт на `.ci-card` и на остальное приложение
+   не влияет.
+
+   ── ПОЧЕМУ ПОДПИСИ СТРОЧНЫМИ ────────────────────────────────────────────
+   Подписи полей были капслоком в 11 пикселей. Двадцать таких строк подряд
+   глаз читает не как список, а как серую заливку: чтобы найти «Дату
+   рождения», приходится прочитать каждую. В бланках капслок оставляют
+   заголовкам — тогда заголовок видно, а подписи читаются. Здесь
+   единственный капслок — названия граф.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ci-card {
+  --ci-surface: #ffffff;
+  --ci-surface-2: #f8fafc;
+  --ci-line: #e2e8f0;
+  --ci-line-strong: #cbd5e1;
+  --ci-ink: #1e293b;
+  --ci-ink-2: #475569;
+  --ci-ink-3: #64748b;
+  --ci-accent: #0f9688;      /* бирюза действия — та же, что у кнопки заселения */
+  --ci-accent-ink: #0f766e;  /* её же текстовый вариант: читается на светлом */
+  --ci-danger: #e11d48;
+  --ci-danger-ink: #be123c;
+  --ci-warn: #f59e0b;
+  --ci-warn-ink: #b45309;
+  --ci-info: #4f46e5;
+  --ci-info-ink: #4338ca;
+}
+[data-theme="dark"] .ci-card {
+  --ci-surface: #1e293b;
+  --ci-surface-2: #263045;
+  --ci-line: #334155;
+  --ci-line-strong: #475569;
+  --ci-ink: #f1f5f9;
+  --ci-ink-2: #cbd5e1;
+  --ci-ink-3: #94a3b8;
+  --ci-accent: #14b8a6;
+  --ci-accent-ink: #5eead4;  /* на тёмном читается светлый оттенок, не тёмный */
+  --ci-danger-ink: #fda4af;
+  --ci-warn-ink: #fcd34d;
+  --ci-info-ink: #a5b4fc;
+}
+
+.ci-card { background: var(--ci-surface); color: var(--ci-ink); }
+.ci-head { border-bottom: 1px solid var(--ci-line); }
+.ci-head-sub { color: var(--ci-ink-3); }
+.ci-x { background: var(--ci-surface-2); border: 1px solid var(--ci-line); color: var(--ci-ink-2); }
+
+/* Полоса места — остров. `--nav-bg` уже переключается вместе с темой
+   (#1a3c40 в светлой, #111827 в тёмной), поэтому берём его, а не свой цвет:
+   полоса и навигация должны быть одного тона.
+
+   Скругление и рамку снимаем явно: полоса — это кнопка «сменить место»,
+   а общее правило `button` даёт всем кнопкам скругление. На всю ширину
+   окна это читается как отдельная плашка с зазором по краям. */
+.ci-bed {
+  background: var(--nav-bg);
+  color: #ffffff;
+  border: 0;
+  border-radius: 0;
+}
+.ci-bed-lb  { color: var(--nav-muted); }
+.ci-bed-pr  { color: #5eead4; }
+.ci-bed-chg { color: #ffffff; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; }
+.ci-bed:hover .ci-bed-chg { background: rgba(255, 255, 255, .12); }
+
+/* ── Полосы предупреждений ─────────────────────────────────────────────── */
+.ci-notice { display: flex; align-items: center; gap: 10px; padding: 6px 24px;
+             font-size: 12.5px; font-weight: 500; }
+.ci-notice > i { width: 3px; align-self: stretch; border-radius: 2px; flex-shrink: 0;
+                 background: currentColor; }
+.ci-notice.ci-warn   { color: var(--ci-warn-ink);   background: rgba(245, 158, 11, .12); }
+.ci-notice.ci-danger { color: var(--ci-danger-ink); background: rgba(225, 29, 72, .1); }
+.ci-notice.ci-info   { color: var(--ci-info-ink);   background: rgba(79, 70, 229, .1); }
+.ci-notice.ci-ok     { color: var(--ci-accent-ink); background: rgba(15, 150, 136, .12); }
+.ci-notice b { font-weight: 800; }
+
+/* ── Три графы ────────────────────────────────────────────────────────── */
+.ci-sheet3 { display: grid; grid-template-columns: 1.24fr .84fr 1.04fr; align-items: stretch; }
+.ci-col   { min-width: 0; display: flex; flex-direction: column; }
+.ci-col-a { padding: 13px 20px 16px 24px; }
+.ci-col-b { padding: 13px 20px 16px 20px; border-left: 1px solid var(--ci-line); }
+/* Графа расчёта — на второй поверхности: три колонки одной фактуры
+   сливаются в общее серое поле, а деньги должны отделяться плоскостью. */
+.ci-col-c { padding: 13px 24px 16px 20px; border-left: 1px solid var(--ci-line);
+            background: var(--ci-surface-2); }
+@media (max-width: 1100px) {
+  .ci-sheet3 { grid-template-columns: 1fr; }
+  .ci-col-a { padding: 13px 20px 14px; }
+  .ci-col-b, .ci-col-c { padding: 13px 20px 14px; border-left: 0; border-top: 1px solid var(--ci-line); }
+}
+
+.ci-cap { display: flex; align-items: baseline; gap: 8px;
+          font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .17em;
+          color: var(--ci-ink-3); padding-bottom: 7px; border-bottom: 1px solid var(--ci-line); }
+.ci-cap-ct  { margin-left: auto; font-size: 10.5px; font-weight: 600;
+              letter-spacing: 0; text-transform: none; }
+.ci-cap-act { font-size: 10.5px; font-weight: 700; letter-spacing: 0; text-transform: none;
+              color: var(--ci-accent-ink); text-decoration: underline; }
+.ci-cap-sub { margin-top: 18px; }
+
+/* ── Строка бланка ────────────────────────────────────────────────────── */
+.ci-r     { display: flex; align-items: center; gap: 10px; min-height: 34px; position: relative; }
+.ci-r-k   { flex: 0 1 132px; min-width: 0; display: flex; align-items: center; gap: 7px;
+            font-size: 12.5px; font-weight: 500; color: var(--ci-ink-3); line-height: 1.2; }
+.ci-r-k svg { color: var(--ci-line-strong); flex-shrink: 0; }
+.ci-r-k-w { flex-basis: 104px; }
+.ci-req   { color: var(--ci-danger-ink); font-weight: 700; }
+.ci-r-v   { flex: 1 1 0; min-width: 0; border-bottom: 1px solid var(--ci-line); }
+.ci-r-v.ci-flat { border-bottom: 0; }
+.ci-r-side { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+             white-space: nowrap; font-size: 11px; font-weight: 600; color: var(--ci-ink-3); }
+.ci-r-side.ci-ok { color: var(--ci-accent-ink); }
+
+/* Поле без своей рамки: линейка строки и есть рамка бланка. `!important` —
+   потому что общее правило тёмной темы красит ВСЕ поля подложкой тоже
+   через `!important`, и специфичностью его здесь не перебить. Для обычных
+   полей оно верное, для поля бланка вернуло бы коробки. */
+.ci-f, .ci-card .ci-f {
+  width: 100%; border: 0 !important; background: transparent !important; outline: 0;
+  font: 700 15px system-ui, sans-serif; color: var(--ci-ink) !important;
+  padding: 5px 2px; font-variant-numeric: tabular-nums; box-shadow: none;
+}
+.ci-f::placeholder { color: var(--ci-line-strong) !important; font-weight: 500; }
+.ci-r:focus-within > .ci-r-k     { color: var(--ci-accent-ink); }
+.ci-r:focus-within > .ci-r-k svg { color: var(--ci-accent); }
+.ci-r:focus-within > .ci-r-v     { border-bottom-color: var(--ci-accent); }
+.ci-r-v.ci-err { border-bottom-color: var(--ci-danger); border-bottom-style: dashed; }
+.ci-errmsg { font-size: 11px; font-weight: 600; color: var(--ci-danger-ink); }
+
+.ci-pick { display: flex; gap: 4px; }
+.ci-pick button { border: 0; background: transparent; cursor: pointer;
+                  font: 700 13px system-ui, sans-serif; color: var(--ci-ink-3);
+                  padding: 5px 10px; border-radius: 8px; white-space: nowrap; }
+.ci-pick button:hover { background: rgba(15, 150, 136, .1); }
+.ci-pick button.ci-on { background: var(--ci-accent); color: #ffffff; }
+.ci-pick button.ci-on:hover { background: var(--ci-accent); }
+
+.ci-note   { display: flex; align-items: baseline; gap: 9px; padding: 4px 0;
+             font-size: 12px; font-weight: 500; color: var(--ci-ink-2); text-align: left; }
+.ci-note b { color: var(--ci-ink); font-weight: 700; }
+.ci-dot    { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+             transform: translateY(-2px); background: var(--ci-accent); }
+.ci-dot.ci-off { background: var(--ci-line-strong); }
+
+/* ── Расчёт ───────────────────────────────────────────────────────────── */
+.ci-crow   { display: flex; align-items: baseline; padding: 7px 0;
+             font-size: 13px; font-weight: 500; color: var(--ci-ink-2); }
+.ci-crow b { margin-left: auto; font-size: 14px; font-weight: 700; color: var(--ci-ink);
+             font-variant-numeric: tabular-nums; }
+.ci-crow.ci-minus b { color: var(--ci-accent-ink); }
+.ci-sum    { display: flex; align-items: baseline; padding: 10px 0 4px; margin-top: 2px;
+             border-top: 1px solid var(--ci-line); }
+.ci-sum-k  { font-size: 12.5px; font-weight: 700; }
+.ci-sum-v  { margin-left: auto; font-size: 19px; font-weight: 900; letter-spacing: -.02em;
+             font-variant-numeric: tabular-nums; }
+
+/* ── Касса ────────────────────────────────────────────────────────────────
+   Ввод денег стоял на той же подложке, что и счёт, среди чисел, которые
+   только читают, — и терялся, хотя ради него окно и открывают. Теперь счёт
+   остаётся на подложке, а ввод — на поверхности окна: «здесь считаем»
+   и «сюда вносим» разделены плоскостью, а не линией. */
+.ci-kassa { background: var(--ci-surface); border: 1px solid var(--ci-line);
+            border-radius: 14px; padding: 0 13px 10px; margin-top: 16px; }
+.ci-kcap  { display: flex; align-items: baseline; gap: 8px;
+            font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .17em;
+            color: var(--ci-ink-3); padding: 10px 1px 8px; border-bottom: 1px solid var(--ci-line); }
+
+.ci-m     { display: flex; align-items: center; gap: 9px; min-height: 39px; }
+.ci-m-k   { flex: 1 1 auto; display: flex; align-items: center; gap: 8px;
+            font-size: 13px; font-weight: 500; color: var(--ci-ink-3); }
+.ci-m-k svg { color: var(--ci-line-strong); flex-shrink: 0; }
+/* Заполненная строка подсвечивается: видно, ЧЕМ уже заплатили, не
+   вчитываясь в четыре суммы. */
+.ci-m.ci-filled > .ci-m-k     { color: var(--ci-ink-2); font-weight: 600; }
+.ci-m.ci-filled > .ci-m-k svg { color: var(--ci-accent); }
+.ci-m-field { position: relative; flex: 0 0 142px; border-bottom: 1px solid var(--ci-line); }
+.ci-m-field input {
+  width: 100%; border: 0 !important; background: transparent !important; outline: 0;
+  text-align: right; font: 800 16px system-ui, sans-serif; color: var(--ci-ink) !important;
+  padding: 6px 34px 6px 2px; font-variant-numeric: tabular-nums;
+}
+.ci-m-field input::placeholder { color: var(--ci-line-strong) !important; font-weight: 500; }
+.ci-m:focus-within .ci-m-field   { border-bottom-color: var(--ci-accent); }
+.ci-m:focus-within > .ci-m-k     { color: var(--ci-accent-ink); }
+.ci-m:focus-within > .ci-m-k svg { color: var(--ci-accent); }
+
+/* Магнит притягивает в поле весь непокрытый остаток. Он был и раньше —
+   значком внутри поля. Теперь это кнопка: самое частое движение кассира
+   не должно быть бледнее рамки. */
+.ci-mag { position: absolute; right: 1px; top: 50%; transform: translateY(-50%);
+          width: 26px; height: 26px; display: grid; place-items: center;
+          border: 0; border-radius: 8px; cursor: pointer;
+          background: rgba(15, 150, 136, .12); color: var(--ci-accent-ink); }
+.ci-mag:hover { background: var(--ci-accent); color: #ffffff; }
+
+.ci-rest   { display: flex; align-items: center; margin-top: 12px; padding: 11px 14px;
+             border-radius: 13px; background: rgba(225, 29, 72, .08);
+             border: 1px solid rgba(225, 29, 72, .3); }
+.ci-rest-k { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em;
+             color: var(--ci-danger-ink); }
+.ci-rest-v { margin-left: auto; font-size: 27px; font-weight: 900; line-height: 1;
+             letter-spacing: -.035em; color: var(--ci-danger-ink);
+             font-variant-numeric: tabular-nums; }
+.ci-rest.ci-done   { background: rgba(15, 150, 136, .1); border-color: rgba(15, 150, 136, .3); }
+.ci-rest.ci-done .ci-rest-k,
+.ci-rest.ci-done .ci-rest-v { color: var(--ci-accent-ink); }
+
+.ci-foot { border-top: 1px solid var(--ci-line); background: var(--ci-surface); }
+.ci-foot-sig { font-size: 11px; font-weight: 600; color: var(--ci-ink-3); }
+.ci-foot-sig b { color: var(--ci-ink); font-weight: 800; }
+
+/* ── ПОЛЕ БЛАНКА В ТЁМНОЙ ТЕМЕ НЕ КОРОБКА ────────────────────────────────
+   Общее правило `[data-theme="dark"] input:not(…)` красит ВСЕ поля
+   подложкой и рамкой — и для обычного поля это верно: иначе оно сливается
+   с карточкой. Но у поля бланка коробки нет по замыслу: его рамка — это
+   линейка строки, и подложка возвращает ровно те коробки в коробках,
+   ради ухода от которых бланк и переделан.
+
+   Оба правила с `!important`, поэтому спор решает специфичность: у общего
+   она (0,5,1) — четыре `:not([type=…])` плюс элемент. Здесь тот же набор
+   плюс предок, то есть (0,6,1), и правило выигрывает по каскаду, а не
+   вопреки ему.
+
+   Область — только графы и касса. Выбор комнаты в раскрытом выборе места
+   остаётся обычным полем: там коробка нужна. */
+[data-theme="dark"] .ci-sheet3 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+[data-theme="dark"] .ci-sheet3 select {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--ci-ink) !important;
+}
