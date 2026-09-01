@@ -30,8 +30,11 @@ const ShiftClosingModal = ({
     myShift = null, cashiersForTransfer = [], onTransferShift,
     opening = null, openingFrom = null,
 }) => {
-    const t = useCallback((k) => TRANSLATIONS[lang][k], [lang]);
+    const t = useCallback((k) => TRANSLATIONS[lang]?.[k] || k, [lang]);
     const [confirming, setConfirming] = useState(false);
+    // Защита от двойной отправки: пока идёт закрытие/передача смены — кнопки заблокированы,
+    // иначе повторные клики шлют Telegram несколько раз и запускают гонку закрытия.
+    const [submitting, setSubmitting] = useState(false);
     // Передача смены: null — обычный режим, иначе id выбранного напарника ('' — ещё не выбран)
     const [transferTo, setTransferTo] = useState(null);
     const isDark = useMemo(() => document.documentElement.dataset.theme === 'dark', []);
@@ -50,10 +53,32 @@ const ShiftClosingModal = ({
     const { income, totalRefunds, cashboxExpenses, totalRevenue, cashInHand } = report;
     const otherExpenses = cashboxExpenses - totalRefunds;
 
-    const handleEndShiftWithNotify = useCallback(() => {
-        sendTelegramMessage(buildShiftTelegramMsg(user, report, lang), 'shiftEnd');
-        onEndShift();
-    }, [user, report, sendTelegramMessage, onEndShift, lang]);
+    const handleEndShiftWithNotify = useCallback(async () => {
+        if (submitting) return;                       // защита от повторного клика
+        setSubmitting(true);
+        try {
+            sendTelegramMessage(buildShiftTelegramMsg(user, report, lang), 'shiftEnd');
+            await onEndShift();                        // при успехе приложение выйдет и размонтирует модалку
+        } catch (e) {
+            setSubmitting(false);                      // ошибка — разблокируем для повторной попытки
+            notify?.(t('scmCloseError'), 'error');
+        }
+    }, [submitting, user, report, sendTelegramMessage, onEndShift, lang, notify, t]);
+
+    const handleTransfer = useCallback(async () => {
+        if (submitting || !transferTarget) return;    // защита от повторного клика
+        setSubmitting(true);
+        try {
+            await onTransferShift(myShift.id, transferTarget.id, {
+                cash: income.cash, card: income.card, qr: income.qr,
+                transfer: income.transfer, transferByEntity: income.transferByEntity,
+                refunds: totalRefunds, expenses: cashboxExpenses,
+            });
+        } catch (e) {
+            setSubmitting(false);
+            notify?.(t('scmCloseError'), 'error');
+        }
+    }, [submitting, transferTarget, onTransferShift, myShift, income, totalRefunds, cashboxExpenses, notify, t]);
 
     const copyReport = useCallback(async () => {
         const text = buildShiftReportText(user, report, lang);
@@ -196,15 +221,11 @@ const ShiftClosingModal = ({
                         {t('scmContinuePre')}<b>{transferTarget.name || transferTarget.login}</b>{t('scmContinueMid')}<b>50/50</b>{t('scmContinueMid2')}<b>{money(cashInHand)}</b>{t('scmContinuePost')}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setTransferTo(cashiersForTransfer.length === 1 ? null : '')}
-                            style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff' }}>{t('back')}</button>
-                        <button onClick={() => onTransferShift(myShift.id, transferTarget.id, {
-                            cash: income.cash, card: income.card, qr: income.qr,
-                            transfer: income.transfer, transferByEntity: income.transferByEntity,
-                            refunds: totalRefunds, expenses: cashboxExpenses,
-                        })}
-                            style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#4f46e5,#4338ca)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(79,70,229,0.35)' }}>
-                            <ArrowRightLeft size={14}/> {t('scmTransfer5050')}
+                        <button onClick={() => setTransferTo(cashiersForTransfer.length === 1 ? null : '')} disabled={submitting}
+                            style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff', opacity: submitting ? 0.5 : 1, cursor: submitting ? 'default' : 'pointer' }}>{t('back')}</button>
+                        <button onClick={handleTransfer} disabled={submitting}
+                            style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#4f46e5,#4338ca)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(79,70,229,0.35)' }}>
+                            <ArrowRightLeft size={14}/> {submitting ? t('scmClosing') : t('scmTransfer5050')}
                         </button>
                     </div>
                 </>
@@ -231,10 +252,10 @@ const ShiftClosingModal = ({
                 </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setConfirming(false)} style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff' }}>{t('cancel')}</button>
-                <button onClick={handleEndShiftWithNotify}
-                    style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#dc2626,#b91c1c)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(220,38,38,0.3)' }}>
-                    <LogOut size={14}/> {t('scmYesClose')}
+                <button onClick={() => setConfirming(false)} disabled={submitting} style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff', opacity: submitting ? 0.5 : 1, cursor: submitting ? 'default' : 'pointer' }}>{t('cancel')}</button>
+                <button onClick={handleEndShiftWithNotify} disabled={submitting}
+                    style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#dc2626,#b91c1c)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(220,38,38,0.3)' }}>
+                    <LogOut size={14}/> {submitting ? t('scmClosing') : t('scmYesClose')}
                 </button>
             </div>
         </div>

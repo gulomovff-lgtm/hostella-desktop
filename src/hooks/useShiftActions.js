@@ -171,17 +171,12 @@ export function useShiftActions({
     // т.к. Firestore document ID мог смениться после редактирования настроек пользователя.
     const freshUserDoc = usersList.find(u => u.login === currentUser.login);
     const targetDocId  = freshUserDoc?.id || currentUser.id;
-
-    if (targetDocId) {
-      // forceLogoutAfter вызывает авто-логаут на ВСЕХ вкладках/устройствах этого кассира
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', targetDocId), {
-        lastShiftEnd:     now,
-        forceLogoutAfter: now,
-      });
-    }
-
-    // Закрываем смены по обоим возможным staffId (старый и новый) + по staffLogin
     const login = currentUser.login;
+
+    // ВАЖНО: сначала закрываем смены, и только потом ставим forceLogoutAfter/выходим.
+    // forceLogoutAfter триггерит авто-логаут на текущем устройстве, и если поставить его
+    // раньше — приложение может размонтироваться до завершения закрытия, и смена останется
+    // открытой (баг: «смена не закрывается»).
     try {
       // Попытка 1: по текущему currentUser.id
       const q1 = query(
@@ -212,6 +207,15 @@ export function useShiftActions({
         await closeShiftDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', s.id), s, now);
       }
     }
+
+    if (targetDocId) {
+      // forceLogoutAfter вызывает авто-логаут на ВСЕХ вкладках/устройствах этого кассира
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', targetDocId), {
+        lastShiftEnd:     now,
+        forceLogoutAfter: now,
+      });
+    }
+
     await clearMyShiftLocks();
     onLogout();
   };
