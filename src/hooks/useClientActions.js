@@ -5,6 +5,7 @@ import { collection, doc, addDoc, updateDoc, writeBatch, increment } from 'fireb
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { getNormalizedCountry } from '../utils/helpers';
+import { computeMergedClient } from '../utils/clientDuplicates';
 
 export function useClientActions({ currentUser, clients, showNotification, setUndoStack }) {
 
@@ -75,6 +76,48 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     } catch (e) {
       console.error(e);
       showNotification('Deduplication failed', 'error');
+    }
+  };
+
+  /**
+   * Слить дубликаты в одну запись. Главной становится та, чей паспорт подтвердила
+   * госбаза e-mehmon (кнопка «Проверить» в разборе дубликатов).
+   *
+   * Баланс и визиты складываются со всех записей — это деньги гостя, потерять их
+   * нельзя. Перед удалением дублей их полный снимок пишется в журнал, поэтому
+   * слияние всегда можно разобрать постфактум.
+   *
+   * @param {string}   mainId    id главной записи
+   * @param {string[]} mergeIds  id сливаемых записей
+   * @param {object}   [patch]   доп. поля главной (напр. официальное ФИО из госбазы)
+   */
+  const handleMergeClients = async (mainId, mergeIds = [], patch = {}) => {
+    const main = clients.find(c => c.id === mainId);
+    const others = mergeIds.map(id => clients.find(c => c.id === id)).filter(Boolean);
+    if (!main || others.length === 0) return false;
+
+    try {
+      const merged = computeMergedClient(main, others);
+      const batch = writeBatch(db);
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', main.id), { ...merged, ...patch });
+      others.forEach(c => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id)));
+      await batch.commit();
+
+      // Снимок удалённых записей — чтобы слияние было прослеживаемым.
+      logAction(currentUser, 'clients_merge', {
+        mainId: main.id,
+        mainPassport: main.passport || '',
+        mergedCount: others.length,
+        balanceTotal: merged.balance,
+        removed: others.map(c => ({
+          id: c.id, fullName: c.fullName || '', passport: c.passport || '',
+          birthDate: c.birthDate || '', balance: c.balance || 0, visits: c.visits || 0,
+        })),
+      });
+      return true;
+    } catch (e) {
+      console.error('[clients] merge failed:', e);
+      return false;
     }
   };
 
@@ -242,6 +285,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     handleUpdateClient,
     handleImportClients,
     handleDeduplicate,
+    handleMergeClients,
     handleBulkDeleteClients,
     handleNormalizeCountries,
     handleSyncClientsFromGuests,

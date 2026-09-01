@@ -388,6 +388,92 @@ function buildDepartureCheckScript(guest) {
 })();`;
 }
 
+// ── Проверка паспортных данных в госбазе (БЕЗ регистрации) ───────────────────
+// Прогоняет ТОЛЬКО первый шаг мастера: гражданство + тип документа + паспорт +
+// дата рождения → «Keyingi». Дальше портал либо отвечает «topilmadi» (в госбазе
+// такого нет), либо открывает вкладку general-info и сам подставляет официальное
+// ФИО. Переход на следующий шаг и есть признак верных данных.
+//
+// Ничего не сохраняет: запись создаётся только кнопкой submitForm на последнем
+// шаге, сюда мы не доходим. Нужно, чтобы разобрать дубликаты клиентов и понять,
+// у какой из записей паспорт настоящий (напр. AC против AS).
+//
+// Имя из госбазы достаём «как получится»: id полей ФИО в портале не зафиксированы,
+// поэтому пробуем набор вероятных вариантов и дополнительно отдаём дамп заполненных
+// полей general-info (fields) — по нему можно уточнить разбор без новой поездки в портал.
+function buildPassportCheckScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var G = ${G};
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function byId(id){ return document.getElementById(id); }
+  function vis(el){ return !!(el && el.offsetParent !== null); }
+  function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+  function setInput(id, val){ var el=byId(id); if(!el) return false; el.value=(val==null?'':val); try{ if($) $(el).val(el.value); }catch(e){} fire(el); return true; }
+  function setSelect(id, val){ var el=byId(id); if(!el) return false; el.value=String(val); try{ if($) $(el).val(String(val)).trigger('change'); }catch(e){} fire(el); return true; }
+  function activeTab(){ var a=document.querySelector('#myTab .nav-link.active'); return a? a.id : ''; }
+  function notFound(){
+    var nodes = document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup');
+    for (var i=0;i<nodes.length;i++){ if (/topilmadi/i.test(nodes[i].textContent||'')) return true; }
+    return false;
+  }
+  async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
+
+  // Собираем заполненные поля general-info: и для поиска ФИО, и как дамп на будущее.
+  function harvest(){
+    var out = {}, name = '';
+    var panel = document.getElementById('general-info') || document;
+    var els = panel.querySelectorAll('input, select');
+    for (var i=0;i<els.length && i<80;i++){
+      var el = els[i];
+      var key = el.id || el.name || '';
+      var val = '';
+      try { val = el.tagName === 'SELECT' ? (el.options[el.selectedIndex]||{}).text || '' : (el.value || ''); } catch(e){}
+      val = String(val).trim();
+      if (key && val && val !== '0') out[key] = val.slice(0, 120);
+    }
+    // Наиболее вероятные ключи ФИО — по частям и одним полем.
+    var parts = [];
+    var order = ['surname','lastname','lastName','familiya','sname','firstname','firstName','name','ism','patronymic','middlename','otchestvo','sharif'];
+    for (var j=0;j<order.length;j++){
+      var k = order[j];
+      for (var key2 in out){
+        if (key2.toLowerCase() === k.toLowerCase() && parts.indexOf(out[key2]) === -1) parts.push(out[key2]);
+      }
+    }
+    name = parts.join(' ').replace(/\\s+/g,' ').trim();
+    return { fields: out, officialName: name };
+  }
+
+  try {
+    if ((location.pathname||'').indexOf('login')!==-1 || document.querySelector('input[type=password]')) return { status:'need_login' };
+
+    // 1) ждём форму первого шага
+    if (!(await waitFor(function(){ return byId('passportNumber') && byId('id_citizen'); }, 30, 400))) return { status:'no_form' };
+    await sleep(300);
+
+    // 2) заполняем проверяемые данные и жмём «Keyingi»
+    setSelect('id_citizen', '173');
+    setSelect('id_passporttype', G.docType || '1');
+    setInput('datebirth', G.birthDate);
+    setInput('passportNumber', (G.passport||'').toUpperCase());
+    await sleep(500);
+    var fcb = byId('formCheckButton');
+    if (!fcb) return { status:'no_form' };
+    fcb.removeAttribute('disabled');
+    fcb.click();
+
+    // 3) вердикт: «не найден» либо переход на general-info
+    if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
+    if (notFound()) return { status:'not_found' };
+    await sleep(700);   // даём порталу дозаполнить general-info
+    var h = harvest();
+    return { status:'valid', officialName: h.officialName, fields: h.fields };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+
 // ── Получить весь активный список /listok (для фоновой синхронизации статусов) ─
 // Возвращает { status:'ok', rows:[{passport,name}] } по всем строкам текущего
 // аккаунта. /listok — только активные (зарегистрированные сейчас иностранцы).
@@ -782,4 +868,4 @@ function buildAutoArrivalScript(guest) {
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript };
+module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript };

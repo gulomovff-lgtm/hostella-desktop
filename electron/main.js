@@ -7,7 +7,7 @@ const dns = require('dns');
 const net = require('net');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -550,6 +550,43 @@ ipcMain.handle('emehmon-arrival-auto', (_event, guest) => {
     if (w && !w.isDestroyed()) w.show();
     return { status: 'error', message: e.message };
   }));
+  autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
+  return run;
+});
+
+// ─── e-mehmon: проверка паспортных данных (разбор дубликатов клиентов) ───────
+// Прогоняет ТОЛЬКО первый шаг мастера прибытия и возвращает вердикт:
+//   valid     — портал пустил на следующий шаг, данные есть в госбазе (+officialName)
+//   not_found — «topilmadi», такого паспорта/даты рождения в госбазе нет
+//   need_login — нужен вход в портал: показываем окно, вход и капчу делает кассир
+// Ничего не сохраняет: до кнопки submitForm поток не доходит.
+// Проверки сериализованы общей цепочкой с авто-регистрацией — чтобы не гонять
+// несколько окон портала разом (владелец просил ручной режим, по одной).
+ipcMain.handle('emehmon-passport-check', (_event, payload) => {
+  const data = payload || {};
+  const run = autoArrivalChain.then(async () => {
+    try {
+      const win = ensureAutoArrivalWindow(data.hostelId);
+      await win.loadURL('https://emehmon.uz/listok/create-page');
+      let result;
+      try {
+        result = await win.webContents.executeJavaScript(buildPassportCheckScript(data), true);
+      } catch (e) {
+        result = { status: 'error', message: e.message };
+      }
+      const status = (result && result.status) || 'error';
+      if (status === 'need_login') {
+        win.show(); win.focus();
+        safeInjectAutofill(win, data);
+      } else {
+        win.hide();
+      }
+      return result || { status };
+    } catch (e) {
+      log.error('[emehmon] passport-check failed:', e.message);
+      return { status: 'error', message: e.message };
+    }
+  });
   autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
   return run;
 });
