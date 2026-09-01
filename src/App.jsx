@@ -137,6 +137,7 @@ import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import SessionsView from './components/Views/SessionsView';
 import ClientVersionsView from './components/Views/ClientVersionsView';
+import ClientDuplicatesView from './components/Views/ClientDuplicatesView';
 import PricePermissionsView from './components/Views/PricePermissionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
@@ -516,10 +517,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    signInAnonymously(auth).catch(err => console.error(err));
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       setFirebaseUser(user);
-      setIsLoadingAuth(false); 
+      setIsLoadingAuth(false);
+      // Анонимная сессия нужна ДО входа: брендинг и список персонала грузятся на
+      // экране логина. Поднимаем её ТОЛЬКО когда не вошёл никто.
+      // Раньше signInAnonymously вызывался безусловно при каждом монтировании и на
+      // перезагрузке затирал сессию с claims (hostellaRole) — кассир оставался
+      // залогинен в приложении, но без прав в базе, и ловил «Нет доступа к данным».
+      if (!user) signInAnonymously(auth).catch(err => console.error(err));
     });
     
     // ? ИСПРАВЛЕНИЕ: Восстановление пользователя и выбор правильного хостела
@@ -874,7 +880,7 @@ function App() {
   });
 
   const {
-    handleUpdateClient, handleImportClients, handleDeduplicate,
+    handleUpdateClient, handleImportClients, handleMergeClients,
     handleBulkDeleteClients, handleNormalizeCountries, handleSyncClientsFromGuests,
     handleTopUpBalance, handleAddClient, handleAdjustBalance,
   } = useClientActions({ currentUser, clients, showNotification, setUndoStack });
@@ -2011,7 +2017,7 @@ return (
                         onUpdateClient={handleUpdateClient}
                         onAddClient={handleAddClient}
                         onImportClients={handleImportClients} 
-                        onDeduplicate={handleDeduplicate} 
+                        onOpenDuplicates={() => setActiveTab('clientdupes')}
                         onBulkDelete={handleBulkDeleteClients} 
                         onNormalizeCountries={handleNormalizeCountries}
                         onSyncFromGuests={() => handleSyncClientsFromGuests(currentUser.role === 'super' ? guests : filteredGuests)}
@@ -2171,6 +2177,15 @@ return (
 
                 {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <ClientVersionsView clientVersions={clientVersions} lang={lang} />
+                )}
+
+                {activeTab === 'clientdupes' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <ClientDuplicatesView
+                        clients={clients}
+                        onMerge={handleMergeClients}
+                        currentUser={currentUser}
+                        lang={lang}
+                    />
                 )}
 
                 {activeTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (

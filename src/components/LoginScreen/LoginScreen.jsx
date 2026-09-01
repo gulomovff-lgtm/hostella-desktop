@@ -414,13 +414,16 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
                 const user = res?.data?.user;
                 if (!user) throw new Error('wrongpass');
                 // Переход с анонимного входа на реальную аутентификацию: входим по
-                // кастомному токену с claims (role/hostelId). При любой ошибке
-                // остаёмся на анонимной сессии — вход не рвём (правила пока пускают
-                // и анонимов). Это фундамент для будущего ужесточения правил.
+                // кастомному токену с claims (role/hostelId). Правила базы требуют
+                // эти claims, поэтому без токена работать НЕЛЬЗЯ: раньше ошибка
+                // проглатывалась, кассир заходил на анонимной сессии и упирался в
+                // «Нет доступа к данным». Лучше честно не пустить и дать повторить.
                 const customToken = res?.data?.customToken;
-                if (customToken) {
-                    try { await signInWithCustomToken(auth, customToken); }
-                    catch (e) { console.error('[auth] custom-token sign-in failed, staying anonymous:', e?.message); }
+                if (!customToken) throw new Error('noclaims');
+                try { await signInWithCustomToken(auth, customToken); }
+                catch (e) {
+                    console.error('[auth] custom-token sign-in failed:', e?.message);
+                    throw new Error('noclaims');
                 }
                 return user;
             })();
@@ -452,6 +455,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
             // будет вслепую перебирать пароли, пока проблема совсем в другом.
             const isFailure = e?.code === 'functions/internal' || e?.code === 'functions/unavailable'
                 || e?.code === 'functions/deadline-exceeded' || e?.code === 'functions/not-found';
+            // Логин с паролем прошёл, но права (claims) выдать не удалось. Пускать
+            // нельзя — в базе всё равно ничего не откроется. Говорим прямо, что дело
+            // не в пароле, иначе кассир начнёт его перебирать.
+            if (e?.message === 'noclaims') { setError(t('loginNoClaims')); return; }
             setError(serverSaid || (isFailure ? t('loginServerUnavailable') : t('error')));
         }
     };
