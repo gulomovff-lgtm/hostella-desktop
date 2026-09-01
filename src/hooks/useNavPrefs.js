@@ -11,7 +11,7 @@ export const DEFAULT_FOLDERS = [
         id: 'guests',
         label: 'Гости',
         emoji: '🛏️',
-        items: ['rooms', 'calendar', 'debts', 'clients', 'bookings', 'registrations', 'cadastre'],
+        items: ['rooms', 'calendar', 'debts', 'clients', 'clientdupes', 'bookings', 'registrations', 'cadastre'],
         open: true,
     },
     {

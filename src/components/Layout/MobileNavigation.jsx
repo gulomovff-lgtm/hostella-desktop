@@ -3,7 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3, MapPin, ShieldCheck,
+    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
@@ -29,6 +29,7 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('main2'),
         items: [
             { id: 'dashboard',     icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
+            { id: 'clientdupes',   icon: Merge,           label: t('cdTitle'),   adminOnly: true },
             { id: 'registrations', icon: ClipboardCheck,  label: t('emehmon'),   badgeKey: 'registrations', permKey: 'viewRegistrations' },
             { id: 'cadastre',      icon: MapPin,          label: t('navCadastre'), permKey: 'viewCadastre' },
             { id: 'manualstay',    icon: Users,           label: t('navManualStay'), permKey: 'viewManualStay' },

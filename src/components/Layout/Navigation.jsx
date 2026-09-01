@@ -7,7 +7,7 @@ import {
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
     Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
     SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
-    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon,
+    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon, Merge,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
@@ -19,6 +19,7 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'calendar',       icon: Calendar,          label: t('calendar')                                                 },
     { id: 'debts',          icon: AlertCircle,       label: t('debts'),          permKey: 'viewDebts'                    },
     { id: 'clients',        icon: Users,             label: t('clients'),        permKey: 'viewClients'                  },
+    { id: 'clientdupes',    icon: Merge,             label: t('cdTitle'),        adminOnly: true                        },
     { id: 'bookings',       icon: Globe,             label: t('bookings2'),      badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
     { id: 'registrations',  icon: ClipboardCheck,    label: t('emehmon'),        badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0, permKey: 'viewRegistrations' },
     { id: 'cadastre',       icon: Home,              label: t('navCadastre'),    permKey: 'viewCadastre'                 },

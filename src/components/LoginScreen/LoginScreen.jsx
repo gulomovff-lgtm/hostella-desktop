@@ -4,7 +4,9 @@ import TRANSLATIONS from '../../constants/translations';
 import { APP_VERSION } from '../../constants/config';
 import { httpsCallable } from 'firebase/functions';
 import { signInWithCustomToken } from 'firebase/auth';
-import { functions, auth } from '../../firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { functions, auth, db, PUBLIC_DATA_PATH } from '../../firebase';
+import { findBlockingShift, blockingOwnerName } from '../../utils/shiftOccupancy';
 import { X, Minus, Maximize2 } from 'lucide-react';
 import AmbientCanvas from './AmbientCanvas';
 import CrossfadeBg from './CrossfadeBg';
@@ -312,6 +314,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
     const loginInputRef = useRef(null);
     const [loadingTextIdx, setLoadingTextIdx] = useState(0);
     const [hostelError, setHostelError]         = useState(null); // { hostelId, occupiedBy }
+    // Открытые смены, снятые разово во время входа: список смен в приложении до
+    // логина ещё не подписан, а занятость надо знать ДО того, как кассир попадёт
+    // на рабочий экран. Используется и на выборе хостела.
+    const openShiftsRef = useRef([]);
 
     // Тексты идут ОДИН раз и останавливаются на последнем. Раньше индекс крутился
     // по кругу (% length), и если вход занимал больше 5 секунд, надпись и полоса
@@ -392,6 +398,21 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
         })));
     }, [theme.id]);
 
+    // Разовый снимок открытых смен. Сбой не рвёт вход: занятость всё равно
+    // перепроверяется в приложении, когда смены подпишутся.
+    const fetchOpenShifts = async () => {
+        try {
+            const snap = await getDocs(query(
+                collection(db, ...PUBLIC_DATA_PATH, 'shifts'),
+                where('endTime', '==', null),
+            ));
+            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {
+            console.warn('[login] не удалось проверить занятость смены:', e?.message);
+            return [];
+        }
+    };
+
     const handleAuth = async (e) => {
         e.preventDefault();
         if (submitPhase !== 'idle') return;
@@ -424,6 +445,26 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
                 catch (e) {
                     console.error('[auth] custom-token sign-in failed:', e?.message);
                     throw new Error('noclaims');
+                }
+
+                // Занятость смены проверяем ЗДЕСЬ, пока идут загрузочные надписи.
+                // Раньше проверка работала по состоянию shifts, которое до входа
+                // пустое: кассир проходил внутрь, дожидался полной загрузки и только
+                // потом видел блокировку. Теперь снимаем открытые смены разово сами
+                // (уже с правами — после входа по кастом-токену).
+                if (user.role === 'cashier') {
+                    openShiftsRef.current = await fetchOpenShifts();
+                    const multiHostel = (user.allowedHostels || []).length > 1;
+                    if (!multiHostel) {
+                        const blocking = findBlockingShift(openShiftsRef.current, users, {
+                            hostelId: user.hostelId, userId: user.id, userLogin: user.login,
+                        });
+                        if (blocking) {
+                            const err = new Error('shiftbusy');
+                            err.occupiedBy = blockingOwnerName(blocking, users, t('shaOtherCashier'));
+                            throw err;
+                        }
+                    }
                 }
                 return user;
             })();
@@ -459,18 +500,26 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
             // нельзя — в базе всё равно ничего не откроется. Говорим прямо, что дело
             // не в пароле, иначе кассир начнёт его перебирать.
             if (e?.message === 'noclaims') { setError(t('loginNoClaims')); return; }
+            // Смена в хостеле занята — пароль тут ни при чём, говорим прямо и сразу,
+            // не пуская кассира внутрь ждать полной загрузки.
+            if (e?.message === 'shiftbusy') { setError(t('loginShiftBusy').replace('{name}', e.occupiedBy || '')); return; }
             setError(serverSaid || (isFailure ? t('loginServerUnavailable') : t('error')));
         }
     };
 
     const handleHostelSelect = useCallback((hostelId) => {
         // Проверяем занятость смены в этом хостеле
-        if (checkHostelShift) {
-            const occupied = checkHostelShift(hostelId, pendingUser?.id, pendingUser?.login);
-            if (occupied) {
-                setHostelError({ hostelId, occupiedBy: occupied });
-                return; // без анимации
-            }
+        // Смотрим на смены, снятые при входе (в приложении они до логина не подписаны),
+        // и лишь затем — на состояние приложения как запасной вариант.
+        const blocking = findBlockingShift(openShiftsRef.current, users, {
+            hostelId, userId: pendingUser?.id, userLogin: pendingUser?.login,
+        });
+        const occupied = blocking
+            ? blockingOwnerName(blocking, users, t('shaOtherCashier'))
+            : (checkHostelShift ? checkHostelShift(hostelId, pendingUser?.id, pendingUser?.login) : null);
+        if (occupied) {
+            setHostelError({ hostelId, occupiedBy: occupied });
+            return; // без анимации
         }
         setHostelError(null);
         const finalUser = { ...pendingUser, selectedHostel: hostelId };
@@ -479,7 +528,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
             setSubmitPhase('zooming');
             setTimeout(() => onLogin?.(finalUser), 1200);
         }, 600);
-    }, [pendingUser, onLogin, checkHostelShift]);
+    }, [pendingUser, onLogin, checkHostelShift, users, t]);
 
     /* pill-button style helper */
     const pill = (active) => active

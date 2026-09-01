@@ -177,7 +177,7 @@ const BalanceAdjustModal = ({ client, onClose, onAdjust, lang }) => {
 };
 
 // --- ClientsView ---
-const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, onDeduplicate, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set(), onAdjustBalance }) => {
+const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, onOpenDuplicates, onBulkDelete, onNormalizeCountries, onSyncFromGuests, lang, currentUser, onOpenClientHistory, activePassports = new Set(), onAdjustBalance }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [search, setSearch] = useState('');
     const [editingClient, setEditingClient] = useState(null);
@@ -265,7 +265,8 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
                 <div className="flex flex-wrap items-center gap-2">
                     <Button icon={UserPlus} onClick={() => setEditingClient({ fullName: '', passport: '', birthDate: '', country: 'Узбекистан', clientStatus: 'normal' })}>{t('add')}</Button>
                     {isAdmin && <>
-                        <Button icon={Merge} variant="secondary" onClick={onDeduplicate}>{t('deduplicate')}</Button>
+                        {/* Ведёт на экран разбора дубликатов: слепое слияние трогает деньги, решает человек. */}
+                        <Button icon={Merge} variant="secondary" onClick={onOpenDuplicates}>{t('deduplicate')}</Button>
                         <Button icon={Globe} variant="secondary" onClick={handleNormalize}>{t('normalizeCountries')}</Button>
                         <Button icon={FileSpreadsheet} variant="secondary" onClick={() => setIsImportModalOpen(true)}>CSV</Button>
                         {onSyncFromGuests && <Button icon={RefreshCw} variant="secondary" onClick={() => setConfirmSyncOpen(true)}>{t('clSyncGuests')}</Button>}
