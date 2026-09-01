@@ -44,6 +44,16 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
+      // Замок смен — координация «кто на смене в этом хостеле», а не настройка.
+      // Кассир обязан его ставить (начало смены), снимать (закрытие) и передавать
+      // напарнику. Под общим правилом settings он был admin-only, из-за чего
+      // передача смены падала с permission-denied, а замок не освобождался.
+      // Секретов тут нет — только staffId/login/имя/время открытой смены.
+      match /settings/shiftLocks {
+        allow read:  if signedIn();
+        allow write: if isStaff();
+      }
+
       // ── users ─────────────────────────────────────────────────────────────
       // Читают сотрудники (список персонала, авто-синк роли). Пишет только админ —
       // закрывает эскалацию (кассир ставил себе role:super) и форж супер-claims
@@ -54,6 +64,15 @@ service cloud.firestore {
       match /users/{doc} {
         allow read:   if signedIn();
         allow write:  if isAdmin();
+
+        // Закрытие/передача смены отмечается в СВОЁМ документе кассира:
+        // lastShiftEnd + forceLogoutAfter (разлогин на всех устройствах).
+        // uid кастом-токена = id документа пользователя, поэтому чужой документ
+        // не тронуть, а список полей закрывает эскалацию роли (role/permissions).
+        allow update: if isStaff()
+                      && doc == request.auth.uid
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                           .hasOnly(['lastShiftEnd', 'forceLogoutAfter']);
       }
 
       // ── PII гостей/клиентов ───────────────────────────────────────────────
