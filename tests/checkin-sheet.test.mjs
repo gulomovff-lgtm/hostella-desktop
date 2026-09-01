@@ -139,3 +139,14 @@ test('весь текст идёт через словарь', () => {
   const literals = sheet.match(/>[^<>{}\n]*[А-Яа-яЁё]{3,}[^<>{}\n]*</g) || [];
   assert.deepEqual(literals, [], `в разметке остались русские строки: ${literals.join(' | ')}`);
 });
+
+test('выбор койки — как в облаке: две колонки и без карточек в карточках', () => {
+  // Список комнат короткий, и под ним оставалось пустое место во всю ширину
+  // окна, пока сетка коек ждала снизу. Серые карточки вокруг ярусов —
+  // рамка внутри рамки: выбор и так лежит внутри окна.
+  assert.match(code, /lg:grid lg:grid-cols-\[minmax\(0,320px\)_minmax\(0,1fr\)\] lg:gap-5 lg:items-start/);
+  assert.ok(!/bg-slate-50 border border-slate-200 rounded-xl p-3/.test(code),
+    'вернулись серые карточки вокруг ярусов');
+  assert.ok(!/bg-orange-50 border border-orange-200 rounded-xl p-3/.test(code),
+    'вернулась обёртка вокруг кнопки «на полу»');
+});

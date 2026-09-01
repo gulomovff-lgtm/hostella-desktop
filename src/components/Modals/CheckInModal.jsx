@@ -968,8 +968,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     {/* ── ВЫБОР МЕСТА ── */}
                     {(!formData.bedId || bedPickerOpen) && (
                         <div className="shrink-0 px-6 pt-3 pb-1">
-                            <div className="ci-cap mb-3">{t('bedSelection')}</div>
-                                <div className="mb-4">
+                            <div className="lg:grid lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
+                                <div>
+                                    <div className="ci-cap mb-2">{t('bedSelection')}</div>
                                     <SimpleSelect
                                         label={t('room')}
                                         value={formData.roomId}
@@ -1049,13 +1050,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                         );
                                     };
                                     return (
-                                        <div className="space-y-3 mt-1">
+                                        <div className="space-y-3 mt-3 lg:mt-0">
                                             {upperBeds.length > 0 && (
-                                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                                <div>
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">↑ {t('upperTier')}</span>
+                                                        <span className="text-[11px] font-black uppercase tracking-wider" style={{ color: 'var(--ci-ink-3)' }}>↑ {t('upperTier')}</span>
                                                         {_hasTiers && (
-                                                            <span className="text-[10px] font-bold text-violet-600 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-md">
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                                                                  style={{ color: 'var(--ci-info-ink)', background: 'rgba(79,70,229,.1)' }}>
                                                                 {_pUp.toLocaleString()} {t('sumPerNight')}
                                                             </span>
                                                         )}
@@ -1066,11 +1068,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 </div>
                                             )}
                                             {lowerBeds.length > 0 && (
-                                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                                <div>
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">↓ {t('lowerTier')}</span>
+                                                        <span className="text-[11px] font-black uppercase tracking-wider" style={{ color: 'var(--ci-ink-3)' }}>↓ {t('lowerTier')}</span>
                                                         {_hasTiers && (
-                                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                                                                  style={{ color: 'var(--ci-accent-ink)', background: 'rgba(15,150,136,.12)' }}>
                                                                 {_pLow.toLocaleString()} {t('sumPerNight')}
                                                             </span>
                                                         )}
@@ -1081,37 +1084,32 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 </div>
                                             )}
                                             {canSelectExtraBed && (
-                                                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
-                                                    <div className="flex items-center gap-1.5 text-[11px] font-black text-orange-700 uppercase tracking-wider mb-2">
-                                                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
-                                                        {t('extraGuest')}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const price = getRoomPrice(_room, '');
+                                                        setFormData(prev => ({ ...prev, bedId: EXTRA_BED_ID, pricePerNight: price }));
+                                                        setBedPickerOpen(false);
+                                                    }}
+                                                    className={`w-full rounded-xl border-2 px-3 py-2 text-left transition-all ${
+                                                        isExtraBed(formData.bedId)
+                                                            ? 'bg-orange-500 text-white border-orange-500 shadow-md'
+                                                            : 'bg-white text-orange-700 border-orange-300 hover:bg-orange-100 hover:border-orange-400'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-1.5 font-bold text-sm">
+                                                        <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
+                                                        {t('onFloor')}
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const price = getRoomPrice(_room, '');
-                                                            setFormData(prev => ({ ...prev, bedId: EXTRA_BED_ID, pricePerNight: price }));
-                                                            setBedPickerOpen(false);
-                                                        }}
-                                                        className={`w-full rounded-xl border-2 px-3 py-2 text-left transition-all ${
-                                                            isExtraBed(formData.bedId)
-                                                                ? 'bg-orange-500 text-white border-orange-500 shadow-md'
-                                                                : 'bg-white text-orange-700 border-orange-300 hover:bg-orange-100 hover:border-orange-400'
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center gap-1.5 font-bold text-sm">
-                                                            <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
-                                                            {t('onFloor')}
-                                                        </div>
-                                                        <div className={`text-xs mt-0.5 ${isExtraBed(formData.bedId) ? 'text-orange-100' : 'text-orange-600'}`}>
-                                                            {t('extraBedHint')}
-                                                        </div>
-                                                    </button>
-                                                </div>
+                                                    <div className={`text-xs mt-0.5 ${isExtraBed(formData.bedId) ? 'text-orange-100' : 'text-orange-600'}`}>
+                                                        {t('extraBedHint')}
+                                                    </div>
+                                                </button>
                                             )}
                                         </div>
                                     );
                                 })()}
+                            </div>
                         </div>
                     )}
 
