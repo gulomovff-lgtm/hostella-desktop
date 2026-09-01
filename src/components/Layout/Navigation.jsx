@@ -136,6 +136,10 @@ const Navigation = ({
         cancelAnimationFrame(scrollRafRef.current);
     }, []);
 
+    // Цикл автоскролла сам себя перезапускает через requestAnimationFrame. Если модалку
+    // закрыть прямо во время перетаскивания, он остался бы крутиться вечно — гасим при размонтировании.
+    React.useEffect(() => () => cancelAnimationFrame(scrollRafRef.current), []);
+
     React.useEffect(() => {
         const handler = (e) => {
             if (

@@ -85,7 +85,9 @@ export function useSystemHealth({ currentUser, versionLt }) {
       return err;
     };
 
-    window.electronAPI.onMainError((payload) => {
+    // Подписка возвращает функцию отписки — снимаем при размонтировании,
+    // иначе после перемонтирования остаётся «висячий» обработчик со старым замыканием.
+    const offMainError = window.electronAPI.onMainError((payload) => {
       if (!payload) return;
       logSystemError(payload.context || 'electron.main', toError(payload), {
         at: payload.at, exitCode: payload.exitCode, type: payload.type,
@@ -97,6 +99,8 @@ export function useSystemHealth({ currentUser, versionLt }) {
         logSystemError(`${p.context || 'electron.main'} (прошлый запуск)`, toError(p), { at: p.at });
       }))
       .catch(() => { /* файла нет — нечего слать */ });
+
+    return () => { if (typeof offMainError === 'function') offMainError(); };
   }, []);
 
   return { remoteVersionInfo, versionBlocked };

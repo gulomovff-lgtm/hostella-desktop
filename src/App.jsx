@@ -485,29 +485,26 @@ function App() {
     const api = window.electronAPI;
     if (!api) return; // в браузере не работаем
 
-    if (api.onUpdateAvailable) {
-      api.onUpdateAvailable((info) => {
+    // Каждая подписка возвращает функцию отписки — снимаем их при размонтировании,
+    // иначе обработчики остаются жить и срабатывают на каждый тик прогресса.
+    const offs = [
+      api.onUpdateAvailable?.((info) => {
         setHasUpdate(true);
         setUpdateProgress(prev => (prev !== null && prev > 0) ? prev : 0);
-      });
-    }
-    if (api.onUpdateProgress) {
-      api.onUpdateProgress((p) => {
+      }),
+      api.onUpdateProgress?.((p) => {
         setUpdateProgress(Math.round(p.percent || 0));
-      });
-    }
-    if (api.onUpdateDownloaded) {
-      api.onUpdateDownloaded(() => {
+      }),
+      api.onUpdateDownloaded?.(() => {
         setUpdateProgress(null);
         setUpdateDownloaded(true);
-      });
-    }
-    if (api.onUpdateError) {
-      api.onUpdateError((msg) => {
+      }),
+      api.onUpdateError?.((msg) => {
         setHasUpdate(false);
         setUpdateProgress(null);
-      });
-    }
+      }),
+    ];
+    return () => offs.forEach(off => { if (typeof off === 'function') off(); });
   }, []);
 
   // Загружаем глобальный конфиг приложения (настройки без кода)

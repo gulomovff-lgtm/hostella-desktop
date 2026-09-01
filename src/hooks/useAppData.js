@@ -3,6 +3,10 @@ import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/fir
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_USERS } from '../constants/config';
 
+// Сколько последних записей журнала держим в памяти (только супер).
+// Журнал растёт бесконечно, поэтому грузим окно, а не всю историю.
+const AUDIT_LOG_LIMIT = 5000;
+
 /**
  * Custom hook that subscribes to all Firestore collections and returns live data.
  *
@@ -138,12 +142,17 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    // Audit log — ВСЕ записи с начала базы (без limit), super only
+    // Audit log — последние записи, super only.
+    // Раньше тянулись ВСЕ записи с начала базы: журнал пишется на каждый вход,
+    // заселение, оплату, смену и ошибку, поэтому он рос бесконечно и держался
+    // в памяти целиком — приложение «подъедало» RAM и подвисало на долгих сессиях.
+    // Более старые записи остаются в Firestore, просто не грузятся в клиент.
     let u10 = () => {};
     if (currentUser.role === 'super') {
       const auditCol = query(
         collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
-        orderBy('timestamp', 'desc')
+        orderBy('timestamp', 'desc'),
+        limit(AUDIT_LOG_LIMIT)
       );
       u10 = onSnapshot(auditCol,
         (snap) => setAuditLog(snap.docs.map(d => ({ id: d.id, ...d.data() }))),

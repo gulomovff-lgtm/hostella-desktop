@@ -52,6 +52,11 @@ const maybeAlertTelegram = (context, message, details = {}) => {
         const now = Date.now();
         if (now - (_alertTimes.get(key) || 0) < ALERT_COOLDOWN_MS) return;
         if (_alertCount >= MAX_ALERTS_PER_SESSION) return;
+        // Чистим протухшие записи: кулдаун по ним уже истёк, держать их незачем,
+        // иначе Map растёт на каждый новый текст ошибки и не освобождается.
+        for (const [k, ts] of _alertTimes) {
+            if (now - ts >= ALERT_COOLDOWN_MS) _alertTimes.delete(k);
+        }
         _alertTimes.set(key, now);
         _alertCount++;
 

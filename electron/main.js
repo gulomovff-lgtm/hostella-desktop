@@ -104,6 +104,7 @@ let isDownloading = false;
 let isUpdateDownloaded = false;
 let isInstallingUpdate = false;
 let idleInstallInterval = null;
+let updateCheckInterval = null;
 
 function sendToWindow(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -211,8 +212,11 @@ function createWindow() {
   if (!isDev) {
     // Тихая проверка/скачивание без пользовательских действий.
     setTimeout(() => autoUpdater.checkForUpdates(), 3000);
-    // Повторно каждые 2 часа (только если не идёт скачивание)
-    setInterval(() => {
+    // Повторно каждые 2 часа (только если не идёт скачивание).
+    // Старый интервал гасим: createWindow() вызывается и на 'ready', и на 'activate',
+    // иначе при пересоздании окна интервалы копились бы.
+    if (updateCheckInterval) clearInterval(updateCheckInterval);
+    updateCheckInterval = setInterval(() => {
       if (!isDownloading) autoUpdater.checkForUpdates();
     }, 2 * 60 * 60 * 1000);
   }

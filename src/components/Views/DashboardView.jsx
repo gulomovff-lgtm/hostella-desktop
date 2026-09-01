@@ -196,12 +196,6 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         const arrivalsTomorrow = relGuests.filter(g => (ymd(g.checkInDate || g.checkInDateTime) === tomorrow) && (g.status === 'active' || g.status === 'booking'));
         const depTomorrow = relGuests.filter(g => ymd(g.checkOutDate) === tomorrow && g.status === 'active');
 
-        const expired = relGuests.filter(g => {
-            if (g.status !== 'active') return false;
-            const co = parseDate(g.checkOutDate);
-            return co && now > co;
-        });
-
         const countryMap = {};
         relGuests.filter(g => g.status === 'active' && g.country).forEach(g => {
             countryMap[g.country] = (countryMap[g.country] || 0) + 1;
@@ -272,10 +266,26 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             byCash, byCard, byQR, byTransfer,
             guestsWithDebt, totalDebt, rentalDebts, totalRentalDebt, guestDebtTotal, debtors,
             arrivalsToday, dep, arrivalsTomorrow, depTomorrow,
-            expired, topCountries, recentPayments, roomOccupancy,
+            topCountries, recentPayments, roomOccupancy,
             avgStay, staffTodayList, roomIncome, maxRoomIncome,
         };
-    }, [rooms, guests, payments, expenses, currentHostelId, nowMs]);
+        // Зависим от todayStr (меняется раз в сутки), а НЕ от nowMs (тик 60 с):
+        // иначе дашборд каждую минуту перемалывал всю историю платежей и заселений,
+        // и нагрузка росла вместе с базой — приложение «подъедало» память и подвисало.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rooms, guests, payments, expenses, currentHostelId, todayStr]);
+
+    // «Просрочка» зависит от текущего времени (час выезда), поэтому считается поминутно.
+    // Это дешёвый фильтр по гостям — в отличие от агрегатов выше.
+    const expired = useMemo(() => {
+        const relGuests = currentHostelId === 'all' ? guests : guests.filter(g => g.hostelId === currentHostelId);
+        const nowDate = new Date(nowMs);
+        return relGuests.filter(g => {
+            if (g.status !== 'active') return false;
+            const co = parseDate(g.checkOutDate);
+            return co && nowDate > co;
+        });
+    }, [guests, currentHostelId, nowMs]);
 
     const emehmonStats = useMemo(() => {
         const now = Date.now();
@@ -392,7 +402,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         { label: t('occupancy'), value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: `${data.occupancyGuests.length}/${data.totalBeds}${data.isOverCapacity ? ' ⚠' : ''}` },
         { label: t('incomeToday'), value: data.incomeToday.toLocaleString(), suffix: '', icon: TrendingUp, color: 'emerald', sub: 'UZS' },
         { label: t('debts'), value: data.totalDebt.toLocaleString(), suffix: '', icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'slate', sub: data.totalRentalDebt > 0 ? `${data.debtors.length} (${t('rentLower')} ${data.totalRentalDebt.toLocaleString()})` : `${data.debtors.length} ${t('debtorsShort')}` },
-        { label: t('overdueCount'), value: data.expired.length, suffix: '', icon: AlertCircle, color: data.expired.length > 0 ? 'amber' : 'slate', sub: t('notEvicted') },
+        { label: t('overdueCount'), value: expired.length, suffix: '', icon: AlertCircle, color: expired.length > 0 ? 'amber' : 'slate', sub: t('notEvicted') },
         { label: t('freeBedsLabel'), value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `${t('ofLabel')} ${data.totalBeds}${data.rentedBeds ? ` · ${t('rentLower')} ${data.rentedBeds}` : ''}` },
     ];
 
@@ -576,13 +586,13 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             </div>
                         )}
 
-                        {data.expired.length > 0 && (
+                        {expired.length > 0 && (
                             <div className="bg-amber-50 border border-amber-200 rounded-2xl shadow-sm p-4">
                                 <div className="flex items-center gap-2 mb-2">
                                     <AlertCircle size={16} className="text-amber-600"/>
-                                    <span className="font-bold text-amber-800 text-sm">{t('timeOut')} ({data.expired.length})</span>
+                                    <span className="font-bold text-amber-800 text-sm">{t('timeOut')} ({expired.length})</span>
                                 </div>
-                                {data.expired.slice(0, 5).map(g => (
+                                {expired.slice(0, 5).map(g => (
                                     <div key={g.id} className="text-xs text-amber-700 font-semibold py-0.5 truncate">• {g.fullName} — {t('roomAbbr')}{g.roomNumber}</div>
                                 ))}
                             </div>
@@ -1021,7 +1031,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                         <TabStat label={t('totalDebt')} value={data.totalDebt.toLocaleString()} icon={Wallet} color="rose" sub="UZS" />
                         <TabStat label={t('rentalDebt')} value={data.totalRentalDebt.toLocaleString()} icon={Wallet} color={data.totalRentalDebt > 0 ? 'amber' : 'slate'} sub="UZS" />
                         <TabStat label={t('debtorsCount')} value={data.debtors.length} icon={Users} color="amber" />
-                        <TabStat label={t('overdueCount')} value={data.expired.length} icon={AlertCircle} color={data.expired.length > 0 ? 'rose' : 'slate'} />
+                        <TabStat label={t('overdueCount')} value={expired.length} icon={AlertCircle} color={expired.length > 0 ? 'rose' : 'slate'} />
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
