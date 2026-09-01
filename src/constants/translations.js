@@ -2415,6 +2415,8 @@ const TRANSLATIONS = {
     gciCountryPh: "Узбекистан",
     gciCheckedInN: "Заселено {n} гостей",
     tbSearchTip: "Поиск (Ctrl+K)",
+    tbUpdateReady: "Обновление загружено — установится при простое",
+    tbUpdateLoading: "Загружается обновление",
     tbMinimize: "Свернуть окно",
     tbMaximize: "Развернуть окно",
     tbCloseWin: "Закрыть окно"
@@ -4834,6 +4836,8 @@ const TRANSLATIONS = {
     gciCountryPh: "O'zbekiston",
     gciCheckedInN: "{n} mehmon joylashtirildi",
     tbSearchTip: "Qidirish (Ctrl+K)",
+    tbUpdateReady: "Yangilanish yuklandi — bo'sh vaqtda o'rnatiladi",
+    tbUpdateLoading: "Yangilanish yuklanmoqda",
     tbMinimize: "Oynani yig'ish",
     tbMaximize: "Oynani yoyish",
     tbCloseWin: "Oynani yopish"

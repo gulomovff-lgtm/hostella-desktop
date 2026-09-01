@@ -1,9 +1,11 @@
 import React from 'react';
 import { Wifi, WifiOff, Search, Minus, Square, X } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { APP_VERSION } from '../../constants/config';
 
 const TopBar = ({ isOnline, onOpenSearch, lang,
-    selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter }) => {
+    selectedHostelFilter, hostels, availableHostels, setSelectedHostelFilter,
+    hasUpdate = false, updateDownloaded = false }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
     const btnBase = { transition: 'all 0.15s', cursor: 'pointer' };
 
@@ -31,6 +33,18 @@ const TopBar = ({ isOnline, onOpenSearch, lang,
 
                 {/* Divider */}
                 <div className="w-px h-7 shrink-0" style={{background:'rgba(255,255,255,0.18)'}}/>
+
+                {/* Версия приложения — видна всегда, в том числе кассиру:
+                    в Настройки хостела он не заходит, а знать версию нужно. */}
+                <div className="shrink-0" style={{WebkitAppRegion:'no-drag'}}
+                    title={updateDownloaded ? t('tbUpdateReady') : (hasUpdate ? t('tbUpdateLoading') : t('hsVersion'))}>
+                    <span style={{fontSize:10, fontWeight:700, letterSpacing:'0.02em', padding:'2px 7px', borderRadius:6,
+                        background: updateDownloaded ? 'rgba(52,211,153,0.16)' : hasUpdate ? 'rgba(96,165,250,0.16)' : 'rgba(255,255,255,0.06)',
+                        border: `1px solid ${updateDownloaded ? 'rgba(52,211,153,0.35)' : hasUpdate ? 'rgba(96,165,250,0.35)' : 'rgba(255,255,255,0.12)'}`,
+                        color: updateDownloaded ? '#6ee7b7' : hasUpdate ? '#93c5fd' : 'var(--nav-muted)'}}>
+                        v{APP_VERSION}{(hasUpdate || updateDownloaded) ? ' ↑' : ''}
+                    </span>
+                </div>
 
                 {/* Online icon */}
                 <div className="shrink-0" style={{WebkitAppRegion:'no-drag'}} title={isOnline ? t('online') : t('offline')}>

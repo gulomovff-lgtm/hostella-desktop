@@ -296,7 +296,7 @@ const LOADING_TEXT_KEYS = [
     'loginAlmostReady',
 ];
 
-const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, setThemeId, hostelNames = {}, checkHostelShift }) => {
+const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, setThemeId, hostelNames = {}, checkHostelShift, hasUpdate = false, updateDownloaded = false, updateProgress = null }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [login, setLogin]         = useState('');
     const [pass, setPass]           = useState('');
@@ -314,6 +314,15 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
     const loginInputRef = useRef(null);
     const [loadingTextIdx, setLoadingTextIdx] = useState(0);
     const [hostelError, setHostelError]         = useState(null); // { hostelId, occupiedBy }
+    // Вид бейджа версии: он же индикатор обновления. Раньше на экране входа
+    // обновление никак не показывалось — кассир не понимал, идёт оно или нет.
+    const updateBadge = updateDownloaded
+        ? { bg:'rgba(52,211,153,0.18)', fg:'#6ee7b7', br:'rgba(52,211,153,0.4)',  suffix:' ↑' }
+        : hasUpdate
+        ? { bg:'rgba(96,165,250,0.18)', fg:'#93c5fd', br:'rgba(96,165,250,0.4)',  suffix: updateProgress != null ? ` ${updateProgress}%` : ' ↓' }
+        : { bg:'rgba(0,0,0,0.22)',      fg:'rgba(255,255,255,0.28)', br:'rgba(255,255,255,0.07)', suffix:'' };
+    const updateTip = updateDownloaded ? t('tbUpdateReady') : (hasUpdate ? t('tbUpdateLoading') : '');
+
     // Открытые смены, снятые разово во время входа: список смен в приложении до
     // логина ещё не подписан, а занятость надо знать ДО того, как кассир попадёт
     // на рабочий экран. Используется и на выборе хостела.
@@ -772,9 +781,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
                             ))}
                         </div>
                         <span className="hidden sm:inline-block text-xs font-bold select-none px-2.5 py-1.5 rounded-full"
-                              style={{background:'rgba(0,0,0,0.22)', color:'rgba(255,255,255,0.28)',
-                                      border:'1px solid rgba(255,255,255,0.07)'}}>
-                            v{APP_VERSION}
+                              title={updateTip}
+                              style={{background: updateBadge.bg, color: updateBadge.fg,
+                                      border:`1px solid ${updateBadge.br}`}}>
+                            v{APP_VERSION}{updateBadge.suffix}
                         </span>
                         {window.electronAPI && (
                             <div className="flex gap-1 ml-0.5">
@@ -1273,9 +1283,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
                             ))}
                         </div>
                         <span className="text-xs font-bold select-none px-2 py-1 rounded-full"
-                              style={{background:'rgba(0,0,0,0.22)', color:'rgba(255,255,255,0.28)',
-                                      border:'1px solid rgba(255,255,255,0.07)'}}>
-                            v{APP_VERSION}
+                              title={updateTip}
+                              style={{background: updateBadge.bg, color: updateBadge.fg,
+                                      border:`1px solid ${updateBadge.br}`}}>
+                            v{APP_VERSION}{updateBadge.suffix}
                         </span>
                     </div>
                 </div>

@@ -1687,6 +1687,9 @@ if (!currentUser) return (
         setThemeId={handleSetLoginTheme}
         hostelNames={Object.fromEntries(Object.entries(HOSTELS).map(([k,v]) => [k, v.name]))}
         checkHostelShift={checkHostelShift}
+        hasUpdate={hasUpdate}
+        updateDownloaded={updateDownloaded}
+        updateProgress={updateProgress}
     />
 );
 
@@ -1765,6 +1768,8 @@ return (
             hostels={HOSTELS}
             availableHostels={availableHostelsForUser}
             setSelectedHostelFilter={setSelectedHostelFilter}
+            hasUpdate={hasUpdate}
+            updateDownloaded={updateDownloaded}
         />
 
         <MobileNavigation

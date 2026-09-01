@@ -31,6 +31,23 @@ autoUpdater.autoInstallOnAppQuit = true;
 
 const UPDATE_IDLE_INSTALL_SECONDS = 180; // 3 мин простоя
 const UPDATE_IDLE_CHECK_INTERVAL_MS = 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;  // регулярная проверка обновлений
+const UPDATE_CHECK_MIN_GAP_MS   = 5 * 60 * 1000;  // но не чаще раза в 5 минут
+let lastUpdateCheckAt = 0;
+
+/**
+ * Проверка обновлений с защитой от частых вызовов. Дёргается из нескольких мест
+ * (старт, интервал, фокус окна, пробуждение), поэтому нужен общий тормоз —
+ * иначе на каждое переключение окна уходил бы запрос к GitHub.
+ */
+function checkForUpdatesThrottled(reason) {
+  if (isDownloading || isInstallingUpdate) return;
+  const now = Date.now();
+  if (now - lastUpdateCheckAt < UPDATE_CHECK_MIN_GAP_MS) return;
+  lastUpdateCheckAt = now;
+  log.info(`[Updater] checking (${reason})`);
+  autoUpdater.checkForUpdates().catch(e => log.error('[Updater] check failed:', e.message));
+}
 
 const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.json');
 
@@ -211,14 +228,18 @@ function createWindow() {
   // Проверяем обновления через 3 секунды после запуска (только в production)
   if (!isDev) {
     // Тихая проверка/скачивание без пользовательских действий.
-    setTimeout(() => autoUpdater.checkForUpdates(), 3000);
-    // Повторно каждые 2 часа (только если не идёт скачивание).
+    setTimeout(() => checkForUpdatesThrottled('startup'), 3000);
+    // Повторно раз в полчаса. Раньше было раз в 2 часа: релиз, вышедший сразу
+    // после проверки, ждал до двух часов, и выглядело это как «обновление не
+    // приходит, пока не перезапустишь» (перезапуск проверяет через 3 секунды).
     // Старый интервал гасим: createWindow() вызывается и на 'ready', и на 'activate',
     // иначе при пересоздании окна интервалы копились бы.
     if (updateCheckInterval) clearInterval(updateCheckInterval);
-    updateCheckInterval = setInterval(() => {
-      if (!isDownloading) autoUpdater.checkForUpdates();
-    }, 2 * 60 * 60 * 1000);
+    updateCheckInterval = setInterval(() => checkForUpdatesThrottled('interval'), UPDATE_CHECK_INTERVAL_MS);
+
+    // Кассир вернулся к приложению или машина проснулась — хороший момент
+    // проверить: именно тогда чаще всего и ждут свежую версию.
+    mainWindow.on('focus', () => checkForUpdatesThrottled('focus'));
   }
 }
 
@@ -916,6 +937,11 @@ autoUpdater.on('error', (err) => {
   isDownloading = false;
   stopIdleInstallWatcher();
   sendToWindow('update-error', err.message);
+});
+
+// Машина проснулась после сна — за это время вполне мог выйти релиз.
+powerMonitor.on('resume', () => {
+  if (!isDev) setTimeout(() => checkForUpdatesThrottled('resume'), 5000);
 });
 
 // IPC: renderer просит установить обновление
