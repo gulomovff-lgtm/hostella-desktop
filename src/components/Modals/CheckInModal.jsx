@@ -344,6 +344,24 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const usdRate = rates?.USD?.rate || 0;
     const effectiveRate = (parseInt(manualRate) > 0 ? parseInt(manualRate) : usdRate);
 
+    /**
+     * Запись, которую прямо сейчас превращают в заселение.
+     *
+     * При заселении по брони сама эта бронь лежит в списке гостей — и
+     * попадает в поиск «кто заезжает на это место следующим». Окно
+     * предупреждало о том самом человеке, которого кассир заселяет:
+     * «через 0 дн. на это место заезжает …, уменьшите количество дней
+     * до 0». Совет невыполним, а испуг настоящий.
+     *
+     * Своя запись конкурентом за койку не является — исключаем её везде,
+     * где список гостей просматривают на занятость.
+     */
+    const selfGuestId = initialClient?.id || null;
+    const otherGuests = useMemo(
+        () => (selfGuestId ? guests.filter(g => g.id !== selfGuestId) : guests),
+        [guests, selfGuestId],
+    );
+
     const totalPrice = (parseInt(formData.days) || 0) * (parseInt(formData.pricePerNight) || 0);
     const appliedBalance = formData.paidBalance || 0;
     const totalPaid = (parseInt(formData.paidCash) || 0) + (parseInt(formData.paidCard) || 0) + (parseInt(formData.paidQR) || 0) + (parseInt(formData.paidTransfer) || 0) + (parseInt(formData.paidBalance) || 0);
@@ -513,7 +531,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
         const debtOf = (g) => Math.max(0, (parseInt(g.totalPrice) || 0) -
             (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0))));
-        const arrived = guests.filter(g =>
+        const arrived = otherGuests.filter(g =>
             g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday);
         // Текущие жильцы (срок не вышел) — койка занята
         const occupants = {};
@@ -529,7 +547,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         const shortName = (g) => (g?.fullName || '').split(' ')[0] || '';
         return Array.from({ length: room.capacity || 0 }, (_, i) => {
             const id = String(i + 1);
-            const nextConflict = guests
+            const nextConflict = otherGuests
                 .filter(g =>
                     g.roomId === formData.roomId &&
                     String(g.bedId) === id &&
@@ -556,7 +574,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 nextGuestDate: nextConflict?.checkInDate || null,
             };
         });
-    }, [formData.roomId, formData.checkInDate, guests, allRooms]);
+    }, [formData.roomId, formData.checkInDate, otherGuests, allRooms]);
 
     /** Выбранное место — из уже посчитанного списка коек. Объявлено здесь,
         а не выше: `availableBeds` считается ниже по файлу, и обращение
@@ -731,14 +749,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 // Пропускаем текущее выбранное место
                 if (room.id === formData.roomId && bedId === formData.bedId) continue;
                 // Есть ли активный жилец
-                const hasActive = guests.some(g =>
+                const hasActive = otherGuests.some(g =>
                     g.roomId === room.id && String(g.bedId) === bedId &&
                     g.status === 'active' && new Date(g.checkInDate) <= now &&
                     (!g.checkOutDate || new Date(g.checkOutDate) > checkIn)
                 );
                 if (hasActive) continue;
                 // Есть ли перекрывающая бронь
-                const conflict = guests.find(g =>
+                const conflict = otherGuests.find(g =>
                     g.roomId === room.id && String(g.bedId) === bedId &&
                     (g.status === 'booking' || g.status === 'active') &&
                     new Date(g.checkInDate) < checkOut &&
@@ -750,7 +768,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             }
         }
         return results.slice(0, 6); // не более 6 вариантов
-    }, [allRooms, guests, formData.roomId, formData.bedId, formData.checkInDate, formData.days]);
+    }, [allRooms, otherGuests, formData.roomId, formData.bedId, formData.checkInDate, formData.days]);
 
     const handleSubmit = async (status) => {
         if (isSubmitting) return;
@@ -938,11 +956,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                         <div><b>{t('adminNoPayment')}</b> — {t('adminNoPaymentSub')}</div>
                     </div>
                 )}
+                {/* При нуле совет «уменьшите срок до 0» невыполним: заселить
+                    на ноль суток нельзя. Значит место занято с сегодняшнего
+                    дня, и делать надо другое — брать другое место. */}
                 {bedConflict && (
                     <div className="ci-notice ci-warn shrink-0"><i/>
                         <div>
-                            <b>{t('conflictBannerTitle')}</b> — {t('conflictInDays')} {bedConflict.maxDays} {t('daysShort')}
-                            {' '}{t('conflictArrivesOnBed')} {bedConflict.guestName}. {t('conflictReduceDaysTo')} {bedConflict.maxDays}.
+                            {bedConflict.maxDays > 0 ? (
+                                <><b>{t('conflictBannerTitle')}</b> — {t('conflictInDays')} {bedConflict.maxDays} {t('daysShort')}
+                                {' '}{t('conflictArrivesOnBed')} {bedConflict.guestName}. {t('conflictReduceDaysTo')} {bedConflict.maxDays}.</>
+                            ) : (
+                                <><b>{t('conflictBannerTitle')}</b> — {t('conflictTodayArrives').replace('{name}', bedConflict.guestName || '')}</>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1594,7 +1619,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 {submitConflict.guestDate && (
                                     <span className="text-rose-600"> ({new Date(submitConflict.guestDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru-RU')})</span>
                                 )}.{' '}
-                                {t('conflictBedMax')} <b>{submitConflict.maxDays} {t('daysShort')}</b>.
+                                {submitConflict.maxDays > 0
+                                    ? <>{t('conflictBedMax')} <b>{submitConflict.maxDays} {t('daysShort')}</b>.</>
+                                    : <b>{t('conflictTodayArrives').replace('{name}', submitConflict.guestName || '')}</b>}
                             </div>
                             {submitConflict.alternatives.length > 0 ? (
                                 <div>

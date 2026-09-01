@@ -505,6 +505,7 @@ const TRANSLATIONS = {
     conflictBedMax: "Максимально можно заселить на",
     conflictFreeTitle: "Свободные варианты:",
     conflictNoFree: "Нет свободных мест на выбранные даты. Измените количество дней или дату заезда.",
+    conflictTodayArrives: "сегодня на это место заезжает {name}. Выберите другое место.",
     // RoomsView
     filterFree: "Свободные", filterOccupied: "Занятые", filterTimeout: "Просрочены", filterBooking: "Брони",
     nameUnknown: "Имя не указано", arrivalToday: "⚡ Заезд сегодня", arrivesIn: "Заезд через",
@@ -2924,6 +2925,7 @@ const TRANSLATIONS = {
     conflictBedMax: "Ko'pi bilan joylashtirishingiz mumkin",
     conflictFreeTitle: "Bo'sh variantlar:",
     conflictNoFree: "Tanlangan sanalar uchun bo'sh joy yo'q. Kunlar sonini yoki kelish sanasini o'zgartiring.",
+    conflictTodayArrives: "bugun bu joyga {name} keladi. Boshqa joy tanlang.",
     // RoomsView
     filterFree: "Bo'shlar", filterOccupied: "Bandlar", filterTimeout: "Muddati o'tganlar", filterBooking: "Bronlar",
     nameUnknown: "Ismi ko'rsatilmagan", arrivalToday: "⚡ Bugun keladi", arrivesIn: "Kelish:",

@@ -150,3 +150,30 @@ test('выбор койки — как в облаке: две колонки и
   assert.ok(!/bg-orange-50 border border-orange-200 rounded-xl p-3/.test(code),
     'вернулась обёртка вокруг кнопки «на полу»');
 });
+
+test('бронь не конфликтует сама с собой', () => {
+  // Боевая жалоба кассира: при заселении по брони окно писало «Конфликт
+  // заселения — через 0 дн. на это место заезжает <тот же гость>.
+  // Уменьшите количество дней до 0». Сама бронь лежит в списке гостей
+  // и попадает в поиск «кто заезжает следующим»: её время заезда —
+  // сегодня 14:00, а отсчёт идёт от полуночи, поэтому разница
+  // округляется в ноль. Совет невыполним, а испуг настоящий.
+  assert.match(code, /const selfGuestId = initialClient\?\.id \|\| null;/);
+  assert.match(code, /guests\.filter\(g => g\.id !== selfGuestId\)/);
+  for (const scan of [
+    'const arrived = otherGuests.filter(',
+    'const nextConflict = otherGuests',
+    'const hasActive = otherGuests.some(',
+    'const conflict = otherGuests.find(',
+  ]) {
+    assert.ok(code.includes(scan), `просмотр по-прежнему берёт весь список: ${scan}`);
+  }
+  assert.ok(!/const arrived = guests\.filter\(/.test(code), 'жильцы снова из общего списка');
+});
+
+test('при нуле суток совет другой', () => {
+  // «Уменьшите до 0» невыполнимо: заселить на ноль суток нельзя.
+  assert.match(code, /bedConflict\.maxDays > 0 \? \(/);
+  assert.match(code, /t\('conflictTodayArrives'\)\.replace\('\{name\}', bedConflict\.guestName/);
+  assert.match(code, /submitConflict\.maxDays > 0/);
+});
