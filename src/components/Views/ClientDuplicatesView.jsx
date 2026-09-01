@@ -12,7 +12,7 @@
  * Логика поиска и расчёта слияния живёт в utils/clientDuplicates.js,
  * сама запись в Firestore — в hooks/useClientActions (handleMergeClients).
  */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Merge, ShieldCheck, CheckCircle2, XCircle, AlertTriangle, Loader2,
   Users, Wallet, Phone, CalendarDays, LogIn, Monitor,
@@ -70,6 +70,12 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
   const [confirmFor, setConfirmFor] = useState(null);   // id главной записи
   const [mergingId, setMergingId] = useState(null);
   const [failedKey, setFailedKey] = useState(null);     // key группы, где слияние сорвалось
+  // Групп бывают сотни, а карточка тяжёлая — рисуем порциями, иначе экран
+  // открывается с заметной задержкой (сам поиск дубликатов быстрый).
+  const [shown, setShown] = useState(20);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoProgress, setAutoProgress] = useState(null); // { done, total, merged, skipped }
+  const stopRef = useRef(false);
 
   const groups = useMemo(() => findDuplicateGroups(clients), [clients]);
 
@@ -90,14 +96,8 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
     setConfirmFor(prev => (prev && !alive.has(prev) ? null : prev));
   }, [clients]);
 
-  const runCheck = async (client) => {
-    if (runningId) return;
-    if (!window.electronAPI?.emehmonPassportCheck) {
-      setChecks(prev => ({ ...prev, [client.id]: { status: 'no_desktop' } }));
-      return;
-    }
-    setRunningId(client.id);
-    setChecks(prev => ({ ...prev, [client.id]: null }));
+  // Один запрос в госбазу. Общий для ручной кнопки и автоматического прогона.
+  const checkOne = async (client) => {
     try {
       const res = await window.electronAPI.emehmonPassportCheck({
         passport: (client.passport || '').replace(/\s/g, '').toUpperCase(),
@@ -105,11 +105,84 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
         docType: '1',
         hostelId: currentUser?.hostelId || '',
       });
-      setChecks(prev => ({ ...prev, [client.id]: res || { status: 'error' } }));
+      return res || { status: 'error' };
     } catch (e) {
-      setChecks(prev => ({ ...prev, [client.id]: { status: 'error', message: e?.message } }));
+      return { status: 'error', message: e?.message };
+    }
+  };
+
+  const runCheck = async (client) => {
+    if (runningId || autoRunning) return;
+    if (!window.electronAPI?.emehmonPassportCheck) {
+      setChecks(prev => ({ ...prev, [client.id]: { status: 'no_desktop' } }));
+      return;
+    }
+    setRunningId(client.id);
+    setChecks(prev => ({ ...prev, [client.id]: null }));
+    const res = await checkOne(client);
+    setChecks(prev => ({ ...prev, [client.id]: res }));
+    setRunningId(null);
+  };
+
+  /**
+   * Автоматический прогон: проверяет группы подряд и сливает те, где всё однозначно.
+   *
+   * Правило безопасности: сливаем ТОЛЬКО когда в группе ровно одна запись прошла
+   * госбазу. Если прошли две — это разные живые люди с одинаковой датой рождения
+   * и похожим именем, сливать их нельзя (пропали бы деньги и история одного из них).
+   * Если не прошла ни одна — тоже оставляем на ручной разбор.
+   * Расхождение в ФИО решается в пользу госбазы, как и просил владелец.
+   */
+  const runAuto = async () => {
+    if (autoRunning || runningId) return;
+    if (!window.electronAPI?.emehmonPassportCheck) {
+      setAutoProgress({ done: 0, total: 0, merged: 0, skipped: 0, noDesktop: true });
+      return;
+    }
+    stopRef.current = false;
+    setAutoRunning(true);
+    setFailedKey(null);
+    const total = groups.length;
+    let done = 0, merged = 0, skipped = 0, needLogin = false;
+    setAutoProgress({ done, total, merged, skipped });
+    try {
+      for (const group of groups) {
+        if (stopRef.current) break;
+        const results = {};
+        for (const c of group.clients) {
+          if (stopRef.current) break;
+          if (!c.passport || !c.birthDate) continue;   // проверять нечего
+          setRunningId(c.id);
+          setChecks(prev => ({ ...prev, [c.id]: null }));
+          const res = await checkOne(c);
+          results[c.id] = res;
+          setChecks(prev => ({ ...prev, [c.id]: res }));
+          setRunningId(null);
+          // Портал требует вход — дальше без кассира не пройти, останавливаемся.
+          if (res?.status === 'need_login') { needLogin = true; stopRef.current = true; break; }
+        }
+        if (stopRef.current) break;
+
+        const valid = group.clients.filter(c => results[c.id]?.status === 'valid');
+        done++;
+        if (valid.length === 1) {
+          const main = valid[0];
+          const official = results[main.id]?.officialName || '';
+          const patch = (official && normalizeName(official) !== normalizeName(main.fullName))
+            ? { fullName: official }
+            : {};
+          const otherIds = group.clients.filter(c => c.id !== main.id).map(c => c.id);
+          const ok = otherIds.length ? await onMerge?.(main.id, otherIds, patch) : true;
+          if (ok) merged++; else skipped++;
+        } else {
+          skipped++;   // ноль прошедших или несколько — только вручную
+        }
+        setAutoProgress({ done, total, merged, skipped, needLogin });
+      }
     } finally {
+      setAutoProgress(prev => ({ ...(prev || {}), done, total, merged, skipped, needLogin, finished: true }));
       setRunningId(null);
+      setAutoRunning(false);
     }
   };
 
@@ -117,7 +190,10 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
     const otherIds = group.clients.filter(c => c.id !== main.id).map(c => c.id);
     if (!otherIds.length) return;
     const official = checks[main.id]?.officialName || '';
-    const patch = (useOfficial[main.id] && official) ? { fullName: official } : {};
+    // Галочка не тронута — берём ФИО из госбазы: она источник правды.
+    // Владелец может снять галочку и оставить написание как в базе Hostella.
+    const takeOfficial = useOfficial[main.id] ?? true;
+    const patch = (takeOfficial && official) ? { fullName: official } : {};
     setMergingId(main.id);
     setFailedKey(null);
     try {
@@ -142,6 +218,45 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
           {t('cdGroupsCount').replace('{n}', groups.length)}
         </p>
         <p className="text-xs text-slate-400 mt-1">{t('cdHint')}</p>
+
+        {groups.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              {!autoRunning ? (
+                <button
+                  onClick={runAuto}
+                  disabled={!!runningId}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-sm font-bold transition-colors"
+                >
+                  <ShieldCheck size={15} /> {t('cdAutoBtn')}
+                </button>
+              ) : (
+                <button
+                  onClick={() => { stopRef.current = true; }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold transition-colors"
+                >
+                  <Loader2 size={15} className="animate-spin" /> {t('cdAutoStop')}
+                </button>
+              )}
+              {autoProgress && (
+                <span className="text-xs font-medium text-slate-600">
+                  {t('cdAutoProgress')
+                    .replace('{done}', autoProgress.done ?? 0)
+                    .replace('{total}', autoProgress.total ?? 0)
+                    .replace('{merged}', autoProgress.merged ?? 0)
+                    .replace('{skipped}', autoProgress.skipped ?? 0)}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{t('cdAutoRule')}</p>
+            {autoProgress?.needLogin && (
+              <p className="text-[11px] text-amber-600 font-semibold mt-1">{t('cdNeedLogin')}</p>
+            )}
+            {autoProgress?.noDesktop && (
+              <p className="text-[11px] text-amber-600 font-semibold mt-1">{t('cdDesktopOnly')}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {groups.length === 0 ? (
@@ -150,7 +265,7 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
           <p className="text-slate-500 font-bold">{t('cdEmpty')}</p>
           <p className="text-xs text-slate-400 mt-1">{t('cdEmptyHint')}</p>
         </div>
-      ) : groups.map(group => {
+      ) : groups.slice(0, shown).map(group => {
         const confirmMain = group.clients.find(c => c.id === confirmFor);
         return (
           <div key={group.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -231,7 +346,7 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
                         <label className="flex items-start gap-2 pt-1 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={!!useOfficial[c.id]}
+                            checked={useOfficial[c.id] ?? true}
                             onChange={e => setUseOfficial(prev => ({ ...prev, [c.id]: e.target.checked }))}
                             className="mt-0.5 rounded border-slate-300 text-emerald-600"
                           />
@@ -276,7 +391,7 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
               const others = group.clients.filter(c => c.id !== confirmMain.id);
               const preview = computeMergedClient(confirmMain, others);
               const official = checks[confirmMain.id]?.officialName || '';
-              const applyName = !!useOfficial[confirmMain.id] && !!official;
+              const applyName = (useOfficial[confirmMain.id] ?? true) && !!official;
               return (
                 <div className="border-t border-amber-200 bg-amber-50 px-4 py-3">
                   <div className="flex items-start gap-2">
@@ -327,6 +442,15 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
           </div>
         );
       })}
+
+      {groups.length > shown && (
+        <button
+          onClick={() => setShown(n => n + 20)}
+          className="w-full py-3 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-sm font-bold text-slate-600 transition-colors"
+        >
+          {t('cdShowMore').replace('{n}', groups.length - shown)}
+        </button>
+      )}
     </div>
   );
 };
