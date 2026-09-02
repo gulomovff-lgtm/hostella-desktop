@@ -22,6 +22,7 @@ import {
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
+import { findExistingClient } from '../utils/clientMatch';
 import { getStayDetails, getTotalPaid } from '../utils/helpers';
 import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
 import { notifySiteBooking } from '../utils/siteCallback';
@@ -74,10 +75,9 @@ export function useGuestActions(ctx) {
 
   const upsertClient = async (data, opts = {}) => {
     if (!data.passport && !data.fullName) return;
-    // Search by passport first, then by fullName
-    const ec = data.passport
-      ? clients.find(c => c.passport && c.passport === data.passport)
-      : clients.find(c => !c.passport && c.fullName && c.fullName === data.fullName);
+    // Сверка нормализованная: раньше сравнивались строки как есть, поэтому
+    // «AC 1234567» и «AC1234567» считались разными людьми и заводился второй клиент.
+    const ec = findExistingClient(clients, data);
     if (ec) {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
         lastVisit: new Date().toISOString(),
