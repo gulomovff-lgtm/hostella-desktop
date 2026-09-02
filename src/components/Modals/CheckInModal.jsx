@@ -7,6 +7,7 @@ import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice } from '../../utils/pricing';
+import { recentStays } from '../../utils/guestStayHistory';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
@@ -420,6 +421,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     /** Сколько раз гость уже жил — из карточки клиента. */
     const visitCount = parseInt(clientCard?.visits, 10) || 0;
+
+    /**
+     * По сколько гость оставался в прошлые разы.
+     *
+     * Число визитов само по себе мало что даёт: постоянный гость обычно берёт
+     * один и тот же срок, и знать его — значит сразу понимать, сколько суток
+     * ставить. Считаем по фактическим датам выезда, а не по оформленному сроку.
+     */
+    const pastStays = useMemo(
+        () => recentStays(guests, { passport: formData.passport, excludeId: selfGuestId, limit: 3 }),
+        [guests, formData.passport, selfGuestId],
+    );
 
     /**
      * Ярус и вместимость выбранного места. Ярус называется, только если
@@ -1293,6 +1306,25 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 {clientCard.lastVisit && t('lastStayOn').replace('{d}', new Date(clientCard.lastVisit).toLocaleDateString('ru-RU'))}
                                             </span>
                                         </div>
+                                        {pastStays.length > 0 && (
+                                            <div className="ci-note">
+                                                <span className="ci-dot"/>
+                                                <span>
+                                                    {t('pastStayLengths')}{' '}
+                                                    {pastStays.map((st, i) => (
+                                                        <React.Fragment key={st.id}>
+                                                            {i > 0 && ' · '}
+                                                            <b>
+                                                                {st.nights != null
+                                                                    ? `${st.nights} ${plural(st.nights, t('night'), t('nights'), t('nightsMany'))}`
+                                                                    : '—'}
+                                                                {st.nightPrice != null && ` × ${st.nightPrice.toLocaleString()}`}
+                                                            </b>
+                                                        </React.Fragment>
+                                                    ))}
+                                                </span>
+                                            </div>
+                                        )}
                                         <div className="ci-note">
                                             <span className={`ci-dot${clientBalance > 0 ? '' : ' ci-off'}`}/>
                                             <span>

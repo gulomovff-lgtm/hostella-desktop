@@ -100,11 +100,16 @@ test('окно показывает то, что база знает о гост
   assert.match(code, /setClientCard\(found \|\| null\);/);
   const at = code.indexOf("{t('marksTitle')}</div>");
   assert.ok(at > 0, 'блок отметок не найден');
-  const block = code.slice(at, at + 3200);
+  const block = code.slice(at, at + 4600);
   assert.match(block, /regularGuest/);
   assert.match(block, /clientCard\.lastVisit/);
   assert.match(block, /inBlacklistLine/);
   assert.match(block, /noClientCardNew/);
+  // По сколько и почём гость оставался в прошлые разы: число визитов само по
+  // себе не подсказывает, какой срок и цену ставить, а постоянный гость обычно
+  // берёт одно и то же.
+  assert.match(block, /pastStayLengths/);
+  assert.match(block, /st\.nightPrice/);
 });
 
 test('склонения не выдают ошибку системы', () => {
