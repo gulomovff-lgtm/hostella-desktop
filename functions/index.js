@@ -291,6 +291,27 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
     const notificationType = data.notificationType || null;
     const disabledTypes = new Set(settings?.disabledTypes || []);
 
+    // ── Типы, которые уходят ТОЛЬКО через бот регистраций ────────────────────
+    // Привязки типа к боту раньше не было вовсе: оба бота фильтровались одним
+    // правилом «получатель подписан на всё, что явно не отключил»
+    // (notifications[type] !== false). Отсутствующий ключ считался подпиской,
+    // поэтому КАЖДЫЙ новый тип молча включался всем, кто настраивался до его
+    // появления. Типы регистрации добавили позже получателей основного бота —
+    // и регистрации полетели во все каналы, хотя их никто не включал.
+    //
+    // Список можно переопределить в настройках (registrationBotTypes),
+    // по умолчанию — регистрации, КПП и кадастр.
+    const DEFAULT_REGISTRATION_BOT_TYPES = [
+        'registration', 'registrationExtend', 'registrationRemove',
+        'kppAlert', 'cadastreNew', 'cadastreExpiring',
+    ];
+    const registrationBotTypes = new Set(
+        Array.isArray(settings?.registrationBotTypes) && settings.registrationBotTypes.length
+            ? settings.registrationBotTypes
+            : DEFAULT_REGISTRATION_BOT_TYPES
+    );
+    const isRegistrationOnly = !!notificationType && registrationBotTypes.has(notificationType);
+
     // If this notification type is globally disabled, skip
     if (notificationType && disabledTypes.has(notificationType)) {
         return { success: true, sent: 0, total: 0, skipped: 'type_disabled' };
@@ -299,8 +320,8 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
     // ── Build sends: [ { token, target } ] ───────────────────────────────────
     const sends = [];
 
-    // 1. Main bot recipients
-    const mainRecipients = (settings?.recipients || []).filter(r => {
+    // 1. Main bot recipients — кроме типов, закреплённых за ботом регистраций.
+    const mainRecipients = isRegistrationOnly ? [] : (settings?.recipients || []).filter(r => {
         if (!r.active || !r.telegramId) return false;
         if (notificationType) return r.notifications?.[notificationType] !== false;
         return true;
@@ -325,6 +346,12 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
     }
 
     if (sends.length === 0) {
+        if (isRegistrationOnly) {
+            // Специально не откатываемся на основной бот: молчаливый откат вернул бы
+            // ровно ту рассылку во все каналы, ради которой правило и вводилось.
+            console.warn(`[telegram] ${notificationType}: бот регистраций не настроен — уведомление не отправлено`);
+            return { success: true, sent: 0, total: 0, skipped: 'no_registration_bot_recipients' };
+        }
         return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
     }
 
