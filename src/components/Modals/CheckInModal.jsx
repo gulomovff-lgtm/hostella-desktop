@@ -8,6 +8,7 @@ import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice } from '../../utils/pricing';
 import { recentStays } from '../../utils/guestStayHistory';
+import { dedupePeople } from '../../utils/clientMatch';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
@@ -684,16 +685,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 // Если в тексте есть кирилица - пробуем перекладку по QWERTY
                 const hasCyrillic = /[а-яё]/i.test(term);
                 const termLat = hasCyrillic ? cyrToLat(term).toLowerCase() : null;
-                const seen = new Set();
-                const matches = clients.filter(c => {
-                    if (seen.has(c.passport)) return false;
+                // Подсказки берутся из истории заездов, а там одна запись на каждый
+                // заезд: постоянный гость показывался столько раз, сколько жил.
+                // Свёртка шла по сырому паспорту, поэтому «AD1830757» и «AD 1830757»
+                // считались разными, а запись без паспорта висела отдельной строкой
+                // рядом с полной. Теперь одна строка на человека, самая свежая.
+                const hits = clients.filter(c => {
                     const name = (c.fullName || '').toLowerCase();
                     const pass = (c.passport || '').toLowerCase();
-                    const hit = name.includes(term) || pass.includes(term)
+                    return name.includes(term) || pass.includes(term)
                         || (termLat && (name.includes(termLat) || pass.includes(termLat)));
-                    if (hit) seen.add(c.passport);
-                    return hit;
-                }).slice(0, 5);
+                });
+                const matches = dedupePeople(hits).slice(0, 5);
                 setSuggestions(matches);
                 setShowSuggestions(true);
             } else {

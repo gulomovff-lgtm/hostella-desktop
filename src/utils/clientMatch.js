@@ -72,3 +72,44 @@ export const createPendingIndex = () => {
         get size() { return seen.size; },
     };
 };
+
+/** Дата, по которой судим о свежести записи (у гостя — заезд, у клиента — визит). */
+const freshness = (r) => String(r?.checkInDate || r?.lastVisit || '');
+
+/**
+ * Одна строка на человека — для списка подсказок при заселении.
+ *
+ * Подсказки берутся из истории заездов, а там ОДНА ЗАПИСЬ НА КАЖДЫЙ ЗАЕЗД,
+ * поэтому постоянный гость показывался столько раз, сколько жил. Свёртка шла по
+ * сырому паспорту, так что «AD1830757» и «AD 1830757» считались разными, а
+ * запись без паспорта висела отдельной строкой рядом с полной.
+ *
+ * Правила:
+ *  - записи с одним паспортом (без учёта пробелов и регистра) — одна строка;
+ *  - запись без паспорта скрывается, если тот же человек по имени уже есть
+ *    с паспортом: она про того же гостя, но данных в ней меньше;
+ *  - разные паспорта остаются разными строками — это может быть опечатка
+ *    (AD…757 против AD…758), а может и другой человек, решает кассир.
+ *
+ * Внутри группы берём самую свежую запись: из неё подставляются данные.
+ */
+export const dedupePeople = (records = []) => {
+    const byKey = new Map();
+    for (const r of records) {
+        const key = clientMatchKey(r);
+        if (!key) continue;
+        const prev = byKey.get(key);
+        if (!prev || freshness(r) > freshness(prev)) byKey.set(key, r);
+    }
+    // Имена, у которых уже есть запись с паспортом: записи без паспорта по ним лишние.
+    const namesWithPassport = new Set();
+    for (const [key, r] of byKey) {
+        if (key.startsWith('P:')) namesWithPassport.add(nameKey(r.fullName));
+    }
+    const out = [];
+    for (const [key, r] of byKey) {
+        if (key.startsWith('N:') && namesWithPassport.has(nameKey(r.fullName))) continue;
+        out.push(r);
+    }
+    return out.sort((a, b) => freshness(b).localeCompare(freshness(a)));
+};

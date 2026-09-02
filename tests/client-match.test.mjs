@@ -90,3 +90,42 @@ test('пять заездов одного гостя дают одну запи
     }
     assert.equal(created, 1);
 });
+
+// ── свёртка подсказок при заселении ──────────────────────────────────────────
+import { dedupePeople } from '../src/utils/clientMatch.js';
+
+test('dedupePeople: заезды одного гостя — одна строка', () => {
+    const r = dedupePeople([
+        { id: '1', fullName: 'FAZLIDDIN GULOMOV', passport: 'AD1830757', checkInDate: '2026-01-01' },
+        { id: '2', fullName: 'FAZLIDDIN GULOMOV', passport: 'AD1830757', checkInDate: '2026-05-01' },
+        { id: '3', fullName: 'FAZLIDDIN GULOMOV', passport: 'AD 1830757', checkInDate: '2026-03-01' },
+    ]);
+    assert.equal(r.length, 1);
+    assert.equal(r[0].id, '2', 'подставляться должна самая свежая запись');
+});
+
+test('dedupePeople: запись без паспорта прячется, если тот же человек есть с паспортом', () => {
+    const r = dedupePeople([
+        { id: '1', fullName: 'FAZLIDDIN GULOMOV', passport: 'AD1830757', checkInDate: '2026-01-01' },
+        { id: '2', fullName: 'Fazliddin Gulomov', passport: '',          checkInDate: '2026-02-01' },
+    ]);
+    assert.deepEqual(r.map(x => x.id), ['1']);
+});
+
+test('dedupePeople: разные паспорта остаются разными строками — решает кассир', () => {
+    const r = dedupePeople([
+        { id: '1', fullName: 'FAZLIDDIN GULOMOV', passport: 'AD1830757', checkInDate: '2026-01-01' },
+        { id: '2', fullName: 'FAZLIDDIN GULOMOV', passport: 'AD1830758', checkInDate: '2026-02-01' },
+    ]);
+    assert.equal(r.length, 2);
+});
+
+test('dedupePeople: человек без паспорта остаётся, если больше о нём ничего нет', () => {
+    const r = dedupePeople([{ id: '1', fullName: 'НОВЫЙ ГОСТЬ', passport: '' }]);
+    assert.deepEqual(r.map(x => x.id), ['1']);
+});
+
+test('dedupePeople: пустой список не ломает', () => {
+    assert.deepEqual(dedupePeople([]), []);
+    assert.deepEqual(dedupePeople(), []);
+});
