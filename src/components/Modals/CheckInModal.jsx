@@ -179,7 +179,28 @@ const cyrToLat = (str) => str.toUpperCase().split('').map(ch => {
 const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, isFromBooking = false, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
     const t = (k) => TRANSLATIONS[lang][k];
 
-    const safeInitialRoom = initialRoom || (allRooms.length > 0 ? allRooms[0] : null);
+    /**
+     * Бронь с сайта/бота открывается без явной комнаты (handleAcceptBooking
+     * передаёт room: null), но сама запись знает, куда гость бронировал.
+     * Берём комнату и место из неё — иначе кассир выбирает заново то, что
+     * гость уже выбрал на сайте.
+     */
+    const bookingRoom = (!initialRoom && isFromBooking && initialClient?.roomId)
+        ? allRooms.find(r => r.id === initialClient.roomId) || null
+        : null;
+    const safeInitialRoom = initialRoom || bookingRoom || (allRooms.length > 0 ? allRooms[0] : null);
+    const initialBedId = preSelectedBedId
+        ? String(preSelectedBedId)
+        : (bookingRoom && initialClient?.bedId ? String(initialClient.bedId) : '');
+    /**
+     * Условия из брони: сутки, цена за ночь и тариф гость уже выбрал (и,
+     * возможно, оплатил залог под них). Без переноса окно открывалось с
+     * «1 сутки × цена комнаты» и кассир восстанавливал условия по памяти.
+     */
+    const bookingDays  = isFromBooking ? Math.max(0, parseInt(initialClient?.days) || 0) : 0;
+    const bookingPrice = isFromBooking
+        ? (parseInt(initialClient?.pricePerNight) || (bookingDays > 0 ? Math.round((parseInt(initialClient?.totalPrice) || 0) / bookingDays) : 0))
+        : 0;
     /**
      * Раскрыт ли выбор места.
      *
@@ -187,15 +208,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
      * а не нажатием на койку в сетке комнат. Во втором случае место уже
      * известно, и держать под него треть окна незачем.
      */
-    const [bedPickerOpen, setBedPickerOpen] = useState(!preSelectedBedId);
+    const [bedPickerOpen, setBedPickerOpen] = useState(!initialBedId);
     /** Время открытия окна — для подписи в подвале. */
     const [openedAt] = useState(() => new Date());
 
     const [formData, setFormData] = useState({
         roomId: safeInitialRoom?.id || '',
         roomNumber: safeInitialRoom?.number || '',
-        bedId: preSelectedBedId ? String(preSelectedBedId) : '',
-        pricePerNight: getRoomPrice(safeInitialRoom, preSelectedBedId ? String(preSelectedBedId) : ''),
+        bedId: initialBedId,
+        pricePerNight: bookingPrice > 0 ? String(bookingPrice) : getRoomPrice(safeInitialRoom, initialBedId),
 
         fullName: initialClient?.fullName || '',
         passport: initialClient?.passport || '',
@@ -209,8 +230,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         source: sourceOf(initialClient, getConfig().guestSources),
 
         checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
-        days: 1,
-        tariff: 'standard', // 'standard' | 'package' (пакет 65000, от 10 дней, невозвратный)
+        days: bookingDays > 0 ? bookingDays : 1,
+        tariff: (isFromBooking && initialClient?.nonRefundable) ? 'package' : 'standard', // 'standard' | 'package' (пакет, от N дней, невозвратный)
 
         paidCash: '',
         paidCard: '',
@@ -506,14 +527,20 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
      * и показывают ВСЕ ошибки сразу: на одном экране это и естественно,
      * и быстрее — кассир видит одним взглядом, что дозаполнить.
      */
-    const validate = () => {
+    const validate = (status = 'active') => {
         const errs = {};
         if (!formData.fullName.trim()) errs.fullName = t('fieldRequired');
-        if (!formData.passport.trim()) errs.passport = t('fieldRequired');
-        if (!formData.birthDate) errs.birthDate = t('fieldRequired');
-        if (formData.country && formData.country !== 'Узбекистан') {
-            if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
-            if (!formData.kppDate) errs.kppDate = t('fieldRequired');
+        // Бронь — гость ещё не пришёл, паспорта и КПП на руках нет; всё это
+        // спросится при фактическом заселении (см. handleSubmit). В трёхшаговой
+        // анкете кнопка «Бронь» стояла до проверки документов, одноэкранный
+        // бланк требовал их со всех — и бронь стало невозможно оформить.
+        if (status !== 'booking') {
+            if (!formData.passport.trim()) errs.passport = t('fieldRequired');
+            if (!formData.birthDate) errs.birthDate = t('fieldRequired');
+            if (formData.country && formData.country !== 'Узбекистан') {
+                if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
+                if (!formData.kppDate) errs.kppDate = t('fieldRequired');
+            }
         }
         if (formData.tariff === 'package') {
             if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) errs.days = t('minDaysError').replace('{days}', PACKAGE_MIN_DAYS);
@@ -797,7 +824,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const handleSubmit = async (status) => {
         if (isSubmitting) return;
         if (!formData.bedId) { notify(t('selectBedFirst'), 'error'); return; }
-        const errs = validate();
+        const errs = validate(status);
         if (Object.keys(errs).length > 0) {
             setErrors(errs);
             notify(t('fillAllFields'), 'error');

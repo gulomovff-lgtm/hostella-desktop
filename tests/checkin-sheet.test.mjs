@@ -32,8 +32,29 @@ test('шагов больше нет', () => {
 test('проверки полей собраны в одно место', () => {
   // Они висели на кнопке «Далее». Кнопки нет — проверять по-прежнему надо,
   // и все ошибки показываются разом.
-  assert.match(code, /const validate = \(\) => \{/);
-  assert.match(code, /const errs = validate\(\);/);
+  assert.match(code, /const validate = \(status = 'active'\) => \{/);
+  assert.match(code, /const errs = validate\(status\);/);
+});
+
+test('бронь не требует паспорта — гость ещё не пришёл', () => {
+  // В трёхшаговой анкете «Бронь» стояла до проверки документов; одноэкранный
+  // бланк требовал их со всех, и бронь стало невозможно оформить.
+  const at = code.indexOf("const validate = (status = 'active') => {");
+  const body = code.slice(at, code.indexOf('return errs;', at));
+  assert.ok(body.includes("if (status !== 'booking') {"), 'паспорт и КПП должны спрашиваться только при заселении');
+  assert.ok(body.indexOf("errs.fullName") < body.indexOf("if (status !== 'booking')"), 'ФИО обязательно и для брони');
+  assert.ok(body.indexOf("errs.passport") > body.indexOf("if (status !== 'booking')"), 'паспорт — под условием');
+  assert.ok(body.indexOf("errs.kppDate") > body.indexOf("if (status !== 'booking')"), 'КПП — под условием');
+});
+
+test('условия из брони переносятся в бланк: сутки, цена, тариф, комната и место', () => {
+  assert.match(code, /const bookingDays\s*=\s*isFromBooking \? Math\.max\(0, parseInt\(initialClient\?\.days\)/);
+  assert.match(code, /days: bookingDays > 0 \? bookingDays : 1,/);
+  assert.match(code, /pricePerNight: bookingPrice > 0 \? String\(bookingPrice\) : getRoomPrice\(safeInitialRoom, initialBedId\),/);
+  assert.match(code, /tariff: \(isFromBooking && initialClient\?\.nonRefundable\) \? 'package' : 'standard'/);
+  assert.match(code, /const bookingRoom = \(!initialRoom && isFromBooking && initialClient\?\.roomId\)/);
+  // цена ночи выводится из суммы брони, если поля pricePerNight нет
+  assert.match(code, /Math\.round\(\(parseInt\(initialClient\?\.totalPrice\) \|\| 0\) \/ bookingDays\)/);
 });
 
 test('граф ровно три', () => {
@@ -64,7 +85,7 @@ test('поле бланка в тёмной теме не превращаетс
 });
 
 test('место — строка, а не шаг', () => {
-  assert.match(code, /const \[bedPickerOpen, setBedPickerOpen\] = useState\(!preSelectedBedId\);/);
+  assert.match(code, /const \[bedPickerOpen, setBedPickerOpen\] = useState\(!initialBedId\);/);
   const hits = (code.match(/setBedPickerOpen\(false\)/g) || []).length;
   assert.ok(hits >= 2, `сворачивание стоит в ${hits} местах из двух (койка и «на полу»)`);
   assert.ok(code.indexOf('className="ci-bed ') < code.indexOf('className="ci-sheet3'),
