@@ -50,12 +50,23 @@ function verifyAgainstSecret(password, secret) {
 function verifyLegacy(password, stored) {
   if (!stored) return false;
   if (isLegacySha256(stored)) {
-    const sha = crypto.createHash('sha256').update(String(password)).digest('hex');
+    // Старый клиент хранил именно sha256(пароль) без соли — проверить такую запись
+    // иначе, чем посчитав тот же sha256, невозможно. Это НЕ хеш для хранения:
+    // при совпадении вызывающий обязан тут же перехешировать в PBKDF2
+    // (needsUpgrade), и слабый хеш из базы исчезает. CodeQL видит здесь
+    // «слабое хеширование пароля», но альтернатива — выбросить всех, кто не
+    // входил с момента миграции.
+    const sha = crypto.createHash('sha256').update(String(password)).digest('hex'); // lgtm[js/insufficient-password-hash]
     return safeEqualHex(sha, stored);
   }
-  // plaintext — сравниваем через хеши, чтобы не зависеть от длины
-  const a = crypto.createHash('sha256').update(String(password)).digest();
-  const b = crypto.createHash('sha256').update(String(stored)).digest();
+  // plaintext (совсем древние записи) — прямое сравнение байтов за константное
+  // время. Разная длина отсекается сразу: утечка длины устаревшего открытого
+  // пароля, который при первом же входе заменится на PBKDF2, реальной ценности
+  // не имеет, а хеширование пароля ради выравнивания длины CodeQL справедливо
+  // считает подозрительным.
+  const a = Buffer.from(String(password), 'utf8');
+  const b = Buffer.from(String(stored), 'utf8');
+  if (a.length !== b.length || a.length === 0) return false;
   return crypto.timingSafeEqual(a, b);
 }
 
