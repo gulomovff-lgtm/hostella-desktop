@@ -2420,7 +2420,19 @@ const TRANSLATIONS = {
     tbUpdateLoading: "Загружается обновление",
     tbMinimize: "Свернуть окно",
     tbMaximize: "Развернуть окно",
-    tbCloseWin: "Закрыть окно"
+    tbCloseWin: "Закрыть окно",
+    // Откуда гость — источник заселения
+    guestSource: "Откуда гость",
+    anGuestSources: "Откуда гости",
+    anSrcNights: "ночей",
+    anSrcLegacyHint: "Заселения, заведённые до появления этого поля, распределены по тому, что в них записано: бронь с сайта или из бота — «Сайт и бот», остальное — «С улицы». Доля считается от выручки за период.",
+    hsGuestSources: "Источники гостей",
+    hsGuestSourcesDesc: "Список «Откуда гость» в окне заселения. Встроенные можно переименовать и скрыть, свои — добавить.",
+    hsGuestSourceNamePh: "Название (рус.)",
+    hsGuestSourceNameUzPh: "Название (узб.)",
+    hsGuestSourceExists: "Такой источник уже есть",
+    hsGuestSourceBuiltin: "встроенный",
+    hsGuestSourceHint: "«С улицы» и «Прочее» скрыть нельзя: первое подставляется по умолчанию, второе собирает всё остальное. Статистика по скрытым источникам не пропадает."
   },
   uz: {
     // AuditLogView — o'zgarishlar jurnali
@@ -4842,7 +4854,19 @@ const TRANSLATIONS = {
     tbUpdateLoading: "Yangilanish yuklanmoqda",
     tbMinimize: "Oynani yig'ish",
     tbMaximize: "Oynani yoyish",
-    tbCloseWin: "Oynani yopish"
+    tbCloseWin: "Oynani yopish",
+    // Mehmon qayerdan — joylashtirish manbai
+    guestSource: "Mehmon qayerdan",
+    anGuestSources: "Mehmonlar qayerdan",
+    anSrcNights: "kecha",
+    anSrcLegacyHint: "Bu maydon paydo bo‘lishidan oldin kiritilgan joylashtirishlar yozilgan ma’lumot bo‘yicha taqsimlangan: sayt yoki botdan bron — «Sayt va bot», qolgani — «Ko‘chadan». Ulush davr tushumidan hisoblanadi.",
+    hsGuestSources: "Mehmon manbalari",
+    hsGuestSourcesDesc: "Joylashtirish oynasidagi «Mehmon qayerdan» ro‘yxati. O‘rnatilganlarni qayta nomlash va yashirish, o‘zingiznikini qo‘shish mumkin.",
+    hsGuestSourceNamePh: "Nomi (rus)",
+    hsGuestSourceNameUzPh: "Nomi (o‘zb)",
+    hsGuestSourceExists: "Bunday manba allaqachon bor",
+    hsGuestSourceBuiltin: "o‘rnatilgan",
+    hsGuestSourceHint: "«Ko‘chadan» va «Boshqa»ni yashirib bo‘lmaydi: birinchisi sukut bo‘yicha qo‘yiladi, ikkinchisi qolgan hammasini yig‘adi. Yashirilgan manbalar statistikasi yo‘qolmaydi."
   }
 };
 

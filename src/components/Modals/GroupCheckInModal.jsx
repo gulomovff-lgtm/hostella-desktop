@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { X, Users, Plus, Trash2, DollarSign, CreditCard, QrCode, Magnet, ArrowRightLeft } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { fmtSum, parseSum } from '../../utils/helpers';
+import { sourceOptions, DEFAULT_SOURCE } from '../../utils/guestSource';
+import { getConfig } from '../../utils/appConfig';
 
 const MODAL_STYLE = `
     @keyframes gci-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -45,6 +47,8 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
     const [checkInDate, setCheckInDate]         = useState(today);
     const [days, setDays]                       = useState(1);
     const [commonPrice, setCommonPrice]         = useState(''); // единая цена для всех
+    const [source, setSource]                   = useState(DEFAULT_SOURCE); // откуда гости — один на всю группу
+    const srcOptions = useMemo(() => sourceOptions(getConfig().guestSources, lang), [lang]);
     const [guestList, setGuestList]             = useState([{ ...EMPTY_GUEST, id: Date.now() }]);
     const [submitting, setSubmitting]           = useState(false);
 
@@ -150,6 +154,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                     fullName:   g.fullName,
                     passport:   g.passport,
                     country:    g.country,
+                    source,
                     phone:      '',
                     birthDate:  '',
                     passportIssueDate: '',
@@ -204,7 +209,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
 
                 {/* Common settings */}
                 <div className="px-6 pt-5 pb-4 shrink-0" style={{ borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div>
                             <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('room')}</label>
                             <select className={inputClass} value={selectedRoomId} onChange={e => setSelectedRoomId(e.target.value)}>
@@ -232,6 +237,12 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                     onChange={e => setCommonPrice(parseSum(e.target.value))}/>
                                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">{t('sum')}</span>
                             </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('guestSource')}</label>
+                            <select className={inputClass} value={source} onChange={e => setSource(e.target.value)}>
+                                {srcOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                            </select>
                         </div>
                     </div>
                     {/* Free beds map */}

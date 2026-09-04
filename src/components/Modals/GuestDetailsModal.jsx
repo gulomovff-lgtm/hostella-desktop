@@ -9,6 +9,8 @@ import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays } from '../../utils/pricing';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
+import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
+import { getConfig } from '../../utils/appConfig';
 import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, getRegistrationWindow } from '../../utils/helpers';
 import ConfirmDialog from '../UI/ConfirmDialog';
 
@@ -326,6 +328,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         phone: guest.phone || '',
         country: guest.country || 'Узбекистан',
         kppDate: toDateInput(guest.kppDate),
+        source: sourceOf(guest, getConfig().guestSources),
         pricePerNight: guest.pricePerNight || 0
     });
     const [splitStartDate, setSplitStartDate] = useState(() => {
@@ -864,6 +867,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         [t('issuedLabel'),      guest.passportIssueDate ? new Date(guest.passportIssueDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru') : '—'],
                                         [t('phone'),    guest.phone || '—'],
                                         [t('country'),     guest.country || '—'],
+                                        [t('guestSource'), sourceLabel(sourceOf(guest, getConfig().guestSources), getConfig().guestSources, lang)],
                                         [t('payment'),     [guest.paidCash>0&&`${t('cashShort')}:${(+guest.paidCash).toLocaleString()}`, guest.paidCard>0&&`${t('cardShort')}:${(+guest.paidCard).toLocaleString()}`, guest.paidQR>0&&`QR:${(+guest.paidQR).toLocaleString()}`].filter(Boolean).join(' · ')||'—'],
                                     ].map(([l,v])=>(
                                         <div key={l}>
@@ -1121,6 +1125,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             phone: guest.phone || '',
                                             country: guest.country || 'Узбекистан',
                                             kppDate: toDateInput(guest.kppDate),
+                                            source: sourceOf(guest, getConfig().guestSources),
                                             pricePerNight: guest.pricePerNight || 0,
                                         });
                                         setCurrentView('edit');
@@ -1390,6 +1395,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('country')}</label>
                                 <select className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-white" value={editForm.country||'Узбекистан'} onChange={e=>setEditForm({...editForm,country:e.target.value})}>
                                     {COUNTRIES_LIST.map(c=><option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('guestSource')}</label>
+                                <select className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold bg-white" value={editForm.source || ''} onChange={e=>setEditForm({...editForm,source:e.target.value})}>
+                                    {sourceOptions(getConfig().guestSources, lang, editForm.source).map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
                                 </select>
                             </div>
                             {editForm.country && editForm.country !== 'Узбекистан' && (

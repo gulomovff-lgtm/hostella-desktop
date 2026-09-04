@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BedDouble, User, FileText, Phone, CreditCard, QrCode, Magnet, X, CheckCircle2, Wallet,
          Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, AlertTriangle,
-         Cake, Globe, MapPin, Tag, CalendarDays, Moon, Banknote, Landmark } from 'lucide-react';
+         Cake, Globe, MapPin, Tag, CalendarDays, Moon, Banknote, Landmark, Signpost } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
@@ -9,6 +9,8 @@ import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice } from '../../utils/pricing';
 import { recentStays } from '../../utils/guestStayHistory';
 import { dedupePeople } from '../../utils/clientMatch';
+import { sourceOptions, sourceOf, DEFAULT_SOURCE } from '../../utils/guestSource';
+import { getConfig } from '../../utils/appConfig';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
@@ -202,6 +204,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         kppDate: initialClient?.kppDate || '',
         birthDate: initialClient?.birthDate || '',
         phone: initialClient?.phone || '',
+        // Откуда гость: у брони с сайта/бота выводится из записи (sourceOf),
+        // у обычного заселения — «с улицы». Разбор словаря — utils/guestSource.js.
+        source: sourceOf(initialClient, getConfig().guestSources),
 
         checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
         days: 1,
@@ -223,6 +228,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate);
     const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
+
+    /** Список «Откуда гость» из настроек; уже записанный источник остаётся, даже если его скрыли. */
+    const srcOptions = useMemo(() => sourceOptions(getConfig().guestSources, lang, formData.source), [lang, formData.source]);
 
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1276,6 +1284,20 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 <span className="ci-r-v">
                                     <input className="ci-f" value={formData.phone}
                                         onChange={e => handleChange('phone', e.target.value)} placeholder="+998..."/>
+                                </span>
+                            </div>
+
+                            {/* ── ОТКУДА ГОСТЬ ───────────────────────────────
+                                Одно поле, которое отвечает владельцу на вопрос
+                                «какой канал выгоден». Список правится в настройках,
+                                статистика — в аналитике. */}
+                            <div className="ci-r">
+                                <span className="ci-r-k"><Signpost size={15}/>{t('guestSource')}</span>
+                                <span className="ci-r-v">
+                                    <select className="ci-f cursor-pointer" value={formData.source || DEFAULT_SOURCE}
+                                        onChange={e => handleChange('source', e.target.value)}>
+                                        {srcOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                    </select>
                                 </span>
                             </div>
 

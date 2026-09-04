@@ -7,9 +7,11 @@ import {
 import {
     TrendingUp, TrendingDown, DollarSign, Calendar, BarChart3,
     Users, BedDouble, CreditCard, Banknote, QrCode, PieChart as PieIcon,
-    ArrowUpRight, ArrowDownRight,
+    ArrowUpRight, ArrowDownRight, Signpost,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { summarizeSources } from '../../utils/guestSource';
+import { getConfig } from '../../utils/appConfig';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 // Категории постоянных расходов (C_fixed): не зависят от числа гостей
@@ -280,6 +282,14 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             .slice(0, 10)
             .map(([country, count]) => ({ country, count, flag: COUNTRY_FLAGS[country] }));
     }, [filteredGuests]);
+
+    // ─── 4б. Откуда гости ────────────────────────────────────────────────────
+    // Гости — по заезду в период, выручка — по платежам периода (как и остальная
+    // аналитика), доля — от выручки. Разбор словаря и догадок — utils/guestSource.js.
+    const sourceData = useMemo(
+        () => summarizeSources({ guests, payments, from: startDate, to: endDate }, getConfig().guestSources, lang),
+        [guests, payments, startDate, endDate, lang]);
+    const sourceGuestsTotal = useMemo(() => sourceData.reduce((s, x) => s + x.guests, 0), [sourceData]);
 
     // ─── 5. Доходность комнат ────────────────────────────────────────────────
     const roomRevenueData = useMemo(() => {
@@ -729,6 +739,35 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
+                        )}
+                    </ChartCard>
+
+                    {/* 4б. Откуда гости */}
+                    <ChartCard title={t('anGuestSources')} icon={Signpost}>
+                        {sourceData.length === 0 ? <Empty label={t('anNoData')} /> : (
+                            <div className="space-y-3">
+                                {sourceData.map(s => (
+                                    <div key={s.source}>
+                                        <div className="flex items-baseline gap-2 text-xs mb-1">
+                                            <span className="font-bold truncate" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{s.label}</span>
+                                            <span style={{ color: dk ? '#64748b' : '#94a3b8' }}>
+                                                {s.guests} {t('anPpl')} · {s.nights} {t('anSrcNights')}
+                                            </span>
+                                            <span className="ml-auto whitespace-nowrap font-black tabular-nums" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>
+                                                {fmtCur(s.revenue)}
+                                            </span>
+                                            <span className="w-9 text-right tabular-nums font-bold" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{s.share}%</span>
+                                        </div>
+                                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: dk ? '#334155' : '#f1f5f9' }}>
+                                            <div className="h-full rounded-full" style={{ width: `${s.share}%`, background: '#14b8a6' }} />
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="flex items-center justify-between text-[11px] pt-1" style={{ color: dk ? '#64748b' : '#94a3b8' }}>
+                                    <span>{t('anGuestsLabel')}: <b className="tabular-nums">{sourceGuestsTotal}</b></span>
+                                </div>
+                                <p className="text-[11px] leading-relaxed" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{t('anSrcLegacyHint')}</p>
+                            </div>
                         )}
                     </ChartCard>
 

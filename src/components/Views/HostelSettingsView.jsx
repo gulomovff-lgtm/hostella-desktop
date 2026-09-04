@@ -4,7 +4,7 @@ import {
     Building2, Phone, MapPin, Globe, Shield, CheckCircle2, AlertTriangle, X, Info, FileText, Link, Clock,
     Bell, DollarSign, Palette, Send, Hash,
     Percent, KeyRound, ScrollText, ListChecks, Plus, UploadCloud, CalendarClock,
-    Tags, Wallet, Receipt, CreditCard, Banknote, HardDriveUpload
+    Tags, Wallet, Receipt, CreditCard, Banknote, HardDriveUpload, Signpost
 } from 'lucide-react';
 import { doc, setDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -15,6 +15,7 @@ import { sendTelegramMessage } from '../../utils/telegram';
 import { APP_VERSION } from '../../constants/config';
 import { getDeviceId } from '../../utils/clientTelemetry';
 import PricingSettingsPanel from './PricingSettingsPanel';
+import { normalizeSources, makeSourceId, BUILTIN_LABELS } from '../../utils/guestSource';
 import TRANSLATIONS from '../../constants/translations';
 
 const inputClass = "w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
@@ -238,6 +239,23 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
         setNewExpCat({ name: '', icon: '📦' });
     };
     const removeExpCat = (name) => cfgChange('expenseCategories', (appCfg.expenseCategories || []).filter(c => c.name !== name));
+
+    // #12 Источники гостей («Откуда гость»). Храним полный список с порядком:
+    // id встроенных не меняется никогда — на нём держится прошлая статистика.
+    const guestSources = normalizeSources(appCfg.guestSources);
+    const [newSrc, setNewSrc] = useState({ label: '', labelUz: '' });
+    const setSources = (list) => cfgChange('guestSources', list.map(({ id, label, labelUz, enabled }) => ({ id, label, labelUz, enabled })));
+    const patchSrc = (id, p) => setSources(guestSources.map(s => s.id === id ? { ...s, ...p } : s));
+    const removeSrc = (id) => setSources(guestSources.filter(s => s.id !== id));
+    const addSrc = () => {
+        const label = (newSrc.label || '').trim();
+        if (!label) return;
+        const dup = guestSources.some(s =>
+            (s.label || BUILTIN_LABELS.ru[s.id] || '').toLowerCase() === label.toLowerCase());
+        if (dup) { notify && notify(t('hsGuestSourceExists'), 'error'); return; }
+        setSources([...guestSources, { id: makeSourceId(label, guestSources), label, labelUz: (newSrc.labelUz || '').trim(), enabled: true }]);
+        setNewSrc({ label: '', labelUz: '' });
+    };
 
     // #4 Восстановление из бэкапа
     const restoreRef = useRef();
@@ -549,6 +567,46 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                         </div>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>{t('hsLangThemeHint')}</span></div>
+                </div>
+            )}
+
+            {/* ── Источники гостей («Откуда гость» в заселении) ── */}
+            {tab === 'general' && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3 max-w-2xl">
+                    <div className="flex items-center gap-3 mb-1">
+                        <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center"><Signpost size={18} className="text-teal-600"/></div>
+                        <div><div className="font-black text-slate-800">{t('hsGuestSources')}</div><div className="text-xs text-slate-400">{t('hsGuestSourcesDesc')}</div></div>
+                    </div>
+                    <div className="space-y-2">
+                        {guestSources.map(s => {
+                            const pinned = s.id === 'walk_in' || s.id === 'other';
+                            return (
+                                <div key={s.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 ${s.enabled ? 'bg-slate-50' : 'bg-white opacity-60'}`}>
+                                    <input className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-slate-700 outline-none"
+                                        value={s.label} placeholder={BUILTIN_LABELS.ru[s.id] || t('hsGuestSourceNamePh')}
+                                        onChange={e => patchSrc(s.id, { label: e.target.value })}/>
+                                    <input className="flex-1 min-w-0 bg-transparent text-sm font-medium text-slate-500 outline-none"
+                                        value={s.labelUz} placeholder={BUILTIN_LABELS.uz[s.id] || t('hsGuestSourceNameUzPh')}
+                                        onChange={e => patchSrc(s.id, { labelUz: e.target.value })}/>
+                                    {s.builtin && <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">{t('hsGuestSourceBuiltin')}</span>}
+                                    {pinned
+                                        ? <span className="w-11 shrink-0"/>
+                                        : <Toggle on={s.enabled} onClick={() => patchSrc(s.id, { enabled: !s.enabled })}/>}
+                                    {!s.builtin && (
+                                        <button onClick={() => removeSrc(s.id)} className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-rose-100 hover:text-rose-600 text-slate-400 shrink-0"><X size={13}/></button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input className={inputClass} value={newSrc.label} onChange={e => setNewSrc(c => ({ ...c, label: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') addSrc(); }} placeholder={t('hsGuestSourceNamePh')}/>
+                        <input className={inputClass} value={newSrc.labelUz} onChange={e => setNewSrc(c => ({ ...c, labelUz: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') addSrc(); }} placeholder={t('hsGuestSourceNameUzPh')}/>
+                        <button onClick={addSrc} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-white font-bold text-sm shrink-0" style={{ background: BRAND }}><Plus size={15}/></button>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400"><Info size={12}/><span>{t('hsGuestSourceHint')}</span></div>
                 </div>
             )}
 
