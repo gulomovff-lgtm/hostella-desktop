@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     normalizeName, editDistance, namesSimilar,
-    findDuplicateGroups, computeMergedClient, pickFallbackMain,
-} from '../src/utils/clientDuplicates.js';
+    findDuplicateGroups, computeMergedClient, pickFallbackMain, officialShortName } from '../src/utils/clientDuplicates.js';
 
 // ── нормализация имени ───────────────────────────────────────────────────────
 test('normalizeName: регистр, лишние пробелы и Ё сводятся к одному виду', () => {
@@ -188,4 +187,25 @@ test('pickFallbackMain: результат не зависит от порядк
 test('pickFallbackMain: пустой список не ломает', () => {
     assert.equal(pickFallbackMain([]), null);
     assert.equal(pickFallbackMain(), null);
+});
+
+test('officialShortName: отчество с O‘G‘LI выбрасывается вместе с именем отца, остаётся «ФАМИЛИЯ ИМЯ»', () => {
+    assert.equal(officialShortName('ABJALILOV ABDULXAKIM O‘G‘LI JAMSHID'), 'ABJALILOV JAMSHID');
+    assert.equal(officialShortName("ABJALILOV ABDULXAKIM O'G'LI JAMSHID"), 'ABJALILOV JAMSHID');
+    assert.equal(officialShortName('ABJALILOV ABDULXAKIM OGLI JAMSHID'), 'ABJALILOV JAMSHID');
+    assert.equal(officialShortName('KARIMOVA NODIRA RUSTAM QIZI'), 'KARIMOVA NODIRA');
+    assert.equal(officialShortName('АБДУЛЛАЕВ ЖАМШИД АКМАЛ ЎҒЛИ'), 'АБДУЛЛАЕВ ЖАМШИД');
+});
+
+test('officialShortName: русское отчество по окончанию, фамилия ПЕТРОВИЧ не страдает', () => {
+    assert.equal(officialShortName('ИВАНОВ ИВАН ПЕТРОВИЧ'), 'ИВАНОВ ИВАН');
+    assert.equal(officialShortName('IVANOVA ANNA SERGEEVNA'), 'IVANOVA ANNA');
+    assert.equal(officialShortName('ПЕТРОВИЧ ИВАН'), 'ПЕТРОВИЧ ИВАН');
+});
+
+test('officialShortName: два слова и пустота — как есть; лишние пробелы схлопываются', () => {
+    assert.equal(officialShortName('ABJALILOV JAMSHID'), 'ABJALILOV JAMSHID');
+    assert.equal(officialShortName('  ABJALILOV   JAMSHID '), 'ABJALILOV JAMSHID');
+    assert.equal(officialShortName(''), '');
+    assert.equal(officialShortName('WANG LI MING'), 'WANG LI MING', 'без маркеров отчества — не трогаем');
 });

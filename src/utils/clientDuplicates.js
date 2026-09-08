@@ -17,6 +17,33 @@ export const normalizeName = (s = '') =>
         .trim()
         .replace(/\s+/g, ' ');
 
+/**
+ * ФИО из госбазы → «ФАМИЛИЯ ИМЯ» для карточки.
+ *
+ * Портал отдаёт три части, и отчество оказывается в середине:
+ * «ABJALILOV ABDULXAKIM O‘G‘LI JAMSHID». В карточке нужны фамилия и имя —
+ * так их пишут кассиры и так ищет подсказка по имени. Отчество узнаём по
+ * узбекским маркерам O‘G‘LI / QIZI (в любых апострофах и кириллице) — тогда
+ * выбрасываем маркер вместе со словом перед ним — и по русским окончаниям
+ * -ОВИЧ/-ЕВИЧ/-ОВНА/-ЕВНА (только если слов три и больше, чтобы не задеть
+ * фамилию вроде ПЕТРОВИЧ). Порядок оставшихся слов — как у портала.
+ * Если после чистки осталось меньше двух слов — возвращаем как было.
+ */
+export const officialShortName = (s = '') => {
+    const words = String(s || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if (words.length < 3) return words.join(' ');
+    const norm = (w) => w.toUpperCase().replace(/[’‘'`ʻʼ]/g, '');
+    const MARK = /^(OGLI|UGLI|QIZI|KIZI|ЎҒЛИ|УГЛИ|ҚИЗИ|КИЗИ)$/;
+    const PATR = /(OVICH|EVICH|OVNA|EVNA|ОВИЧ|ЕВИЧ|ОВНА|ЕВНА)$/;
+    const out = [];
+    for (const w of words) {
+        if (MARK.test(norm(w))) { out.pop(); continue; }   // «ABDULXAKIM O‘G‘LI» — оба слова прочь
+        out.push(w);
+    }
+    const res = out.length >= 3 ? out.filter(w => !PATR.test(norm(w))) : out;
+    return res.length >= 2 ? res.join(' ') : words.join(' ');
+};
+
 /** Слова имени, отсортированные: «ИВАНОВ ИВАН» и «ИВАН ИВАНОВ» — одно и то же. */
 const nameTokens = (s = '') => normalizeName(s).split(' ').filter(Boolean).sort();
 

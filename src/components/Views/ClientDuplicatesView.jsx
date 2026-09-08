@@ -18,7 +18,7 @@ import {
   Users, Wallet, Phone, CalendarDays, LogIn, Monitor,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
-import { findDuplicateGroups, computeMergedClient, normalizeName, pickFallbackMain } from '../../utils/clientDuplicates';
+import { findDuplicateGroups, computeMergedClient, normalizeName, pickFallbackMain, officialShortName } from '../../utils/clientDuplicates';
 
 // Портал ждёт дату рождения в виде дд.мм.гггг, а в базе она лежит как ГГГГ-ММ-ДД.
 const toDmy = (iso) => {
@@ -105,6 +105,8 @@ const ClientDuplicatesView = ({ clients = [], onMerge, currentUser = {}, lang = 
         docType: '1',
         hostelId: currentUser?.hostelId || '',
       });
+      // ФИО госбазы приходит с отчеством посередине — в карточку идёт «ФАМИЛИЯ ИМЯ».
+      if (res?.officialName) res.officialName = officialShortName(res.officialName);
       return res || { status: 'error' };
     } catch (e) {
       return { status: 'error', message: e?.message };
