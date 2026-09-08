@@ -27,6 +27,7 @@ import { getStayDetails, getTotalPaid } from '../utils/helpers';
 import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
 import { notifySiteBooking } from '../utils/siteCallback';
 import TRANSLATIONS from '../constants/translations';
+import { assessKpp } from '../utils/kppRules';
 
 export function useGuestActions(ctx) {
   const {
@@ -40,6 +41,7 @@ export function useGuestActions(ctx) {
     setEmehmonArrivalPrompt,
     onEmehmonDepart,
     onEmehmonAutoArrival,
+    onForeignArrival,
   } = ctx;
 
   const t = k => TRANSLATIONS[lang]?.[k] || k;
@@ -363,6 +365,10 @@ export function useGuestActions(ctx) {
             if ((totalPaid + depTotal) > 0 && onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
               onEmehmonAutoArrival({ id: guestId, ...newGuest });
             }
+          } else if (onForeignArrival && window.electronAPI?.emehmonPassportCheck) {
+            // Иностранец: проверка в госбазе → дата КПП в карточку; регистрация —
+            // после оплаты и не раньше предпоследнего дня окна (useEmehmonAutomation).
+            onForeignArrival({ id: guestId, ...newGuest });
           } else if (setEmehmonArrivalPrompt) {
             setEmehmonArrivalPrompt({ id: guestId, ...newGuest });
           }
@@ -579,6 +585,12 @@ export function useGuestActions(ctx) {
             !g.emehmonReg && !g.emehmonSkip &&
             onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
           onEmehmonAutoArrival(g);
+        } else if (g && g.status === 'active' && g.country && g.country !== 'Узбекистан' &&
+            !g.emehmonReg && !g.emehmonSkip &&
+            onForeignArrival && window.electronAPI?.emehmonPassportCheck) {
+          // Иностранец, заселённый в долг: оплата пришла — регистрация в срок.
+          // В состоянии гость ещё без этой оплаты, поэтому сумму передаём явно.
+          onForeignArrival({ ...g, amountPaid: (Number(g.amountPaid) || 0) + total });
         }
       }
       setGuestDetailsModal({ open: false, guest: null });
@@ -1019,9 +1031,21 @@ export function useGuestActions(ctx) {
     // авто-регистрация e-mehmon попробует снова в ближайшем цикле (каждые 5 мин).
     const g0 = guests.find(x => x.id === id);
     if (g0?.emehmonRegError &&
-        ['passport', 'birthDate', 'passportIssueDate', 'fullName', 'roomNumber'].some(k => d[k] !== undefined)) {
+        ['passport', 'birthDate', 'passportIssueDate', 'fullName', 'roomNumber', 'country', 'kppDate'].some(k => d[k] !== undefined)) {
       d.emehmonRegError = deleteField();
       d.emehmonRegErrorAt = deleteField();
+    }
+    // Ручная правка даты КПП: помечаем источник и время — правка, сделанная
+    // ПОСЛЕ проверки в госбазе, сильнее данных портала; оценку срока пересчитываем.
+    if (d.kppDate !== undefined && g0 &&
+        String(d.kppDate || '').slice(0, 10) !== String(g0.kppDate || '').slice(0, 10)) {
+      const now = new Date().toISOString();
+      d.kppSource = 'manual';
+      d.kppEditedAt = now;
+      const a = assessKpp({ country: g0.country, kppDate: d.kppDate, lastCheckout: g0.emehmonLastCheckout || null });
+      d.kppSituation = a.ok
+        ? deleteField()
+        : { reason: a.reason, dayNumber: a.dayNumber, window: a.window, gapDays: a.gapDays, at: now };
     }
     // Логируем изменение цены, если pricePerNight поменялась
     if (d.pricePerNight !== undefined) {

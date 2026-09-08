@@ -169,6 +169,8 @@ import ReportsView from './components/Views/ReportsView';
 import GuestDetailsModal from './components/Modals/GuestDetailsModal';
 import MoveGuestModal from './components/Modals/MoveGuestModal';
 import BookingAlertModal from './components/Modals/BookingAlertModal';
+import KppFixDataModal from './components/Modals/KppFixDataModal';
+import KppSituationModal from './components/Modals/KppSituationModal';
 import RoomFormModal from './components/Modals/RoomFormModal';
 import ShiftClosingModal from './components/Modals/ShiftClosingModal';
 import BookingsView from './components/Views/BookingsView';
@@ -787,6 +789,9 @@ function App() {
     handleEmehmonFlag, handleEmehmonDepart, handleEmehmonDepartConfirm,
     handleEmehmonDone, handleEmehmonAutoArrival,
     runEmehmonSync, runEmehmonRecalc,
+    kppFixPrompt, setKppFixPrompt,
+    kppSituation, setKppSituation,
+    handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
   } = useEmehmonAutomation({
     guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
     isDataReady, showNotification, setGuestDetailsModal, lang,
@@ -877,6 +882,7 @@ function App() {
     setEmehmonArrivalPrompt,
     onEmehmonDepart: handleEmehmonDepart,
     onEmehmonAutoArrival: handleEmehmonAutoArrival,
+    onForeignArrival: handleForeignArrival,
   });
 
   const {
@@ -986,7 +992,56 @@ function App() {
         if (shouldFire) sendTelegramMessage(msg, 'kppAlert');
       });
     });
+    // «Ситуация»: гость за пределами окна и с разрывом после другого отеля —
+    // в КПП-бот один раз на ситуацию (ключ — момент её обнаружения).
+    guests.forEach(g => {
+      if (g.status !== 'active' || !g.kppSituation || g.kppSituationDecision) return;
+      const sit = g.kppSituation;
+      const key = `kppsit_${g.id}_${String(sit.at || '').slice(0, 16)}`;
+      const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
+      const room = rooms.find(r => r.id === g.roomId);
+      const fmt = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+      const last = Array.isArray(g.emehmonStays) && g.emehmonStays.length ? g.emehmonStays[g.emehmonStays.length - 1] : null;
+      const msg = [
+        `🚨 <b>Нарушение срока регистрации</b>`,
+        `👤 ${escapeTg(g.fullName)}`,
+        `🪪 ${g.passport || '—'} · ${g.country}`,
+        `📅 Дата КПП: ${fmt(g.kppDate)} — день <b>${sit.dayNumber}</b> из ${sit.window}`,
+        last ? `🏨 Последний отель: ${escapeTg(last.hotel || '—')} до ${fmt(last.to)}` : `🏨 Прошлых проживаний в портале нет`,
+        `⏰ Разрыв без регистрации: <b>${sit.gapDays} дн.</b>`,
+        `⚖️ По закону — направить в миграционную службу. Регистрация остановлена до решения.`,
+        `🏨 ${hostelName} · Комната ${room?.number || g.roomNumber || '?'}, место ${g.bedId}`,
+      ].join('\n');
+      checkAndMarkAlert(key).then(shouldFire => {
+        if (shouldFire) sendTelegramMessage(msg, 'kppAlert');
+      });
+    });
   }, [guests, isOnline, tgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 🔔 Окно «ситуация» возвращается раз в 6 часов, пока решение не принято.
+  // Данные берём из документа гостя (список отелей уже сохранён) — портал
+  // ради повторного показа не дёргаем.
+  useEffect(() => {
+    if (!currentUser) return;
+    const check = () => {
+      if (kppSituation || checkInModal.open) return;
+      const pending = (guests || []).find(g =>
+        g.status === 'active' && g.kppSituation && !g.kppSituationDecision &&
+        g.country && g.country !== 'Узбекистан' &&
+        Date.now() - parseInt(localStorage.getItem(`hostella_kpp_situation_ts_${g.id}`) || '0') > 6 * 60 * 60 * 1000);
+      if (!pending) return;
+      const sit = pending.kppSituation;
+      localStorage.setItem(`hostella_kpp_situation_ts_${pending.id}`, String(Date.now()));
+      setKppSituation({
+        guest: pending,
+        assessment: { ok: false, reason: sit.reason, dayNumber: sit.dayNumber, window: sit.window, gapDays: sit.gapDays },
+        stays: Array.isArray(pending.emehmonStays) ? pending.emehmonStays : [],
+      });
+    };
+    const t = setTimeout(check, 12000);
+    const iv = setInterval(check, 5 * 60 * 1000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [currentUser?.id, guests, kppSituation, checkInModal.open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
     try {
@@ -2371,6 +2426,31 @@ return (
             />
         )}
 
+        {/* Госбаза не нашла иностранца — исправить данные и проверить снова */}
+        {kppFixPrompt && !checkInModal.open && (
+            <KppFixDataModal
+                guest={kppFixPrompt.guest}
+                notFoundText={kppFixPrompt.notFoundText}
+                lang={lang}
+                onSave={(id, updates) => handleGuestUpdate(id, updates)}
+                onRetry={(g) => { setKppFixPrompt(null); handleForeignArrival(g); }}
+                onLater={() => setKppFixPrompt(null)}
+                onSkip={(g) => { handleEmehmonFlag(g.id, { emehmonSkip: true, emehmonSkipAt: new Date().toISOString() }); setKppFixPrompt(null); }}
+            />
+        )}
+
+        {/* Ситуация: иностранец за пределами окна, разрыв после другого отеля */}
+        {kppSituation && !checkInModal.open && (
+            <KppSituationModal
+                guest={kppSituation.guest}
+                assessment={kppSituation.assessment}
+                stays={kppSituation.stays || []}
+                lang={lang}
+                onDecide={(d) => { localStorage.setItem(`hostella_kpp_situation_ts_${kppSituation.guest.id}`, String(Date.now())); handleSituationDecision(kppSituation.guest, d); }}
+                onOpenGuest={() => { const g = guests.find(x => x.id === kppSituation.guest.id) || kppSituation.guest; setKppSituation(null); setGuestDetailsModal({ open: true, guest: g }); }}
+            />
+        )}
+
         {checkInModal.open && (
             <CheckInModal
                 initialRoom={checkInModal.room}
@@ -2428,6 +2508,8 @@ return (
                 cadastreRegs={cadastreRegs || []}
                 onKppConfirm={handleKppConfirm}
                 onKppReset={handleKppReset}
+                onKppRecheck={handleKppRecheck}
+                onRegisterAuto={handleRegisterAuto}
                 onPriceRequest={handleRequestPriceReduction}
                 onUpgradeTariff={handleUpgradeToStandardTariff}
                 priceWhitelist={priceWhitelist}

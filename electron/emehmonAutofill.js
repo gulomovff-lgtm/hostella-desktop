@@ -401,10 +401,13 @@ function buildDepartureCheckScript(guest) {
 // Имя из госбазы достаём «как получится»: id полей ФИО в портале не зафиксированы,
 // поэтому пробуем набор вероятных вариантов и дополнительно отдаём дамп заполненных
 // полей general-info (fields) — по нему можно уточнить разбор без новой поездки в портал.
-function buildPassportCheckScript(guest) {
-  const G = JSON.stringify(guest || {});
-  return `(async function(){
-  var G = ${G};
+// ── Общие помощники скрытых скриптов (проверка паспорта, авто-прибытие) ────────
+// Подставляются в оба скрипта как текст. Здесь же — harvestWizard: дамп полей,
+// подписей, таблиц и текстовых блоков вкладки. DOM-имена даты/№ КПП и списка
+// прошлых проживаний порталом не задокументированы, поэтому скрипт ничего не
+// интерпретирует — отдаёт сырой дамп, разбор делает рендерер (utils/kppRules.js),
+// а дамп сохраняется на госте, чтобы уточнить селекторы по живым данным.
+const HIDDEN_HELPERS = `
   var $ = window.jQuery || window.$;
   var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
   function byId(id){ return document.getElementById(id); }
@@ -412,40 +415,94 @@ function buildPassportCheckScript(guest) {
   function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
   function setInput(id, val){ var el=byId(id); if(!el) return false; el.value=(val==null?'':val); try{ if($) $(el).val(el.value); }catch(e){} fire(el); return true; }
   function setSelect(id, val){ var el=byId(id); if(!el) return false; el.value=String(val); try{ if($) $(el).val(String(val)).trigger('change'); }catch(e){} fire(el); return true; }
+  function setSelectByCode(id, code){
+    var el=byId(id); if(!el||!code) return false;
+    var opt=Array.prototype.filter.call(el.options, function(o){ return (o.text||'').indexOf('('+code+')')!==-1; })[0];
+    if(!opt) return false;
+    return setSelect(id, opt.value);
+  }
+  // Гражданство: Узбекистан — известный код 173; остальные — по «(ISO3)» в тексте опции.
+  function selectCitizen(code){ if(!code || code==='UZB') return setSelect('id_citizen','173'); return setSelectByCode('id_citizen', code); }
   function activeTab(){ var a=document.querySelector('#myTab .nav-link.active'); return a? a.id : ''; }
+  function popups(){ return document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup'); }
   function notFound(){
-    var nodes = document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup');
+    var nodes = popups();
     for (var i=0;i<nodes.length;i++){ if (/topilmadi/i.test(nodes[i].textContent||'')) return true; }
     return false;
   }
+  function notFoundText(){
+    var nodes = popups();
+    for (var i=0;i<nodes.length;i++){ var tx=String(nodes[i].textContent||'').replace(/\\s+/g,' ').trim(); if (/topilmadi/i.test(tx)) return tx.slice(0,200); }
+    return '';
+  }
   async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
-
-  // Собираем заполненные поля general-info: и для поиска ФИО, и как дамп на будущее.
-  function harvest(){
-    var out = {}, name = '';
-    var panel = document.getElementById('general-info') || document;
-    var els = panel.querySelectorAll('input, select');
-    for (var i=0;i<els.length && i<80;i++){
-      var el = els[i];
+  function textOf(el){ return String((el && el.textContent) || '').replace(/\\s+/g,' ').trim(); }
+  function labelFor(el){
+    var t='';
+    try {
+      if (el.id) { var l=document.querySelector('label[for="'+el.id+'"]'); if (l) t=textOf(l); }
+      if (!t) { var grp=el.closest('.form-group, .mb-3, .form-floating, .col, .col-md-6, .col-md-4, .col-md-3'); if (grp) { var l2=grp.querySelector('label'); if (l2) t=textOf(l2); } }
+      if (!t) t = el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.getAttribute('title') || '';
+    } catch(e){}
+    return String(t).replace(/[*:\\s]+$/,'').trim().slice(0,80);
+  }
+  function invalidIds(){
+    try { return Array.prototype.map.call(document.querySelectorAll('.is-invalid, .has-error, .error'), function(e){ return e.id||e.name||e.className||''; }).slice(0,10); } catch(e){ return []; }
+  }
+  function harvestWizard(panelId){
+    var out={}, labels={}, tables=[], blocks=[], parts=[], n=0;
+    var panel = byId(panelId||'general-info') || byId('myTabContent') || document.querySelector('.tab-content') || document;
+    var els = panel.querySelectorAll('input, select, textarea');
+    for (var i=0;i<els.length && n<150;i++){
+      var el=els[i]; if ((el.type||'')==='password') continue;
       var key = el.id || el.name || '';
-      var val = '';
-      try { val = el.tagName === 'SELECT' ? (el.options[el.selectedIndex]||{}).text || '' : (el.value || ''); } catch(e){}
-      val = String(val).trim();
-      if (key && val && val !== '0') out[key] = val.slice(0, 120);
+      var val='';
+      try { val = el.tagName==='SELECT' ? ((el.options[el.selectedIndex]||{}).text||'') : (el.value||''); } catch(e){}
+      val=String(val).replace(/\\s+/g,' ').trim();
+      if (!val || val==='0') continue;
+      val=val.slice(0,160);
+      if (key) { out[key]=val; n++; }
+      var lb = labelFor(el);
+      if (lb && labels[lb]===undefined) labels[lb]=val;
     }
-    // Наиболее вероятные ключи ФИО — по частям и одним полем.
-    var parts = [];
-    var order = ['surname','lastname','lastName','familiya','sname','firstname','firstName','name','ism','patronymic','middlename','otchestvo','sharif'];
-    for (var j=0;j<order.length;j++){
-      var k = order[j];
-      for (var key2 in out){
-        if (key2.toLowerCase() === k.toLowerCase() && parts.indexOf(out[key2]) === -1) parts.push(out[key2]);
+    // Таблицы: сначала в панели, затем во всём мастере, затем в документе.
+    var scopes=[panel];
+    if (panel!==document) { var tc=byId('myTabContent')||document.querySelector('.tab-content'); if (tc && tc!==panel) scopes.push(tc); scopes.push(document); }
+    for (var s=0;s<scopes.length && !tables.length;s++){
+      var tbs=scopes[s].querySelectorAll('table');
+      for (var t=0;t<tbs.length && tables.length<5;t++){
+        var tb=tbs[t], headers=[], rows=[];
+        var ths=tb.querySelectorAll('thead th, thead td');
+        if (!ths.length){ var fr=tb.querySelector('tr'); if (fr && fr.querySelectorAll('th').length) ths=fr.querySelectorAll('th'); }
+        for (var h=0;h<ths.length && h<12;h++) headers.push(textOf(ths[h]).slice(0,80));
+        var trs=tb.querySelectorAll('tbody tr'); if (!trs.length) trs=tb.querySelectorAll('tr');
+        for (var r=0;r<trs.length && rows.length<30;r++){
+          var tds=trs[r].querySelectorAll('td'); if (!tds.length) continue;
+          var cells=[]; for (var c=0;c<tds.length && c<12;c++) cells.push(textOf(tds[c]).slice(0,80));
+          rows.push(cells);
+        }
+        if (headers.length || rows.length) tables.push({ id: tb.id||'', caption: textOf(tb.querySelector('caption')).slice(0,80), headers: headers, rows: rows });
       }
     }
-    name = parts.join(' ').replace(/\\s+/g,' ').trim();
-    return { fields: out, officialName: name };
+    var bl = panel.querySelectorAll('.card, .alert, .well, .list-group');
+    for (var b=0;b<bl.length && blocks.length<10;b++){ var tx=String(bl[b].innerText||bl[b].textContent||'').trim(); if (tx) blocks.push(tx.slice(0,300)); }
+    // ФИО из госбазы: наиболее вероятные ключи по частям, затем по подписи.
+    var order = ['surname','lastname','lastName','familiya','sname','firstname','firstName','name','ism','patronymic','middlename','otchestvo','sharif'];
+    for (var j=0;j<order.length;j++){
+      for (var key2 in out){ if (key2.toLowerCase()===order[j].toLowerCase() && parts.indexOf(out[key2])===-1) parts.push(out[key2]); }
+    }
+    var name = parts.join(' ').replace(/\\s+/g,' ').trim();
+    if (!name) { for (var lk in labels){ if (/f\\.?i\\.?o|фио|to\\W?liq ism|full ?name/i.test(lk)) { name=labels[lk]; break; } } }
+    var panelIds=[]; var panes=document.querySelectorAll('.tab-pane'); for (var q=0;q<panes.length;q++) if (panes[q].id) panelIds.push(panes[q].id);
+    return { fields:out, labels:labels, tables:tables, blocks:blocks, officialName:name, panelIds:panelIds };
   }
+`;
 
+function buildPassportCheckScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var G = ${G};
+  ${HIDDEN_HELPERS}
   try {
     if ((location.pathname||'').indexOf('login')!==-1 || document.querySelector('input[type=password]')) return { status:'need_login' };
 
@@ -453,8 +510,9 @@ function buildPassportCheckScript(guest) {
     if (!(await waitFor(function(){ return byId('passportNumber') && byId('id_citizen'); }, 30, 400))) return { status:'no_form' };
     await sleep(300);
 
-    // 2) заполняем проверяемые данные и жмём «Keyingi»
-    setSelect('id_citizen', '173');
+    // 2) заполняем проверяемые данные и жмём «Keyingi». Гражданство — по коду
+    //    гостя (иностранцев проверяем так же, как местных); без кода — UZB.
+    if (!selectCitizen(G.citizenCode)) return { status:'no_citizen', code: G.citizenCode||'' };
     setSelect('id_passporttype', G.docType || '1');
     setInput('datebirth', G.birthDate);
     setInput('passportNumber', (G.passport||'').toUpperCase());
@@ -466,10 +524,12 @@ function buildPassportCheckScript(guest) {
 
     // 3) вердикт: «не найден» либо переход на general-info
     if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
-    if (notFound()) return { status:'not_found' };
+    if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
     await sleep(700);   // даём порталу дозаполнить general-info
-    var h = harvest();
-    return { status:'valid', officialName: h.officialName, fields: h.fields };
+    // Портал дописывает вкладку асинхронно (в т.ч. дату КПП) — ждём до 3 с признаков.
+    await waitFor(function(){ var p=byId('general-info')||document; return !!(p.querySelector('table') || p.querySelector('[id*="kpp" i],[name*="kpp" i],[id*="chegara" i],[name*="chegara" i]')); }, 6, 500);
+    var h = harvestWizard('general-info');
+    return { status:'valid', officialName: h.officialName, fields: h.fields, labels: h.labels, tables: h.tables, blocks: h.blocks, panelIds: h.panelIds };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }
@@ -780,21 +840,7 @@ function buildAutoArrivalScript(guest) {
   const G = JSON.stringify(guest || {});
   return `(async function(){
   var G = ${G};
-  var $ = window.jQuery || window.$;
-  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
-  function byId(id){ return document.getElementById(id); }
-  function vis(el){ return !!(el && el.offsetParent !== null); }
-  function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
-  function setInput(id, val){ var el=byId(id); if(!el) return false; el.value = (val==null?'':val); try{ if($) $(el).val(el.value); }catch(e){} fire(el); return true; }
-  function setSelect(id, val){ var el=byId(id); if(!el) return false; el.value=String(val); try{ if($) $(el).val(String(val)).trigger('change'); }catch(e){} fire(el); return true; }
-  function activeTab(){ var a=document.querySelector('#myTab .nav-link.active'); return a? a.id : ''; }
-  function notFound(){
-    var nodes = document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup');
-    for (var i=0;i<nodes.length;i++){ if (/topilmadi/i.test(nodes[i].textContent||'')) return true; }
-    return false;
-  }
-  async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
-
+  ${HIDDEN_HELPERS}
   try {
     if ((location.pathname||'').indexOf('login')!==-1 || document.querySelector('input[type=password]')) return { status:'need_login' };
 
@@ -802,8 +848,8 @@ function buildAutoArrivalScript(guest) {
     if (!(await waitFor(function(){ return byId('passportNumber') && byId('id_citizen'); }, 30, 400))) return { status:'no_form' };
     await sleep(300);
 
-    // 2) шаг 1: гражданство UZB (173), паспорт, дата рождения → «Keyingi»
-    setSelect('id_citizen', '173');
+    // 2) шаг 1: гражданство по коду (UZB → 173), паспорт, дата рождения → «Keyingi»
+    if (!selectCitizen(G.citizenCode)) return { status:'no_citizen', code: G.citizenCode||'' };
     setSelect('id_passporttype', G.docType || '1');
     setInput('datebirth', G.birthDate);
     setInput('passportNumber', (G.passport||'').toUpperCase());
@@ -815,13 +861,24 @@ function buildAutoArrivalScript(guest) {
 
     // 3) ждём: general-info активна ИЛИ «не найден»
     if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
-    if (notFound()) return { status:'not_found' };
+    if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
     await sleep(600);
 
-    // 4) general-info авто-заполнена → «Keyingi» → additional-info
+    // 4) general-info. Местному портал заполняет всё сам. Иностранцу дописываем
+    //    то, чего портал не знает: дату выдачи, страну, кем выдан. Поля, которые
+    //    ставит портал (ФИО, пол, № и дата КПП, страна рождения), не трогаем.
+    var foreign = !!(G.citizenCode && G.citizenCode !== 'UZB');
+    if (foreign) {
+      if (G.passportIssueDate) setInput('datePassport', G.passportIssueDate);
+      setSelectByCode('id_country', G.citizenCode);
+      if (G.passportIssuedBy) setInput('passportissuedby', G.passportIssuedBy);
+      await sleep(300);
+    }
+    // Дамп вкладки — отсюда рендерер берёт дату прохода КПП.
+    var probe = harvestWizard('general-info');
     var g2 = document.querySelector('#general-info button[onclick*=additional-info-tab]');
     if (g2) g2.click();
-    if (!(await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 30, 400))) return { status:'step2_failed' };
+    if (!(await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 30, 400))) return { status:'step2_failed', probe: probe, invalid: invalidIds() };
     await sleep(300);
 
     // 5) additional-info: дни → (комнаты грузятся AJAX) → комната по номеру
@@ -836,7 +893,7 @@ function buildAutoArrivalScript(guest) {
         return false;
       }, 12, 700);
     }
-    if (!roomOk) return { status:'no_room' };
+    if (!roomOk) return { status:'no_room', probe: probe };
     setSelect('id_visittype', '5');  // Boshqa
     setSelect('payed', '2');         // To'liq to'langan
     setInput('amount', G.amount || '1');
@@ -852,18 +909,25 @@ function buildAutoArrivalScript(guest) {
     await waitFor(function(){ return activeTab()==='guest-info-tab' || byId('submitForm'); }, 20, 400);
     await sleep(300);
 
-    // 6) Saqlash
+    // 6) Последний шаг. У иностранца за пределами окна портал показывает здесь
+    //    список отелей, где он жил. Если нас просили (gateStays) — читаем список
+    //    и ОСТАНАВЛИВАЕМСЯ до «Сохранить»: регистрировать или направить в
+    //    миграционную службу решает человек. force — решение уже принято.
+    var last = harvestWizard('guest-info');
+    if (G.gateStays && !G.force) return { status:'needs_decision', probe: probe, last: last };
+
+    // 7) Saqlash
     var sub = byId('submitForm');
-    if (!sub) return { status:'no_submit' };
+    if (!sub) return { status:'no_submit', probe: probe, last: last };
     sub.click();
 
-    // 7) ждём успех swal2 «Muvaffaqiyatli saqlandi»
+    // 8) ждём успех swal2 «Muvaffaqiyatli saqlandi»
     var done = await waitFor(function(){
       var ic = document.querySelector('.swal2-popup .swal2-icon.swal2-success');
       var t = document.querySelector('.swal2-title');
       return !!(ic && t && /saqland|muvaffaqiyat/i.test(t.textContent||''));
     }, 50, 500);
-    return { status: done ? 'done' : 'submit_unconfirmed' };
+    return { status: done ? 'done' : 'submit_unconfirmed', probe: probe, last: last };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }

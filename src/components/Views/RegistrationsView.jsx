@@ -914,11 +914,15 @@ const RegistrationsView = ({
                             <div className="space-y-2">
                                 {needRegister.map(g => (
                                     <PersonRow key={g.id} lang={lang}
-                                        tone={g.emehmonRegError ? 'rose' : 'white'}
+                                        tone={(g.emehmonRegError || (g.kppSituation && !g.kppSituationDecision)) ? 'rose' : 'white'}
                                         flag={<Flag country={g.country} />}
                                         name={g.fullName}
                                         line2={guestLine(g)}
-                                        line3={g.emehmonRegError ? <span className="text-rose-600">⚠️ {g.emehmonRegError}</span> : null}
+                                        line3={g.emehmonRegError
+                                            ? <span className="text-rose-600">⚠️ {g.emehmonRegError}</span>
+                                            : (g.kppSituation && !g.kppSituationDecision)
+                                                ? <span className="text-rose-600">🚨 {t('kppSituationBadge')}</span>
+                                                : null}
                                         onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                         actions={canAct && canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>

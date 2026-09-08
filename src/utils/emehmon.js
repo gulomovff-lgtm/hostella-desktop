@@ -52,17 +52,42 @@ export function openEmehmonArrival(guest) {
   return openWith({ ...buildEmehmonPayload(guest), guestId: guest?.id || '' });
 }
 
-// Полная авто-регистрация прибытия (граждане Узбекистана) — всё в фоне.
-//   done / need_login / not_found / no_room / … | no_electron
-// opts.silent — при сбое НЕ показывать окно кассиру (для фоновых попыток).
+// Полная авто-регистрация прибытия — всё в фоне.
+//   done / needs_decision / need_login / not_found / no_room / no_citizen / … | no_electron
+// opts.silent    — при сбое НЕ показывать окно кассиру (для фоновых попыток).
+// opts.gateStays — иностранец за пределами окна: перед «Сохранить» прочитать
+//                  список прошлых проживаний и ОСТАНОВИТЬСЯ (needs_decision) —
+//                  регистрировать или направить в миграционную службу решает человек.
+// opts.force     — решение принято: сохранить, не глядя на список.
+// opts.quietFail — при любом сбое, кроме входа, окно не показывать: рендерер
+//                  сам покажет своё окно («исправьте данные» / «ситуация»).
 export async function autoRegisterArrival(guest, opts = {}) {
   if (!window.electronAPI?.emehmonArrivalAuto) return { status: 'no_electron' };
   // amount берём из payload (ставка по гражданству), раньше здесь жёстко стояла 1
-  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', silent: !!opts.silent };
+  const payload = {
+    ...buildEmehmonPayload(guest), guestId: guest?.id || '',
+    silent: !!opts.silent, gateStays: !!opts.gateStays, force: !!opts.force, quietFail: !!opts.quietFail,
+  };
   const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {
     return await window.electronAPI.emehmonArrivalAuto(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
+// Проверка гостя в госбазе (только первый шаг мастера, ничего не сохраняет).
+//   valid {officialName, fields, labels, tables, blocks} / not_found {notFoundText}
+//   / need_login / no_form / check_timeout / no_citizen / error | no_electron
+// Для иностранца отсюда берём дату прохода КПП (вторая вкладка мастера).
+export async function checkPassportInGov(guest) {
+  if (!window.electronAPI?.emehmonPassportCheck) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '' };
+  const acc = await getEmehmonAccount(payload.hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonPassportCheck(payload);
   } catch (e) {
     return { status: 'error', message: e?.message || String(e) };
   }

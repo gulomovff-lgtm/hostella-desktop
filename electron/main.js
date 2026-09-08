@@ -549,11 +549,17 @@ async function runAutoArrival(payload) {
     result = { status: 'error', message: e.message };
   }
   const status = (result && result.status) || 'error';
-  if (status === 'done') {
+  if (status === 'done' || status === 'needs_decision') {
+    // needs_decision — мастер дошёл до «Сохранить», но список прошлых
+    // проживаний требует решения человека; окно решения покажет рендерер.
     win.hide();
   } else if (payload.silent) {
     // Тихая фоновая попытка (авто-добор «забытых» местных) — окно НЕ показываем,
     // статус вернётся рендеру, он поставит пометку об ошибке на госте.
+    win.hide();
+  } else if (payload.quietFail && status !== 'need_login') {
+    // У рендерера своё окно на этот случай («исправьте данные»/«ситуация») —
+    // второе окно портала поверх него только путает кассира.
     win.hide();
   } else {
     // Проблема — окно кассиру + привычная ручная кнопка «Заполнить из Hostella».

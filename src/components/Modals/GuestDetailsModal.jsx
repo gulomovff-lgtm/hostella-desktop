@@ -286,7 +286,7 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     reader.readAsDataURL(file);
 });
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
@@ -643,6 +643,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         if (!updates.kppDate && guest.kppDate) updates.kppDate = guest.kppDate;
         // kppRegistered не трогаем, если дата не изменилась
         if (updates.kppDate === toDateInput(guest.kppDate)) updates.kppRegistered = guest.kppRegistered;
+        // Дату КПП не меняли — не переписывать её (иначе портальная стала бы «ручной»)
+        if (toDateInput(updates.kppDate) === toDateInput(guest.kppDate)) delete updates.kppDate;
         onUpdate(guest.id, updates);
         goBack();
     };
@@ -951,6 +953,21 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 );
                             })()}
 
+                            {!guest.kppDate && guest.country && guest.country !== 'Узбекистан' && !!window.electronAPI?.emehmonPassportCheck && (
+                                <div className="rounded-xl p-3 border bg-white border-slate-200 flex items-center justify-between gap-2">
+                                    <div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">{t('kppRegistration')}</div>
+                                        <div className="text-xs font-semibold text-slate-500">⏳ {t('kppPendingPortal')}</div>
+                                    </div>
+                                    {onKppRecheck && (
+                                        <button onClick={() => onKppRecheck(guest)}
+                                            className="px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 transition-colors shrink-0">
+                                            🔍 {t('kppRecheck')}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             {guest.kppDate && guest.country && guest.country !== 'Узбекистан' && (() => {
                                 // День прибытия = 1. Срок без регистрации зависит от гражданства.
                                 const regWindow = getRegistrationWindow(guest.country);
@@ -959,12 +976,25 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 const needsReg = days >= regWindow - 1 && !guest.kppRegistered;
                                 const overdue = days > regWindow && !guest.kppRegistered;
                                 const isSuper = currentUser?.role === 'super' || currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
+                                const lastStay = Array.isArray(guest.emehmonStays) && guest.emehmonStays.length ? guest.emehmonStays[guest.emehmonStays.length - 1] : null;
+                                const situation = guest.kppSituation && !guest.kppSituationDecision ? guest.kppSituation : null;
                                 return (
-                                    <div className={`rounded-xl p-3 border ${needsReg ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200'}`}>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">{t('kppRegistration')}</div>
+                                    <div className={`rounded-xl p-3 border ${situation ? 'bg-rose-50 border-rose-300' : needsReg ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200'}`}>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
+                                            {t('kppRegistration')}
+                                            <span className={`normal-case tracking-normal px-1.5 py-0.5 rounded-full text-[10px] font-bold ${guest.kppSource === 'emehmon' ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                {guest.kppSource === 'emehmon' ? t('kppSourcePortal') : t('kppSourceManual')}
+                                            </span>
+                                        </div>
+                                        {situation && (
+                                            <div className="mb-2 text-xs font-bold text-rose-700">⚠️ {t('kppSituationShort')}: {t(situation.reason === 'gap_after_hotel' ? 'kppReasonGapAfterHotel' : 'kppReasonGapAfterKpp')}</div>
+                                        )}
                                         <div className="flex items-center justify-between gap-2">
                                             <div>
-                                                <div className="text-xs font-semibold text-slate-700">{t('kppDateLabel')}: {new Date(guest.kppDate).toLocaleDateString('ru-RU')}</div>
+                                                <div className="text-xs font-semibold text-slate-700">{t('kppDateLabel')}: {new Date(guest.kppDate).toLocaleDateString('ru-RU')}{guest.kppNumber ? <span className="text-slate-400"> · №{guest.kppNumber}</span> : null}</div>
+                                                {lastStay && (
+                                                    <div className="text-[11px] font-semibold text-slate-500 mt-0.5">{t('kppLastHotel')}: <b className="text-slate-700">{lastStay.hotel || '—'}</b> · {lastStay.to ? new Date(lastStay.to).toLocaleDateString('ru-RU') : '—'}</div>
+                                                )}
                                                 {deadline && (
                                                     <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
                                                         {t('registrationUntil')}: <span className={overdue ? 'text-rose-600 font-bold' : 'text-slate-700 font-bold'}>{deadline.toLocaleDateString('ru-RU')}</span> <span className="text-slate-400">({regWindow} {t('daysShort')})</span>
@@ -993,6 +1023,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                         className="px-3 py-1.5 bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 rounded-xl text-[10px] font-bold transition-colors border border-slate-200"
                                                     >↺ {t('resetBtn')}</button>
                                                 )}
+                                                {onKppRecheck && !!window.electronAPI?.emehmonPassportCheck && (
+                                                    <button
+                                                        onClick={() => onKppRecheck(guest)}
+                                                        className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-[10px] font-bold transition-colors border border-indigo-200"
+                                                    >🔍 {t('kppRecheck')}</button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -1011,13 +1047,27 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                 (r.guestId === guest.id ||
                                                  (r.passport && guest.passport && normP(r.passport) === normP(guest.passport))));
                                             if (guest.emehmonReg || hasCadastre) return null;
+                                            // Две кнопки: вручную (окно портала) и авто (скрытый мастер).
+                                            // Иностранцу авто по правилу регистрируется на предпоследний
+                                            // день окна — подпись напоминает, что ждать не обязательно.
+                                            const canAuto = !!window.electronAPI?.emehmonArrivalAuto && onRegisterAuto;
                                             return (
-                                                <button
-                                                    onClick={() => { openEmehmonArrival(guest); notify(t('emehmonOpenArrival'), 'info'); }}
-                                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-bold hover:bg-indigo-100 transition-colors"
-                                                >
-                                                    🌐 {t('registerArrival')}
-                                                </button>
+                                                <>
+                                                    <button
+                                                        onClick={() => { openEmehmonArrival(guest); notify(t('emehmonOpenArrival'), 'info'); }}
+                                                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-bold hover:bg-indigo-100 transition-colors"
+                                                    >
+                                                        🌐 {t('registerManualBtn')}
+                                                    </button>
+                                                    {canAuto && (
+                                                        <button
+                                                            onClick={() => onRegisterAuto(guest)}
+                                                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-teal-200 bg-teal-50 text-teal-700 text-sm font-bold hover:bg-teal-100 transition-colors"
+                                                        >
+                                                            ⚡ {t('registerAutoBtn')}
+                                                        </button>
+                                                    )}
+                                                </>
                                             );
                                         })()}
                                         {(isAdmin || currentUser.login === 'fazliddin') && (
@@ -1404,7 +1454,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 </select>
                             </div>
                             {editForm.country && editForm.country !== 'Узбекистан' && (
-                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('kppDatePassed')}</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.kppDate} onChange={e=>setEditForm({...editForm,kppDate:e.target.value})}/></div>
+                                <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('kppDateCorrection')}</label><input type="date" className="w-full p-3 border-2 border-slate-200 rounded-xl font-bold" value={editForm.kppDate} onChange={e=>setEditForm({...editForm,kppDate:e.target.value})}/></div>
                             )}
                             <div><label className="text-xs font-bold text-slate-400 uppercase mb-1 block">{t('tariffPerNight')}</label>
                                 {canEditPrice ? (

@@ -44,7 +44,17 @@ test('бронь не требует паспорта — гость ещё не
   assert.ok(body.includes("if (status !== 'booking') {"), 'паспорт и КПП должны спрашиваться только при заселении');
   assert.ok(body.indexOf("errs.fullName") < body.indexOf("if (status !== 'booking')"), 'ФИО обязательно и для брони');
   assert.ok(body.indexOf("errs.passport") > body.indexOf("if (status !== 'booking')"), 'паспорт — под условием');
-  assert.ok(body.indexOf("errs.kppDate") > body.indexOf("if (status !== 'booking')"), 'КПП — под условием');
+  assert.ok(body.indexOf("errs.passportIssueDate") > body.indexOf("if (status !== 'booking')"), 'дата выдачи — под условием');
+});
+
+test('дата КПП не обязательна — её подставляет e-mehmon', () => {
+  const at = code.indexOf("const validate = (status = 'active') => {");
+  const body = code.slice(at, code.indexOf('return errs;', at));
+  assert.ok(!body.includes('errs.kppDate'), 'КПП больше не требуется на бланке');
+  assert.ok(!code.includes("{t('kppDatePassed')}<b className=\"ci-req\">"), 'звёздочка у КПП снята');
+  assert.ok(code.includes("t('kppOptionalHint')"), 'кассиру объяснено, откуда возьмётся дата');
+  const gf = code.slice(code.indexOf('const guestFilled = useMemo'), code.indexOf('}, [formData]);'));
+  assert.ok(!gf.includes('formData.kppDate'), 'счётчик заполненности КПП не считает');
 });
 
 test('условия из брони переносятся в бланк: сутки, цена, тариф, комната и место', () => {

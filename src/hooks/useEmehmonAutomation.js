@@ -6,8 +6,21 @@ import { emehmonAmountForStay } from '../utils/emehmonAmount';
 import {
   openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered,
   departEmehmonBackground, departEmehmonBulk, autoRegisterArrival, recalcEmehmonAmounts,
+  checkPassportInGov, getEmehmonStatus,
 } from '../utils/emehmon';
+import {
+  parseEmehmonProbe, assessKpp, registrationDue, trimProbe, shouldRetryNoRoom,
+  todayIso, daysBetween, getRegistrationWindow,
+} from '../utils/kppRules';
 import TRANSLATIONS from '../constants/translations';
+
+const LOCAL_COUNTRY = 'Узбекистан';
+const isLocal = (g) => g?.country === LOCAL_COUNTRY;
+const paidOf = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+/** Липкий текст ошибки госбазы: тот же, что снимает handleGuestUpdate при правке паспорта. */
+export const REG_ERROR_TEXT = 'Ошибка в паспортных данных — нужно исправить';
+const HOURS = 3600 * 1000;
+const fmtRu = (iso) => { try { return new Date(iso).toLocaleDateString('ru-RU'); } catch { return iso; } };
 
 /**
  * useEmehmonAutomation — вся автоматика госпортала e-mehmon.
@@ -64,6 +77,13 @@ export function useEmehmonAutomation({
 
   const emehmonSyncBusy    = useRef(new Set()); // филиалы, по которым сверка уже идёт
   const emehmonNoRoomTried = useRef(new Set()); // гости, у кого авто-регистрация упёрлась в «нет комнаты»
+  const emehmonAutoBusy    = useRef(new Set()); // guestId в процессе регистрации — защита от дубля листка
+  const foreignBusy        = useRef(new Set()); // guestId в проверке госбазы (иностранец)
+
+  // Окна для иностранца: «госбаза не нашла — исправьте данные» и «ситуация»
+  // (гость за пределами окна, разрыв после другого отеля — решает человек).
+  const [kppFixPrompt, setKppFixPrompt] = useState(null);   // { guest, notFoundText }
+  const [kppSituation, setKppSituation] = useState(null);   // { guest, assessment, stays }
 
 // e-mehmon: отметки «зарегистрирован/выведен» на госте
 const handleEmehmonFlag = useCallback(async (guestId, updates) => {
@@ -162,6 +182,287 @@ const handleEmehmonDone = useCallback(async (guest) => {
     setEmehmonDepart([guest]);
   }
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// ─── КПП иностранца: данные портала → карточка гостя ───────────────────────
+// Ответ портала (проверка паспорта или мастер прибытия) несёт сырой дамп
+// вкладок. Разбираем его (utils/kppRules.js), пишем дату/№ КПП, прошлые
+// проживания и оценку правила сроков. Дата КПП из портала СИЛЬНЕЕ ручной —
+// кроме правки, сделанной уже после прошлой проверки (kppEditedAt новее).
+const applyProbeToGuest = useCallback(async (guest, res) => {
+  if (!guest?.id || !res) return { parsed: null, assessment: null, kppDate: guest?.kppDate || '' };
+  const now = new Date().toISOString();
+  const today = todayIso();
+  const probe = res.probe || res;            // шаг 2 (проверка паспорта отдаёт поля сверху)
+  const last  = res.last || null;            // последний шаг мастера (список отелей)
+  const merged = {
+    fields: probe.fields || {}, labels: probe.labels || {},
+    tables: [...(last?.tables || []), ...(probe.tables || [])],
+    blocks: [...(last?.blocks || []), ...(probe.blocks || [])],
+    officialName: probe.officialName || res.officialName || '',
+  };
+  const parsed = parseEmehmonProbe(merged, { birthDate: guest.birthDate, passportIssueDate: guest.passportIssueDate, today });
+  const updates = {
+    kppCheckedAt: now,
+    emehmonProbe: trimProbe({ at: now, ...merged }),
+    emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(),
+  };
+  const manualNewer = guest.kppSource === 'manual' && guest.kppEditedAt && guest.kppCheckedAt && guest.kppEditedAt > guest.kppCheckedAt;
+  let kppDate = guest.kppDate ? String(guest.kppDate).slice(0, 10) : '';
+  if (parsed.kppDate && !manualNewer && parsed.kppDate !== kppDate) {
+    updates.kppDate = parsed.kppDate; updates.kppSource = 'emehmon'; kppDate = parsed.kppDate;
+  } else if (parsed.kppDate && parsed.kppDate === kppDate && guest.kppSource !== 'emehmon') {
+    updates.kppSource = 'emehmon';
+  }
+  if (parsed.kppNumber) updates.kppNumber = parsed.kppNumber;
+  if (parsed.stays.length) updates.emehmonStays = parsed.stays;
+  if (parsed.lastCheckout) updates.emehmonLastCheckout = parsed.lastCheckout;
+  const lastCheckout = parsed.lastCheckout || guest.emehmonLastCheckout || null;
+  const assessment = assessKpp({ country: guest.country, kppDate, lastCheckout, today });
+  if (!assessment.ok) {
+    // Ту же причину не переписываем — иначе «Понятно» кассира слетало бы каждый цикл.
+    const prev = guest.kppSituation;
+    if (!prev || prev.reason !== assessment.reason) {
+      updates.kppSituation = { reason: assessment.reason, dayNumber: assessment.dayNumber, window: assessment.window, gapDays: assessment.gapDays, at: now };
+    }
+  } else if (guest.kppSituation) {
+    updates.kppSituation = deleteField();
+  }
+  await handleEmehmonFlag(guest.id, updates);
+  return { parsed, assessment, kppDate };
+}, [handleEmehmonFlag]);
+
+// Единый разбор итога мастера прибытия — для местных и иностранцев, громко и тихо.
+const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
+  const st = res?.status;
+  const silent = !!opts.silent;
+  const now = new Date().toISOString();
+  const name = guest?.fullName || '';
+  if (st === 'done') {
+    await handleEmehmonFlag(guest.id, {
+      emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
+      emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(),
+      emehmonAmount: emehmonAmountFor(guest.country),
+    });
+    showNotification(t(silent ? 'emaRegisteredAuto' : 'emaRegistered').replace('{name}', name), 'success');
+    return true;
+  }
+  if (st === 'need_login') { if (!silent) showNotification(t('emaLoginContinueReg'), 'info'); return false; }
+  if (st === 'not_found') {
+    await handleEmehmonFlag(guest.id, { emehmonRegError: REG_ERROR_TEXT, emehmonRegErrorAt: now });
+    if (!isLocal(guest)) setKppFixPrompt({ guest, notFoundText: res?.notFoundText || '' });
+    showNotification(t(silent ? 'emaNotInGovDb' : 'emaNotInGovDbManual').replace('{name}', name), 'warning');
+    return false;
+  }
+  if (st === 'no_room') {
+    // Комнату не сопоставили. Ошибку гостю не вешаем — ставим метку времени и
+    // повторяем не раньше чем через несколько часов (раньше помнили только в RAM).
+    emehmonNoRoomTried.current.add(guest.id);
+    await handleEmehmonFlag(guest.id, { emehmonNoRoomAt: now });
+    if (!silent) showNotification(t('emaRoomMismatch').replace('{name}', name), 'warning');
+    return false;
+  }
+  if (st === 'no_citizen') {
+    if (!silent) { showNotification(t('emaNoCitizenOption').replace('{country}', guest.country || ''), 'warning'); if (!isLocal(guest)) setEmehmonArrivalPrompt(guest); }
+    return false;
+  }
+  if (st === 'step2_failed') {
+    if (!silent) { showNotification(t('emaForeignStep2Fail').replace('{name}', name), 'warning'); if (!isLocal(guest)) setEmehmonArrivalPrompt(guest); }
+    return false;
+  }
+  if (st === 'no_electron' || st === 'busy' || st === 'needs_decision') return false;
+  if (!silent) showNotification(t('emaAutoRegNotDone').replace('{name}', name), 'error');
+  return false;
+}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// Регистрация иностранца. За пределами окна мастер останавливается перед
+// «Сохранить» и отдаёт список прошлых проживаний (needs_decision): если по
+// нему разрыв допустим — сохраняем сами, иначе показываем окно «ситуация».
+const runForeignRegistration = useCallback(async (guest, opts = {}) => {
+  if (!guest?.id || !window.electronAPI?.emehmonArrivalAuto) return { status: 'no_electron' };
+  if (emehmonAutoBusy.current.has(guest.id)) return { status: 'busy' };
+  emehmonAutoBusy.current.add(guest.id);
+  const silent = !!opts.silent;
+  try {
+    const today = todayIso();
+    const win = getRegistrationWindow(guest.country);
+    const dayNumber = guest.kppDate ? daysBetween(guest.kppDate, today) + 1 : 0;
+    const gateStays = !opts.force && (!guest.kppDate || dayNumber > win);
+    if (!silent) showNotification(t('emaRegistering').replace('{name}', guest.fullName), 'info');
+    let res = await autoRegisterArrival(guest, { silent, gateStays, force: !!opts.force, quietFail: true });
+    if (res?.status === 'needs_decision') {
+      const { parsed, assessment, kppDate } = await applyProbeToGuest(guest, res);
+      if (assessment?.ok) {
+        // Разрыва нет (или судить не по чему) — сохраняем сами, вторым заходом.
+        res = await autoRegisterArrival({ ...guest, kppDate }, { silent, gateStays: false, force: true, quietFail: true });
+      } else {
+        setKppSituation({ guest: { ...guest, kppDate }, assessment, stays: parsed?.stays || [] });
+        if (!silent) showNotification(t('emaNeedsDecision').replace('{name}', guest.fullName), 'warning');
+        return res;
+      }
+    } else if (res?.probe && !guest.kppDate && !isLocal(guest)) {
+      await applyProbeToGuest(guest, res);
+    }
+    await finishAutoArrival(guest, res, { silent });
+    return res;
+  } finally {
+    emehmonAutoBusy.current.delete(guest.id);
+  }
+}, [applyProbeToGuest, finishAutoArrival]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// Проверка иностранца в госбазе (без регистрации): дата КПП → карточка.
+// Возвращает гостя с обновлённой датой или null, если продолжать нельзя.
+const checkForeign = useCallback(async (guest, { silent = false } = {}) => {
+  const now = new Date().toISOString();
+  if (!silent) showNotification(t('emaCheckingGov').replace('{name}', guest.fullName), 'info');
+  const res = await checkPassportInGov(guest);
+  const st = res?.status;
+  if (st === 'need_login') { if (!silent) showNotification(t('emaLoginContinueReg'), 'info'); return { guest: null, status: st }; }
+  if (st === 'not_found') {
+    await handleEmehmonFlag(guest.id, { emehmonRegError: REG_ERROR_TEXT, emehmonRegErrorAt: now });
+    if (!silent) setKppFixPrompt({ guest, notFoundText: res?.notFoundText || '' });
+    else showNotification(t('emaNotInGovDb').replace('{name}', guest.fullName), 'warning');
+    return { guest: null, status: st };
+  }
+  if (st === 'no_citizen') {
+    if (!silent) { showNotification(t('emaNoCitizenOption').replace('{country}', guest.country || ''), 'warning'); setEmehmonArrivalPrompt(guest); }
+    return { guest: null, status: st };
+  }
+  if (st !== 'valid') {
+    if (!silent) showNotification(t('emaGovCheckFail').replace('{name}', guest.fullName), 'warning');
+    return { guest: null, status: st || 'error' };
+  }
+  const { kppDate } = await applyProbeToGuest(guest, res);
+  if (!silent) {
+    showNotification(kppDate ? t('emaKppFound').replace('{date}', fmtRu(kppDate)) : t('emaKppNotRecognized'), kppDate ? 'success' : 'warning');
+  }
+  return { guest: { ...guest, kppDate, kppCheckedAt: now }, status: 'valid' };
+}, [applyProbeToGuest, handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// Иностранец при заселении / первой оплате: проверить в госбазе, взять дату
+// КПП; регистрировать — после оплаты и не раньше предпоследнего дня окна.
+const handleForeignArrival = useCallback(async (guest) => {
+  if (!guest?.id) return;
+  if (!window.electronAPI?.emehmonPassportCheck) { setEmehmonArrivalPrompt(guest); return; }
+  if (foreignBusy.current.has(guest.id)) return;
+  foreignBusy.current.add(guest.id);
+  try {
+    let g = guest;
+    const fresh = g.kppCheckedAt && (Date.now() - new Date(g.kppCheckedAt).getTime() < 24 * HOURS);
+    if (!fresh || !g.kppDate) {
+      const r = await checkForeign(g);
+      if (!r.guest) return;
+      g = r.guest;
+    }
+    if (g.emehmonReg || g.emehmonSkip) return;
+    if (!(paidOf(g) > 0)) return;                       // регистрация — после оплаты, позовут снова
+    if (g.kppDate && !registrationDue({ country: g.country, kppDate: g.kppDate })) {
+      const win = getRegistrationWindow(g.country);
+      showNotification(t('emaAutoOnDay').replace('{name}', g.fullName).replace('{n}', Math.max(1, win - 1)), 'info');
+      return;
+    }
+    await runForeignRegistration(g, { silent: false });
+  } finally {
+    foreignBusy.current.delete(guest.id);
+  }
+}, [checkForeign, runForeignRegistration]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// Кнопка «Проверить в госбазе» в карточке — только проверка и дата КПП.
+const handleKppRecheck = useCallback(async (guest) => {
+  if (!guest?.id) return;
+  if (!window.electronAPI?.emehmonPassportCheck) { showNotification(t('emaDesktopOnly'), 'info'); return; }
+  if (foreignBusy.current.has(guest.id)) return;
+  foreignBusy.current.add(guest.id);
+  try { await checkForeign(guest); } finally { foreignBusy.current.delete(guest.id); }
+}, [checkForeign]); // eslint-disable-line react-hooks/exhaustive-deps
+
+const handleEmehmonAutoArrivalRef = useRef(null);
+// Кнопка «Оформить авто» в карточке: человек нажал — правило «предпоследний
+// день» не применяем, но список отелей за пределами окна всё равно проверяем.
+const handleRegisterAuto = useCallback(async (guest) => {
+  if (!guest?.id) return;
+  if (isLocal(guest)) { await handleEmehmonAutoArrivalRef.current(guest); return; }
+  if (!window.electronAPI?.emehmonArrivalAuto) { showNotification(t('emaDesktopOnly'), 'info'); return; }
+  let g = guest;
+  if (!g.kppDate && window.electronAPI?.emehmonPassportCheck) {
+    const r = await checkForeign(g);
+    if (!r.guest) return;
+    g = r.guest;
+  }
+  await runForeignRegistration(g, { silent: false });
+}, [checkForeign, runForeignRegistration]); // eslint-disable-line react-hooks/exhaustive-deps
+// Решение по «ситуации»: зарегистрировать всё равно / направить в миграционную
+// службу / просто «понятно» (окно вернётся через несколько часов).
+const handleSituationDecision = useCallback(async (guest, decision) => {
+  if (!guest?.id) return;
+  const now = new Date().toISOString();
+  setKppSituation(null);
+  if (decision === 'register') {
+    await handleEmehmonFlag(guest.id, { kppSituationDecision: 'register', kppSituationAckAt: now });
+    await runForeignRegistration(guest, { silent: false, force: true });
+  } else if (decision === 'migration') {
+    await handleEmehmonFlag(guest.id, { kppSituationDecision: 'migration', kppSituationAckAt: now, emehmonSkip: true, emehmonSkipAt: now });
+    showNotification(t('kppMigrationMarked').replace('{name}', guest.fullName), 'info');
+  } else {
+    await handleEmehmonFlag(guest.id, { kppSituationAckAt: now });
+  }
+}, [handleEmehmonFlag, runForeignRegistration]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// ─── Добор «забытых»: местные и иностранцы, тихо, до 3 походов на портал ─────
+// Раньше добор был приделан к успешной загрузке /listok и только по выбранному
+// филиалу — при ошибке списка или на неоткрытом филиале гости просто ждали.
+// Теперь: без списка тоже работает (но только по свежим заездам — чтобы не
+// продублировать листок), а планировщик обходит все филиалы с учётками.
+const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
+  if (!window.electronAPI?.emehmonArrivalAuto) return;
+  const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
+  const isReal = (g) => g.roomId !== 'DEBT_ONLY';
+  const sameHostel = (g) => (g.hostelId || 'hostel1') === hostelId;
+  const inCad = (g) => (cadastreRegs || []).some(r =>
+    r.status !== 'removed' &&
+    (r.guestId === g.id || (r.passport && g.passport && norm(r.passport) === norm(g.passport))));
+  const inList = (g) => pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName));
+  const recent = (g) => g.checkInDate && (Date.now() - new Date(g.checkInDate).getTime()) < 2 * 24 * HOURS;
+  const candidates = (guests || []).filter(g =>
+    g.status === 'active' && isReal(g) && g.country &&
+    !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
+    sameHostel(g) && paidOf(g) > 0 && !inCad(g) &&
+    (listOk ? !inList(g) : (recent(g) && !g.emehmonRegAt)) &&
+    shouldRetryNoRoom(g) && !emehmonNoRoomTried.current.has(g.id) &&
+    !emehmonAutoBusy.current.has(g.id) && !foreignBusy.current.has(g.id) &&
+    !(g.kppSituation && !g.kppSituationDecision)   // ждёт решения человека — не дёргаем портал
+  );
+  let trips = 0;
+  const MAX_TRIPS = 3;
+  for (const g of candidates) {
+    if (trips >= MAX_TRIPS) break;
+    if (isLocal(g)) {
+      emehmonAutoBusy.current.add(g.id); trips++;
+      try {
+        const reg = await autoRegisterArrival(g, { silent: true });
+        if (reg?.status === 'need_login') break;
+        await finishAutoArrival(g, reg, { silent: true });
+      } catch (_) { /* пропускаем */ } finally { emehmonAutoBusy.current.delete(g.id); }
+      continue;
+    }
+    // Иностранец: сперва дата КПП (раз в сутки), затем регистрация в срок.
+    let gg = g;
+    const stale = !g.kppCheckedAt || (Date.now() - new Date(g.kppCheckedAt).getTime() > 24 * HOURS);
+    if (stale || !g.kppDate) {
+      if (!window.electronAPI?.emehmonPassportCheck) continue;
+      foreignBusy.current.add(g.id); trips++;
+      let r;
+      try { r = await checkForeign(g, { silent: true }); } finally { foreignBusy.current.delete(g.id); }
+      if (r.status === 'need_login') break;
+      if (!r.guest) continue;
+      gg = r.guest;
+    }
+    if (gg.kppDate && !registrationDue({ country: gg.country, kppDate: gg.kppDate })) continue;
+    if (trips >= MAX_TRIPS) break;
+    trips++;
+    const res = await runForeignRegistration(gg, { silent: true });
+    if (res?.status === 'need_login') break;
+  }
+}, [guests, cadastreRegs, finishAutoArrival, checkForeign, runForeignRegistration]); // eslint-disable-line react-hooks/exhaustive-deps
 
 // Фоновая синхронизация статусов регистрации: тянем /listok текущего филиала и
 // авто-ставим «Зарегистрирован» совпавшим активным иностранцам. НЕ снимаем —
@@ -272,53 +573,8 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
         }
       }
 
-      // ── АВТО-ДОБОР «ЗАБЫТЫХ» МЕСТНЫХ ────────────────────────────────────
-      // Активные граждане Узбекистана с оплатой, без e-mehmon/кадастра и без
-      // прежней ошибки — регистрируем сами, ТИХО (окно не показываем).
-      // Ошибка госбазы → пометка «ошибка в паспортных данных» на госте,
-      // повторов не делаем, пока данные не исправят (пометка снимается при
-      // редактировании паспорта/ДР). До 3 гостей за цикл (цикл каждые 5 мин).
-      if (window.electronAPI?.emehmonArrivalAuto) {
-        const paidOf = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
-        const inCad = (g) => (cadastreRegs || []).some(r =>
-          r.status !== 'removed' &&
-          (r.guestId === g.id || (r.passport && g.passport && norm(r.passport) === norm(g.passport))));
-        const candidates = (guests || []).filter(g =>
-          g.status === 'active' && isReal(g) && g.country === 'Узбекистан' &&
-          !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
-          sameHostel(g) && paidOf(g) > 0 &&
-          !(pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))) &&
-          !inCad(g) && !emehmonAutoBusy.current.has(g.id) &&
-          !emehmonNoRoomTried.current.has(g.id)
-        ).slice(0, 3);
-        for (const g of candidates) {
-          emehmonAutoBusy.current.add(g.id);
-          try {
-            const reg = await autoRegisterArrival(g, { silent: true });
-            const st = reg?.status;
-            if (st === 'done') {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
-                  emehmonRegError: deleteField(), emehmonAmount: emehmonAmountFor(g.country) });
-              showNotification(t('emaRegisteredAuto').replace('{name}', g.fullName), 'success');
-            } else if (st === 'not_found') {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                { emehmonRegError: 'Ошибка в паспортных данных — нужно исправить', emehmonRegErrorAt: new Date().toISOString() });
-              showNotification(t('emaNotInGovDb').replace('{name}', g.fullName), 'warning');
-            } else if (st === 'no_room') {
-              // Комнату не удалось сопоставить в e-mehmon. Ошибку гостю НЕ вешаем
-              // (просьба убрать её) — просто не повторяем в этой сессии, гость
-              // остаётся в «Оформить» для ручной регистрации.
-              emehmonNoRoomTried.current.add(g.id);
-            } else if (st === 'need_login') {
-              break; // без входа продолжать нет смысла — попробуем в следующем цикле
-            }
-            // прочие сбои (таймаут/сеть) — без пометки, повтор в следующем цикле
-          } catch (_) { /* пропускаем */ } finally {
-            emehmonAutoBusy.current.delete(g.id);
-          }
-        }
-      }
+      // ── АВТО-ДОБОР «ЗАБЫТЫХ» (местные и иностранцы) — см. runEmehmonCatchup ──
+      await runEmehmonCatchup(hostelId, true, pSet, nSet);
       if (manual) showNotification(t('emaSyncResult').replace('{marked}', toMark.length).replace('{out}', toMarkOut.length), 'success');
     } else if (res?.status === 'need_login') {
       patchEmehmon(hostelId, { status: 'need_login', at: Date.now() });
@@ -326,24 +582,44 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
     } else {
       patchEmehmon(hostelId, { status: 'error', at: Date.now() });
       if (manual) showNotification(t('emaListFail'), 'error');
+      // Список не пришёл, но сам портал жив (не need_login): добор по свежим
+      // заездам всё равно делаем — иначе одна ошибка списка стопорила регистрацию.
+      await runEmehmonCatchup(hostelId, false, new Set(), new Set());
     }
   } finally {
     emehmonSyncBusy.current.delete(hostelId);
     patchEmehmon(hostelId, { syncing: false });
   }
-}, [guests, registrations, cadastreRegs, currentUser, selectedHostelFilter, emehmonHostelId, patchEmehmon]); // eslint-disable-line react-hooks/exhaustive-deps
+}, [guests, registrations, cadastreRegs, currentUser, selectedHostelFilter, emehmonHostelId, patchEmehmon, runEmehmonCatchup]); // eslint-disable-line react-hooks/exhaustive-deps
 
-// Стабильный планировщик: старт через 8с после входа + каждые 5 минут — по текущему филиалу.
+// Стабильный планировщик: старт через 8с после входа + каждые 5 минут.
+// Сначала текущий филиал, затем остальные с учётками портала — иначе «забытые»
+// гости неоткрытого филиала ждали, пока кто-нибудь его выберет.
 const emehmonSyncRef = useRef(runEmehmonSync);
 useEffect(() => { emehmonSyncRef.current = runEmehmonSync; }, [runEmehmonSync]);
 const emehmonHostelIdRef = useRef(emehmonHostelId);
 useEffect(() => { emehmonHostelIdRef.current = emehmonHostelId; }, [emehmonHostelId]);
+const emehmonAccountsRef = useRef({ at: 0, status: null });
 useEffect(() => {
   if (!window.electronAPI?.emehmonList || !currentUser) return;
-  const run = () => emehmonSyncRef.current(false, emehmonHostelIdRef.current);
+  let cancelled = false;
+  const run = async () => {
+    const cur = emehmonHostelIdRef.current;
+    await emehmonSyncRef.current(false, cur);
+    if (cancelled) return;
+    // Учётки перечитываем раз в час — это один документ настроек.
+    if (Date.now() - emehmonAccountsRef.current.at > 60 * 60 * 1000) {
+      emehmonAccountsRef.current = { at: Date.now(), status: await getEmehmonStatus() };
+    }
+    const st = emehmonAccountsRef.current.status || {};
+    for (const hid of Object.keys(st)) {
+      if (cancelled) return;
+      if (st[hid] && hid !== cur) await emehmonSyncRef.current(false, hid);
+    }
+  };
   const t = setTimeout(run, 8000);
   const iv = setInterval(run, 5 * 60 * 1000);
-  return () => { clearTimeout(t); clearInterval(iv); };
+  return () => { cancelled = true; clearTimeout(t); clearInterval(iv); };
 }, [currentUser]);
 
 // Переключили филиал → подтягиваем список ЭТОГО филиала. Чужой слот не трогаем:
@@ -438,32 +714,18 @@ useEffect(() => {
   return () => { clearTimeout(first); clearInterval(iv); };
 }, [currentUser, isDataReady]);
 
-// Полная авто-регистрация прибытия (граждане Узбекистана) в фоне.
-const emehmonAutoBusy = useRef(new Set()); // guestId в процессе — защита от дубля листка
+// Полная авто-регистрация прибытия (граждане Узбекистана), громко — при
+// заселении/оплате и по кнопке. Итог разбирает общий finishAutoArrival.
 const handleEmehmonAutoArrival = useCallback(async (guest) => {
   if (!guest || !window.electronAPI?.emehmonArrivalAuto) return;
   if (guest.id && emehmonAutoBusy.current.has(guest.id)) return; // уже регистрируется
   if (guest.id) emehmonAutoBusy.current.add(guest.id);
   showNotification(t('emaRegistering').replace('{name}', guest.fullName), 'info');
-  const res = await autoRegisterArrival(guest);
-  if (guest.id) emehmonAutoBusy.current.delete(guest.id);
-  const st = res?.status;
-  if (st === 'done') {
-    handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
-      emehmonRegError: deleteField(), emehmonAmount: emehmonAmountFor(guest.country) });
-    showNotification(t('emaRegistered').replace('{name}', guest.fullName), 'success');
-  } else if (st === 'need_login') {
-    showNotification(t('emaLoginContinueReg'), 'info');
-  } else if (st === 'not_found') {
-    showNotification(t('emaNotInGovDbManual').replace('{name}', guest.fullName), 'warning');
-  } else if (st === 'no_room') {
-    showNotification(t('emaRoomMismatch').replace('{name}', guest.fullName), 'warning');
-  } else if (st === 'no_electron') {
-    /* веб — пропускаем */
-  } else {
-    showNotification(t('emaAutoRegNotDone').replace('{name}', guest.fullName), 'error');
-  }
-}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+  let res;
+  try { res = await autoRegisterArrival(guest); } finally { if (guest.id) emehmonAutoBusy.current.delete(guest.id); }
+  await finishAutoArrival(guest, res, { silent: false });
+}, [finishAutoArrival]); // eslint-disable-line react-hooks/exhaustive-deps
+useEffect(() => { handleEmehmonAutoArrivalRef.current = handleEmehmonAutoArrival; }, [handleEmehmonAutoArrival]);
 
 // Успешная регистрация прибытия в e-mehmon → авто-галочка «Зарегистрирован».
 const guestsRef = useRef(guests);
@@ -495,6 +757,10 @@ useEffect(() => {
     emehmonChecking,
     emehmonArrivalPrompt, setEmehmonArrivalPrompt,
     emehmonDepartingIds,
+    // КПП иностранца: окна «исправьте данные» и «ситуация» + действия
+    kppFixPrompt, setKppFixPrompt,
+    kppSituation, setKppSituation,
+    handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
     // снимок портала по текущему филиалу
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
     // действия

@@ -16,27 +16,10 @@ export const Flag = ({ code, size = 20 }) => {
 };
 
 // ── КПП / регистрация ──
-// Срок освобождения от регистрации (дней) зависит от гражданства.
-// Отсчёт от даты прохода КПП, день прибытия = 1-й день (включительно).
-//   Казахстан                      — до 30 дней
-//   Россия, Азербайджан, Беларусь  — до 15 дней
-//   Таджикистан                    — до 10 дней
-//   остальные                      — 3 дня
-export const getRegistrationWindow = (country) => {
-  switch (country) {
-    case 'Казахстан':
-      return 30;
-    case 'Россия':
-    case 'Азербайджан':
-    case 'Белоруссия':
-    case 'Беларусь':
-      return 15;
-    case 'Таджикистан':
-      return 10;
-    default:
-      return 3;
-  }
-};
+// Срок освобождения от регистрации (дней) зависит от гражданства и вместе с
+// правилом сроков живёт в utils/kppRules.js (без JSX — покрыт тестами);
+// здесь реэкспорт, чтобы не менять существующие импорты из helpers.
+export { getRegistrationWindow } from './kppRules';
 
 // День прохода КПП считается ПЕРВЫМ днём: прибыл 15-го → 10-й день = 24-е.
 // Возвращает порядковый номер дня (1 = день прибытия).
@@ -82,6 +65,9 @@ export const buildEmehmonPayload = (guest = {}) => {
     passportIssueDate: toDmy(guest.passportIssueDate),
     room:              guest.roomNumber || guest.room || guest.roomId || '',
     days:              guest.days || '',
+    // Иностранцу на шаге 2 портал ждёт «кем выдан»; страна — для сообщений об ошибке.
+    passportIssuedBy:  guest.passportIssuedBy || '',
+    country:           guest.country || '',
     // Сумма для поля «Сумма оплаты» в e-mehmon (налоговая отчётность):
     // местным одна ставка, иностранцам другая. Настраивается в конфиге.
     amount:            String(emehmonAmountFor(guest.country)),

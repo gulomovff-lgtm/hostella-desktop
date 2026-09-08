@@ -505,8 +505,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const guestFilled = useMemo(() => {
         const vals = [formData.fullName, formData.passport, formData.birthDate,
             formData.country, formData.phone];
+        // Дата КПП в счётчик не входит: её подставляет e-mehmon (см. kppRules).
         if (formData.country && formData.country !== 'Узбекистан') {
-            vals.push(formData.passportIssueDate, formData.kppDate);
+            vals.push(formData.passportIssueDate);
         }
         return { done: vals.filter(v => String(v ?? '').trim() !== '').length, total: vals.length };
     }, [formData]);
@@ -537,9 +538,11 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         if (status !== 'booking') {
             if (!formData.passport.trim()) errs.passport = t('fieldRequired');
             if (!formData.birthDate) errs.birthDate = t('fieldRequired');
+            // Дата КПП НЕ обязательна: её берёт из госбазы авто-регистрация, а
+            // введённую вручную сверяет и при расхождении исправляет. Оставлена
+            // на бланке для случая, когда кассир видит штамп и хочет записать сразу.
             if (formData.country && formData.country !== 'Узбекистан') {
                 if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
-                if (!formData.kppDate) errs.kppDate = t('fieldRequired');
             }
         }
         if (formData.tariff === 'package') {
@@ -987,6 +990,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                         <div>{t('bookingNoPassportPre')} <b>{t('bookingCompletePassportBold')}</b> {t('bookingNoPassportPost')}</div>
                     </div>
                 )}
+                {/* Иностранец на кассе: дату КПП подставит e-mehmon, вводить не обязательно */}
+                {formData.country && formData.country !== 'Узбекистан' && !!window.electronAPI?.emehmonPassportCheck && (
+                    <div className="ci-notice ci-info shrink-0"><i/>
+                        <div>{t('kppOptionalHint')}</div>
+                    </div>
+                )}
                 {blacklistWarning && (
                     <div className={`ci-notice shrink-0 ${blacklistWarning.level === 'blacklist' ? 'ci-danger' : 'ci-warn'}`}><i/>
                         <div>
@@ -1330,7 +1339,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             {formData.country && formData.country !== 'Узбекистан' && (
                                 <div className="ci-r">
-                                    <span className="ci-r-k"><MapPin size={15}/>{t('kppDatePassed')}<b className="ci-req">∗</b></span>
+                                    <span className="ci-r-k"><MapPin size={15}/>{t('kppDatePassed')}</span>
                                     <span className={`ci-r-v${errors.kppDate ? ' ci-err' : ''}`}>
                                         <DatePicker className="ci-f" lang={lang} placeholder={t('dateFmt')}
                                             value={formData.kppDate} onChange={val => handleChange('kppDate', val)}/>
