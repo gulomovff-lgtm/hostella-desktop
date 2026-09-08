@@ -203,7 +203,7 @@ const applyProbeToGuest = useCallback(async (guest, res) => {
   const parsed = parseEmehmonProbe(merged, { birthDate: guest.birthDate, passportIssueDate: guest.passportIssueDate, today });
   const updates = {
     kppCheckedAt: now,
-    emehmonProbe: trimProbe({ at: now, ...merged }),
+    emehmonProbe: trimProbe({ at: now, ...merged, keys: (probe.keys || []).concat(last?.keys || []).slice(0, 120) }),
     emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(),
   };
   const manualNewer = guest.kppSource === 'manual' && guest.kppEditedAt && guest.kppCheckedAt && guest.kppEditedAt > guest.kppCheckedAt;
@@ -212,6 +212,10 @@ const applyProbeToGuest = useCallback(async (guest, res) => {
     updates.kppDate = parsed.kppDate; updates.kppSource = 'emehmon'; kppDate = parsed.kppDate;
   } else if (parsed.kppDate && parsed.kppDate === kppDate && guest.kppSource !== 'emehmon') {
     updates.kppSource = 'emehmon';
+  } else if (!parsed.kppDate && kppDate && guest.kppSource === 'emehmon') {
+    // Портал даты больше не даёт (или прежняя была прочитана из не того поля —
+    // «дата заезда» вместо КПП): портальную дату снимаем, ручную не трогаем.
+    updates.kppDate = deleteField(); updates.kppSource = deleteField(); updates.kppNumber = deleteField(); kppDate = '';
   }
   if (parsed.kppNumber) updates.kppNumber = parsed.kppNumber;
   if (parsed.stays.length) updates.emehmonStays = parsed.stays;
@@ -446,7 +450,11 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
     }
     // Иностранец: сперва дата КПП (раз в сутки), затем регистрация в срок.
     let gg = g;
-    const stale = !g.kppCheckedAt || (Date.now() - new Date(g.kppCheckedAt).getTime() > 24 * HOURS);
+    // Подозрительная дата: «портальная» и совпадает с днём проверки — это дата
+    // заезда, а не КПП (так читал первый вариант парсера). Перепроверяем сразу.
+    const suspicious = g.kppSource === 'emehmon' && g.kppDate && g.kppCheckedAt &&
+      String(g.kppDate).slice(0, 10) === String(g.kppCheckedAt).slice(0, 10);
+    const stale = suspicious || !g.kppCheckedAt || (Date.now() - new Date(g.kppCheckedAt).getTime() > 24 * HOURS);
     if (stale || !g.kppDate) {
       if (!window.electronAPI?.emehmonPassportCheck) continue;
       foreignBusy.current.add(g.id); trips++;

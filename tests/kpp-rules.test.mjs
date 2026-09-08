@@ -35,6 +35,22 @@ test('parseEmehmonProbe: по подписи, дата рождения и вы�
     assert.equal(r.kppDate, '2026-09-06');
 });
 
+test('parseEmehmonProbe: «Kelgan sanasi» с временем — дата заезда в отель, а не КПП', () => {
+    // Живой дамп портала 2026-09-08: на второй вкладке только дата заезда = сейчас.
+    const r = parseEmehmonProbe({
+        fields: { datevisiton: '08.09.2026 18:03', surname: 'SALIMOV', id_countryfrom: '170' },
+        labels: { 'Kelgan davlati': 'TOJIKISTON (TJK)', 'Kelgan sanasi': '08.09.2026 18:03', 'Jinsi': 'Erkak' },
+    }, { today: '2026-09-08' });
+    assert.equal(r.kppDate, null, 'сегодняшняя дата заезда не должна становиться датой КПП');
+});
+
+test('parseEmehmonProbe: слабый ключ без времени и не сегодня — принимается; сильный — всегда', () => {
+    assert.equal(parseEmehmonProbe({ labels: { 'Kirish sanasi': '03.09.2026' } }, { today: '2026-09-08' }).kppDate, '2026-09-03');
+    assert.equal(parseEmehmonProbe({ labels: { 'Kirish sanasi': '08.09.2026' } }, { today: '2026-09-08' }).kppDate, null);
+    assert.equal(parseEmehmonProbe({ labels: { 'KPP orqali o‘tgan sana': '08.09.2026' } }, { today: '2026-09-08' }).kppDate, '2026-09-08');
+    assert.equal(parseEmehmonProbe({ fields: { datecross: '05.09.2026 10:00', datevisiton: '08.09.2026 18:03' } }, { today: '2026-09-08' }).kppDate, '2026-09-05');
+});
+
 test('parseEmehmonProbe: дата из будущего или равная дате рождения не годится', () => {
     const r = parseEmehmonProbe({ fields: { kpp_date: '01.01.1990' } }, { birthDate: '1990-01-01', today: '2026-09-08' });
     assert.equal(r.kppDate, null);

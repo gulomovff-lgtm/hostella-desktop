@@ -450,19 +450,22 @@ const HIDDEN_HELPERS = `
     try { return Array.prototype.map.call(document.querySelectorAll('.is-invalid, .has-error, .error'), function(e){ return e.id||e.name||e.className||''; }).slice(0,10); } catch(e){ return []; }
   }
   function harvestWizard(panelId){
-    var out={}, labels={}, tables=[], blocks=[], parts=[], n=0;
+    var out={}, labels={}, tables=[], blocks=[], parts=[], keys=[], n=0;
     var panel = byId(panelId||'general-info') || byId('myTabContent') || document.querySelector('.tab-content') || document;
     var els = panel.querySelectorAll('input, select, textarea');
     for (var i=0;i<els.length && n<150;i++){
-      var el=els[i]; if ((el.type||'')==='password') continue;
+      var el=els[i]; if ((el.type||'')==='password' || (el.type||'')==='hidden') continue;
       var key = el.id || el.name || '';
       var val='';
       try { val = el.tagName==='SELECT' ? ((el.options[el.selectedIndex]||{}).text||'') : (el.value||''); } catch(e){}
       val=String(val).replace(/\\s+/g,' ').trim();
+      var lb = labelFor(el);
+      // Список всех полей, включая ПУСТЫЕ: по нему видно, как портал называет
+      // дату/№ КПП, даже когда для этого гостя они не заполнены.
+      if (keys.length < 80 && (key || lb)) keys.push((key||'?') + ' | ' + (lb||'') + (val ? '' : ' | (пусто)'));
       if (!val || val==='0') continue;
       val=val.slice(0,160);
       if (key) { out[key]=val; n++; }
-      var lb = labelFor(el);
       if (lb && labels[lb]===undefined) labels[lb]=val;
     }
     // Таблицы: сначала в панели, затем во всём мастере, затем в документе.
@@ -486,15 +489,29 @@ const HIDDEN_HELPERS = `
     }
     var bl = panel.querySelectorAll('.card, .alert, .well, .list-group');
     for (var b=0;b<bl.length && blocks.length<10;b++){ var tx=String(bl[b].innerText||bl[b].textContent||'').trim(); if (tx) blocks.push(tx.slice(0,300)); }
-    // ФИО из госбазы: наиболее вероятные ключи по частям, затем по подписи.
-    var order = ['surname','lastname','lastName','familiya','sname','firstname','firstName','name','ism','patronymic','middlename','otchestvo','sharif'];
+    // ФИО из госбазы: фамилия → имя → отчество. В портале surname — фамилия,
+    // firstname — имя, а lastname — ОТЧЕСТВО (у многих заглушка «XXX»); прежний
+    // порядок давал «фамилия отчество имя».
+    var order = ['surname','familiya','sname','firstname','firstName','name','ism','lastname','lastName','patronymic','middlename','otchestvo','sharif'];
     for (var j=0;j<order.length;j++){
-      for (var key2 in out){ if (key2.toLowerCase()===order[j].toLowerCase() && parts.indexOf(out[key2])===-1) parts.push(out[key2]); }
+      for (var key2 in out){
+        var v2 = out[key2];
+        if (key2.toLowerCase()===order[j].toLowerCase() && parts.indexOf(v2)===-1 && !/^(xxx|x|-|—|\\.)$/i.test(v2)) parts.push(v2);
+      }
     }
     var name = parts.join(' ').replace(/\\s+/g,' ').trim();
     if (!name) { for (var lk in labels){ if (/f\\.?i\\.?o|фио|to\\W?liq ism|full ?name/i.test(lk)) { name=labels[lk]; break; } } }
     var panelIds=[]; var panes=document.querySelectorAll('.tab-pane'); for (var q=0;q<panes.length;q++) if (panes[q].id) panelIds.push(panes[q].id);
-    return { fields:out, labels:labels, tables:tables, blocks:blocks, officialName:name, panelIds:panelIds };
+    return { fields:out, labels:labels, tables:tables, blocks:blocks, keys:keys, officialName:name, panelIds:panelIds };
+  }
+  // Слить дампы двух вкладок в один (поля/подписи — объединение, таблицы/блоки/ключи — конкатенация).
+  function mergeProbe(a, b){
+    if (!a) return b; if (!b) return a;
+    var f={}, l={}, k;
+    for (k in a.fields) f[k]=a.fields[k]; for (k in b.fields) if (f[k]===undefined) f[k]=b.fields[k];
+    for (k in a.labels) l[k]=a.labels[k]; for (k in b.labels) if (l[k]===undefined) l[k]=b.labels[k];
+    return { fields:f, labels:l, tables:(a.tables||[]).concat(b.tables||[]), blocks:(a.blocks||[]).concat(b.blocks||[]),
+             keys:(a.keys||[]).concat(b.keys||[]), officialName:a.officialName||b.officialName||'', panelIds:a.panelIds||b.panelIds||[] };
   }
 `;
 
@@ -529,7 +546,26 @@ function buildPassportCheckScript(guest) {
     // Портал дописывает вкладку асинхронно (в т.ч. дату КПП) — ждём до 3 с признаков.
     await waitFor(function(){ var p=byId('general-info')||document; return !!(p.querySelector('table') || p.querySelector('[id*="kpp" i],[name*="kpp" i],[id*="chegara" i],[name*="chegara" i]')); }, 6, 500);
     var h = harvestWizard('general-info');
-    return { status:'valid', officialName: h.officialName, fields: h.fields, labels: h.labels, tables: h.tables, blocks: h.blocks, panelIds: h.panelIds };
+    // На второй вкладке даты КПП может не быть (у портала там только дата
+    // заезда). Идём на третью — она тоже до «Сохранить», ничего не пишем.
+    try {
+      var foreign = !!(G.citizenCode && G.citizenCode !== 'UZB');
+      if (foreign) {
+        if (G.passportIssueDate) setInput('datePassport', G.passportIssueDate);
+        setSelectByCode('id_country', G.citizenCode);
+        if (G.passportIssuedBy) setInput('passportissuedby', G.passportIssuedBy);
+        await sleep(300);
+      }
+      var g2 = document.querySelector('#general-info button[onclick*=additional-info-tab]');
+      if (g2) {
+        g2.click();
+        if (await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 20, 400)) {
+          await sleep(800);
+          h = mergeProbe(h, harvestWizard('additional-info'));
+        }
+      }
+    } catch(e){}
+    return { status:'valid', officialName: h.officialName, fields: h.fields, labels: h.labels, tables: h.tables, blocks: h.blocks, keys: h.keys, panelIds: h.panelIds };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }
@@ -893,12 +929,13 @@ function buildAutoArrivalScript(guest) {
         return false;
       }, 12, 700);
     }
-    if (!roomOk) return { status:'no_room', probe: probe };
+    if (!roomOk) return { status:'no_room', probe: mergeProbe(probe, harvestWizard('additional-info')) };
     setSelect('id_visittype', '5');  // Boshqa
     setSelect('payed', '2');         // To'liq to'langan
     setInput('amount', G.amount || '1');
     setSelect('id_guest', '4');      // Boshqa
     await sleep(300);
+    probe = mergeProbe(probe, harvestWizard('additional-info'));
 
     var addBtn = document.querySelector('#additional-info button[onclick*=children-info-tab]');
     if (addBtn) addBtn.click();

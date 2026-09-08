@@ -83,8 +83,16 @@ export const todayIso = () => {
 };
 
 // Ключи/подписи, за которыми в портале стоит дата и номер прохода границы.
-export const KPP_KEY_RX = /kpp|кпп|chegara|kirish\s*sana|kirgan|въезд|entry|cross|arrival\s*date|kelgan/i;
+// СИЛЬНЫЕ — прямо про границу/КПП: дата берётся как есть.
+// СЛАБЫЕ — «въезд/прибытие» без слова КПП: у портала так подписана и дата
+// ЗАЕЗДА в отель («Kelgan sanasi», поле datevisiton = текущее время). Такую
+// дату принимаем только без времени суток и не сегодняшнюю — иначе каждому
+// иностранцу «датой КПП» становилось сегодня.
+export const KPP_STRONG_RX = /kpp|кпп|chegara|border|cross|пересеч|punkt/i;
+export const KPP_WEAK_RX   = /kirish\s*sana|kirgan|въезд|entry|arrival|kelgan/i;
+export const KPP_KEY_RX    = new RegExp(KPP_STRONG_RX.source + '|' + KPP_WEAK_RX.source, 'i');
 export const KPP_NUM_RX = /(kpp|кпп|chegara).*(no|№|nomer|raqam|number)|(no|№|nomer|raqam|number).*(kpp|кпп|chegara)/i;
+const HAS_TIME_RX = /\d{1,2}:\d{2}/;
 // Заголовки таблицы прошлых проживаний.
 export const STAY_HDR_RX = /mehmonxona|hotel|отель|гостин|joylash|yashash|turar|sana|date|дата|kirish|chiqish|kelish|ketish|заезд|выезд|checkin|checkout/i;
 
@@ -103,16 +111,26 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
   const banned = new Set([toIsoDate(opts.birthDate), toIsoDate(opts.passportIssueDate)].filter(Boolean));
   const plausible = (iso) => !!iso && !banned.has(iso) && iso <= today && iso >= '2000-01-01';
 
-  let kppDate = null, kppNumber = null;
+  let kppDate = null, kppNumber = null, weakDate = null;
+  const acceptable = (key, val, iso) => {
+    if (!iso || !plausible(iso)) return false;
+    if (KPP_STRONG_RX.test(key)) return true;
+    // слабый ключ: только «чистая» дата и не сегодня (сегодня — это заезд в отель)
+    return !HAS_TIME_RX.test(val) && iso !== today;
+  };
   const scan = (map) => {
     for (const [key, raw] of Object.entries(map)) {
       const val = String(raw ?? '').trim();
       if (!val) continue;
       if (KPP_NUM_RX.test(key) && !kppNumber && !toIsoDate(val)) { kppNumber = val.slice(0, 40); continue; }
-      if (KPP_KEY_RX.test(key)) {
-        const iso = toIsoDate(val);
-        if (iso && plausible(iso) && !kppDate) kppDate = iso;
-        else if (!iso && !kppNumber && /\d/.test(val)) kppNumber = val.slice(0, 40);
+      if (!KPP_KEY_RX.test(key)) continue;
+      const iso = toIsoDate(val);
+      if (iso) {
+        if (!acceptable(key, val, iso)) continue;
+        if (KPP_STRONG_RX.test(key)) { if (!kppDate) kppDate = iso; }
+        else if (!weakDate) weakDate = iso;
+      } else if (KPP_STRONG_RX.test(key) && !kppNumber && /\d/.test(val)) {
+        kppNumber = val.slice(0, 40);
       }
     }
   };
@@ -123,13 +141,16 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
     for (const tb of tables) {
       for (const row of (tb?.rows || [])) {
         if (!Array.isArray(row) || !row.length) continue;
-        if (!KPP_KEY_RX.test(String(row[0]))) continue;
-        const iso = allDates(row.join(' ')).find(plausible);
-        if (iso) { kppDate = iso; break; }
+        const key = String(row[0]);
+        if (!KPP_KEY_RX.test(key)) continue;
+        const joined = row.join(' ');
+        const iso = allDates(joined).find(d => acceptable(key, joined, d));
+        if (iso) { if (KPP_STRONG_RX.test(key)) { kppDate = iso; break; } else if (!weakDate) weakDate = iso; }
       }
       if (kppDate) break;
     }
   }
+  if (!kppDate) kppDate = weakDate;
 
   // Прошлые проживания: таблица с «отельными» заголовками и ≥2 датами в строках.
   let stays = [];

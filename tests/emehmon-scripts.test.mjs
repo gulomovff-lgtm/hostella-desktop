@@ -41,6 +41,22 @@ test('иностранцу на шаге 2 дописываются дата в�
   }
 });
 
+test('ФИО из госбазы собирается как фамилия → имя → отчество, заглушка XXX отбрасывается', () => {
+  const src = m.buildPassportCheckScript(FOREIGN);
+  const i = (k) => src.indexOf(`'${k}'`, src.indexOf('var order = ['));
+  assert.ok(i('surname') < i('firstname') && i('firstname') < i('lastname'), 'lastname в портале — отчество, идёт последним');
+  assert.ok(src.includes('xxx|x|-'), 'заглушка XXX не попадает в ФИО');
+});
+
+test('проверка паспорта заглядывает на третью вкладку и отдаёт список всех полей, включая пустые', () => {
+  const src = m.buildPassportCheckScript(FOREIGN);
+  const iH = src.indexOf("harvestWizard('general-info')");
+  const i3 = src.indexOf("harvestWizard('additional-info')");
+  assert.ok(iH > 0 && i3 > iH, 'сначала вторая вкладка, затем третья');
+  assert.ok(!src.includes("byId('submitForm')"), 'проверка ничего не сохраняет');
+  assert.ok(src.includes('keys:keys'), 'ключи пустых полей — для поиска названия даты КПП');
+});
+
 test('дамп мастера: поля, подписи, таблицы и блоки — в обоих скриптах', () => {
   for (const f of [m.buildPassportCheckScript, m.buildAutoArrivalScript]) {
     const src = f(FOREIGN);
@@ -65,7 +81,7 @@ test('за пределами окна мастер останавливаетс
 
 test('итоги мастера несут дамп шага 2 — дата КПП попадает в карточку и при регистрации', () => {
   const src = m.buildAutoArrivalScript(FOREIGN);
-  for (const st of ["status:'step2_failed', probe: probe", "status:'no_room', probe: probe", "'submit_unconfirmed', probe: probe"]) {
+  for (const st of ["status:'step2_failed', probe: probe", "status:'no_room', probe: mergeProbe(probe", "'submit_unconfirmed', probe: probe"]) {
     assert.ok(src.includes(st), st);
   }
 });
