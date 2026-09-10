@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     toIsoDate, daysBetween, parseEmehmonProbe, assessKpp, registrationDue,
     trimProbe, shouldRetryNoRoom, getRegistrationWindow,
+  cellsOf,
 } from '../src/utils/kppRules.js';
 
 test('toIsoDate: три формата портала, мусор — null', () => {
@@ -144,4 +145,31 @@ test('shouldRetryNoRoom: без метки — да; свежая метка —
     assert.equal(shouldRetryNoRoom({}, now), true);
     assert.equal(shouldRetryNoRoom({ emehmonNoRoomAt: '2026-09-08T10:00:00Z' }, now), false);
     assert.equal(shouldRetryNoRoom({ emehmonNoRoomAt: '2026-09-08T05:00:00Z' }, now), true);
+});
+
+// ── Строки таблиц плоские: Firestore не принимает массив в массиве ────────
+test('cellsOf: массив как есть, строка делится по « | »', () => {
+    assert.deepEqual(cellsOf(['a', 'b']), ['a', 'b']);
+    assert.deepEqual(cellsOf('Hotel Uzbekistan | 04.09.2026 | 06.09.2026'), ['Hotel Uzbekistan', '04.09.2026', '06.09.2026']);
+    assert.deepEqual(cellsOf(null), []);
+});
+
+test('parseEmehmonProbe: таблица проживаний читается и из плоских строк', () => {
+    const r = parseEmehmonProbe({
+        tables: [{ headers: ['Mehmonxona', 'Kirish sanasi', 'Chiqish sanasi'],
+            rows: ['Hotel B | 05.09.2026 | 07.09.2026', 'Hostel A | 02.09.2026 | 04.09.2026'] }],
+    }, { today: '2026-09-10' });
+    assert.equal(r.stays.length, 2);
+    assert.equal(r.lastCheckout, '2026-09-07');
+    assert.equal(r.stays[1].hotel, 'Hotel B');
+});
+
+test('trimProbe: строки таблиц всегда плоские (иначе Firestore не запишет), keys сохраняются', () => {
+    const p = trimProbe({ tables: [{ headers: ['h'], rows: [['a', 'b'], 'c | d'] }], keys: ['datevisiton | Kelgan sanasi'] });
+    assert.deepEqual(p.tables[0].rows, ['a | b', 'c | d']);
+    assert.ok(p.tables[0].rows.every(r => typeof r === 'string'));
+    assert.deepEqual(p.keys, ['datevisiton | Kelgan sanasi']);
+    // Разбор плоского дампа даёт то же, что разбор исходного
+    const flat = parseEmehmonProbe({ tables: [{ headers: ['Mehmonxona', 'Kirish', 'Chiqish'], rows: p.tables[0].rows }] }, { today: '2026-09-10' });
+    assert.ok(Array.isArray(flat.stays));
 });

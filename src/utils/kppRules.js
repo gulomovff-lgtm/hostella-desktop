@@ -17,6 +17,16 @@
  * система ничего не решает и ничего не блокирует.
  *
  * Без JSX и Firebase — покрыто тестами.
+ *
+ * ── СТРОКИ ТАБЛИЦ — ПЛОСКИЕ ─────────────────────────────────────────────
+ *
+ * `harvestWizard` в electron/emehmonAutofill.js кладёт строки таблиц массивом
+ * массивов (`rows = [[ячейка, …], …]`), а Firestore вложенных массивов не
+ * принимает («Nested arrays are not supported»). Пока живой дамп был без
+ * таблиц, это не проявлялось; с первой таблицей проживаний упала бы ВСЯ
+ * запись applyProbeToGuest — вместе с датой КПП и «ситуацией». Поэтому
+ * разбор принимает строку и массивом ячеек, и строкой с ячейками через « | »,
+ * а `trimProbe` всегда отдаёт второй вид — именно он уходит в документ гостя.
  */
 
 /** Срок (дней) без регистрации, день прохода КПП = 1-й день. */
@@ -96,9 +106,16 @@ const HAS_TIME_RX = /\d{1,2}:\d{2}/;
 // Заголовки таблицы прошлых проживаний.
 export const STAY_HDR_RX = /mehmonxona|hotel|отель|гостин|joylash|yashash|turar|sana|date|дата|kirish|chiqish|kelish|ketish|заезд|выезд|checkin|checkout/i;
 
+/** Ячейки строки таблицы: массив как есть, строку делим по « | ». */
+export const cellsOf = (row) => {
+  if (Array.isArray(row)) return row.map(c => String(c ?? ''));
+  if (row === null || row === undefined) return [];
+  return String(row).split(/\s\|\s/).map(c => c.trim());
+};
+
 /**
  * Разбор дампа мастера e-mehmon.
- * @param {{fields?:object, labels?:object, tables?:Array<{headers?:string[], rows?:string[][]}>, blocks?:string[]}} probe
+ * @param {{fields?:object, labels?:object, tables?:Array<{headers?:string[], rows?:Array<string[]|string>}>, blocks?:string[]}} probe
  * @param {{birthDate?:string, passportIssueDate?:string, today?:string}} opts — даты, которые НЕ могут быть датой КПП
  * @returns {{kppDate:string|null, kppNumber:string|null, stays:Array<{hotel:string,from:string|null,to:string|null}>, lastCheckout:string|null, officialName:string}}
  */
@@ -140,10 +157,11 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
     // Таблица «ключ — значение»: первая ячейка — подпись, в строке — дата.
     for (const tb of tables) {
       for (const row of (tb?.rows || [])) {
-        if (!Array.isArray(row) || !row.length) continue;
-        const key = String(row[0]);
+        const cells = cellsOf(row);
+        if (!cells.length) continue;
+        const key = String(cells[0]);
         if (!KPP_KEY_RX.test(key)) continue;
-        const joined = row.join(' ');
+        const joined = cells.join(' ');
         const iso = allDates(joined).find(d => acceptable(key, joined, d));
         if (iso) { if (KPP_STRONG_RX.test(key)) { kppDate = iso; break; } else if (!weakDate) weakDate = iso; }
       }
@@ -157,8 +175,8 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
   const rowStays = (rows) => {
     const out = [];
     for (const row of rows) {
-      if (!Array.isArray(row)) continue;
-      const cells = row.map(c => String(c ?? '').trim());
+      const cells = cellsOf(row).map(c => c.trim());
+      if (!cells.length) continue;
       const dates = allDates(cells.join(' | ')).sort();
       if (dates.length < 2) continue;
       const hotel = cells.find(c => c && !toIsoDate(c) && !/^\d+$/.test(c)) || '';
@@ -233,11 +251,17 @@ export function trimProbe(probe, maxBytes = 8000) {
     at: probe?.at || new Date().toISOString(),
     fields: { ...(probe?.fields || {}) },
     labels: { ...(probe?.labels || {}) },
-    tables: (probe?.tables || []).map(t => ({ id: t?.id || '', headers: [...(t?.headers || [])], rows: (t?.rows || []).map(r => [...(r || [])]) })),
+    // Строки — плоские: Firestore не принимает массив в массиве.
+    tables: (probe?.tables || []).map(t => ({ id: t?.id || '', headers: [...(t?.headers || [])], rows: (t?.rows || []).map(r => cellsOf(r).join(' | ')) })),
     blocks: [...(probe?.blocks || [])],
+    // Имена всех полей, включая пустые: по ним видно, как портал называет
+    // дату/№ КПП. Собирались с 0.15.9, но до документа не доезжали.
+    keys: [...(probe?.keys || [])].slice(0, 120),
   };
   if (size(p) <= maxBytes) return p;
   p.blocks = [];
+  if (size(p) <= maxBytes) return p;
+  p.keys = [];
   if (size(p) <= maxBytes) return p;
   for (const t of p.tables) { while (t.rows.length > 5 && size(p) > maxBytes) t.rows.pop(); }
   if (size(p) <= maxBytes) return p;
