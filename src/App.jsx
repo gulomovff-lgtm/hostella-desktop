@@ -778,6 +778,11 @@ function App() {
     }
   }, [currentUser]);
 
+  // Пока кассир в окне заселения или карточке гостя, фоновые походы в портал
+  // откладываются — иначе скрытые окна e-mehmon подвешивают ввод.
+  const uiBusyRef = useRef(false);
+  uiBusyRef.current = !!(checkInModal.open || guestDetailsModal.open);
+
   // Вся автоматика госпортала — см. hooks/useEmehmonAutomation
   const {
     emehmonReminder, setEmehmonReminder,
@@ -794,7 +799,7 @@ function App() {
     handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
   } = useEmehmonAutomation({
     guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
-    isDataReady, showNotification, setGuestDetailsModal, lang,
+    isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef,
   });
 
   const handleLogin = (user) => {
@@ -1025,9 +1030,11 @@ function App() {
     if (!currentUser) return;
     const check = () => {
       if (kppSituation || checkInModal.open) return;
+      // Только свой филиал: окно чужого гостя на этой кассе — шум и путаница.
       const pending = (guests || []).find(g =>
         g.status === 'active' && g.kppSituation && !g.kppSituationDecision &&
         g.country && g.country !== 'Узбекистан' &&
+        (g.hostelId || 'hostel1') === emehmonHostelId &&
         Date.now() - parseInt(localStorage.getItem(`hostella_kpp_situation_ts_${g.id}`) || '0') > 6 * 60 * 60 * 1000);
       if (!pending) return;
       const sit = pending.kppSituation;
@@ -1041,7 +1048,7 @@ function App() {
     const t = setTimeout(check, 12000);
     const iv = setInterval(check, 5 * 60 * 1000);
     return () => { clearTimeout(t); clearInterval(iv); };
-  }, [currentUser?.id, guests, kppSituation, checkInModal.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, guests, kppSituation, checkInModal.open, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
     try {

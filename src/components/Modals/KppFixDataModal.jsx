@@ -45,7 +45,7 @@ const KppFixDataModal = ({ guest, notFoundText = '', lang = 'ru', onSave, onRetr
     };
 
     return (
-        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-slate-900/75 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-slate-900/80 p-4">
             <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
                 <div className="shrink-0 px-6 py-5 flex items-center gap-4" style={{ background: 'linear-gradient(135deg,#7f1d1d,#e11d48)' }}>
                     <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center text-3xl shrink-0">🪪</div>

@@ -21,7 +21,7 @@ const KppSituationModal = ({ guest, assessment, stays = [], lang = 'ru', onDecid
     const lastStay = stays.length ? stays[stays.length - 1] : null;
     const rows = stays.slice(-5);
     return (
-        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-slate-900/75 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-slate-900/80 p-4">
             <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
                 <div className="shrink-0 px-6 py-5 flex items-center gap-4" style={{ background: 'linear-gradient(135deg,#78350f,#f59e0b)' }}>
                     <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center shrink-0"><AlertTriangle size={30} className="text-white" /></div>

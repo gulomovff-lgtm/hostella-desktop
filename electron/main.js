@@ -305,7 +305,27 @@ const safeInjectAutofill = (win, payload) => {
 // Запираем окно портала на emehmon.uz: любую навигацию на чужой origin
 // отменяем, всплывающие окна (лист печати) разрешаем только на emehmon.uz и с
 // полным hardening в webPreferences (иначе дочернее окно наследует defaults).
+// Портал тянет картинки, шрифты и медиа, которые автоматике не нужны, а на
+// слабой кассе два скрытых окна раз в пять минут заметно подвешивают
+// интерфейс. Режем их на уровне сессии филиала; капчу (картинку) оставляем —
+// она нужна кассиру при входе в видимом окне той же сессии.
+const lightPartitions = new Set();
+const lightenEmehmonSession = (part) => {
+  if (lightPartitions.has(part)) return;
+  lightPartitions.add(part);
+  try {
+    electron.session.fromPartition(part).webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
+      const t = details.resourceType;
+      const cancel = t === 'font' || t === 'media' || (t === 'image' && !/captcha/i.test(details.url || ''));
+      cb({ cancel });
+    });
+  } catch (e) {
+    log.warn('[emehmon] не удалось облегчить сессию портала:', e.message);
+  }
+};
+
 const hardenEmehmonWindow = (win, part) => {
+  lightenEmehmonSession(part);
   const blockOffOrigin = (event, url) => {
     if (!isEmehmonUrl(url)) {
       event.preventDefault();
