@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LogOut } from 'lucide-react';
 import { THEMES, getAutoThemeId } from '../LoginScreen/LoginScreen';
+import TRANSLATIONS from '../../constants/translations';
 
 const HOSTEL_OPTIONS = [
-    { id: 'hostel1', label: 'Хостел №1', emoji: '🏨', accent: '#7c3aed', glow: 'rgba(124,58,237,0.45)' },
-    { id: 'hostel2', label: 'Хостел №2', emoji: '🏩', accent: '#0284c7', glow: 'rgba(2,132,199,0.45)' },
+    { id: 'hostel1', num: 1, emoji: '🏨', accent: '#7c3aed', glow: 'rgba(124,58,237,0.45)' },
+    { id: 'hostel2', num: 2, emoji: '🏩', accent: '#0284c7', glow: 'rgba(2,132,199,0.45)' },
 ];
 
-const HostelPickerScreen = ({ user, onPick, onLogout, lang, themeId = 'auto' }) => {
+const HostelPickerScreen = ({ user, onPick, onLogout, lang = 'ru', themeId = 'auto' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const allowedIds = user?.allowedHostels || ['hostel1', 'hostel2'];
     const options    = HOSTEL_OPTIONS.filter(h => allowedIds.includes(h.id));
     const [stars, setStars] = useState([]);
@@ -179,7 +181,7 @@ const HostelPickerScreen = ({ user, onPick, onLogout, lang, themeId = 'auto' }) 
                                 Hostella
                             </h1>
                             <p className="text-sm font-medium" style={{ color: theme.taglineColor }}>
-                                Система управления хостелом
+                                {t('hpTagline')}
                             </p>
                         </div>
                     </div>
@@ -192,10 +194,10 @@ const HostelPickerScreen = ({ user, onPick, onLogout, lang, themeId = 'auto' }) 
                         <div>
                             <div className="mb-6">
                                 <p className="text-sm mb-1" style={{ color: theme.subColor }}>
-                                    Привет, <strong style={{color: theme.greetColor}}>{user?.name}</strong>!
+                                    {t('hpHi')}, <strong style={{color: theme.greetColor}}>{user?.name}</strong>!
                                 </p>
                                 <h2 className="text-2xl font-black leading-tight" style={{ color: theme.greetColor }}>
-                                    Выберите хостел
+                                    {t('hpSelectHostel')}
                                 </h2>
                             </div>
 
@@ -219,8 +221,8 @@ const HostelPickerScreen = ({ user, onPick, onLogout, lang, themeId = 'auto' }) 
                                             {h.emoji}
                                         </div>
                                         <div>
-                                            <p className="font-black text-lg" style={{color: theme.greetColor}}>{h.label}</p>
-                                            <p className="text-xs mt-0.5" style={{color: theme.subColor}}>Начать работу →</p>
+                                            <p className="font-black text-lg" style={{color: theme.greetColor}}>{t('hpHostelN').replace('{n}', h.num)}</p>
+                                            <p className="text-xs mt-0.5" style={{color: theme.subColor}}>{t('hpStart')} →</p>
                                         </div>
                                     </button>
                                 ))}
@@ -232,7 +234,7 @@ const HostelPickerScreen = ({ user, onPick, onLogout, lang, themeId = 'auto' }) 
                                     style={{color:'rgba(255,255,255,0.2)', transition:'color .18s'}}
                                     onMouseOver={e=>e.currentTarget.style.color='rgba(255,255,255,0.55)'}
                                     onMouseOut={e=>e.currentTarget.style.color='rgba(255,255,255,0.2)'}>
-                                    <LogOut size={11}/> Выйти из аккаунта
+                                    <LogOut size={11}/> {t('hpLogout')}
                                 </button>
                             </div>
                         </div>

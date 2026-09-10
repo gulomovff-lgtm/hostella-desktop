@@ -2,8 +2,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import ReactDOM from 'react-dom';
 import {
   signInAnonymously,
-  signInWithEmailAndPassword,
-  signOut,
   onAuthStateChanged
 } from 'firebase/auth';
 import {
@@ -14,36 +12,26 @@ import {
   deleteDoc,
   setDoc,
   increment,
-  writeBatch,
   deleteField,
   arrayUnion
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions, PUBLIC_DATA_PATH } from './firebase';
 import { useAppData } from './hooks/useAppData';
-import useNow from './hooks/useNow';
+import { useAutoClientSync } from './hooks/useAutoClientSync';
+import { useOfflineQueue } from './hooks/useOfflineQueue';
+import { useSystemHealth } from './hooks/useSystemHealth';
+import { useAutoCheckout } from './hooks/useAutoCheckout';
+import { useEmehmonAutomation } from './hooks/useEmehmonAutomation';
 import {
-  getTimeLeftLabel,
   HOSTELS,
-  getTotalPaid,
-  pluralize,
-  getLocalDateString,
-  getLocalDatetimeString,
-  getStayDetails,
-  checkCollision,
-  calculateSalary,
-  exportToExcel,
-  printDocument,
-  printDebts,
-  printReport,
-  getNormalizedCountry,
   getKppDayNumber,
   getRegistrationWindow,
+  isStaleSince,
   Flag
 } from './utils/helpers';
-import { sendTelegramMessage } from './utils/telegram';
+import { sendTelegramMessage, escapeTg } from './utils/telegram';
 import { checkAndMarkAlert } from './utils/alertsLog';
-import { hashPassword } from './utils/hash';
 
 import { 
   LayoutDashboard, 
@@ -149,21 +137,20 @@ import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import SessionsView from './components/Views/SessionsView';
 import ClientVersionsView from './components/Views/ClientVersionsView';
+import ClientDuplicatesView from './components/Views/ClientDuplicatesView';
 import PricePermissionsView from './components/Views/PricePermissionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
 import ReferralView from './components/Views/ReferralView';
 import AnalyticsView from './components/Views/AnalyticsView';
 import ManualStayView from './components/Views/ManualStayView';
 import GuestHistoryView from './components/Views/GuestHistoryView';
-import { logAction, logSystemError } from './utils/auditLog';
-import { reportClientVersion } from './utils/clientTelemetry';
+import { logAction } from './utils/auditLog';
 import { loadAppConfig, getConfig } from './utils/appConfig';
-import * as XLSX from 'xlsx';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
-import { openEmehmonArrival, openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered, departEmehmonBackground, departEmehmonBulk, autoRegisterArrival } from './utils/emehmon';
+import { openEmehmonArrival } from './utils/emehmon';
 import { minNightPrice } from './utils/pricing';
 import { useGuestActions }        from './hooks/useGuestActions';
-import { loadFromElectron, getQueue, clearQueue } from './utils/offlineQueue';
+
 import { useClientActions }       from './hooks/useClientActions';
 import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
@@ -181,6 +168,9 @@ import ExpenseModal from './components/Modals/ExpenseModal';
 import ReportsView from './components/Views/ReportsView';
 import GuestDetailsModal from './components/Modals/GuestDetailsModal';
 import MoveGuestModal from './components/Modals/MoveGuestModal';
+import BookingAlertModal from './components/Modals/BookingAlertModal';
+import KppFixDataModal from './components/Modals/KppFixDataModal';
+import KppSituationModal from './components/Modals/KppSituationModal';
 import RoomFormModal from './components/Modals/RoomFormModal';
 import ShiftClosingModal from './components/Modals/ShiftClosingModal';
 import BookingsView from './components/Views/BookingsView';
@@ -197,9 +187,6 @@ import TRANSLATIONS from './constants/translations';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_FLAGS } from './constants/countries';
 import { DAILY_SALARY, DEFAULT_USERS, APP_VERSION, MIN_REQUIRED_VERSION } from './constants/config';
 
-// --- STYLES ---
-const inputClass = "w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm shadow-sm font-medium text-slate-700 no-spinner";
-const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide ml-1";
 
 // Constants outside component to avoid recreation on every render
 const SEEN_BOOKINGS_KEY = 'hostella_seen_booking_ids';
@@ -317,7 +304,6 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [hostelPickerPending, setHostelPickerPending] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [roomFilter, setRoomFilter] = useState('all');
   const [selectedHostelFilter, setSelectedHostelFilter] = useState('hostel1');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [notifications, setNotifications] = useState([]);
@@ -341,8 +327,6 @@ function App() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(null); // 0-100
-  const [versionBlocked, setVersionBlocked]       = useState(false);
-  const [remoteVersionInfo, setRemoteVersionInfo] = useState(null);
 
   const showNotification = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random();
@@ -356,60 +340,9 @@ function App() {
     else document.documentElement.dataset.theme = appTheme;
   }, [appTheme]);
 
-  // ─── Проверка минимальной версии при старте ───────────────────────────────
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const res  = await fetch(`/version.json?_t=${Date.now()}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setRemoteVersionInfo(data);
-        const minVer = data.minVersion || MIN_REQUIRED_VERSION;
-        if (versionLt(APP_VERSION, minVer)) {
-          setVersionBlocked(true);
-          logSystemError('version_check', `App ${APP_VERSION} < required ${minVer}`, {
-            appVersion: APP_VERSION, minVersion: minVer,
-          });
-        }
-      } catch (e) {
-        // Сетевая ошибка — не блокируем приложение, просто предупреждаем
-        console.warn('[version] check failed:', e.message);
-      }
-    };
-    check();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Телеметрия версии клиента ────────────────────────────────────────────
-  // Пишем версию запущенного клиента в Firestore при входе и раз в 30 мин,
-  // чтобы видеть удалённо, кто на какой версии и когда последний раз заходил.
-  useEffect(() => {
-    if (!currentUser?.login) return;
-    reportClientVersion(currentUser);
-    const id = setInterval(() => reportClientVersion(currentUser), 30 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [currentUser?.login, currentUser?.hostelId, currentUser?.role]);
-
-  // ─── Глобальное логирование системных ошибок JS ───────────────────────────
-  useEffect(() => {
-    const onError = (e) => {
-      // Игнорируем ошибки сторонних скриптов (cross-origin)
-      if (!e.filename || e.message === 'Script error.') return;
-      logSystemError('window.onerror', e.error || new Error(e.message), {
-        filename: e.filename, lineno: e.lineno, colno: e.colno,
-      });
-    };
-    const onUnhandled = (e) => {
-      const reason = e.reason;
-      if (!reason) return;
-      logSystemError('unhandledrejection', reason, {});
-    };
-    window.addEventListener('error', onError);
-    window.addEventListener('unhandledrejection', onUnhandled);
-    return () => {
-      window.removeEventListener('error', onError);
-      window.removeEventListener('unhandledrejection', onUnhandled);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Версия клиента и перехват ошибок (JS, промисы, главный процесс) —
+  // см. hooks/useSystemHealth: всё уходит в журнал и мгновенным алертом в Telegram
+  const { remoteVersionInfo, versionBlocked } = useSystemHealth({ currentUser, versionLt });
 
   // --- Data from Firebase (via custom hook) ---
   const {
@@ -460,14 +393,6 @@ function App() {
     return () => clearInterval(id);
   }, []);
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
-  const [emehmonReminder, setEmehmonReminder] = useState(null);
-  const [emehmonDepart, setEmehmonDepart] = useState(null); // гость для фонового выселения
-  const [emehmonChecking, setEmehmonChecking] = useState(null); // id гостя на проверке «Готово»
-  const [emehmonArrivalPrompt, setEmehmonArrivalPrompt] = useState(null); // предложение оформить прибытие
-  const [emehmonSyncing, setEmehmonSyncing] = useState(false); // идёт фоновая синхронизация статусов
-  const [emehmonList, setEmehmonList] = useState([]); // последний снимок /listok (для «нет в системе»)
-  const [emehmonDepartingIds, setEmehmonDepartingIds] = useState(() => new Set()); // id гостей в процессе вывода (лоадер)
-  const emehmonSyncBusy = useRef(false);
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenseModalCategory, setExpenseModalCategory] = useState('');
@@ -481,270 +406,11 @@ function App() {
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
 
-  // ─── Авто-выселение просроченных гостей ──────────────────────────────────
-  //
-  // Алгоритм безопасного авто-выселения:
-  //
-  //  GATE 1 — только active-гости с валидным checkOutDate
-  //  GATE 2 — вычисляем «эффективную дату выезда»:
-  //             • ISO-строки сохранённые как midnight UTC (new Date(date).toISOString()
-  //               из <input type="date">) трактуются как дата без времени.
-  //             • date-only (YYYY-MM-DD) и midnight-UTC → используем checkOutHour хостела
-  //             • ISO с ненулевым временем → берём как есть
-  //             • если есть bonusCheckOutDate и он позже — используем его (та же логика)
-  //  GATE 3 — льготный период зависит от состояния кровати:
-  //             • 24 ч — если кровать свободна (никто новый не заехал)
-  //             • 4 ч  — если тот же bed уже занят другим активным гостем
-  //  GATE 4 — гость не имеет последнего платежа за последние 12 ч
-  //            (защита: оплата = продление, должны были уже сдвинуть checkOutDate)
-  //  GATE 5 — не выселяем «младшего» гостя если на кровати есть «старший» активный
-  //            (защита от гонки при двух записях на одной кровати)
-  //  DECREMENT — счётчик occupied уменьшается ТОЛЬКО если на кровати нет
-  //              другого активного гостя (не задваиваем -1)
-  //  LOGGING — каждое авто-выселение пишется в auditLog
-  //
+  // Авто-выселение просроченных гостей — см. hooks/useAutoCheckout (5 гейтов защиты)
+  useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady, showNotification, lang });
 
-  // Refs для live-данных: таймер не перезапускается при каждом изменении данных
-  const autoCheckoutGuestsRef   = useRef(guests);
-  const autoCheckoutRoomsRef    = useRef(rooms);
-  const autoCheckoutPaymentsRef = useRef(payments);
-  const autoCheckoutConfigRef   = useRef(hostelConfig);
-  useEffect(() => { autoCheckoutGuestsRef.current   = guests;      }, [guests]);
-  useEffect(() => { autoCheckoutRoomsRef.current    = rooms;       }, [rooms]);
-  useEffect(() => { autoCheckoutPaymentsRef.current = payments;    }, [payments]);
-  useEffect(() => { autoCheckoutConfigRef.current   = hostelConfig; }, [hostelConfig]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    if (!isDataReady) return; // ждём, пока все данные загружены
-
-    // Эффективная дата выезда с учётом бонусного дня и настроек хостела
-    const getEffectiveCo = (guest) => {
-      const cfg = autoCheckoutConfigRef.current;
-      const guestHostelId = guest.hostelId || 'hostel1';
-      const coHour = cfg?.[guestHostelId]?.checkOutHour ?? 12;
-
-      // Парсит строку даты: midnight-UTC ISO или date-only → используем coHour локально;
-      // ISO с конкретным ненулевым временем → берём как есть
-      const parseDate = (dateStr) => {
-        if (!dateStr) return null;
-        if (typeof dateStr === 'string' && dateStr.includes('T')) {
-          const d = new Date(dateStr);
-          if (isNaN(d.getTime())) return null;
-          // Дата сохранена как midnight UTC (через new Date(dateStr).toISOString() из input[type=date])
-          // → трактуем как date-only с часом выезда хостела
-          if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
-            return new Date(`${dateStr.slice(0, 10)}T${String(coHour).padStart(2, '0')}:00:00`);
-          }
-          return d;
-        }
-        // date-only: YYYY-MM-DD
-        return new Date(`${String(dateStr).slice(0, 10)}T${String(coHour).padStart(2, '0')}:00:00`);
-      };
-
-      const base = parseDate(guest.checkOutDate);
-      if (!base || isNaN(base.getTime())) return null;
-
-      if (guest.bonusCheckOutDate) {
-        const bonus = parseDate(guest.bonusCheckOutDate);
-        if (bonus && !isNaN(bonus.getTime()) && bonus > base) return bonus;
-      }
-      return base;
-    };
-
-    const runAutoCheckout = async () => {
-      const guests   = autoCheckoutGuestsRef.current;
-      const rooms    = autoCheckoutRoomsRef.current;
-      const payments = autoCheckoutPaymentsRef.current;
-      if (!guests.length || !rooms.length) return;
-      const now = new Date();
-      // Льготные периоды:
-      const shortGraceMs = 4  * 60 * 60 * 1000; // 4ч  — кровать занята новым гостем
-      const longGraceMs  = 24 * 60 * 60 * 1000; // 24ч — кровать свободна
-      // Защита от «недавней оплаты» — 12 часов
-      const payGuardMs = 12 * 60 * 60 * 1000;
-
-      const batch = writeBatch(db);
-      let count = 0;
-      const evicted = [];
-
-      for (const guest of guests) {
-        // GATE 1
-        if (guest.status !== 'active') continue;
-        if (!guest.checkOutDate) continue;
-
-        // GATE 1.5 — per-hostel auto-checkout enabled check
-        const guestHostelId = guest.hostelId || 'hostel1';
-        if (autoCheckoutConfigRef.current?.[guestHostelId]?.autoCheckoutEnabled === false) continue;
-
-        // GATE 2 — effective checkout time
-        const effectiveCo = getEffectiveCo(guest);
-        if (!effectiveCo) continue;
-
-        // GATE 3 — льготный период: 24ч если кровать свободна, 4ч если занята
-        const bedOccupiedByAny = guests.some(g2 =>
-          g2.id !== guest.id &&
-          g2.status === 'active' &&
-          g2.roomId === guest.roomId &&
-          String(g2.bedId) === String(guest.bedId)
-        );
-        const graceForGuest = bedOccupiedByAny ? shortGraceMs : longGraceMs;
-        const msOverdue = now.getTime() - effectiveCo.getTime();
-        if (msOverdue < graceForGuest) continue;
-
-        // GATE 4 — недавняя оплата (по payments или по lastPaymentAt на госте)
-        const lastPay = guest.lastPaymentAt
-          ? new Date(guest.lastPaymentAt).getTime()
-          : 0;
-        if (now.getTime() - lastPay < payGuardMs) continue;
-        // Дополнительная проверка по массиву payments (если есть guestId)
-        const recentPaid = payments.some(p => {
-          if ((p.guestId || p.bookingId) !== guest.id) return false;
-          const pts = new Date(p.date || p.timestamp || 0).getTime();
-          return now.getTime() - pts < payGuardMs;
-        });
-        if (recentPaid) continue;
-
-        // GATE 5 — на той же кровати нет «более старшего» активного гостя
-        // (исключаем ложные срабатывания при гонке двух записей)
-        const isJuniorOnBed = guests.some(g2 =>
-          g2.id !== guest.id &&
-          g2.status === 'active' &&
-          g2.roomId === guest.roomId &&
-          String(g2.bedId) === String(guest.bedId) &&
-          new Date(g2.checkInDate || g2.checkInDateTime || 0) <
-            new Date(guest.checkInDate || guest.checkInDateTime || 0)
-        );
-        if (isJuniorOnBed) continue; // есть более ранний активный гость — не трогаем
-
-        // ✅ Все гейты пройдены → выселяем
-        const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
-        batch.update(guestRef, {
-          status:        'checked_out',
-          autoCheckedOut: true,
-          autoCheckedOutAt: now.toISOString(),
-          systemComment: `Авто-выселение: просрочка ${Math.round(msOverdue / 3600000)}ч`,
-        });
-
-        // Уменьшаем occupied только если на кровати нет другого активного гостя
-        const anotherActive = guests.some(g2 =>
-          g2.id !== guest.id &&
-          g2.status === 'active' &&
-          g2.roomId === guest.roomId &&
-          String(g2.bedId) === String(guest.bedId)
-        );
-        if (!anotherActive) {
-          const room = rooms.find(r => r.id === guest.roomId);
-          if (room) {
-            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', room.id), {
-              occupied: increment(-1),
-            });
-          }
-        }
-
-        evicted.push({ id: guest.id, name: guest.fullName || guest.name || guest.id });
-        count++;
-      }
-
-      if (count > 0) {
-        try {
-          await batch.commit();
-          showNotification(`🏁 Авто-выселение: ${count} гост${count === 1 ? 'ь' : 'ей'}`, 'warning');
-          // Логируем в auditLog одной записью
-          logAction(
-            { id: 'system', name: 'System', role: 'system', hostelId: null },
-            'auto_checkout',
-            { count, guests: evicted.map(e => e.name) },
-          );
-        } catch (e) {
-          console.error('[auto-checkout] batch error:', e);
-          logSystemError('auto_checkout', e, { count });
-        }
-      }
-    };
-
-    // ⏱ Первая проверка через 2 мин после загрузки — данные успевают устояться
-    const initial = setTimeout(runAutoCheckout, 2 * 60 * 1000);
-    // Повторная проверка каждые 30 минут
-    const interval = setInterval(runAutoCheckout, 30 * 60 * 1000);
-
-    return () => {
-      clearTimeout(initial);
-      clearInterval(interval);
-    };
-  // Намеренно НЕ включаем guests/rooms/payments в deps — они читаются через refs,
-  // чтобы таймер не сбрасывался при каждом изменении Firestore-данных.
-  // Refs обновляются через отдельные useEffect выше.
-  }, [currentUser, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Авто-синхронизация клиентов из гостей по расписанию ───────────────────
-  const autoSyncGuestsRef = useRef(guests);
-  useEffect(() => { autoSyncGuestsRef.current = guests; }, [guests]);
-
-  useEffect(() => {
-    if (!isDataReady || !hostelConfig) return;
-    const FREQ_MS = { daily: 24 * 60 * 60 * 1000, weekly: 7 * 24 * 60 * 60 * 1000, monthly: 30 * 24 * 60 * 60 * 1000 };
-    const checkAndSync = () => {
-      ['hostel1', 'hostel2'].forEach(hostelKey => {
-        const cfg = hostelConfig?.[hostelKey]?.autoSync;
-        if (!cfg?.enabled) return;
-        const freq = FREQ_MS[cfg.frequency] || FREQ_MS.daily;
-        const lastSync = parseInt(localStorage.getItem(`autoSync_${hostelKey}`) || '0');
-        if (Date.now() - lastSync < freq) return;
-        const hostelGuests = autoSyncGuestsRef.current.filter(g => (g.hostelId || 'hostel1') === hostelKey);
-        if (!hostelGuests.length) return;
-        localStorage.setItem(`autoSync_${hostelKey}`, Date.now().toString());
-        handleSyncClientsFromGuests(hostelGuests);
-      });
-    };
-    const initial = setTimeout(checkAndSync, 5 * 60 * 1000);
-    const interval = setInterval(checkAndSync, 60 * 60 * 1000);
-    return () => { clearTimeout(initial); clearInterval(interval); };
-  }, [hostelConfig, isDataReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Оффлайн очередь: загрузка файла Electron при старте, сохранение при закрытии ───
-  useEffect(() => {
-    loadFromElectron();
-    const handleBeforeUnload = () => {
-      const q = getQueue();
-      if (q.length > 0 && window.electronAPI?.savePendingPayments) {
-        window.electronAPI.savePendingPayments(q);
-      }
-      // Закрываем сессию при закрытии вкладки/приложения
-      closeSession();
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
-
-  // ─── Очередь: флаш при восстановлении сети ───
-  useEffect(() => {
-    if (!isOnline) return;
-    const q = getQueue();
-    if (!q.length) return;
-
-    // 1. Отправляем отложенные Telegram-уведомления (Cloud Functions недоступны оффлайн)
-    const telegramEntries = q.filter(e => e._type === 'telegram');
-    if (telegramEntries.length > 0) {
-      telegramEntries.forEach(e => {
-        sendTelegramMessage(e.text, e.notifType).catch(() => {});
-      });
-    }
-
-    // 2. Firestore (persistentLocalCache) уже синхронизовал платежи/расходы автоматически.
-    //    Очищаем всю очередь и удаляем Electron-файл.
-    const paymentCount = q.filter(e => e._type !== 'telegram').length;
-    const parts = [];
-    if (paymentCount > 0) parts.push(`${paymentCount} оплат`);
-    if (telegramEntries.length > 0) parts.push(`${telegramEntries.length} уведомлений`);
-    showNotification(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
-    clearQueue();
-  }, [isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Хелпер: найти пользователя по staffId/staffLogin (устойчив к смене document ID)
-  const findUserByShift = useCallback((s) => {
-    return usersList.find(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin));
-  }, [usersList]);
+  // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
+  useOfflineQueue({ isOnline, showNotification });
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
@@ -781,6 +447,25 @@ function App() {
       return mine?.hostelId ?? null;
   }, [activeShiftInMyHostel, shifts, currentUser]);
 
+  // Своя открытая смена — нужна окну закрытия смены, чтобы передать её напарнику
+  const myActiveShift = useMemo(() => {
+      if (!currentUser) return null;
+      return shifts.find(s => !s.endTime &&
+          (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login))) || null;
+  }, [shifts, currentUser]);
+
+  // Кому кассир может передать смену: кассиры того же хостела
+  const cashiersForTransfer = useMemo(() => {
+      if (!currentUser || !myActiveShift) return [];
+      const hostel = myActiveShift.hostelId || currentUser.hostelId;
+      return usersList.filter(u =>
+          u.role === 'cashier' &&
+          u.id !== currentUser.id &&
+          (u.login ? u.login !== currentUser.login : true) &&
+          (!hostel || u.hostelId === hostel || (u.allowedHostels || []).includes(hostel))
+      );
+  }, [usersList, currentUser, myActiveShift]);
+
   useEffect(() => {
     const handleEsc = (event) => {
         if (event.key === 'Escape') {
@@ -803,29 +488,26 @@ function App() {
     const api = window.electronAPI;
     if (!api) return; // в браузере не работаем
 
-    if (api.onUpdateAvailable) {
-      api.onUpdateAvailable((info) => {
+    // Каждая подписка возвращает функцию отписки — снимаем их при размонтировании,
+    // иначе обработчики остаются жить и срабатывают на каждый тик прогресса.
+    const offs = [
+      api.onUpdateAvailable?.((info) => {
         setHasUpdate(true);
         setUpdateProgress(prev => (prev !== null && prev > 0) ? prev : 0);
-      });
-    }
-    if (api.onUpdateProgress) {
-      api.onUpdateProgress((p) => {
+      }),
+      api.onUpdateProgress?.((p) => {
         setUpdateProgress(Math.round(p.percent || 0));
-      });
-    }
-    if (api.onUpdateDownloaded) {
-      api.onUpdateDownloaded(() => {
+      }),
+      api.onUpdateDownloaded?.(() => {
         setUpdateProgress(null);
         setUpdateDownloaded(true);
-      });
-    }
-    if (api.onUpdateError) {
-      api.onUpdateError((msg) => {
+      }),
+      api.onUpdateError?.((msg) => {
         setHasUpdate(false);
         setUpdateProgress(null);
-      });
-    }
+      }),
+    ];
+    return () => offs.forEach(off => { if (typeof off === 'function') off(); });
   }, []);
 
   // Загружаем глобальный конфиг приложения (настройки без кода)
@@ -837,10 +519,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    signInAnonymously(auth).catch(err => console.error(err));
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       setFirebaseUser(user);
-      setIsLoadingAuth(false); 
+      setIsLoadingAuth(false);
+      // Анонимная сессия нужна ДО входа: брендинг и список персонала грузятся на
+      // экране логина. Поднимаем её ТОЛЬКО когда не вошёл никто.
+      // Раньше signInAnonymously вызывался безусловно при каждом монтировании и на
+      // перезагрузке затирал сессию с claims (hostellaRole) — кассир оставался
+      // залогинен в приложении, но без прав в базе, и ловил «Нет доступа к данным».
+      if (!user) signInAnonymously(auth).catch(err => console.error(err));
     });
     
     // ? ИСПРАВЛЕНИЕ: Восстановление пользователя и выбор правильного хостела
@@ -894,7 +581,7 @@ function App() {
     // Без этого: если предыдущий юзер был force-разлогинен (ref=true),
     // следующий юзер на том же устройстве НИКОГДА не получит force-logout.
     forceLogoutTriggeredRef.current = false;
-  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);  
 
   // Сброс флага когда мультихостел кассир выбрал хостел — чтобы авто-старт сработал
   useEffect(() => {
@@ -911,7 +598,11 @@ function App() {
     // Не запускаем автостарт повторно — только один раз за сессию
     if (autoShiftStartedRef.current) return;
 
-    const myActiveShift = shifts.find(s => s.staffId === currentUser.id && !s.endTime);
+    // Идентифицируем кассира и по login: document ID пользователя мог смениться
+    // после правок в настройках, и тогда своя смена выглядит чужой (или наоборот).
+    const isMine = (s) => s.staffId === currentUser.id ||
+      (s.staffLogin && currentUser.login && s.staffLogin === currentUser.login);
+    const myActiveShift = shifts.find(s => isMine(s) && !s.endTime);
 
     if (myActiveShift) {
       // Смена уже есть — помечаем, больше не трогаем
@@ -926,9 +617,10 @@ function App() {
     const otherActiveShift = shifts.find(s =>
       s.hostelId === effectiveHostel &&
       !s.endTime &&
-      s.staffId !== currentUser.id &&
+      !isMine(s) &&
       // Не учитываем смены удалённых пользователей при авто-старте
-      usersList.some(u => u.id === s.staffId)
+      // (по обоим идентификаторам — иначе смена живого кассира считается «призрачной»)
+      usersList.some(u => u.id === s.staffId || (s.staffLogin && u.login === s.staffLogin))
     );
 
     if (!otherActiveShift) {
@@ -1086,294 +778,29 @@ function App() {
     }
   }, [currentUser]);
 
-  // e-mehmon: отметки «зарегистрирован/выведен» на госте
-  const handleEmehmonFlag = useCallback(async (guestId, updates) => {
-    try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updates);
-    } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Пока кассир в окне заселения или карточке гостя, фоновые походы в портал
+  // откладываются — иначе скрытые окна e-mehmon подвешивают ввод.
+  const uiBusyRef = useRef(false);
+  uiBusyRef.current = !!(checkInModal.open || guestDetailsModal.open);
 
-  // e-mehmon: открыть подтверждение фонового выселения. Если Electron недоступен
-  // (веб) — фолбэк на старое окно. Иначе показываем модалку EmehmonDepartureModal.
-  const handleEmehmonDepart = useCallback((guestOrList) => {
-    if (!guestOrList) return;
-    const arr = Array.isArray(guestOrList) ? guestOrList.filter(Boolean) : [guestOrList];
-    if (!arr.length) return;
-    setEmehmonReminder(null); // закрываем напоминание, чтобы не перекрывало модалку выселения
-    if (window.electronAPI?.emehmonDeparture) {
-      setEmehmonDepart(arr);
-    } else {
-      openEmehmonDeparture(arr[0]);
-      showNotification('Открываю e-mehmon — «Выселить» или «Печать»', 'info');
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Итог фонового выселения: помечаем «выведен», чистим лоадеры, обновляем список.
-  const handleDepartOutcome = useCallback((res, list) => {
-    const ids = (list || []).filter(g => g && g.id).map(g => g.id);
-    setEmehmonDepartingIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
-    const status = res?.status;
-    if (status === 'done' || status === 'submitted') {
-      const now = new Date().toISOString();
-      ids.forEach(id => handleEmehmonFlag(id, { emehmonOut: true, emehmonOutAt: now }));
-      const n = res?.selected != null ? res.selected : (list || []).length;
-      showNotification(`Выселено из e-mehmon: ${n} ✓`, 'success');
-      setEmehmonReminder(null);
-      // Сверка с e-mehmon: подтянуть свежий /listok, подтвердить вывод по факту
-      // (на случай если «submitted» — Check-Out прошёл, но закрытие не подтвердилось).
-      setTimeout(() => { if (emehmonSyncRef.current) emehmonSyncRef.current(false); }, 1500);
-    } else if (status === 'need_login') {
-      showNotification('Войдите в e-mehmon (окно открыто), затем повторите выселение.', 'info');
-    } else if (status === 'multiple') {
-      showNotification('Несколько совпадений в e-mehmon — завершите вручную в открытом окне.', 'warning');
-    } else if (status === 'not_found') {
-      showNotification('Гость(и) не найдены в e-mehmon — завершите вручную в открытом окне.', 'error');
-    } else {
-      showNotification('Не удалось выселить автоматически — завершите вручную в открытом окне.', 'error');
-    }
-  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Подтверждение из модалки: закрываем её сразу, выселяем в фоне, кнопки —
-  // в загрузку (departingIds); по завершении гость уходит из всех плашек/вкладок.
-  const handleEmehmonDepartConfirm = useCallback((opts) => {
-    const list = emehmonDepart || [];
-    if (!list.length) return;
-    setEmehmonDepart(null); // окно уходит в фон сразу
-    const ids = list.filter(g => g && g.id).map(g => g.id);
-    setEmehmonDepartingIds(prev => new Set([...prev, ...ids]));
-    showNotification(`Выселяю в e-mehmon (${list.length}) в фоне…`, 'info');
-    (async () => {
-      const res = list.length > 1
-        ? await departEmehmonBulk(list, opts)
-        : await departEmehmonBackground(list[0], opts);
-      handleDepartOutcome(res, list);
-    })();
-  }, [emehmonDepart, handleDepartOutcome]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // «Готово»/«Уже выведен»: нельзя просто убрать плашку — сверяемся с e-mehmon.
-  // absent (нет в активном /listok) → ставим отметку; present (ещё активен) →
-  // отметку не даём, открываем окно выселения, чтобы не отмечали «просто так».
-  const handleEmehmonDone = useCallback(async (guest) => {
-    if (!guest) return;
-    if (!window.electronAPI?.emehmonCheck) {
-      handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() });
-      setEmehmonReminder(null);
-      return;
-    }
-    setEmehmonChecking(guest.id);
-    showNotification('Проверяю в e-mehmon…', 'info');
-    const res = await checkEmehmonActive(guest);
-    setEmehmonChecking(null);
-    const status = res?.status;
-    if (status === 'absent') {
-      handleEmehmonFlag(guest.id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() });
-      showNotification('Подтверждено: гость выселен в e-mehmon ✓', 'success');
-      setEmehmonReminder(null);
-    } else if (status === 'present') {
-      showNotification('Гость ещё активен в e-mehmon — сначала выселите', 'warning');
-      setEmehmonReminder(null);
-      setEmehmonDepart([guest]);
-    } else if (status === 'need_login') {
-      showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
-    } else {
-      showNotification('Не удалось проверить e-mehmon — выселите вручную.', 'error');
-      setEmehmonReminder(null);
-      setEmehmonDepart([guest]);
-    }
-  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Фоновая синхронизация статусов регистрации: тянем /listok текущего филиала и
-  // авто-ставим «Зарегистрирован» совпавшим активным иностранцам. НЕ снимаем —
-  // поэтому ложноотрицательные (другой филиал/аккаунт) безвредны.
-  const runEmehmonSync = useCallback(async (manual = false) => {
-    if (!window.electronAPI?.emehmonList) {
-      if (manual) showNotification('Доступно только в десктоп-приложении', 'info');
-      return;
-    }
-    if (emehmonSyncBusy.current) return;
-    emehmonSyncBusy.current = true;
-    if (manual) { setEmehmonSyncing(true); showNotification('Проверяю e-mehmon…', 'info'); }
-    try {
-      const hostelId = (currentUser.hostelId && currentUser.hostelId !== 'all')
-        ? currentUser.hostelId
-        : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1');
-      const res = await fetchEmehmonRegistered(hostelId);
-      if (res?.status === 'ok') {
-        setEmehmonList(res.rows || []);
-        const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
-        const pSet = new Set((res.rows || []).map(r => r.passport).filter(Boolean));
-        const nSet = new Set((res.rows || []).map(r => r.name).filter(Boolean));
-        // e-mehmon регистрирует всех гостей (в т.ч. граждан Узбекистана) — фильтр
-        // по гражданству НЕ применяем, сопоставляем по паспорту/ФИО.
-        const toMark = (guests || []).filter(g =>
-          g.status === 'active' && !g.emehmonReg &&
-          (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
-        const now = new Date().toISOString();
-        for (const g of toMark) {
-          try {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-              { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true });
-          } catch (_) { /* пропускаем */ }
-        }
-        // Авто-подтверждение вывода: выселенный гость, зарегистрированный в e-mehmon,
-        // которого в /listok уже НЕТ → выведен. Только для своего филиала (g.hostelId
-        // === hostelId), чтобы чужой аккаунт не дал ложного «выведен».
-        const toMarkOut = (guests || []).filter(g =>
-          g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && g.hostelId === hostelId &&
-          !((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))));
-        for (const g of toMarkOut) {
-          try {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-              { emehmonOut: true, emehmonOutAt: now, emehmonOutAuto: true });
-          } catch (_) { /* пропускаем */ }
-        }
-        // ── АВТО-ВЫВОД ПО ИСТЕЧЕНИИ СРОКА ────────────────────────────────────
-        // Регистрации (журнал), у которых срок вышел, а статус ещё active:
-        //  • есть в /listok → выселяем в фоне одной операцией → помечаем removed;
-        //  • нет в /listok → уже выведен → просто помечаем removed.
-        const expiredActive = (registrations || []).filter(r =>
-          r.status === 'active' && r.hostelId === hostelId && r.endDate &&
-          new Date(r.endDate + 'T23:59:59').getTime() < Date.now());
-        if (expiredActive.length > 0) {
-          const inListok = expiredActive.filter(r =>
-            (r.passport && pSet.has(norm(r.passport))) || (r.fullName && nSet.has(norm(r.fullName))));
-          const absent = expiredActive.filter(r => !inListok.includes(r));
-          const markRemoved = async (r, by) => {
-            try {
-              await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', r.id),
-                { status: 'removed', removedAt: new Date().toISOString(), removedBy: by });
-            } catch (_) { /* пропускаем */ }
-          };
-          for (const r of absent) await markRemoved(r, 'auto_expiry_absent');
-          if (inListok.length > 0 && window.electronAPI?.emehmonDepartureBulk) {
-            const dep = await departEmehmonBulk(
-              inListok.map(r => ({ fullName: r.fullName, passport: r.passport, hostelId })),
-              { hostelId });
-            if (dep?.status === 'done' || dep?.status === 'submitted') {
-              for (const r of inListok) await markRemoved(r, 'auto_expiry');
-              showNotification(`⏰ Срок истёк — авто-выведено из e-mehmon: ${inListok.length}`, 'success');
-            } else if (manual) {
-              showNotification('Авто-вывод истёкших не удался — выведите вручную.', 'warning');
-            }
-          } else if (absent.length > 0 && manual) {
-            showNotification(`Истёкшие регистрации закрыты: ${absent.length} (уже выведены из e-mehmon)`, 'info');
-          }
-        }
-
-        // ── АВТО-ДОБОР «ЗАБЫТЫХ» МЕСТНЫХ ────────────────────────────────────
-        // Активные граждане Узбекистана с оплатой, без e-mehmon/кадастра и без
-        // прежней ошибки — регистрируем сами, ТИХО (окно не показываем).
-        // Ошибка госбазы → пометка «ошибка в паспортных данных» на госте,
-        // повторов не делаем, пока данные не исправят (пометка снимается при
-        // редактировании паспорта/ДР). До 3 гостей за цикл (цикл каждые 5 мин).
-        if (window.electronAPI?.emehmonArrivalAuto) {
-          const paidOf = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
-          const inCad = (g) => (cadastreRegs || []).some(r =>
-            r.status !== 'removed' &&
-            (r.guestId === g.id || (r.passport && g.passport && norm(r.passport) === norm(g.passport))));
-          const candidates = (guests || []).filter(g =>
-            g.status === 'active' && g.country === 'Узбекистан' &&
-            !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
-            g.hostelId === hostelId && paidOf(g) > 0 &&
-            !(pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))) &&
-            !inCad(g) && !emehmonAutoBusy.current.has(g.id)
-          ).slice(0, 3);
-          for (const g of candidates) {
-            emehmonAutoBusy.current.add(g.id);
-            try {
-              const reg = await autoRegisterArrival(g, { silent: true });
-              const st = reg?.status;
-              if (st === 'done') {
-                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                  { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true, emehmonRegError: deleteField() });
-                showNotification(`${g.fullName} — зарегистрирован в e-mehmon (авто) ✓`, 'success');
-              } else if (st === 'not_found') {
-                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                  { emehmonRegError: 'Ошибка в паспортных данных — нужно исправить', emehmonRegErrorAt: new Date().toISOString() });
-                showNotification(`⚠️ ${g.fullName}: не найден в госбазе — проверьте паспорт и дату рождения`, 'warning');
-              } else if (st === 'no_room') {
-                await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-                  { emehmonRegError: 'Комната не совпала с e-mehmon — проверьте номер', emehmonRegErrorAt: new Date().toISOString() });
-              } else if (st === 'need_login') {
-                break; // без входа продолжать нет смысла — попробуем в следующем цикле
-              }
-              // прочие сбои (таймаут/сеть) — без пометки, повтор в следующем цикле
-            } catch (_) { /* пропускаем */ } finally {
-              emehmonAutoBusy.current.delete(g.id);
-            }
-          }
-        }
-        if (manual) showNotification(`Синхронизация e-mehmon: отмечено ${toMark.length}, выведено ${toMarkOut.length}`, 'success');
-      } else if (res?.status === 'need_login') {
-        if (manual) showNotification('Войдите в e-mehmon (окно открыто), затем повторите.', 'info');
-      } else {
-        if (manual) showNotification('Не удалось получить список e-mehmon.', 'error');
-      }
-    } finally {
-      emehmonSyncBusy.current = false;
-      if (manual) setEmehmonSyncing(false);
-    }
-  }, [guests, registrations, cadastreRegs, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Стабильный планировщик: старт через 8с после входа + каждые 6 часов.
-  const emehmonSyncRef = useRef(runEmehmonSync);
-  useEffect(() => { emehmonSyncRef.current = runEmehmonSync; }, [runEmehmonSync]);
-  useEffect(() => {
-    if (!window.electronAPI?.emehmonList || !currentUser) return;
-    const t = setTimeout(() => emehmonSyncRef.current(false), 8000);
-    const iv = setInterval(() => emehmonSyncRef.current(false), 5 * 60 * 1000); // каждые 5 минут
-    return () => { clearTimeout(t); clearInterval(iv); };
-  }, [currentUser]);
-
-  // Полная авто-регистрация прибытия (граждане Узбекистана) в фоне.
-  const emehmonAutoBusy = useRef(new Set()); // guestId в процессе — защита от дубля листка
-  const handleEmehmonAutoArrival = useCallback(async (guest) => {
-    if (!guest || !window.electronAPI?.emehmonArrivalAuto) return;
-    if (guest.id && emehmonAutoBusy.current.has(guest.id)) return; // уже регистрируется
-    if (guest.id) emehmonAutoBusy.current.add(guest.id);
-    showNotification(`Регистрирую ${guest.fullName} в e-mehmon (авто)…`, 'info');
-    const res = await autoRegisterArrival(guest);
-    if (guest.id) emehmonAutoBusy.current.delete(guest.id);
-    const st = res?.status;
-    if (st === 'done') {
-      handleEmehmonFlag(guest.id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true, emehmonRegError: deleteField() });
-      showNotification(`${guest.fullName} — зарегистрирован в e-mehmon ✓`, 'success');
-    } else if (st === 'need_login') {
-      showNotification('Войдите в e-mehmon (окно открыто) — затем регистрация продолжится.', 'info');
-    } else if (st === 'not_found') {
-      showNotification(`${guest.fullName}: нет в госбазе — завершите регистрацию вручную (окно открыто).`, 'warning');
-    } else if (st === 'no_room') {
-      showNotification(`${guest.fullName}: комната не совпала с e-mehmon — завершите вручную (окно открыто).`, 'warning');
-    } else if (st === 'no_electron') {
-      /* веб — пропускаем */
-    } else {
-      showNotification(`${guest.fullName}: авто-регистрация не завершена — проверьте окно e-mehmon.`, 'error');
-    }
-  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Успешная регистрация прибытия в e-mehmon → авто-галочка «Зарегистрирован».
-  const guestsRef = useRef(guests);
-  useEffect(() => { guestsRef.current = guests; }, [guests]);
-  const emehmonRegHooked = useRef(false);
-  useEffect(() => {
-    if (emehmonRegHooked.current || !window.electronAPI?.onEmehmonRegistered) return;
-    emehmonRegHooked.current = true;
-    window.electronAPI.onEmehmonRegistered((data) => {
-      const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
-      let id = data?.guestId;
-      if (!id && data?.passport) {
-        const g = (guestsRef.current || []).find(x =>
-          x.passport && norm(x.passport) === norm(data.passport) && x.status === 'active');
-        id = g?.id;
-      }
-      if (id) {
-        handleEmehmonFlag(id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true });
-        showNotification('Гость зарегистрирован в e-mehmon ✓', 'success');
-      }
-    });
-  }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Вся автоматика госпортала — см. hooks/useEmehmonAutomation
+  const {
+    emehmonReminder, setEmehmonReminder,
+    emehmonDepart, setEmehmonDepart,
+    emehmonChecking,
+    emehmonArrivalPrompt, setEmehmonArrivalPrompt,
+    emehmonDepartingIds,
+    emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
+    handleEmehmonFlag, handleEmehmonDepart, handleEmehmonDepartConfirm,
+    handleEmehmonDone, handleEmehmonAutoArrival,
+    runEmehmonSync, runEmehmonRecalc,
+    kppFixPrompt, setKppFixPrompt,
+    kppSituation, setKppSituation,
+    handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
+  } = useEmehmonAutomation({
+    guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
+    isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef,
+  });
 
   const handleLogin = (user) => {
     const defEntry = DEFAULT_USERS.find(d => d.login === user.login);
@@ -1439,7 +866,7 @@ function App() {
 
   const {
     handleUndo, pushUndo,
-    handleCheckInSubmit, handleCheckIn,
+    handleCheckInSubmit,
     handleCheckOut, handlePayment, handleExtendGuest,
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
@@ -1460,24 +887,31 @@ function App() {
     setEmehmonArrivalPrompt,
     onEmehmonDepart: handleEmehmonDepart,
     onEmehmonAutoArrival: handleEmehmonAutoArrival,
+    onForeignArrival: handleForeignArrival,
   });
 
   const {
-    handleUpdateClient, handleImportClients, handleDeduplicate,
+    handleUpdateClient, handleImportClients, handleMergeClients,
     handleBulkDeleteClients, handleNormalizeCountries, handleSyncClientsFromGuests,
     handleTopUpBalance, handleAddClient, handleAdjustBalance,
   } = useClientActions({ currentUser, clients, showNotification, setUndoStack });
 
+  // Плановое пополнение базы клиентов из гостей — см. hooks/useAutoClientSync.
+  // Вызов стоит ПОСЛЕ useClientActions: handleSyncClientsFromGuests рождается там,
+  // а обратиться к нему раньше объявления нельзя (ReferenceError при первом рендере).
+  useAutoClientSync({ guests, hostelConfig, isDataReady, onSync: handleSyncClientsFromGuests });
+
   const {
     handleStartShift, handleEndShift,
-    handleTransferShift, handleTransferToMe,
+    handleTransferShift,
+    handleAdminSplitShift, handleAdminUnsplitShift,
     handleAdminAddShift, handleAdminUpdateShift, handleAdminDeleteShift,
     handleAddUser, handleUpdateUser, handleDeleteUser: deleteUserById,
     handleChangePassword,
   } = useShiftActions({
     currentUser, setCurrentUser,
     usersList, shifts, payments,
-    showNotification, onLogout: handleLogout,
+    showNotification, onLogout: handleLogout, lang,
   });
 
   const {
@@ -1494,24 +928,25 @@ function App() {
     handleRemoveCadastreReg, handleDeleteCadastreReg,
     handleAddRegToExpenses, handleAddAllToExpenses,
   } = useCadastreActions({
-    currentUser, selectedHostelFilter, showNotification, tgSettings, isOnline,
+    currentUser, selectedHostelFilter, lang, showNotification, tgSettings, isOnline,
     setUndoStack,
   });
 
-  const { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
+  const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
+    clients,
     setExpenseModal, setUndoStack,
     showNotification, isOnline,
   });
 
   const { addRecurring, updateRecurring, deleteRecurring, toggleActive: toggleRecurringActive, fireNow: fireRecurringNow, getRecurringAdvances } = useRecurringExpenses({
     currentUser, selectedHostelFilter,
-    recurringExpenses, expenses, showNotification,
+    recurringExpenses, expenses, showNotification, lang,
   });
 
   // Уведомления об истекающих кадастр-регистрациях
-  useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline });
+  useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline, lang });
 
   // 🔔 Уведомление Telegram в день дедлайна и на следующий день (срок зависит от гражданства)
   useEffect(() => {
@@ -1530,13 +965,25 @@ function App() {
       const regWindow = getRegistrationWindow(g.country);
       const days = getKppDayNumber(g.kppDate);
       if (days < regWindow) return;
+      // Не напоминаем по «забытым» записям: если расчётный выезд был больше
+      // STALE_TASK_DAYS назад, гость давно уехал, а запись просто не закрыли
+      // (авто-выселение выключено для хостела или нет даты выезда).
+      // Без этой отсечки такие гости шлют «Нужна регистрация!» каждый день вечно.
+      const coRaw = (g.bonusCheckOutDate && g.checkOutDate &&
+                     new Date(g.bonusCheckOutDate) > new Date(g.checkOutDate))
+        ? g.bonusCheckOutDate : g.checkOutDate;
+      if (coRaw) {
+        if (isStaleSince(coRaw, 2)) return;          // выезд прошёл больше 2 дней назад
+      } else if (isStaleSince(g.kppDate)) {
+        return;                                       // даты выезда нет — судим по возрасту записи
+      }
       const key = `kpp_${g.id}_day${days}_${today}`;
       const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
       const room = rooms.find(r => r.id === g.roomId);
       const fmt = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
       const msg = [
         `📍 <b>Нужна регистрация!</b>`,
-        `👤 ${g.fullName}`,
+        `👤 ${escapeTg(g.fullName)}`,
         `🪪 ${g.passport || '—'}`,
         `🎂 Д/р: ${fmt(g.birthDate)}`,
         `📋 Паспорт выдан: ${fmt(g.passportIssueDate)}`,
@@ -1550,7 +997,58 @@ function App() {
         if (shouldFire) sendTelegramMessage(msg, 'kppAlert');
       });
     });
+    // «Ситуация»: гость за пределами окна и с разрывом после другого отеля —
+    // в КПП-бот один раз на ситуацию (ключ — момент её обнаружения).
+    guests.forEach(g => {
+      if (g.status !== 'active' || !g.kppSituation || g.kppSituationDecision) return;
+      const sit = g.kppSituation;
+      const key = `kppsit_${g.id}_${String(sit.at || '').slice(0, 16)}`;
+      const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
+      const room = rooms.find(r => r.id === g.roomId);
+      const fmt = (d) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+      const last = Array.isArray(g.emehmonStays) && g.emehmonStays.length ? g.emehmonStays[g.emehmonStays.length - 1] : null;
+      const msg = [
+        `🚨 <b>Нарушение срока регистрации</b>`,
+        `👤 ${escapeTg(g.fullName)}`,
+        `🪪 ${g.passport || '—'} · ${g.country}`,
+        `📅 Дата КПП: ${fmt(g.kppDate)} — день <b>${sit.dayNumber}</b> из ${sit.window}`,
+        last ? `🏨 Последний отель: ${escapeTg(last.hotel || '—')} до ${fmt(last.to)}` : `🏨 Прошлых проживаний в портале нет`,
+        `⏰ Разрыв без регистрации: <b>${sit.gapDays} дн.</b>`,
+        `⚖️ По закону — направить в миграционную службу. Регистрация остановлена до решения.`,
+        `🏨 ${hostelName} · Комната ${room?.number || g.roomNumber || '?'}, место ${g.bedId}`,
+      ].join('\n');
+      checkAndMarkAlert(key).then(shouldFire => {
+        if (shouldFire) sendTelegramMessage(msg, 'kppAlert');
+      });
+    });
   }, [guests, isOnline, tgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 🔔 Окно «ситуация» возвращается раз в 6 часов, пока решение не принято.
+  // Данные берём из документа гостя (список отелей уже сохранён) — портал
+  // ради повторного показа не дёргаем.
+  useEffect(() => {
+    if (!currentUser) return;
+    const check = () => {
+      if (kppSituation || checkInModal.open) return;
+      // Только свой филиал: окно чужого гостя на этой кассе — шум и путаница.
+      const pending = (guests || []).find(g =>
+        g.status === 'active' && g.kppSituation && !g.kppSituationDecision &&
+        g.country && g.country !== 'Узбекистан' &&
+        (g.hostelId || 'hostel1') === emehmonHostelId &&
+        Date.now() - parseInt(localStorage.getItem(`hostella_kpp_situation_ts_${g.id}`) || '0') > 6 * 60 * 60 * 1000);
+      if (!pending) return;
+      const sit = pending.kppSituation;
+      localStorage.setItem(`hostella_kpp_situation_ts_${pending.id}`, String(Date.now()));
+      setKppSituation({
+        guest: pending,
+        assessment: { ok: false, reason: sit.reason, dayNumber: sit.dayNumber, window: sit.window, gapDays: sit.gapDays },
+        stays: Array.isArray(pending.emehmonStays) ? pending.emehmonStays : [],
+      });
+    };
+    const t = setTimeout(check, 12000);
+    const iv = setInterval(check, 5 * 60 * 1000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [currentUser?.id, guests, kppSituation, checkInModal.open, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
     try {
@@ -1694,30 +1192,11 @@ const filterByHostel = (items) => {
   }, [payments, usersList, currentUser, selectedHostelFilter]);
 
   const filteredRooms = useMemo(() => filterByHostel(rooms), [rooms, currentUser, selectedHostelFilter]);
+  // Договоры для отчёта по долгам: у старых записей филиала нет — считаем их первым
+  const visibleContractGroups = useMemo(
+    () => filterByHostel((manualStayGroups || []).map(g => ({ ...g, hostelId: g.hostelId || 'hostel1' }))),
+    [manualStayGroups, currentUser, selectedHostelFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
-
-  const handleExportGuests = useCallback(() => {
-    const active = filteredGuests.filter(g => g.status === 'active');
-    if (!active.length) { showNotification('Нет проживающих гостей', 'error'); return; }
-    const rows = active.map(g => ({
-      'ФИО': g.fullName || '',
-      'Паспорт': g.passport || '',
-      'Дата выдачи паспорта': g.passportIssueDate || '',
-      'Дата рождения': g.birthDate || '',
-      'Страна': g.country || '',
-      'Телефон': g.phone || '',
-      'Комната': g.roomNumber || g.roomId || '',
-      'Место': g.bedId || '',
-      'Дата заезда': g.checkInDate || '',
-      'Дата выезда': g.checkOutDate || '',
-      'Дата КПП': g.kppDate || '',
-      'КПП подтверждено': g.kppRegistered ? 'Да' : '',
-    }));
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'Гости');
-    XLSX.writeFile(wb, `Гости_${new Date().toISOString().split('T')[0]}.xlsx`);
-  }, [filteredGuests]);
 
   const filteredExpenses = useMemo(() => filterByHostel(expenses), [expenses, currentUser, selectedHostelFilter]);
   const filteredTasks = useMemo(() => filterByHostel(tasks), [tasks, currentUser, selectedHostelFilter]);
@@ -1729,13 +1208,16 @@ const filterByHostel = (items) => {
     return filteredTasks.filter(t => t.status !== 'done').length;
   }, [filteredTasks]);
 
-  // Регистрации E-mehmon с истёкшим сроком
+  // Регистрации E-mehmon с истёкшим сроком.
+  // Старше STALE_TASK_DAYS не считаем: гость давно уехал, это архив, а не задача —
+  // иначе бейдж копит записи за всю историю и перестаёт что-либо значить.
   const registrationsAlertCount = useMemo(() => {
     const now = Date.now();
     return filteredRegistrations.filter(r => {
       if (r.status === 'removed') return false;
       const end = new Date((r.endDate || '') + 'T23:59:59').getTime();
-      return end <= now;
+      if (!Number.isFinite(end) || end > now) return false;
+      return !isStaleSince(r.endDate);
     }).length;
   }, [filteredRegistrations]);
 
@@ -1749,6 +1231,27 @@ const filterByHostel = (items) => {
   }, [guests, currentUser, selectedHostelFilter]);
 
   const pendingBookingsCount = websiteBookings.length;
+
+  // 🔔 Большое окно-напоминание о необработанных бронях.
+  // Всплывает: (а) сразу при появлении новой брони, (б) каждые 6 часов, пока
+  // есть необработанные. Закрывается только вручную.
+  const [bookingAlertOpen, setBookingAlertOpen] = useState(false);
+  const BOOKING_ALERT_TS_KEY = 'hostella_booking_alert_closed_ts';
+  const closeBookingAlert = useCallback(() => {
+    localStorage.setItem(BOOKING_ALERT_TS_KEY, String(Date.now()));
+    setBookingAlertOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!currentUser) return;
+    const check = () => {
+      if (pendingBookingsCount === 0) { setBookingAlertOpen(false); return; }
+      const lastClosed = parseInt(localStorage.getItem(BOOKING_ALERT_TS_KEY) || '0');
+      if (Date.now() - lastClosed > 6 * 60 * 60 * 1000) setBookingAlertOpen(true);
+    };
+    const t = setTimeout(check, 7000);            // после загрузки данных
+    const iv = setInterval(check, 5 * 60 * 1000); // проверка каждые 5 минут
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [currentUser?.id, pendingBookingsCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 🔔 Уведомление при появлении новой брони с сайта
   // Храним уже замеченные ID в localStorage, чтобы не слать Telegram при Ctrl+R
@@ -1770,6 +1273,8 @@ const filterByHostel = (items) => {
       // Cloud Function createWebBooking (один раз на сервере при создании брони),
       // поэтому клиент НЕ шлёт — иначе дубли с каждого онлайн-устройства.
       showNotification(`🔔 Новая заявка с сайта! (всего: ${pendingBookingsCount})`, 'success');
+      // Новая бронь → большое окно сразу (не ждём 6-часовой таймер)
+      setBookingAlertOpen(true);
     }
 
     // Сохраняем актуальные ID (только pending-брони, чтобы сет не раздувался)
@@ -1787,7 +1292,7 @@ const filterByHostel = (items) => {
     const timer = setTimeout(() => {
       if (pendingBookingsCount > 0 && isOnline) {
         const list = websiteBookings.slice(0, 5).map(b =>
-          `• ${b.fullName || '—'} — ${b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2'}, заезд ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'}`
+          `• ${escapeTg(b.fullName || '—')} — ${b.hostelId === 'hostel1' ? 'Хостел №1' : 'Хостел №2'}, заезд ${b.checkInDate ? new Date(b.checkInDate).toLocaleDateString('ru-RU') : '?'}`
         ).join('\n');
         sendTelegramMessage(`🔔 <b>Необработанные брони с сайта: ${pendingBookingsCount}</b>\n${list}`, 'newBooking');
       }
@@ -2147,6 +1652,11 @@ const filterByHostel = (items) => {
 
   // Ручное добавление клиента в список разрешённых на понижение цены (админ)
   const handleGrantPriceReduction = async (client, price) => {
+    // Только админ/супер: иначе кассир сам вносил паспорт в whitelist и заселял
+    // по любой цене мимо Telegram-одобрения (разницу — в карман).
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') {
+      showNotification('Разрешение на понижение цены выдаёт только администратор', 'error'); return;
+    }
     const key = (client?.passport || '').replace(/\s/g, '').toUpperCase();
     if (!key) { showNotification('У клиента нет паспорта — нельзя добавить', 'error'); return; }
     try {
@@ -2164,6 +1674,9 @@ const filterByHostel = (items) => {
   };
 
   const handleRevokePriceReduction = async (entry) => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'super') {
+      showNotification('Только администратор', 'error'); return;
+    }
     const key = entry?.id || (entry?.passport || '').replace(/\s/g, '').toUpperCase();
     if (!key) return;
     try {
@@ -2236,6 +1749,9 @@ if (!currentUser) return (
         setThemeId={handleSetLoginTheme}
         hostelNames={Object.fromEntries(Object.entries(HOSTELS).map(([k,v]) => [k, v.name]))}
         checkHostelShift={checkHostelShift}
+        hasUpdate={hasUpdate}
+        updateDownloaded={updateDownloaded}
+        updateProgress={updateProgress}
     />
 );
 
@@ -2268,28 +1784,40 @@ const currentHostelInfo = HOSTELS[currentUser.role === 'admin' ? selectedHostelF
 const currentHostelKey = currentUser.role === 'admin' ? selectedHostelFilter : (currentUser.hostelId || 'hostel1');
 const currentCheckInHour = hostelConfig?.[currentHostelKey]?.checkInHour ?? 14;
 const currentCheckOutHour = hostelConfig?.[currentHostelKey]?.checkOutHour ?? 12;
-const t = (k) => TRANSLATIONS[lang][k];
-
 return (
     <div className="app-root w-full font-sans flex flex-col overflow-hidden text-slate-800 bg-[#f0f2f5]" style={{height:'100dvh', paddingTop:'env(safe-area-inset-top, 0px)' }}>
 
+        {/* Баннер «нет доступа»: база отклонила чтение. Раньше это состояние
+            приложение получало, но никак не показывало — кассир видел пустые
+            экраны и не понимал причины. Офлайн-баннер при этом прячем: связь
+            есть, дело в правах. */}
+        {permissionError && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2 bg-rose-600 text-white text-sm z-50">
+            <span className="flex items-center gap-2">
+              <ShieldAlert size={15} className="shrink-0"/>
+              <span><strong>Нет доступа к данным.</strong> База отклонила запрос — обычно аккаунт отключён или изменились права. Выйдите и войдите снова; если не помогло, сообщите администратору.</span>
+            </span>
+            <button onClick={handleLogout} className="ml-2 shrink-0 px-3 py-1 bg-white text-rose-700 rounded font-semibold text-xs hover:bg-rose-50">Выйти</button>
+          </div>
+        )}
+
         {/* Баннер офлайн */}
-        {!isOnline && (
+        {!isOnline && !permissionError && (
           <div className="flex items-center justify-between px-4 py-2 bg-amber-600 text-white text-sm z-50">
-            <span>📵 <strong>Нет подключения к интернету.</strong> Данные сохраняются локально и синхронизируются при восстановлении связи. Telegram-уведомления будут отправлены автоматически.</span>
+            <span className="flex items-center gap-2"><WifiOff size={15} className="shrink-0"/><span><strong>Нет подключения к интернету.</strong> Данные сохраняются локально и синхронизируются при восстановлении связи. Telegram-уведомления будут отправлены автоматически.</span></span>
           </div>
         )}
 
         {/* Баннер обновления */}
         {updateDownloaded && (
           <div className="flex items-center justify-between px-4 py-2 bg-green-600 text-white text-sm z-50">
-            <span>✅ Обновление загружено. Перезапустить приложение для установки.</span>
+            <span className="flex items-center gap-2"><CheckCircle2 size={15} className="shrink-0"/><span>Обновление загружено. Перезапустить приложение для установки.</span></span>
             <button onClick={() => window.electronAPI?.installUpdate()} className="ml-4 px-3 py-1 bg-white text-green-700 rounded font-semibold text-xs hover:bg-green-50">Перезапустить</button>
           </div>
         )}
         {hasUpdate && !updateDownloaded && updateProgress !== null && (
           <div className="px-4 py-1.5 bg-blue-600 text-white text-xs z-50">
-            ⏬ Загрузка обновления... {updateProgress}%
+            <span className="inline-flex items-center gap-1.5"><Download size={13} className="shrink-0"/>Загрузка обновления... {updateProgress}%</span>
             <div className="mt-0.5 h-1 bg-blue-400 rounded overflow-hidden"><div className="h-full bg-white transition-all" style={{width: `${updateProgress}%`}} /></div>
           </div>
         )}
@@ -2302,6 +1830,8 @@ return (
             hostels={HOSTELS}
             availableHostels={availableHostelsForUser}
             setSelectedHostelFilter={setSelectedHostelFilter}
+            hasUpdate={hasUpdate}
+            updateDownloaded={updateDownloaded}
         />
 
         <MobileNavigation
@@ -2376,6 +1906,7 @@ return (
 
             <main className="flex-1 flex flex-col overflow-hidden relative">
                 <EmehmonPendingBanner
+                    lang={lang}
                     guests={filteredGuests}
                     onDepart={(g) => handleEmehmonDepart(g)}
                     onDone={(g) => handleEmehmonDone(g)}
@@ -2490,6 +2021,8 @@ return (
                         selectedHostelFilter={selectedHostelFilter}
                         hostels={HOSTELS}
                         lang={lang}
+                        rooms={filteredRooms}
+                        contractGroups={visibleContractGroups}
                     />
                 )}
                 
@@ -2531,13 +2064,14 @@ return (
                         allUsers={usersList}
                         currentUser={currentUser} 
                         onStartShift={handleStartShift} 
-                        onEndShift={handleEndShift} 
-                        onTransferShift={handleTransferShift} 
-                        lang={lang} 
+                        onEndShift={handleEndShift}
+                        lang={lang}
                         hostelId={currentUser.role === 'super' ? 'all' : selectedHostelFilter} 
                         onAdminAddShift={handleAdminAddShift}
                         onAdminUpdateShift={handleAdminUpdateShift}
                         onAdminDeleteShift={handleAdminDeleteShift}
+                        onAdminSplitShift={handleAdminSplitShift}
+                        onAdminUnsplitShift={handleAdminUnsplitShift}
                         payments={filteredPayments}
                         expenses={filteredExpenses}
                         onPaySalary={(d) => handleAddExpense({ category: 'Зарплата', amount: d.amount, targetStaffId: d.staffId, comment: d.comment })}
@@ -2550,7 +2084,7 @@ return (
                         onUpdateClient={handleUpdateClient}
                         onAddClient={handleAddClient}
                         onImportClients={handleImportClients} 
-                        onDeduplicate={handleDeduplicate} 
+                        onOpenDuplicates={() => setActiveTab('clientdupes')}
                         onBulkDelete={handleBulkDeleteClients} 
                         onNormalizeCountries={handleNormalizeCountries}
                         onSyncFromGuests={() => handleSyncClientsFromGuests(currentUser.role === 'super' ? guests : filteredGuests)}
@@ -2568,8 +2102,9 @@ return (
                         guests={filteredGuests}
                         cadastreRegs={filteredCadastreRegs}
                         emehmonList={emehmonList}
+                        emehmonSnapshot={emehmonSnapshot}
                         emehmonDepartingIds={emehmonDepartingIds}
-                        emehmonHostelId={(currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')}
+                        emehmonHostelId={emehmonHostelId}
                         currentUser={currentUser}
                         lang={lang}
                         users={usersList}
@@ -2577,10 +2112,23 @@ return (
                         onRemove={handleRemoveFromEmehmon}
                         onExtend={handleExtendRegistration}
                         onDelete={handleDeleteRegistration}
-                        onSyncEmehmon={() => runEmehmonSync(true)}
+                        onSyncEmehmon={() => runEmehmonSync(true, emehmonHostelId)}
                         emehmonSyncing={emehmonSyncing}
+                        canAct={canPerformActions}
+                        onRecalcAmounts={() => runEmehmonRecalc(true, emehmonHostelId)}
+                        onEmehmonLogin={() => {
+                            // Открываем портал в сессии ИМЕННО этого филиала — main.js
+                            // пересоздаёт окно, если партиция принадлежит другому хостелу
+                            if (!window.electronAPI?.openEmehmon) {
+                                showNotification('Вход в e-mehmon доступен только в десктоп-приложении', 'info');
+                                return;
+                            }
+                            window.electronAPI.openEmehmon({ hostelId: emehmonHostelId });
+                            showNotification('Открываю e-mehmon — войдите и нажмите «Обновить»', 'info');
+                        }}
                         onRegisterEmehmon={(g) => { openEmehmonArrival(g); showNotification('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}
                         onDepartEmehmon={handleEmehmonDepart}
+                        onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                     />
                 )}
 
@@ -2603,6 +2151,7 @@ return (
                         onAddCadastre={handleAddCadastre}
                         onUpdateCadastre={handleUpdateCadastre}
                         onDeleteCadastre={handleDeleteCadastre}
+                        lang={lang}
                     />
                 )}
                 
@@ -2659,6 +2208,8 @@ return (
                         onAddRecurringAdvance={handleAddRecurringAdvance}
                         recurringAdvances={getRecurringAdvances()}
                         onUpdateExpense={handleUpdateExpense}
+                        onAddExpensesBulk={handleAddExpensesBulk}
+                        notify={showNotification}
                         selectedHostelFilter={selectedHostelFilter}
                     />
                 )}
@@ -2669,6 +2220,7 @@ return (
                         onSaveSettings={handleSaveTgSettings}
                         onTestMessage={handleTestTgMessage}
                         currentUser={currentUser}
+                        lang={lang}
                     />
                 )}
 
@@ -2678,19 +2230,29 @@ return (
                         onSave={handleSavePromo}
                         onDelete={handleDeletePromo}
                         currentUser={currentUser}
+                        lang={lang}
                     />
                 )}
 
                 {activeTab === 'auditlog' && currentUser.role === 'super' && (
-                    <AuditLogView auditLog={auditLog} currentUser={currentUser} />
+                    <AuditLogView auditLog={auditLog} currentUser={currentUser} lang={lang} />
                 )}
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (
-                    <SessionsView sessions={sessions} users={usersList} />
+                    <SessionsView sessions={sessions} users={usersList} lang={lang} />
                 )}
 
                 {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
-                    <ClientVersionsView clientVersions={clientVersions} />
+                    <ClientVersionsView clientVersions={clientVersions} lang={lang} />
+                )}
+
+                {activeTab === 'clientdupes' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                    <ClientDuplicatesView
+                        clients={clients}
+                        onMerge={handleMergeClients}
+                        currentUser={currentUser}
+                        lang={lang}
+                    />
                 )}
 
                 {activeTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
@@ -2701,6 +2263,7 @@ return (
                         users={usersList}
                         currentUser={currentUser}
                         auditLog={auditLog}
+                        lang={lang}
                     />
                 )}
 
@@ -2711,6 +2274,7 @@ return (
                         currentUser={currentUser}
                         payments={filteredPayments}
                         hostelFilter={selectedHostelFilter}
+                        lang={lang}
                     />
                 )}
 
@@ -2750,6 +2314,7 @@ return (
                             hostelId={selectedHostelFilter}
                             showNotification={showNotification}
                             currentUser={currentUser}
+                            lang={lang}
                         />
                     </div>
                 )}
@@ -2830,6 +2395,7 @@ return (
                 notify={showNotification}
                 currentUser={currentUser}
                 guests={guests}
+                lang={lang}
             />
         )}
 
@@ -2838,6 +2404,7 @@ return (
                 room={rentalPayModal}
                 onClose={() => setRentalPayModal(null)}
                 onSubmit={handlePayRentalDebt}
+                lang={lang}
             />
         )}
 
@@ -2856,12 +2423,48 @@ return (
             />
         )}
 
+        {/* Большое напоминание о необработанных бронях (закрыть только вручную) */}
+        {bookingAlertOpen && !checkInModal.open && (
+            <BookingAlertModal
+                bookings={websiteBookings}
+                onAccept={(b) => { closeBookingAlert(); handleAcceptBooking(b); }}
+                onClose={closeBookingAlert}
+                lang={lang}
+            />
+        )}
+
+        {/* Госбаза не нашла иностранца — исправить данные и проверить снова */}
+        {kppFixPrompt && !checkInModal.open && (
+            <KppFixDataModal
+                guest={kppFixPrompt.guest}
+                notFoundText={kppFixPrompt.notFoundText}
+                lang={lang}
+                onSave={(id, updates) => handleGuestUpdate(id, updates)}
+                onRetry={(g) => { setKppFixPrompt(null); handleForeignArrival(g); }}
+                onLater={() => setKppFixPrompt(null)}
+                onSkip={(g) => { handleEmehmonFlag(g.id, { emehmonSkip: true, emehmonSkipAt: new Date().toISOString() }); setKppFixPrompt(null); }}
+            />
+        )}
+
+        {/* Ситуация: иностранец за пределами окна, разрыв после другого отеля */}
+        {kppSituation && !checkInModal.open && (
+            <KppSituationModal
+                guest={kppSituation.guest}
+                assessment={kppSituation.assessment}
+                stays={kppSituation.stays || []}
+                lang={lang}
+                onDecide={(d) => { localStorage.setItem(`hostella_kpp_situation_ts_${kppSituation.guest.id}`, String(Date.now())); handleSituationDecision(kppSituation.guest, d); }}
+                onOpenGuest={() => { const g = guests.find(x => x.id === kppSituation.guest.id) || kppSituation.guest; setKppSituation(null); setGuestDetailsModal({ open: true, guest: g }); }}
+            />
+        )}
+
         {checkInModal.open && (
-            <CheckInModal 
+            <CheckInModal
                 initialRoom={checkInModal.room}
                 preSelectedBedId={checkInModal.bedId}
                 initialDate={checkInModal.date}
                 initialClient={checkInModal.client}
+                isFromBooking={!!checkInModal.bookingId}
                 allRooms={filteredRooms}
                 guests={guests}
                 clients={guests}
@@ -2912,6 +2515,8 @@ return (
                 cadastreRegs={cadastreRegs || []}
                 onKppConfirm={handleKppConfirm}
                 onKppReset={handleKppReset}
+                onKppRecheck={handleKppRecheck}
+                onRegisterAuto={handleRegisterAuto}
                 onPriceRequest={handleRequestPriceReduction}
                 onUpgradeTariff={handleUpgradeToStandardTariff}
                 priceWhitelist={priceWhitelist}
@@ -2982,12 +2587,17 @@ return (
                 user={activeUserDoc} 
                 payments={payments} 
                 expenses={filteredExpenses} 
-                onClose={() => setShiftModal(false)} 
-                onEndShift={handleEndShift} 
-                onLogout={handleLogout} 
-                notify={showNotification} 
-                lang={lang} 
+                onClose={() => setShiftModal(false)}
+                onEndShift={handleEndShift}
+                onLogout={handleLogout}
+                notify={showNotification}
+                lang={lang}
                 sendTelegramMessage={sendTelegramMessage}
+                myShift={myActiveShift}
+                cashiersForTransfer={cashiersForTransfer}
+                onTransferShift={handleTransferShift}
+                opening={myActiveShift?.opening || myActiveShift?.openingCash || null}
+                openingFrom={myActiveShift?.openingFrom || null}
             />
         )}
         
@@ -3070,6 +2680,7 @@ return (
 
             {emehmonDepart && emehmonDepart.length > 0 && (
                 <EmehmonDepartureModal
+                    lang={lang}
                     guests={emehmonDepart}
                     onClose={() => setEmehmonDepart(null)}
                     onConfirm={handleEmehmonDepartConfirm}
@@ -3109,6 +2720,7 @@ return (
                     ? (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : 'hostel1')
                     : (currentUser.hostelId || 'hostel1')}
                 activeGuests={(filteredGuests || []).filter(g => g.status === 'active')}
+                lang={lang}
             />
 
             {/* Компонент глобального поиска */}
@@ -3130,7 +2742,7 @@ return (
             {undoStack.length > 0 && (
                 <button
                     onClick={() => setUndoHistoryOpen(true)}
-                    className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-white rounded-full shadow-lg shadow-amber-500/40 hover:shadow-xl hover:shadow-amber-500/50 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 font-black text-sm transition-all duration-200"
+                    className="fixed bottom-20 right-4 md:bottom-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg active:scale-95 font-black text-sm transition-all duration-150"
                     style={{ WebkitAppRegion: 'no-drag', ...(navPos === 'bottom' ? { bottom: 72 } : {}) }}
                 >
                     <span className="text-base">↩</span>
@@ -3147,6 +2759,7 @@ return (
                     undoStack={undoStack}
                     onClose={() => setUndoHistoryOpen(false)}
                     onUndo={handleUndo}
+                    lang={lang}
                 />
             )}
 

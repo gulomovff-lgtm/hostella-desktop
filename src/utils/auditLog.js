@@ -52,6 +52,11 @@ const maybeAlertTelegram = (context, message, details = {}) => {
         const now = Date.now();
         if (now - (_alertTimes.get(key) || 0) < ALERT_COOLDOWN_MS) return;
         if (_alertCount >= MAX_ALERTS_PER_SESSION) return;
+        // Чистим протухшие записи: кулдаун по ним уже истёк, держать их незачем,
+        // иначе Map растёт на каждый новый текст ошибки и не освобождается.
+        for (const [k, ts] of _alertTimes) {
+            if (now - ts >= ALERT_COOLDOWN_MS) _alertTimes.delete(k);
+        }
         _alertTimes.set(key, now);
         _alertCount++;
 
@@ -66,9 +71,14 @@ const maybeAlertTelegram = (context, message, details = {}) => {
             (details.path ? `🔗 ${escapeHtml(details.path)}\n` : '') +
             `🔖 v${APP_VERSION} · ${platform}${device ? ' · ' + device : ''}`;
 
-        // Шлём напрямую на chatId из настроек (минуя список получателей и фильтры типов)
+        // Шлём напрямую на chatId из настроек (минуя список получателей и фильтры типов).
+        // Одна повторная попытка через 20 с: первая может не пройти как раз из-за
+        // сбоя, о котором мы и сообщаем (обрыв связи, холодный старт функции).
         const chatId = getConfig().errorAlertChatId || ERROR_ALERT_CHAT_ID;
-        sendTelegramMessage(text, null, [chatId]).catch(() => {});
+        const deliver = () => sendTelegramMessage(text, null, [chatId]);
+        deliver()
+            .then((res) => { if (!res) setTimeout(() => { deliver().catch(() => {}); }, 20000); })
+            .catch(() => { setTimeout(() => { deliver().catch(() => {}); }, 20000); });
     } catch { /* алерт никогда не должен ломать UX */ }
 };
 

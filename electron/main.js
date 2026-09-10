@@ -3,9 +3,11 @@ const { app, BrowserWindow, ipcMain, powerMonitor, shell } = electron;
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const dns = require('dns');
+const net = require('net');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript, buildAutoArrivalScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -29,19 +31,97 @@ autoUpdater.autoInstallOnAppQuit = true;
 
 const UPDATE_IDLE_INSTALL_SECONDS = 180; // 3 мин простоя
 const UPDATE_IDLE_CHECK_INTERVAL_MS = 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;  // регулярная проверка обновлений
+const UPDATE_CHECK_MIN_GAP_MS   = 5 * 60 * 1000;  // но не чаще раза в 5 минут
+let lastUpdateCheckAt = 0;
+
+/**
+ * Проверка обновлений с защитой от частых вызовов. Дёргается из нескольких мест
+ * (старт, интервал, фокус окна, пробуждение), поэтому нужен общий тормоз —
+ * иначе на каждое переключение окна уходил бы запрос к GitHub.
+ */
+function checkForUpdatesThrottled(reason) {
+  if (isDownloading || isInstallingUpdate) return;
+  const now = Date.now();
+  if (now - lastUpdateCheckAt < UPDATE_CHECK_MIN_GAP_MS) return;
+  lastUpdateCheckAt = now;
+  log.info(`[Updater] checking (${reason})`);
+  autoUpdater.checkForUpdates().catch(e => log.error('[Updater] check failed:', e.message));
+}
 
 const PENDING_FILE = () => path.join(app.getPath('userData'), 'pending_payments.json');
+
+// ─── Немедленные уведомления о сбоях главного процесса ────────────────────────
+// Раньше падения main-процесса (автоматика e-mehmon, авто-обновление, IPC)
+// уходили только в файл лога, и владелец о них не узнавал. Теперь ошибка сразу
+// передаётся в интерфейс, а он шлёт алерт в Telegram уже настроенным путём.
+// Если окно мертво (краш рендерера) — складываем в файл и отправим при следующем
+// запуске: иначе именно самые тяжёлые сбои и терялись бы.
+const ERRORS_FILE = () => path.join(app.getPath('userData'), 'pending_errors.json');
+
+function queuePendingError(payload) {
+  try {
+    const file = ERRORS_FILE();
+    const prev = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8') || '[]') : [];
+    const next = Array.isArray(prev) ? prev : [];
+    next.push(payload);
+    fs.writeFileSync(file, JSON.stringify(next.slice(-20), null, 2), 'utf8'); // не копим бесконечно
+  } catch (e) {
+    log.error('[error-report] не смог сохранить:', e.message);
+  }
+}
+
+function reportMainError(context, err, extra = {}) {
+  const message = (err && err.message) ? err.message : String(err);
+  const stack = (err && err.stack) ? String(err.stack).slice(0, 600) : '';
+  log.error(`[${context}]`, message, stack);
+  const payload = { context, message, stack, at: new Date().toISOString(), ...extra };
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('main-error', payload);
+      return;
+    }
+  } catch (e) { /* окно недоступно — уходим в файл */ }
+  queuePendingError(payload);
+}
+
+process.on('uncaughtException', (err) => reportMainError('electron.uncaughtException', err));
+process.on('unhandledRejection', (reason) => reportMainError('electron.unhandledRejection', reason));
+app.on('render-process-gone', (_e, _wc, details) => {
+  reportMainError('electron.render-process-gone', new Error(details && details.reason ? details.reason : 'unknown'),
+    { exitCode: details && details.exitCode });
+});
+app.on('child-process-gone', (_e, details) => {
+  reportMainError('electron.child-process-gone', new Error(details && details.reason ? details.reason : 'unknown'),
+    { type: details && details.type });
+});
+
+// Интерфейс забирает накопленные ошибки при старте и сам их отправляет
+ipcMain.handle('take-pending-errors', () => {
+  try {
+    const file = ERRORS_FILE();
+    if (!fs.existsSync(file)) return [];
+    const data = JSON.parse(fs.readFileSync(file, 'utf8') || '[]');
+    fs.unlinkSync(file);
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    log.error('[error-report] не смог прочитать:', e.message);
+    return [];
+  }
+});
 
 let mainWindow;
 let emehmonWindow = null;
 let arrivalPayload = null; // текущий payload окна прибытия (для авто-галочки на нужного гостя)
-let departureWindow = null;
-let autoArrivalWindow = null;
+const departureWindows = {};   // partition -> скрытое окно убытия/списков
+const autoArrivalWindows = {}; // partition -> скрытое окно авто-регистрации
+let emehmonWindowPartition = null; // партиция открытого окна прибытия
 let autoArrivalChain = Promise.resolve(); // сериализация авто-регистраций (по одной за раз)
 let isDownloading = false;
 let isUpdateDownloaded = false;
 let isInstallingUpdate = false;
 let idleInstallInterval = null;
+let updateCheckInterval = null;
 
 function sendToWindow(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -148,13 +228,131 @@ function createWindow() {
   // Проверяем обновления через 3 секунды после запуска (только в production)
   if (!isDev) {
     // Тихая проверка/скачивание без пользовательских действий.
-    setTimeout(() => autoUpdater.checkForUpdates(), 3000);
-    // Повторно каждые 2 часа (только если не идёт скачивание)
-    setInterval(() => {
-      if (!isDownloading) autoUpdater.checkForUpdates();
-    }, 2 * 60 * 60 * 1000);
+    setTimeout(() => checkForUpdatesThrottled('startup'), 3000);
+    // Повторно раз в полчаса. Раньше было раз в 2 часа: релиз, вышедший сразу
+    // после проверки, ждал до двух часов, и выглядело это как «обновление не
+    // приходит, пока не перезапустишь» (перезапуск проверяет через 3 секунды).
+    // Старый интервал гасим: createWindow() вызывается и на 'ready', и на 'activate',
+    // иначе при пересоздании окна интервалы копились бы.
+    if (updateCheckInterval) clearInterval(updateCheckInterval);
+    updateCheckInterval = setInterval(() => checkForUpdatesThrottled('interval'), UPDATE_CHECK_INTERVAL_MS);
+
+    // Кассир вернулся к приложению или машина проснулась — хороший момент
+    // проверить: именно тогда чаще всего и ждут свежую версию.
+    mainWindow.on('focus', () => checkForUpdatesThrottled('focus'));
   }
 }
+
+// ─── e-mehmon: сессия НА КАЖДЫЙ ФИЛИАЛ ────────────────────────────────────────
+// У каждого филиала свой аккаунт e-mehmon, а сессия в Electron — это одна «банка
+// с cookie». Раньше все окна жили в общей persist:emehmon, поэтому одновременно
+// мог быть залогинен только ОДИН аккаунт: кассир этого не замечал (он всегда в
+// своём филиале), а админ при переключении филиалов получал списки того хостела,
+// под которым портал залогинен последним. Отдельная партиция на филиал решает
+// это: оба аккаунта живут параллельно, переключение не требует перелогина.
+const emehmonPartition = (hostelId) => {
+  const id = String(hostelId || '').trim();
+  // Только известный формат идентификатора — имя партиции не должно зависеть
+  // от произвольной строки, пришедшей из рендерера.
+  return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? `persist:emehmon-${id}` : 'persist:emehmon';
+};
+
+// ─── e-mehmon: безопасное построение URL и защита инжекции учётных данных ─────
+// Портал открывается ТОЛЬКО на своём origin, а автозаполнение (в нём — логин,
+// пароль и PII гостя) инжектится ТОЛЬКО когда окно реально стоит на emehmon.uz.
+const EMEHMON_ORIGIN = 'https://emehmon.uz';
+
+// Строим URL портала как фикс. origin + безопасный относительный путь. Строку
+// пути из рендерера НИКОГДА не конкатенируем к хосту напрямую: 'path' вида
+// '@evil.com/' превратил бы 'https://emehmon.uz'+path в userinfo-трюк и увёл
+// окно на чужой домен, куда затем инжектятся учётные данные.
+const buildEmehmonUrl = (rawPath) => {
+  const fallback = EMEHMON_ORIGIN + '/listok/create-page';
+  const p = String(rawPath || '/listok/create-page');
+  if (!/^\/[A-Za-z0-9/_.\-?=&%]*$/.test(p) || p.indexOf('//') === 0) return fallback;
+  try {
+    const u = new URL(p, EMEHMON_ORIGIN);
+    return u.origin === EMEHMON_ORIGIN ? u.toString() : fallback;
+  } catch { return fallback; }
+};
+
+// true только для https emehmon.uz (и поддоменов) — гейт для любой инжекции.
+const isEmehmonUrl = (url) => {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    const h = u.hostname.toLowerCase();
+    return h === 'emehmon.uz' || h.endsWith('.emehmon.uz');
+  } catch { return false; }
+};
+
+// Инжектим автозаполнение (логин/пароль/PII) ТОЛЬКО если окно на emehmon.uz.
+// Если портал/редирект/MITM увёл на чужой origin — молча пропускаем.
+const safeInjectAutofill = (win, payload) => {
+  try {
+    if (!win || win.isDestroyed()) return;
+    const wc = win.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    if (!isEmehmonUrl(wc.getURL())) {
+      log.warn('[emehmon] inject skipped: окно не на emehmon.uz →', wc.getURL());
+      return;
+    }
+    wc.executeJavaScript(buildAutofillScript(payload)).catch((err) =>
+      log.error('[emehmon] inject failed:', err.message));
+  } catch (e) { log.error('[emehmon] safeInject error:', e.message); }
+};
+
+// Запираем окно портала на emehmon.uz: любую навигацию на чужой origin
+// отменяем, всплывающие окна (лист печати) разрешаем только на emehmon.uz и с
+// полным hardening в webPreferences (иначе дочернее окно наследует defaults).
+// Портал тянет картинки, шрифты и медиа, которые автоматике не нужны, а на
+// слабой кассе два скрытых окна раз в пять минут заметно подвешивают
+// интерфейс. Режем их на уровне сессии филиала; капчу (картинку) оставляем —
+// она нужна кассиру при входе в видимом окне той же сессии.
+const lightPartitions = new Set();
+const lightenEmehmonSession = (part) => {
+  if (lightPartitions.has(part)) return;
+  lightPartitions.add(part);
+  try {
+    electron.session.fromPartition(part).webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
+      const t = details.resourceType;
+      const cancel = t === 'font' || t === 'media' || (t === 'image' && !/captcha/i.test(details.url || ''));
+      cb({ cancel });
+    });
+  } catch (e) {
+    log.warn('[emehmon] не удалось облегчить сессию портала:', e.message);
+  }
+};
+
+const hardenEmehmonWindow = (win, part) => {
+  lightenEmehmonSession(part);
+  const blockOffOrigin = (event, url) => {
+    if (!isEmehmonUrl(url)) {
+      event.preventDefault();
+      log.warn('[emehmon] заблокирован переход на', url);
+    }
+  };
+  win.webContents.on('will-navigate', blockOffOrigin);
+  // will-redirect ловит HTTP 3xx / meta-refresh, которые will-navigate пропускает.
+  win.webContents.on('will-redirect', blockOffOrigin);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isEmehmonUrl(url)) return { action: 'deny' };
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: mainWindow,
+        autoHideMenuBar: true,
+        webPreferences: {
+          partition: part,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          webSecurity: true,
+        },
+      },
+    };
+  });
+};
 
 // ─── e-mehmon: встроенное окно регистрации иностранцев ──────────────────────
 // Открывает дочернее окно с порталом e-mehmon в отдельной постоянной сессии
@@ -165,12 +363,20 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
     arrivalPayload = guest || {};
     const payload = arrivalPayload;
 
+    const part = emehmonPartition(payload.hostelId);
+    // Партиция задаётся при создании окна: если гость из другого филиала —
+    // старое окно пересоздаём, иначе попадём в чужую сессию.
+    if (emehmonWindow && !emehmonWindow.isDestroyed() && emehmonWindowPartition !== part) {
+      try { emehmonWindow.destroy(); } catch (_) {}
+      emehmonWindow = null;
+    }
     if (emehmonWindow && !emehmonWindow.isDestroyed()) {
       emehmonWindow.focus();
       // окно переиспользуется — обновляем данные/кнопку под нового гостя
-      emehmonWindow.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      safeInjectAutofill(emehmonWindow, payload);
       return true;
     }
+    emehmonWindowPartition = part;
     emehmonWindow = new BrowserWindow({
       width: 1200,
       height: 860,
@@ -178,22 +384,20 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
       title: 'e-mehmon — регистрация иностранцев',
       autoHideMenuBar: true,
       webPreferences: {
-        partition: 'persist:emehmon', // отдельная сессия с сохранением логина
+        partition: part, // сессия своего филиала (логин сохраняется отдельно)
         contextIsolation: true,
         nodeIntegration: false,
         webSecurity: true,
       },
     });
     emehmonWindow.setMenuBarVisibility(false);
+    hardenEmehmonWindow(emehmonWindow, part);
     // Прибытие → create-page, убытие → /listok. Если не залогинен, портал уведёт
     // на /login, после входа скрипт авто-редиректит на нужную страницу.
-    emehmonWindow.loadURL('https://emehmon.uz' + (payload.path || '/listok/create-page'));
+    // URL строится безопасно (фикс. origin + валидированный путь), см. buildEmehmonUrl.
+    emehmonWindow.loadURL(buildEmehmonUrl(payload.path));
 
-    const inject = () => {
-      emehmonWindow.webContents
-        .executeJavaScript(buildAutofillScript(arrivalPayload || payload))
-        .catch((err) => log.error('[emehmon] inject failed:', err.message));
-    };
+    const inject = () => safeInjectAutofill(emehmonWindow, arrivalPayload || payload);
     emehmonWindow.webContents.on('did-finish-load', inject);
     emehmonWindow.webContents.on('did-navigate', inject);
     emehmonWindow.webContents.on('did-navigate-in-page', inject);
@@ -237,9 +441,13 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
 //  • print:true  → окно показывается, чтобы был виден диалог печати листа убытия;
 //  • проблема (вход/не найден/неоднозначно) → окно всплывает для ручного завершения.
 // Создаёт (или переиспользует) скрытое окно убытия в сессии persist:emehmon.
-function ensureDepartureWindow() {
-  if (departureWindow && !departureWindow.isDestroyed()) return departureWindow;
-  departureWindow = new BrowserWindow({
+// По одному скрытому окну на филиал — каждое в своей сессии, поэтому оба
+// аккаунта e-mehmon остаются залогинены и переключение филиала ничего не рвёт.
+function ensureDepartureWindow(hostelId) {
+  const part = emehmonPartition(hostelId);
+  const cur = departureWindows[part];
+  if (cur && !cur.isDestroyed()) return cur;
+  const win = new BrowserWindow({
     width: 1200,
     height: 860,
     parent: mainWindow,
@@ -247,31 +455,26 @@ function ensureDepartureWindow() {
     title: 'e-mehmon — убытие',
     autoHideMenuBar: true,
     webPreferences: {
-      partition: 'persist:emehmon', // та же сессия, что и окно прибытия
+      partition: part, // сессия своего филиала
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
     },
   });
-  departureWindow.setMenuBarVisibility(false);
-  departureWindow.on('closed', () => { departureWindow = null; });
-  // e-mehmon при печати открывает лист убытия отдельным окном — показываем его.
-  departureWindow.webContents.setWindowOpenHandler(() => ({
-    action: 'allow',
-    overrideBrowserWindowOptions: {
-      parent: mainWindow,
-      autoHideMenuBar: true,
-      webPreferences: { partition: 'persist:emehmon' },
-    },
-  }));
-  return departureWindow;
+  win.setMenuBarVisibility(false);
+  win.on('closed', () => { delete departureWindows[part]; });
+  // Запираем окно на emehmon.uz. Лист печати (window.open с портала) — только на
+  // emehmon.uz и с полным hardening в дочернем окне, см. hardenEmehmonWindow.
+  hardenEmehmonWindow(win, part);
+  departureWindows[part] = win;
+  return win;
 }
 
 ipcMain.handle('emehmon-departure', async (_event, guest) => {
   const payload = guest || {};
   const wantVisible = !!payload.print;
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(payload.hostelId);
     // Свежая загрузка списка (фолбэк на /login, если не залогинен)
     await win.loadURL('https://emehmon.uz/listok');
     if (wantVisible) { win.show(); win.focus(); }
@@ -289,7 +492,7 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
     if (needsHuman) {
       // Показать окно и подмешать ручную панель убытия / автозаполнение логина.
       win.show(); win.focus();
-      win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      safeInjectAutofill(win, payload);
     } else if (status === 'done' && !wantVisible) {
       win.hide(); // успех в фоне — прячем (окно переиспользуется при след. выселении)
     }
@@ -297,7 +500,8 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
     return result || { status };
   } catch (e) {
     log.error('[emehmon] departure failed:', e.message);
-    if (departureWindow && !departureWindow.isDestroyed()) { departureWindow.show(); }
+    const w = departureWindows[emehmonPartition(payload.hostelId)];
+    if (w && !w.isDestroyed()) { w.show(); }
     return { status: 'error', message: e.message };
   }
 });
@@ -309,7 +513,7 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
 ipcMain.handle('emehmon-check', async (_event, guest) => {
   const payload = guest || {};
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(payload.hostelId);
     await win.loadURL('https://emehmon.uz/listok');
     let result;
     try {
@@ -320,7 +524,7 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
     const status = (result && result.status) || 'error';
     if (status === 'need_login') {
       win.show(); win.focus();
-      win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+      safeInjectAutofill(win, payload);
     } else {
       win.hide(); // проверка всегда фоновая
     }
@@ -335,24 +539,28 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
 // Скрытое окно, полный прогон мастера. Успех → прячем + возвращаем done.
 // Любой сбой → показываем окно кассиру с ручным автозаполнением. Регистрации
 // сериализованы (autoArrivalChain), чтобы не гонять несколько сразу.
-function ensureAutoArrivalWindow() {
-  if (autoArrivalWindow && !autoArrivalWindow.isDestroyed()) return autoArrivalWindow;
-  autoArrivalWindow = new BrowserWindow({
+function ensureAutoArrivalWindow(hostelId) {
+  const part = emehmonPartition(hostelId);
+  const cur = autoArrivalWindows[part];
+  if (cur && !cur.isDestroyed()) return cur;
+  const win = new BrowserWindow({
     width: 1200, height: 860, parent: mainWindow, show: false,
     title: 'e-mehmon — авто-регистрация',
     autoHideMenuBar: true,
     webPreferences: {
-      partition: 'persist:emehmon',
+      partition: part, // сессия своего филиала
       contextIsolation: true, nodeIntegration: false, webSecurity: true,
     },
   });
-  autoArrivalWindow.setMenuBarVisibility(false);
-  autoArrivalWindow.on('closed', () => { autoArrivalWindow = null; });
-  return autoArrivalWindow;
+  win.setMenuBarVisibility(false);
+  win.on('closed', () => { delete autoArrivalWindows[part]; });
+  hardenEmehmonWindow(win, part);
+  autoArrivalWindows[part] = win;
+  return win;
 }
 
 async function runAutoArrival(payload) {
-  const win = ensureAutoArrivalWindow();
+  const win = ensureAutoArrivalWindow(payload && payload.hostelId);
   await win.loadURL('https://emehmon.uz/listok/create-page');
   let result;
   try {
@@ -361,16 +569,22 @@ async function runAutoArrival(payload) {
     result = { status: 'error', message: e.message };
   }
   const status = (result && result.status) || 'error';
-  if (status === 'done') {
+  if (status === 'done' || status === 'needs_decision') {
+    // needs_decision — мастер дошёл до «Сохранить», но список прошлых
+    // проживаний требует решения человека; окно решения покажет рендерер.
     win.hide();
   } else if (payload.silent) {
     // Тихая фоновая попытка (авто-добор «забытых» местных) — окно НЕ показываем,
     // статус вернётся рендеру, он поставит пометку об ошибке на госте.
     win.hide();
+  } else if (payload.quietFail && status !== 'need_login') {
+    // У рендерера своё окно на этот случай («исправьте данные»/«ситуация») —
+    // второе окно портала поверх него только путает кассира.
+    win.hide();
   } else {
     // Проблема — окно кассиру + привычная ручная кнопка «Заполнить из Hostella».
     win.show(); win.focus();
-    win.webContents.executeJavaScript(buildAutofillScript(payload)).catch(() => {});
+    safeInjectAutofill(win, payload);
   }
   return result || { status };
 }
@@ -379,9 +593,47 @@ ipcMain.handle('emehmon-arrival-auto', (_event, guest) => {
   const payload = guest || {};
   const run = autoArrivalChain.then(() => runAutoArrival(payload).catch((e) => {
     log.error('[emehmon] auto-arrival failed:', e.message);
-    if (autoArrivalWindow && !autoArrivalWindow.isDestroyed()) autoArrivalWindow.show();
+    const w = autoArrivalWindows[emehmonPartition(payload.hostelId)];
+    if (w && !w.isDestroyed()) w.show();
     return { status: 'error', message: e.message };
   }));
+  autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
+  return run;
+});
+
+// ─── e-mehmon: проверка паспортных данных (разбор дубликатов клиентов) ───────
+// Прогоняет ТОЛЬКО первый шаг мастера прибытия и возвращает вердикт:
+//   valid     — портал пустил на следующий шаг, данные есть в госбазе (+officialName)
+//   not_found — «topilmadi», такого паспорта/даты рождения в госбазе нет
+//   need_login — нужен вход в портал: показываем окно, вход и капчу делает кассир
+// Ничего не сохраняет: до кнопки submitForm поток не доходит.
+// Проверки сериализованы общей цепочкой с авто-регистрацией — чтобы не гонять
+// несколько окон портала разом (владелец просил ручной режим, по одной).
+ipcMain.handle('emehmon-passport-check', (_event, payload) => {
+  const data = payload || {};
+  const run = autoArrivalChain.then(async () => {
+    try {
+      const win = ensureAutoArrivalWindow(data.hostelId);
+      await win.loadURL('https://emehmon.uz/listok/create-page');
+      let result;
+      try {
+        result = await win.webContents.executeJavaScript(buildPassportCheckScript(data), true);
+      } catch (e) {
+        result = { status: 'error', message: e.message };
+      }
+      const status = (result && result.status) || 'error';
+      if (status === 'need_login') {
+        win.show(); win.focus();
+        safeInjectAutofill(win, data);
+      } else {
+        win.hide();
+      }
+      return result || { status };
+    } catch (e) {
+      log.error('[emehmon] passport-check failed:', e.message);
+      return { status: 'error', message: e.message };
+    }
+  });
   autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
   return run;
 });
@@ -393,7 +645,7 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
   const data = payload || {};
   const wantVisible = !!data.print;
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(data.hostelId);
     await win.loadURL('https://emehmon.uz/listok');
     if (wantVisible) { win.show(); win.focus(); }
     let result;
@@ -407,14 +659,15 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
       'no_button', 'no_checkout_btn', 'error'].includes(status);
     if (needsHuman) {
       win.show(); win.focus();
-      win.webContents.executeJavaScript(buildAutofillScript({ mode: 'departure' })).catch(() => {});
+      safeInjectAutofill(win, { mode: 'departure' });
     } else if (status === 'done' && !wantVisible) {
       win.hide();
     }
     return result || { status };
   } catch (e) {
     log.error('[emehmon] bulk departure failed:', e.message);
-    if (departureWindow && !departureWindow.isDestroyed()) { departureWindow.show(); }
+    const w = departureWindows[emehmonPartition(data.hostelId)];
+    if (w && !w.isDestroyed()) { w.show(); }
     return { status: 'error', message: e.message };
   }
 });
@@ -425,7 +678,7 @@ ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
 ipcMain.handle('emehmon-list', async (_event, payload) => {
   const data = payload || {};
   try {
-    const win = ensureDepartureWindow();
+    const win = ensureDepartureWindow(data.hostelId);
     await win.loadURL('https://emehmon.uz/listok');
     let result;
     try {
@@ -443,20 +696,71 @@ ipcMain.handle('emehmon-list', async (_event, payload) => {
   }
 });
 
+// Пересчёт стоимости услуг в листках прибытия (фоново, как и список).
+// payload: { hostelId, items: [{ passport, name, amount }], paymentStatus }
+ipcMain.handle('emehmon-recalc', async (_event, payload) => {
+  const data = payload || {};
+  try {
+    const win = ensureDepartureWindow(data.hostelId);
+    await win.loadURL('https://emehmon.uz/listok');
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildRecalcScript(data), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    win.hide();
+    return result || { status: 'error' };
+  } catch (e) {
+    log.error('[emehmon] recalc failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
+
+// Турсбор: отчёт с /tursborpays за период (фоново, как и список листков).
+// payload: { range: 'YYYY-MM-DD ~ YYYY-MM-DD', hostelId }
+ipcMain.handle('emehmon-tursbor', async (_event, payload) => {
+  const data = payload || {};
+  try {
+    const win = ensureDepartureWindow(data.hostelId);
+    await win.loadURL('https://emehmon.uz/tursborpays');
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildTursborFetchScript(data), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    win.hide();
+    return result || { status: 'error' };
+  } catch (e) {
+    log.error('[emehmon] tursbor failed:', e.message);
+    return { status: 'error', message: e.message };
+  }
+});
+
 // IPC Handlers for window control
+const liveWin = () => (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
+
 ipcMain.handle('window-minimize', () => {
-  mainWindow.minimize();
+  liveWin()?.minimize();
 });
 
 // ─── Pending payments file (offline safety net) ───────────────────────────────
 ipcMain.handle('save-pending-payments', (_event, data) => {
   try {
     const file = PENDING_FILE();
-    if (!data || !data.length) {
+    // Пишем только массив и с ограничением размера — не даём рендереру складывать
+    // на диск произвольный/огромный объект, который потом читается и доверяется.
+    if (!Array.isArray(data) || data.length === 0) {
       if (fs.existsSync(file)) fs.unlinkSync(file);
-    } else {
-      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+      return true;
     }
+    const serialized = JSON.stringify(data.slice(0, 500), null, 2);
+    if (serialized.length > 5 * 1024 * 1024) {
+      log.error('save-pending-payments: payload too large, skipped');
+      return false;
+    }
+    fs.writeFileSync(file, serialized, 'utf8');
     return true;
   } catch (e) {
     log.error('save-pending-payments error:', e.message);
@@ -469,7 +773,8 @@ ipcMain.handle('load-pending-payments', () => {
     const file = PENDING_FILE();
     if (!fs.existsSync(file)) return [];
     const raw = fs.readFileSync(file, 'utf8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     log.error('load-pending-payments error:', e.message);
     return [];
@@ -478,43 +783,71 @@ ipcMain.handle('load-pending-payments', () => {
 
 
 ipcMain.handle('window-maximize', () => {
-  if (mainWindow.isMaximized()) {
-    mainWindow.restore();
-  } else {
-    mainWindow.maximize();
-  }
+  const w = liveWin();
+  if (!w) return;
+  if (w.isMaximized()) w.restore(); else w.maximize();
 });
 
 ipcMain.handle('window-restore', () => {
-  mainWindow.restore();
+  liveWin()?.restore();
 });
 
 ipcMain.handle('window-close', () => {
-  mainWindow.close();
+  liveWin()?.close();
 });
 
 ipcMain.handle('window-isMaximized', () => {
-  return mainWindow.isMaximized();
+  return liveWin()?.isMaximized() ?? false;
 });
 
 // ─── Booking.com iCal fetch (bypasses CORS from renderer) ───────────────────
 // SSRF-защита: только https, запрет обращений на localhost/приватные диапазоны
 // (иначе рендерер мог бы заставить main-процесс сканировать локальную сеть).
+// Приватный/непубличный IP? Проверяем сам адрес (IPv4 и IPv6), а не строку.
+const isPrivateIp = (ip) => {
+    const a = String(ip || '').toLowerCase();
+    if (!a) return true;
+    if (a.includes(':')) { // IPv6
+        if (a === '::1' || a === '::') return true;
+        if (a.startsWith('fe80') || a.startsWith('fc') || a.startsWith('fd')) return true; // link-local, ULA
+        if (a.startsWith('64:ff9b:') || a.startsWith('64:ff9b:1:')) return true;           // NAT64 → внутр. IPv4
+        if (a.startsWith('2001:db8:')) return true;                                        // документационный
+        const m6 = a.match(/::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/); // IPv4-mapped
+        if (m6) return isPrivateIp(m6[1]);
+        const mHex = a.match(/::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);    // IPv4-mapped в hex
+        if (mHex) {
+            const n = (parseInt(mHex[1], 16) << 16) | parseInt(mHex[2], 16);
+            return isPrivateIp(`${(n>>>24)&255}.${(n>>>16)&255}.${(n>>>8)&255}.${n&255}`);
+        }
+        const mCompat = a.match(/^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/); // IPv4-compatible ::x.x.x.x
+        if (mCompat) return isPrivateIp(mCompat[1]);
+        return false;
+    }
+    const m = a.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return true; // после lookup сюда приходит валидный IP; иначе — блок
+    const [x, y] = [parseInt(m[1], 10), parseInt(m[2], 10)];
+    if (x === 127 || x === 10 || x === 0) return true;
+    if (x === 169 && y === 254) return true;               // link-local
+    if (x === 192 && y === 168) return true;
+    if (x === 172 && y >= 16 && y <= 31) return true;
+    if (x === 100 && y >= 64 && y <= 127) return true;     // CGNAT
+    if (x >= 224) return true;                             // multicast/reserved
+    return false;
+};
+
 const isBlockedIcalHost = (hostname) => {
     const h = (hostname || '').toLowerCase();
     if (!h) return true;
     if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
-    if (h === '::1' || h === '0.0.0.0') return true;
-    // IPv4 приватные/loopback/link-local диапазоны
-    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (m) {
-        const [a, b] = [parseInt(m[1], 10), parseInt(m[2], 10)];
-        if (a === 127 || a === 10 || a === 0) return true;
-        if (a === 169 && b === 254) return true;               // link-local
-        if (a === 192 && b === 168) return true;
-        if (a === 172 && b >= 16 && b <= 31) return true;
-        if (a === 100 && b >= 64 && b <= 127) return true;     // CGNAT
-    }
+    // Нестандартные записи IP (integer/hex) минуют dotted-quad проверку — блокируем явно.
+    if (/^\d+$/.test(h)) return true;                      // напр. 2130706433 = 127.0.0.1
+    if (/^0x[0-9a-f.]+$/i.test(h)) return true;            // напр. 0x7f000001
+    // isPrivateIp зовём ТОЛЬКО для литеральных IP: раньше он возвращал true для
+    // любого доменного имени (не-IP → true), из-за чего блокировались ВСЕ реальные
+    // хосты и фича iCal переставала работать. Домены пропускаем — реальный барьер
+    // ставит safeLookup на этапе резолва.
+    const bare = h.replace(/^\[|\]$/g, '');                // снять скобки IPv6-литерала
+    if (net.isIP(bare) && isPrivateIp(bare)) return true;
     return false;
 };
 
@@ -523,27 +856,66 @@ const validateIcalUrl = (raw) => {
     try { u = new URL(raw); } catch { return null; }
     if (u.protocol !== 'https:') return null;                  // только https
     if (isBlockedIcalHost(u.hostname)) return null;
-    return u.toString();
+    return u;
 };
+
+// Пин к проверенному адресу: node подставляет в соединение ровно тот IP, что
+// вернул наш lookup, а мы валидируем его здесь → закрывается DNS-rebinding
+// (когда attacker.com резолвится в 169.254.169.254 между проверкой и коннектом).
+const safeLookup = (hostname, options, callback) => {
+    dns.lookup(hostname, options, (err, address, family) => {
+        if (err) return callback(err);
+        if (Array.isArray(address)) {
+            if (address.some((a) => isPrivateIp(a.address))) {
+                return callback(new Error('Blocked private address'));
+            }
+        } else if (isPrivateIp(address)) {
+            return callback(new Error('Blocked private address'));
+        }
+        callback(null, address, family);
+    });
+};
+
+const ICAL_MAX_BYTES = 5 * 1024 * 1024;   // 5 МБ — календарь не бывает больше
+const ICAL_TIMEOUT_MS = 15000;
 
 ipcMain.handle('fetch-ical', (event, url) => {
     return new Promise((resolve, reject) => {
         const MAX_REDIRECTS = 5;
         const doGet = (target, redirectsLeft) => {
             if (redirectsLeft <= 0) { reject('Too many redirects'); return; }
-            const safe = validateIcalUrl(target);
-            if (!safe) { reject('Blocked or invalid iCal URL'); return; }
-            https.get(safe, { headers: { 'User-Agent': 'Hostella/1.0' } }, (res) => {
+            const u = validateIcalUrl(target);
+            if (!u) { reject('Blocked or invalid iCal URL'); return; }
+            const req = https.get({
+                protocol: u.protocol,
+                hostname: u.hostname,
+                path: u.pathname + u.search,
+                lookup: safeLookup,                    // резолв + блок приватных + пин
+                headers: { 'User-Agent': 'Hostella/1.0' },
+                timeout: ICAL_TIMEOUT_MS,
+            }, (res) => {
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    res.resume(); // освобождаем сокет
                     // Резолвим относительный Location и снова валидируем хост.
-                    const next = new URL(res.headers.location, safe).toString();
+                    const next = new URL(res.headers.location, u).toString();
                     doGet(next, redirectsLeft - 1);
                     return;
                 }
                 let data = '';
-                res.on('data', chunk => { data += chunk; });
+                let size = 0;
+                res.on('data', (chunk) => {
+                    size += chunk.length;
+                    if (size > ICAL_MAX_BYTES) {
+                        req.destroy();
+                        reject('iCal response too large');
+                        return;
+                    }
+                    data += chunk;
+                });
                 res.on('end', () => resolve(data));
-            }).on('error', e => reject(e.message));
+            });
+            req.on('timeout', () => { req.destroy(); reject('iCal request timeout'); });
+            req.on('error', (e) => reject(e.message));
         };
         doGet(url, MAX_REDIRECTS);
     });
@@ -591,6 +963,11 @@ autoUpdater.on('error', (err) => {
   isDownloading = false;
   stopIdleInstallWatcher();
   sendToWindow('update-error', err.message);
+});
+
+// Машина проснулась после сна — за это время вполне мог выйти релиз.
+powerMonitor.on('resume', () => {
+  if (!isDev) setTimeout(() => checkForUpdatesThrottled('resume'), 5000);
 });
 
 // IPC: renderer просит установить обновление

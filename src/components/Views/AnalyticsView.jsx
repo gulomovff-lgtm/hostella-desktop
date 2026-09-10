@@ -7,8 +7,11 @@ import {
 import {
     TrendingUp, TrendingDown, DollarSign, Calendar, BarChart3,
     Users, BedDouble, CreditCard, Banknote, QrCode, PieChart as PieIcon,
-    ArrowUpRight, ArrowDownRight,
+    ArrowUpRight, ArrowDownRight, Signpost,
 } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
+import { summarizeSources } from '../../utils/guestSource';
+import { getConfig } from '../../utils/appConfig';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 // Категории постоянных расходов (C_fixed): не зависят от числа гостей
@@ -27,7 +30,6 @@ const COUNTRY_FLAGS = {
     "Мексика":"mx","Аргентина":"ar","Египет":"eg","Марокко":"ma","Нигерия":"ng",
 };
 
-const fmt = (n) => (parseInt(n) || 0).toLocaleString('ru') + ' сум';
 const fmtShort = (n) => {
     const v = parseInt(n) || 0;
     if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'М';
@@ -109,10 +111,10 @@ const KpiCard = ({ icon: Icon, label, value, sub, color, trend }) => {
 };
 
 // ─── Пустое состояние ─────────────────────────────────────────────────────────
-const Empty = () => (
+const Empty = ({ label }) => (
     <div className="flex flex-col items-center justify-center h-48 gap-3" style={{ color: isDarkMode() ? '#475569' : '#cbd5e1' }}>
         <BarChart3 size={40} />
-        <span className="text-sm font-semibold">Нет данных за период</span>
+        <span className="text-sm font-semibold">{label}</span>
     </div>
 );
 
@@ -132,7 +134,9 @@ const ChartCard = ({ title, icon: Icon, children }) => {
 };
 
 // ─── Главный компонент ────────────────────────────────────────────────────────
-const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], users = [], currentUser }) => {
+const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], users = [], currentUser, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
+    const fmtCur = (n) => (parseInt(n) || 0).toLocaleString('ru') + ' ' + t('sum');
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     const dk = isDarkMode();
 
@@ -142,12 +146,12 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     const [dateTo, setDateTo] = useState('');
 
     const PERIODS = [
-        { id: '1',    label: 'Сегодня' },
-        { id: '7',    label: '7 дней' },
-        { id: '30',   label: '30 дней' },
-        { id: '90',   label: '3 мес.' },
-        { id: '365',  label: 'Год' },
-        { id: 'custom', label: 'Период' },
+        { id: '1',    label: t('today') },
+        { id: '7',    label: t('an7days') },
+        { id: '30',   label: t('an30days') },
+        { id: '90',   label: t('an3months') },
+        { id: '365',  label: t('anYear') },
+        { id: 'custom', label: t('anPeriod') },
     ];
 
     const { startDate, endDate } = useMemo(() => {
@@ -220,9 +224,9 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         const card = filteredPayments.reduce((s,p)=>s+(p.card!==undefined?parseInt(p.card)||0:p.method==='card'?parseInt(p.amount)||0:0),0);
         const qr   = filteredPayments.reduce((s,p)=>s+(p.qr!==undefined?parseInt(p.qr)||0:p.method==='qr'?parseInt(p.amount)||0:0),0);
         return [
-            { name: 'Наличные', value: cash, color: COLORS.cash },
-            { name: 'Карта',    value: card, color: COLORS.card },
-            { name: 'QR',       value: qr,   color: COLORS.qr   },
+            { name: t('cash'),      value: cash, color: COLORS.cash },
+            { name: t('cardShort'), value: card, color: COLORS.card },
+            { name: 'QR',           value: qr,   color: COLORS.qr   },
         ].filter(x => x.value > 0);
     }, [filteredPayments]);
 
@@ -279,6 +283,14 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             .map(([country, count]) => ({ country, count, flag: COUNTRY_FLAGS[country] }));
     }, [filteredGuests]);
 
+    // ─── 4б. Откуда гости ────────────────────────────────────────────────────
+    // Гости — по заезду в период, выручка — по платежам периода (как и остальная
+    // аналитика), доля — от выручки. Разбор словаря и догадок — utils/guestSource.js.
+    const sourceData = useMemo(
+        () => summarizeSources({ guests, payments, from: startDate, to: endDate }, getConfig().guestSources, lang),
+        [guests, payments, startDate, endDate, lang]);
+    const sourceGuestsTotal = useMemo(() => sourceData.reduce((s, x) => s + x.guests, 0), [sourceData]);
+
     // ─── 5. Доходность комнат ────────────────────────────────────────────────
     const roomRevenueData = useMemo(() => {
         const map = {};
@@ -292,7 +304,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         const sorted = Object.entries(map)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 15)
-            .map(([room, revenue], i) => ({ room: `Ком. ${room}`, revenue, top: i < 3 }));
+            .map(([room, revenue], i) => ({ room: `${t('anRoomShort')} ${room}`, revenue, top: i < 3 }));
         return sorted;
     }, [filteredPayments, guests]);
 
@@ -301,7 +313,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         const map = {};
         filteredPayments.forEach(p => {
             const staffUser = users.find(u => u.id === p.staffId || u.login === p.staffId);
-            const name = staffUser?.name || staffUser?.login || p.staffId || 'Неизвестно';
+            const name = staffUser?.name || staffUser?.login || p.staffId || t('anUnknown');
             if (!map[name]) map[name] = { name, cash: 0, card: 0, qr: 0 };
             map[name].cash += p.cash !== undefined ? parseInt(p.cash)||0 : p.method==='cash' ? parseInt(p.amount)||0 : 0;
             map[name].card += p.card !== undefined ? parseInt(p.card)||0 : p.method==='card' ? parseInt(p.amount)||0 : 0;
@@ -316,7 +328,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     const expenseCategoryData = useMemo(() => {
         const map = {};
         filteredExpenses.forEach(e => {
-            const cat = e.category || 'Прочее';
+            const cat = e.category || t('other');
             map[cat] = (map[cat] || 0) + (parseInt(e.amount) || 0);
         });
         return Object.entries(map)
@@ -354,14 +366,15 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             else if (d <= 30)  buckets['15-30 д.'] += 1;
             else               buckets['30+ д.'] += 1;
         });
+        const STAY_LABELS = { '1 д.': 'anStay1d', '2 д.': 'anStay2d', '3-5 д.': 'anStay35d', '6-14 д.': 'anStay614d', '15-30 д.': 'anStay1530d', '30+ д.': 'anStay30plus' };
         return Object.entries(buckets)
             .filter(([, v]) => v > 0)
-            .map(([label, count]) => ({ label, count }));
+            .map(([label, count]) => ({ label: t(STAY_LABELS[label]), count }));
     }, [filteredGuests]);
 
     // ─── 10. Заезды по дням недели ───────────────────────────────────────────
     const weekdayData = useMemo(() => {
-        const WDAYS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+        const WDAYS = ['anWd0', 'anWd1', 'anWd2', 'anWd3', 'anWd4', 'anWd5', 'anWd6'];
         const map = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
         filteredGuests.forEach(g => {
             if (!g.checkInDate) return;
@@ -369,7 +382,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             if (ci < startDate || ci > endDate) return;
             map[ci.getDay()] = (map[ci.getDay()] || 0) + 1;
         });
-        return [1, 2, 3, 4, 5, 6, 0].map(wd => ({ day: WDAYS[wd], count: map[wd] || 0 }));
+        return [1, 2, 3, 4, 5, 6, 0].map(wd => ({ day: t(WDAYS[wd]), count: map[wd] || 0, weekend: wd === 0 || wd === 6 }));
     }, [filteredGuests, startDate, endDate]);
 
     // ─── 11. Задолженности гостей ─────────────────────────────────────────────
@@ -379,7 +392,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             .map(g => {
                 const paid = (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash||0) + (g.paidCard||0) + (g.paidQR||0)));
                 const debt = (g.totalPrice || 0) - paid;
-                return { name: (g.fullName?.split(' ')[0] || '—') + (g.roomNumber ? ` к.${g.roomNumber}` : ''), debt };
+                return { name: (g.fullName?.split(' ')[0] || '—') + (g.roomNumber ? ` ${t('anRoomLetterAbbr')}${g.roomNumber}` : ''), debt };
             })
             .filter(x => x.debt > 0)
             .sort((a, b) => b.debt - a.debt)
@@ -438,9 +451,6 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     const cVarNight      = nTotal > 0 ? cVar / nTotal : 0;
     // Доля постоянных расходов на 1 койко-ночь
     const cFixedNight    = nTotal > 0 ? cFixed / nTotal : 0;
-    // P_guest = R - (C_var/N + C_fixed/N)
-    const pGuest         = Math.round(R_night - cVarNight - cFixedNight);
-    const rentability    = R_night > 0 ? Math.round((pGuest / R_night) * 100) : 0;
 
     return (
         <div className="flex-1 overflow-y-auto" style={{ background: dk ? '#0f172a' : '#f0f2f5' }}>
@@ -452,8 +462,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         <BarChart3 size={20} className="text-white" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>Аналитика</h1>
-                        <p className="text-xs" style={{ color: dk ? '#64748b' : '#94a3b8' }}>Финансы, загрузка, гости — всё в одном месте</p>
+                        <h1 className="text-xl font-black" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>{t('analytics')}</h1>
+                        <p className="text-xs" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{t('anSubtitle')}</p>
                     </div>
                 </div>
 
@@ -489,21 +499,20 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
                 {/* ── KPI-карточки ── */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <KpiCard icon={TrendingUp}   label="Доходы"          value={totalIncome}  color="#10b981" />
-                    <KpiCard icon={TrendingDown}  label="Расходы"         value={totalExpense} color="#ef4444" />
-                    <KpiCard icon={DollarSign}    label="Прибыль"         value={totalProfit}  color={totalProfit >= 0 ? '#3b82f6' : '#ef4444'} />
-                    <KpiCard icon={Calendar}      label="Доход / день"    value={avgPerDay}    color="#8b5cf6" />
+                    <KpiCard icon={TrendingUp}   label={t('anIncomes')}          value={totalIncome}  color="#10b981" />
+                    <KpiCard icon={TrendingDown}  label={t('expenses')}         value={totalExpense} color="#ef4444" />
+                    <KpiCard icon={DollarSign}    label={t('anProfit')}         value={totalProfit}  color={totalProfit >= 0 ? '#3b82f6' : '#ef4444'} />
+                    <KpiCard icon={Calendar}      label={t('anIncomePerDayLabel')}    value={avgPerDay}    color="#8b5cf6" />
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <KpiCard icon={Users}         label="Гостей за период"    value={guestCount + ' чел.'}  color="#06b6d4" />
-                    <KpiCard icon={BedDouble}     label="Средний чек"         value={avgCheck}              color="#f59e0b" />
-                    <KpiCard icon={Banknote}      label="Наличные"            value={filteredPayments.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#10b981" />
-                    <KpiCard icon={CreditCard}    label="Безнал + QR"         value={filteredPayments.filter(p=>p.method!=='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#3b82f6" />
+                    <KpiCard icon={Users}         label={t('anGuestsInPeriod')}    value={guestCount + ' ' + t('anPpl')}  color="#06b6d4" />
+                    <KpiCard icon={BedDouble}     label={t('anAvgCheck')}         value={avgCheck}              color="#f59e0b" />
+                    <KpiCard icon={Banknote}      label={t('cash')}            value={filteredPayments.filter(p=>p.method==='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#10b981" />
+                    <KpiCard icon={CreditCard}    label={t('anCashlessQr')}         value={filteredPayments.filter(p=>p.method!=='cash').reduce((s,p)=>s+(parseInt(p.amount)||0),0)} color="#3b82f6" />
                 </div>
 
                 {/* ── Финансовый итог периода ── */}
                 {nTotal > 0 && (() => {
-                    const incomeBarPct = totalIncome > 0 ? 100 : 0;
                     const expenseBarPct = totalIncome > 0 ? Math.min(100, Math.round(totalExpense / totalIncome * 100)) : 0;
                     const profitColor = totalProfit >= 0 ? '#10b981' : '#ef4444';
                     const marginPct = totalIncome > 0 ? Math.round(totalProfit / totalIncome * 100) : 0;
@@ -518,22 +527,22 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                             <div className="px-5 py-3.5 flex items-center gap-2"
                                 style={{ borderBottom: `1px solid ${dk ? '#334155' : '#f1f5f9'}` }}>
                                 <DollarSign size={15} style={{ color: dk ? '#64748b' : '#94a3b8' }} />
-                                <span className="text-sm font-black uppercase tracking-wide" style={{ color: dk ? '#e2e8f0' : '#334155' }}>Итог периода</span>
-                                <span className="ml-auto text-[11px]" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{guestCount} заселений · {nTotal} чел/ночей</span>
+                                <span className="text-sm font-black uppercase tracking-wide" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{t('anPeriodTotal')}</span>
+                                <span className="ml-auto text-[11px]" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{guestCount} {t('anCheckinsWord')} · {nTotal} {t('anPersonNights')}</span>
                             </div>
 
                             <div className="p-5 space-y-5">
                                 {/* Три главные цифры */}
                                 <div className="grid grid-cols-3 gap-3">
                                     <div className="rounded-2xl p-4" style={{ background: dk ? 'rgba(16,185,129,0.12)' : '#f0fdf4', border: `1px solid ${dk ? 'rgba(16,185,129,0.25)' : '#bbf7d0'}` }}>
-                                        <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-wide mb-1">Доходы</div>
+                                        <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-wide mb-1">{t('anIncomes')}</div>
                                         <div className="text-2xl font-black text-emerald-400">{fmtShort(totalIncome)}</div>
-                                        <div className="text-[10px] text-emerald-500 mt-1">{fmtShort(incomePerNight)} / ночь</div>
+                                        <div className="text-[10px] text-emerald-500 mt-1">{fmtShort(incomePerNight)} {t('anPerNight')}</div>
                                     </div>
                                     <div className="rounded-2xl p-4" style={{ background: dk ? 'rgba(239,68,68,0.12)' : '#fff1f2', border: `1px solid ${dk ? 'rgba(239,68,68,0.25)' : '#fecdd3'}` }}>
-                                        <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wide mb-1">Расходы</div>
+                                        <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wide mb-1">{t('expenses')}</div>
                                         <div className="text-2xl font-black text-rose-400">{fmtShort(totalExpense)}</div>
-                                        <div className="text-[10px] text-rose-500 mt-1">{fmtShort(expensePerNight)} / ночь</div>
+                                        <div className="text-[10px] text-rose-500 mt-1">{fmtShort(expensePerNight)} {t('anPerNight')}</div>
                                     </div>
                                     <div className="rounded-2xl border-2 p-4" style={{
                                         background: dk
@@ -541,12 +550,12 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             : (totalProfit >= 0 ? '#f0fdf4' : '#fff7ed'),
                                         borderColor: totalProfit >= 0 ? (dk ? 'rgba(16,185,129,0.3)' : '#bbf7d0') : (dk ? 'rgba(249,115,22,0.3)' : '#fed7aa')
                                     }}>
-                                        <div className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: profitColor }}>Прибыль</div>
+                                        <div className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: profitColor }}>{t('anProfit')}</div>
                                         <div className="text-2xl font-black" style={{ color: profitColor }}>
                                             {totalProfit >= 0 ? '+' : ''}{fmtShort(totalProfit)}
                                         </div>
                                         <div className="text-[10px] mt-1 font-semibold" style={{ color: profitColor }}>
-                                            маржа {marginPct}%
+                                            {t('anMargin')} {marginPct}%
                                         </div>
                                     </div>
                                 </div>
@@ -554,8 +563,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                 {/* Визуальная шкала доход vs расход */}
                                 <div>
                                     <div className="flex justify-between text-[10px] font-medium mb-1.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>
-                                        <span>Доходы</span>
-                                        <span>Расходы {expenseBarPct}% от дохода</span>
+                                        <span>{t('anIncomes')}</span>
+                                        <span>{t('anExpensesOfIncome').replace('{n}', expenseBarPct)}</span>
                                     </div>
                                     <div className="relative h-4 rounded-full overflow-hidden" style={{ background: dk ? '#0f172a' : '#f1f5f9' }}>
                                         <div className="absolute left-0 top-0 h-full rounded-full bg-emerald-500" style={{ width: '100%', opacity: 0.2 }} />
@@ -570,14 +579,14 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                 {/* Расходы: постоянные и переменные */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="rounded-xl p-3" style={{ background: dk ? '#0f172a' : '#f8fafc', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}` }}>
-                                        <div className="text-[10px] font-bold mb-1" style={{ color: dk ? '#94a3b8' : '#64748b' }}>🏠 Постоянные расходы</div>
+                                        <div className="text-[10px] font-bold mb-1" style={{ color: dk ? '#94a3b8' : '#64748b' }}>🏠 {t('anFixedCosts')}</div>
                                         <div className="text-lg font-black" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmtShort(cFixed)}</div>
-                                        <div className="text-[10px] mt-0.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>Аренда, Зарплата, ЖКХ, Интернет</div>
+                                        <div className="text-[10px] mt-0.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{t('anFixedList')}</div>
                                     </div>
                                     <div className="rounded-xl p-3" style={{ background: dk ? '#0f172a' : '#f8fafc', border: `1px solid ${dk ? '#334155' : '#e2e8f0'}` }}>
-                                        <div className="text-[10px] font-bold mb-1" style={{ color: dk ? '#94a3b8' : '#64748b' }}>📦 Переменные расходы</div>
+                                        <div className="text-[10px] font-bold mb-1" style={{ color: dk ? '#94a3b8' : '#64748b' }}>📦 {t('anVarCosts')}</div>
                                         <div className="text-lg font-black" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{fmtShort(cVar)}</div>
-                                        <div className="text-[10px] mt-0.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>Продукты, Налоги, Ремонт, Прочее</div>
+                                        <div className="text-[10px] mt-0.5" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{t('anVarList')}</div>
                                     </div>
                                 </div>
 
@@ -586,19 +595,19 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                     style={{ background: dk ? 'rgba(99,102,241,0.12)' : '#eef2ff', border: `1px solid ${dk ? 'rgba(99,102,241,0.25)' : '#c7d2fe'}` }}>
                                     <div className="flex-1 text-center">
                                         <div className="text-base font-black" style={{ color: dk ? '#a5b4fc' : '#4338ca' }}>{fmtShort(incomePerNight)}</div>
-                                        <div className="text-[10px] font-medium" style={{ color: dk ? '#6366f1' : '#818cf8' }}>доход / ночь</div>
+                                        <div className="text-[10px] font-medium" style={{ color: dk ? '#6366f1' : '#818cf8' }}>{t('anIncomePerNight')}</div>
                                     </div>
                                     <div className="w-px h-8" style={{ background: dk ? 'rgba(99,102,241,0.3)' : '#c7d2fe' }} />
                                     <div className="flex-1 text-center">
                                         <div className="text-base font-black text-rose-600">{fmtShort(expensePerNight)}</div>
-                                        <div className="text-[10px] text-rose-400 font-medium">расход / ночь</div>
+                                        <div className="text-[10px] text-rose-400 font-medium">{t('anExpensePerNight')}</div>
                                     </div>
                                     <div className="w-px h-8" style={{ background: dk ? 'rgba(99,102,241,0.3)' : '#c7d2fe' }} />
                                     <div className="flex-1 text-center">
                                         <div className="text-base font-black" style={{ color: profitColor }}>
                                             {profitPerNight >= 0 ? '+' : ''}{fmtShort(profitPerNight)}
                                         </div>
-                                        <div className="text-[10px] font-medium" style={{ color: dk ? '#6366f1' : '#818cf8' }}>прибыль / ночь</div>
+                                        <div className="text-[10px] font-medium" style={{ color: dk ? '#6366f1' : '#818cf8' }}>{t('anProfitPerNight')}</div>
                                     </div>
                                 </div>
                             </div>
@@ -610,8 +619,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
 
                     {/* 1. Финансовая динамика */}
-                    <ChartCard title="Финансовая динамика" icon={TrendingUp}>
-                        {financeChartData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anFinanceDynamics')} icon={TrendingUp}>
+                        {financeChartData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <LineChart data={financeChartData} margin={{ left: 10, right: 10, top: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
@@ -619,17 +628,17 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                     <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} width={52} />
                                     <Tooltip content={<CustomTooltip />} />
                                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                                    <Line type="monotone" dataKey="income"  name="Доход"   stroke={COLORS.income}  strokeWidth={2.5} dot={false} />
-                                    <Line type="monotone" dataKey="expense" name="Расходы" stroke={COLORS.expense} strokeWidth={2} dot={false} strokeDasharray="4 2" />
-                                    <Line type="monotone" dataKey="profit"  name="Прибыль" stroke={COLORS.profit}  strokeWidth={2} dot={false} />
+                                    <Line type="monotone" dataKey="income"  name={t('incomeWord')}   stroke={COLORS.income}  strokeWidth={2.5} dot={false} />
+                                    <Line type="monotone" dataKey="expense" name={t('expenses')} stroke={COLORS.expense} strokeWidth={2} dot={false} strokeDasharray="4 2" />
+                                    <Line type="monotone" dataKey="profit"  name={t('anProfit')} stroke={COLORS.profit}  strokeWidth={2} dot={false} />
                                 </LineChart>
                             </ResponsiveContainer>
                         )}
                     </ChartCard>
 
                     {/* 2. Источники дохода */}
-                    <ChartCard title="Источники дохода" icon={PieIcon}>
-                        {paymentMethodData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anIncomeSources')} icon={PieIcon}>
+                        {paymentMethodData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <div className="flex items-center gap-4">
                                 <ResponsiveContainer width="60%" height={280}>
                                     <PieChart>
@@ -641,7 +650,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                                 <Cell key={i} fill={entry.color} />
                                             ))}
                                         </Pie>
-                                        <Tooltip formatter={(val) => [fmt(val)]} {...getDkTooltipStyle()} />
+                                        <Tooltip formatter={(val) => [fmtCur(val)]} {...getDkTooltipStyle()} />
                                     </PieChart>
                                 </ResponsiveContainer>
                                 <div className="flex-1 space-y-3">
@@ -664,7 +673,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                         );
                                     })}
                                     <div className="pt-2 border-t border-slate-100">
-                                        <div className="text-xs text-slate-400">Итого</div>
+                                        <div className="text-xs text-slate-400">{t('total')}</div>
                                         <div className="text-lg font-black text-slate-800">{fmtShort(totalIncome)}</div>
                                     </div>
                                 </div>
@@ -673,8 +682,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     </ChartCard>
 
                     {/* 3. Загрузка хостела */}
-                    <ChartCard title="Загрузка хостела (%)" icon={BedDouble}>
-                        {occupancyData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anHostelOccupancy')} icon={BedDouble}>
+                        {occupancyData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <AreaChart data={occupancyData} margin={{ left: 10, right: 10, top: 5 }}>
                                     <defs>
@@ -687,8 +696,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }}
                                         interval={Math.max(0, Math.floor(occupancyData.length / 10) - 1)} />
                                     <YAxis domain={[0, 100]} tickFormatter={v => v + '%'} tick={{ fontSize: 10, fill: '#94a3b8' }} width={40} />
-                                    <Tooltip formatter={(v) => [v + '%', 'Загрузка']} {...getDkTooltipStyle()} />
-                                    <Area type="monotone" dataKey="occupancy" name="Загрузка"
+                                    <Tooltip formatter={(v) => [v + '%', t('occupancy')]} {...getDkTooltipStyle()} />
+                                    <Area type="monotone" dataKey="occupancy" name={t('occupancy')}
                                         stroke="#3b82f6" strokeWidth={2.5}
                                         fill="url(#occupancyGrad)" />
                                 </AreaChart>
@@ -697,8 +706,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     </ChartCard>
 
                     {/* 4. Демография */}
-                    <ChartCard title="Демография гостей" icon={Users}>
-                        {countryData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anDemographics')} icon={Users}>
+                        {countryData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={countryData} layout="vertical" margin={{ left: 10, right: 40, top: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
@@ -721,8 +730,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             );
                                         }}
                                     />
-                                    <Tooltip formatter={(v) => [v + ' чел.', 'Гостей']} {...getDkTooltipStyle()} />
-                                    <Bar dataKey="count" name="Гостей" radius={[0, 4, 4, 0]}>
+                                    <Tooltip formatter={(v) => [v + ' ' + t('anPpl'), t('anGuestsLabel')]} {...getDkTooltipStyle()} />
+                                    <Bar dataKey="count" name={t('anGuestsLabel')} radius={[0, 4, 4, 0]}>
                                         {countryData.map((_, i) => (
                                             <Cell key={i} fill={i === 0 ? '#6366f1' : i === 1 ? '#818cf8' : '#a5b4fc'} />
                                         ))}
@@ -733,16 +742,45 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                         )}
                     </ChartCard>
 
+                    {/* 4б. Откуда гости */}
+                    <ChartCard title={t('anGuestSources')} icon={Signpost}>
+                        {sourceData.length === 0 ? <Empty label={t('anNoData')} /> : (
+                            <div className="space-y-3">
+                                {sourceData.map(s => (
+                                    <div key={s.source}>
+                                        <div className="flex items-baseline gap-2 text-xs mb-1">
+                                            <span className="font-bold truncate" style={{ color: dk ? '#e2e8f0' : '#334155' }}>{s.label}</span>
+                                            <span style={{ color: dk ? '#64748b' : '#94a3b8' }}>
+                                                {s.guests} {t('anPpl')} · {s.nights} {t('anSrcNights')}
+                                            </span>
+                                            <span className="ml-auto whitespace-nowrap font-black tabular-nums" style={{ color: dk ? '#f1f5f9' : '#1e293b' }}>
+                                                {fmtCur(s.revenue)}
+                                            </span>
+                                            <span className="w-9 text-right tabular-nums font-bold" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{s.share}%</span>
+                                        </div>
+                                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: dk ? '#334155' : '#f1f5f9' }}>
+                                            <div className="h-full rounded-full" style={{ width: `${s.share}%`, background: '#14b8a6' }} />
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="flex items-center justify-between text-[11px] pt-1" style={{ color: dk ? '#64748b' : '#94a3b8' }}>
+                                    <span>{t('anGuestsLabel')}: <b className="tabular-nums">{sourceGuestsTotal}</b></span>
+                                </div>
+                                <p className="text-[11px] leading-relaxed" style={{ color: dk ? '#64748b' : '#94a3b8' }}>{t('anSrcLegacyHint')}</p>
+                            </div>
+                        )}
+                    </ChartCard>
+
                     {/* 5. Доходность комнат */}
-                    <ChartCard title="Доходность комнат" icon={BedDouble}>
-                        {roomRevenueData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anRoomRevenue')} icon={BedDouble}>
+                        {roomRevenueData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={roomRevenueData} margin={{ left: 10, right: 10, top: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
                                     <XAxis dataKey="room" tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} width={52} />
                                     <Tooltip content={<CustomTooltip />} />
-                                    <Bar dataKey="revenue" name="Доход" radius={[6, 6, 0, 0]}>
+                                    <Bar dataKey="revenue" name={t('incomeWord')} radius={[6, 6, 0, 0]}>
                                         {roomRevenueData.map((item, i) => (
                                             <Cell key={i} fill={item.top ? '#f59e0b' : '#94a3b8'} />
                                         ))}
@@ -756,8 +794,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
                     {/* 6. Кассиры */}
                     {isAdmin && (
-                        <ChartCard title="Оборот по кассирам" icon={Users}>
-                            {cashierData.length === 0 ? <Empty /> : (
+                        <ChartCard title={t('anCashierTurnover')} icon={Users}>
+                            {cashierData.length === 0 ? <Empty label={t('anNoData')} /> : (
                                 <ResponsiveContainer width="100%" height={280}>
                                     <BarChart data={cashierData} layout="vertical" margin={{ left: 10, right: 50, top: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
@@ -766,11 +804,11 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                             tick={{ fontSize: 10, fill: dk ? '#64748b' : '#334155', fontWeight: 600 }} />
                                         <Tooltip content={<CustomTooltip />} />
                                         <Legend wrapperStyle={{ fontSize: 11 }} />
-                                        <Bar dataKey="cash" name="Наличные" stackId="a" fill={COLORS.cash} radius={[0, 0, 0, 0]}>
+                                        <Bar dataKey="cash" name={t('cash')} stackId="a" fill={COLORS.cash} radius={[0, 0, 0, 0]}>
                                             <LabelList dataKey="total" position="right" formatter={fmtShort}
                                                 style={{ fontSize: 9, fill: dk ? '#64748b' : '#475569', fontWeight: 700 }} />
                                         </Bar>
-                                        <Bar dataKey="card" name="Карта"    stackId="a" fill={COLORS.card} />
+                                        <Bar dataKey="card" name={t('cardShort')}    stackId="a" fill={COLORS.card} />
                                         <Bar dataKey="qr"   name="QR"       stackId="a" fill={COLORS.qr} radius={[0, 4, 4, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
@@ -779,8 +817,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     )}
 
                     {/* 7. Категории расходов */}
-                    <ChartCard title="Категории расходов" icon={TrendingDown}>
-                        {expenseCategoryData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anExpenseCategories')} icon={TrendingDown}>
+                        {expenseCategoryData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <div className="flex items-center gap-4">
                                 <ResponsiveContainer width="55%" height={280}>
                                     <PieChart>
@@ -791,7 +829,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                                 <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />
                                             ))}
                                         </Pie>
-                                        <Tooltip formatter={(val) => [fmt(val)]} {...getDkTooltipStyle()} />
+                                        <Tooltip formatter={(val) => [fmtCur(val)]} {...getDkTooltipStyle()} />
                                     </PieChart>
                                 </ResponsiveContainer>
                                 <div className="flex-1 space-y-2 overflow-y-auto max-h-64">
@@ -811,8 +849,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     </ChartCard>
 
                     {/* 8. Новые заселения */}
-                    <ChartCard title="Новые заселения по дням" icon={Users}>
-                        {newGuestsData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anNewCheckinsByDay')} icon={Users}>
+                        {newGuestsData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <AreaChart data={newGuestsData} margin={{ left: 10, right: 10, top: 5 }}>
                                     <defs>
@@ -825,8 +863,8 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }}
                                         interval={Math.max(0, Math.floor(newGuestsData.length / 10) - 1)} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={30} />
-                                    <Tooltip formatter={(v) => [v + ' чел.', 'Заселений']} {...getDkTooltipStyle()} />
-                                    <Area type="monotone" dataKey="count" name="Заселений"
+                                    <Tooltip formatter={(v) => [v + ' ' + t('anPpl'), t('anCheckinsLabel')]} {...getDkTooltipStyle()} />
+                                    <Area type="monotone" dataKey="count" name={t('anCheckinsLabel')}
                                         stroke="#8b5cf6" strokeWidth={2.5}
                                         fill="url(#newGuestsGrad)" />
                                 </AreaChart>
@@ -835,15 +873,15 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     </ChartCard>
 
                     {/* 9. Длительность проживания */}
-                    <ChartCard title="Длительность проживания" icon={Calendar}>
-                        {stayLengthData.length === 0 ? <Empty /> : (
+                    <ChartCard title={t('anStayLength')} icon={Calendar}>
+                        {stayLengthData.length === 0 ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={stayLengthData} margin={{ left: 10, right: 10, top: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
                                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={35} />
-                                    <Tooltip formatter={(v) => [v + ' гостей']} {...getDkTooltipStyle()} />
-                                    <Bar dataKey="count" name="Гостей" radius={[6, 6, 0, 0]}>
+                                    <Tooltip formatter={(v) => [v + ' ' + t('anGuestsGen')]} {...getDkTooltipStyle()} />
+                                    <Bar dataKey="count" name={t('anGuestsLabel')} radius={[6, 6, 0, 0]}>
                                         {stayLengthData.map((_, i) => (
                                             <Cell key={i} fill={['#06b6d4','#3b82f6','#8b5cf6','#ec4899','#f97316','#ef4444'][i % 6]} />
                                         ))}
@@ -856,17 +894,17 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
                     </ChartCard>
 
                     {/* 10. Заезды по дням недели */}
-                    <ChartCard title="Заезды по дням недели" icon={Calendar}>
-                        {weekdayData.every(d => d.count === 0) ? <Empty /> : (
+                    <ChartCard title={t('anCheckinsByWeekday')} icon={Calendar}>
+                        {weekdayData.every(d => d.count === 0) ? <Empty label={t('anNoData')} /> : (
                             <ResponsiveContainer width="100%" height={280}>
                                 <BarChart data={weekdayData} margin={{ left: 10, right: 10, top: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1e293b' : '#f1f5f9'} />
                                     <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 700 }} />
                                     <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} width={30} />
-                                    <Tooltip formatter={(v) => [v + ' заездов']} {...getDkTooltipStyle()} />
-                                    <Bar dataKey="count" name="Заездов" radius={[6, 6, 0, 0]}>
+                                    <Tooltip formatter={(v) => [v + ' ' + t('anArrivalsGen')]} {...getDkTooltipStyle()} />
+                                    <Bar dataKey="count" name={t('anArrivalsLabel')} radius={[6, 6, 0, 0]}>
                                         {weekdayData.map((item, i) => (
-                                            <Cell key={i} fill={item.day === 'Сб' || item.day === 'Вс' ? '#f59e0b' : '#10b981'} />
+                                            <Cell key={i} fill={item.weekend ? '#f59e0b' : '#10b981'} />
                                         ))}
                                         <LabelList dataKey="count" position="top"
                                             style={{ fontSize: 11, fill: dk ? '#64748b' : '#475569', fontWeight: 700 }} />
@@ -878,15 +916,15 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
 
                     {/* 11. Текущие задолженности */}
                     {debtGuestsData.length > 0 && (
-                        <ChartCard title="Задолженности гостей" icon={TrendingDown}>
+                        <ChartCard title={t('anGuestDebts')} icon={TrendingDown}>
                             <ResponsiveContainer width="100%" height={Math.max(220, debtGuestsData.length * 28)}>
                                 <BarChart data={debtGuestsData} layout="vertical" margin={{ left: 10, right: 60, top: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                                     <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: dk ? '#475569' : '#94a3b8' }} />
                                     <YAxis type="category" dataKey="name" width={110}
                                         tick={{ fontSize: 10, fill: dk ? '#64748b' : '#334155', fontWeight: 600 }} />
-                                    <Tooltip formatter={(v) => [fmt(v), 'Долг']} {...getDkTooltipStyle()} />
-                                    <Bar dataKey="debt" name="Долг" fill="#ef4444" radius={[0, 6, 6, 0]}>
+                                    <Tooltip formatter={(v) => [fmtCur(v), t('debt')]} {...getDkTooltipStyle()} />
+                                    <Bar dataKey="debt" name={t('debt')} fill="#ef4444" radius={[0, 6, 6, 0]}>
                                         <LabelList dataKey="debt" position="right" formatter={fmtShort}
                                             style={{ fontSize: 9, fill: '#ef4444', fontWeight: 700 }} />
                                     </Bar>

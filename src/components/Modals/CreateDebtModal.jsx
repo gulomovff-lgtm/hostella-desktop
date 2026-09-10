@@ -18,8 +18,11 @@ const CreateDebtModal = ({ clients, onClose, onCreate, lang }) => {
     ).slice(0, 5);
 
     const handleSubmit = () => {
-        if (!selectedClient || !amount) return;
-        onCreate(selectedClient, parseInt(amount));
+        // Только положительная сумма долга: отрицательная создавала бы «кредит»,
+        // которым можно было погасить реальный долг без оплаты.
+        const amt = parseInt(amount, 10);
+        if (!selectedClient || !Number.isFinite(amt) || amt <= 0) return;
+        onCreate(selectedClient, amt);
         onClose();
     };
 

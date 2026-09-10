@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Save, CalendarClock, DollarSign, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import { getConfig, saveAppConfig } from '../../utils/appConfig';
+import TRANSLATIONS from '../../constants/translations';
 
 // Надёжный уникальный id сезона (Date.now() при быстрых кликах давал дубли → баг правки)
 let _seasonSeq = 0;
 const newSeasonId = () => `s_${Date.now().toString(36)}_${_seasonSeq++}`;
 
 // Редактор ценообразования: минимумы по комнатам/филиалам, пакет, сезоны (по датам),
-// отдельный бот одобрения цены. Сохраняется в appConfig.pricing / priceBotToken.
+// отдельный бот одобрения цены. Токен — в Secret Manager (PRICE_BOT_TOKEN), не в Firestore.
 
 const inp = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500';
-const HOSTELS = [{ id: 'hostel1', label: 'Хостел №1' }, { id: 'hostel2', label: 'Хостел №2' }];
+const HOSTELS = [{ id: 'hostel1', labelKey: 'psHostel1' }, { id: 'hostel2', labelKey: 'psHostel2' }];
 
 const roomsObjToRows = (obj = {}) => Object.entries(obj).map(([room, price]) => ({ room: String(room), price: String(price) }));
 const rowsToObj = (rows = []) => {
@@ -30,7 +31,7 @@ const toBlock = (set) => ({
 });
 
 // Редактор одного «набора цен» (базовый или сезонный)
-const SetEditor = ({ set, onChange, showPackage = true }) => {
+const SetEditor = ({ set, onChange, showPackage = true, t = (k) => k }) => {
     const upd = (patch) => onChange({ ...set, ...patch });
     const updHostel = (hid, patch) => onChange({ ...set, [hid]: { ...set[hid], ...patch } });
     const addRoom = (hid) => updHostel(hid, { rooms: [...set[hid].rooms, { room: '', price: '' }] });
@@ -45,11 +46,11 @@ const SetEditor = ({ set, onChange, showPackage = true }) => {
             {showPackage && (
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Пакет: мин. дней</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">{t('psPkgMinDays')}</label>
                         <input className={inp} type="number" value={set.packageMinDays} onChange={e => upd({ packageMinDays: e.target.value })} />
                     </div>
                     <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Пакет: цена/ночь</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">{t('psPkgPrice')}</label>
                         <input className={inp} type="number" value={set.packagePrice} onChange={e => upd({ packagePrice: e.target.value })} />
                     </div>
                 </div>
@@ -57,21 +58,21 @@ const SetEditor = ({ set, onChange, showPackage = true }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {HOSTELS.map(h => (
                     <div key={h.id} className="rounded-xl border border-slate-200 p-3 space-y-2">
-                        <div className="font-black text-sm text-slate-700">{h.label}</div>
+                        <div className="font-black text-sm text-slate-700">{t(h.labelKey)}</div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">Минимум по умолчанию</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">{t('psDefaultMin')}</label>
                             <input className={inp} type="number" value={set[h.id].default} onChange={e => updHostel(h.id, { default: e.target.value })} />
                         </div>
                         <div className="space-y-1.5">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Минимумы по комнатам</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase">{t('psRoomMins')}</div>
                             {set[h.id].rooms.map((r, i) => (
                                 <div key={i} className="flex items-center gap-1.5">
-                                    <input className={inp + ' w-20'} placeholder="комн." value={r.room} onChange={e => setRoom(h.id, i, 'room', e.target.value)} />
-                                    <input className={inp + ' flex-1'} type="number" placeholder="цена" value={r.price} onChange={e => setRoom(h.id, i, 'price', e.target.value)} />
+                                    <input className={inp + ' w-20'} placeholder={t('psRoomShort')} value={r.room} onChange={e => setRoom(h.id, i, 'room', e.target.value)} />
+                                    <input className={inp + ' flex-1'} type="number" placeholder={t('psPricePh')} value={r.price} onChange={e => setRoom(h.id, i, 'price', e.target.value)} />
                                     <button onClick={() => delRoom(h.id, i)} className="p-2 text-slate-400 hover:text-rose-600"><Trash2 size={15} /></button>
                                 </div>
                             ))}
-                            <button onClick={() => addRoom(h.id)} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"><Plus size={13} /> Добавить комнату</button>
+                            <button onClick={() => addRoom(h.id)} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"><Plus size={13} /> {t('psAddRoom')}</button>
                         </div>
                     </div>
                 ))}
@@ -80,10 +81,10 @@ const SetEditor = ({ set, onChange, showPackage = true }) => {
     );
 };
 
-const PricingSettingsPanel = ({ notify }) => {
+const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const cfg = getConfig();
     const p = cfg.pricing || {};
-    const [botToken, setBotToken] = useState(cfg.priceBotToken || '');
     const [chatIds, setChatIds] = useState((cfg.priceApprovalChatIds || []).join(', '));
     const [base, setBase] = useState(() => mkSet(p.base, p.packageMinDays, p.packagePrice));
     const [seasons, setSeasons] = useState(() => (p.seasons || []).map((s) => ({
@@ -91,6 +92,9 @@ const PricingSettingsPanel = ({ notify }) => {
         ...mkSet(s.base, s.packageMinDays ?? p.packageMinDays, s.packagePrice ?? p.packagePrice),
     })));
     const [saving, setSaving] = useState(false);
+    // Ставки, которые указываются в поле «Сумма оплаты» портала e-mehmon
+    const [emLocal, setEmLocal] = useState(String(cfg.emehmonAmountLocal ?? 30000));
+    const [emForeign, setEmForeign] = useState(String(cfg.emehmonAmountForeign ?? 50000));
 
     const addSeason = () => setSeasons(s => [...s, { id: newSeasonId(), open: true, name: '', from: '', to: '', ...mkSet(p.base, p.packageMinDays, p.packagePrice) }]);
     const updSeason = (id, patch) => setSeasons(s => s.map(x => x.id === id ? { ...x, ...patch } : x));
@@ -113,12 +117,13 @@ const PricingSettingsPanel = ({ notify }) => {
             };
             await saveAppConfig({
                 pricing,
-                priceBotToken: botToken.trim(),
                 priceApprovalChatIds: chatIds.split(',').map(x => x.trim()).filter(Boolean),
+                emehmonAmountLocal: parseInt(emLocal) || 30000,
+                emehmonAmountForeign: parseInt(emForeign) || 50000,
             });
-            notify?.('Цены сохранены', 'success');
+            notify?.(t('psSavedOk'), 'success');
         } catch (e) {
-            notify?.('Ошибка сохранения: ' + (e?.message || e), 'error');
+            notify?.(t('psSaveError').replace('{msg}', e?.message || e), 'error');
         } finally {
             setSaving(false);
         }
@@ -128,54 +133,69 @@ const PricingSettingsPanel = ({ notify }) => {
         <div className="space-y-5 max-w-4xl">
             {/* Бот одобрения цены */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                <div className="font-black text-slate-800 flex items-center gap-2"><Send size={16} className="text-indigo-600" /> Бот одобрения понижения цены</div>
-                <p className="text-xs text-slate-400">Отдельный токен бота (пусто = общий бот). Chat ID одобряющих — через запятую. Одобряющий должен написать боту <b>/start</b>.</p>
+                <div className="font-black text-slate-800 flex items-center gap-2"><Send size={16} className="text-indigo-600" /> {t('psBotTitle')}</div>
+                <p className="text-xs text-slate-400">{t('psBotHint')} <b>/start</b>.</p>
+                <p className="text-[11px] text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-2">🔒 {t('psTokenNote')} <code>firebase functions:secrets:set PRICE_BOT_TOKEN</code>.</p>
                 <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Токен бота (необязательно)</label>
-                    <input className={inp} value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="123456:ABC… (пусто = общий бот)" autoComplete="off" />
-                </div>
-                <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Chat ID одобряющих</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">{t('psChatIdLabel')}</label>
                     <input className={inp} value={chatIds} onChange={e => setChatIds(e.target.value)} placeholder="6953132612, 7029598539" autoComplete="off" />
+                </div>
+            </div>
+
+            {/* Ставки e-mehmon (налоговая отчётность) */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                <div className="font-black text-slate-800 flex items-center gap-2">🧾 {t('psEmTitle')}</div>
+                <p className="text-xs text-slate-400">{t('psEmHint')}</p>
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">🇺🇿 {t('psEmLocal')}</label>
+                        <input className={inp} value={emLocal} inputMode="numeric"
+                            onChange={e => setEmLocal(e.target.value.replace(/\D/g, ''))} placeholder="30000" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">🌍 {t('psEmForeign')}</label>
+                        <input className={inp} value={emForeign} inputMode="numeric"
+                            onChange={e => setEmForeign(e.target.value.replace(/\D/g, ''))} placeholder="50000" />
+                    </div>
                 </div>
             </div>
 
             {/* Базовые цены */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                <div className="font-black text-slate-800 flex items-center gap-2"><DollarSign size={16} className="text-emerald-600" /> Базовые минимумы и пакет</div>
-                <p className="text-xs text-slate-400">Минимальная цена ночи (ниже неё — пакет или запрос на понижение). Действует, когда не активен ни один сезон.</p>
-                <SetEditor set={base} onChange={setBase} />
+                <div className="font-black text-slate-800 flex items-center gap-2"><DollarSign size={16} className="text-emerald-600" /> {t('psBaseTitle')}</div>
+                <p className="text-xs text-slate-400">{t('psBaseHint')}</p>
+                <SetEditor set={base} onChange={setBase} t={t} />
             </div>
 
             {/* Сезоны */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                    <div className="font-black text-slate-800 flex items-center gap-2"><CalendarClock size={16} className="text-amber-600" /> Сезоны (по датам)</div>
-                    <button onClick={addSeason} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1"><Plus size={13} /> Сезон</button>
+                    <div className="font-black text-slate-800 flex items-center gap-2"><CalendarClock size={16} className="text-amber-600" /> {t('psSeasonsTitle')}</div>
+                    <button onClick={addSeason} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1"><Plus size={13} /> {t('psSeasonBtn')}</button>
                 </div>
-                <p className="text-xs text-slate-400">Даты в формате <b>ММ-ДД</b> (напр. 06-01 → 08-31). Зима с переходом года — тоже ок (12-01 → 02-28). Активный сезон переопределяет базовые цены.</p>
-                {seasons.length === 0 && <p className="text-xs text-slate-400 italic">Сезонов нет — действуют базовые цены круглый год.</p>}
+                <p className="text-xs text-slate-400">{t('psSeasonsHint1')} <b>{t('psMmDd')}</b> {t('psSeasonsHint2')}</p>
+                {seasons.length === 0 && <p className="text-xs text-slate-400 italic">{t('psSeasonsEmpty')}</p>}
                 {seasons.map(s => (
                     <div key={s.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                             <button type="button" onClick={() => updSeason(s.id, { open: !s.open })}
-                                className="p-2 rounded-lg text-slate-500 hover:bg-amber-100 shrink-0" title={s.open ? 'Свернуть' : 'Развернуть'}>
+                                className="p-2 rounded-lg text-slate-500 hover:bg-amber-100 shrink-0" title={s.open ? t('msCollapse') : t('psExpand')}>
                                 {s.open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                             </button>
-                            <input className={inp + ' flex-1 min-w-[120px]'} placeholder="Название (Лето)" value={s.name} onChange={e => updSeason(s.id, { name: e.target.value })} />
-                            <input className={inp + ' w-24'} placeholder="ММ-ДД" value={s.from} onChange={e => updSeason(s.id, { from: e.target.value })} />
+                            <input className={inp + ' flex-1 min-w-[120px]'} placeholder={t('psSeasonNamePh')} value={s.name} onChange={e => updSeason(s.id, { name: e.target.value })} />
+                            <input className={inp + ' w-24'} placeholder={t('psMmDd')} value={s.from} onChange={e => updSeason(s.id, { from: e.target.value })} />
                             <span className="text-slate-400">→</span>
-                            <input className={inp + ' w-24'} placeholder="ММ-ДД" value={s.to} onChange={e => updSeason(s.id, { to: e.target.value })} />
-                            <button type="button" onClick={() => delSeason(s.id)} className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0" title="Удалить сезон"><Trash2 size={16} /></button>
+                            <input className={inp + ' w-24'} placeholder={t('psMmDd')} value={s.to} onChange={e => updSeason(s.id, { to: e.target.value })} />
+                            <button type="button" onClick={() => delSeason(s.id)} className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0" title={t('psDelSeason')}><Trash2 size={16} /></button>
                         </div>
-                        {s.open && <SetEditor set={s} onChange={(ns) => updSeason(s.id, ns)} />}
+                        {s.open && <SetEditor set={s} onChange={(ns) => updSeason(s.id, ns)} t={t} />}
                     </div>
                 ))}
             </div>
 
             <button onClick={save} disabled={saving}
                 className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                <Save size={16} /> {saving ? 'Сохранение…' : 'Сохранить цены'}
+                <Save size={16} /> {saving ? t('psSaving') : t('psSavePrices')}
             </button>
         </div>
     );

@@ -6,7 +6,7 @@ import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { BUILD_TS } from './constants/config.js'
 
-// eslint-disable-next-line no-console
+ 
 console.info('[Hostella] build:', BUILD_TS)
 
 // ── Telegram-окружение ──

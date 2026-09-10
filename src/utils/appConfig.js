@@ -40,6 +40,14 @@ export const DEFAULT_APP_CONFIG = {
         // [{ id, name, from:'06-01', to:'08-31', base:{hostel1:{default,rooms},hostel2:{…}}, package:{…}, packageMinDays }]
         seasons: [],
     },
+    // e-mehmon: какая сумма указывается в поле «Сумма оплаты» при регистрации.
+    // Влияет на налоговую отчётность — сумма по всем регистрациям за месяц
+    // должна совпадать с декларируемой. Раньше подставлялась 1.
+    emehmonAmountLocal: 30000,     // граждане Узбекистана
+    emehmonAmountForeign: 50000,   // иностранные граждане
+    // Интеграция с сайтом hostella.uz: обратная связь по броням (подтверждение/отмена)
+    siteCallbackUrl: 'https://hostella.uz/crm-callback.php',
+    siteCallbackKey: 'hst-cb-a81f37c2d94e',   // должен совпадать с CRM_CALLBACK_KEY на сайте
     // Финансы
     defaultUsdRate: '',          // курс USD по умолчанию в модалке расхода
     registrationDailyRate: '',   // ставка регистрации (кадастр) по умолчанию
@@ -73,6 +81,11 @@ export const DEFAULT_APP_CONFIG = {
 
     // #11 Шаблоны категорий расходов (общий список-«семя» для всех хостелов)
     expenseCategories: [],       // [{ name, icon }]
+
+    // #12 Источники гостей («Откуда гость» в заселении). Пусто = встроенный список
+    // (см. utils/guestSource.js). [{ id, label, labelUz, enabled }] — id не меняется,
+    // на нём держится статистика за прошлые периоды.
+    guestSources: [],
 
     // #13 Брендинг чеков
     receiptFooter: 'Спасибо за визит!',

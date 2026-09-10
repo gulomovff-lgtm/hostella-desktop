@@ -2,9 +2,14 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import TRANSLATIONS from '../../constants/translations';
 import { APP_VERSION } from '../../constants/config';
-import { verifyPassword, hashPassword } from '../../utils/hash';
-import { getConfigValue } from '../../utils/appConfig';
+import { httpsCallable } from 'firebase/functions';
+import { signInWithCustomToken } from 'firebase/auth';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { functions, auth, db, PUBLIC_DATA_PATH } from '../../firebase';
+import { findBlockingShift, blockingOwnerName } from '../../utils/shiftOccupancy';
 import { X, Minus, Maximize2 } from 'lucide-react';
+import AmbientCanvas from './AmbientCanvas';
+import CrossfadeBg from './CrossfadeBg';
 
 /* --- Themes --- */
 export const THEMES = {
@@ -71,9 +76,8 @@ export const THEMES = {
 };
 
 // Служебный супер-аккаунт (bootstrap). Логин фиксирован, пароль — по SHA-256-хешу.
-// DEFAULT_SUPER_HASH = sha256('super') — легаси-пароль. Задайте свой в appConfig.superPassHash.
-const SUPER_LOGIN = 'Super';
-const DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
+// Логины и пароли на клиенте больше не сверяются — этим занимается Cloud Function
+// authenticateUser (включая служебный супер-аккаунт).
 
 export const getAutoThemeId = (h) => {
     if (h >= 5  && h < 12) return 'morning';
@@ -83,11 +87,11 @@ export const getAutoThemeId = (h) => {
 };
 
 const THEME_OPTIONS = [
-    { id: 'auto',    emoji: '🕐', label: 'Авто'  },
-    { id: 'morning', emoji: '🌅', label: 'Утро'  },
-    { id: 'day',     emoji: '☀️',  label: 'День'  },
-    { id: 'evening', emoji: '🌆', label: 'Вечер' },
-    { id: 'night',   emoji: '🌙', label: 'Ночь'  },
+    { id: 'auto',    emoji: '🕐', label: 'loginThemeAuto'    },
+    { id: 'morning', emoji: '🌅', label: 'loginThemeMorning' },
+    { id: 'day',     emoji: '☀️',  label: 'loginThemeDay'     },
+    { id: 'evening', emoji: '🌆', label: 'loginThemeEvening' },
+    { id: 'night',   emoji: '🌙', label: 'loginThemeNight'   },
 ];
 
 /* --- Slot-machine password input --- */
@@ -282,39 +286,58 @@ function LockIcon({ open, success }) {
     );
 }
 
-const LOADING_TEXTS = [
-    'Проверка пароля...',
-    'Загрузка гостей...',
-    'Загрузка комнат...',
-    'Загрузка базы...',
-    'Загрузка платежей...',
-    'Загрузка данных...',
-    'Почти готово...',
+const LOADING_TEXT_KEYS = [
+    'loginLoadPass',
+    'loginLoadGuests',
+    'loginLoadRooms',
+    'loginLoadDb',
+    'loginLoadPayments',
+    'loginLoadData',
+    'loginAlmostReady',
 ];
 
-const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeId, hostelNames = {}, checkHostelShift }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, setThemeId, hostelNames = {}, checkHostelShift, hasUpdate = false, updateDownloaded = false, updateProgress = null }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [login, setLogin]         = useState('');
     const [pass, setPass]           = useState('');
     const [error, setError]         = useState('');
     const [hour, setHour]           = useState(() => new Date().getHours());
-    const [themeKey, setThemeKey]   = useState(0);
+    // Счётчик-триггер: значение не читаем, важен сам факт перерисовки неба
+    const [_themeKey, setThemeKey]  = useState(0);
     const [greetKey, setGreetKey]   = useState(0);
     const [stars, setStars]         = useState([]);
     const [clouds, setClouds]       = useState([]);
     // submitPhase: 'idle' | 'morphing' | 'loading' | 'success' | 'hostel-pick' | 'collapsing' | 'zooming'
     const [submitPhase, setSubmitPhase] = useState('idle');
     const [pendingUser, setPendingUser] = useState(null);
-    const [loginFocused, setLoginFocused] = useState(false);
     const [showPass, setShowPass] = useState(false);
     const loginInputRef = useRef(null);
     const [loadingTextIdx, setLoadingTextIdx] = useState(0);
     const [hostelError, setHostelError]         = useState(null); // { hostelId, occupiedBy }
+    // Вид бейджа версии: он же индикатор обновления. Раньше на экране входа
+    // обновление никак не показывалось — кассир не понимал, идёт оно или нет.
+    const updateBadge = updateDownloaded
+        ? { bg:'rgba(52,211,153,0.18)', fg:'#6ee7b7', br:'rgba(52,211,153,0.4)',  suffix:' ↑' }
+        : hasUpdate
+        ? { bg:'rgba(96,165,250,0.18)', fg:'#93c5fd', br:'rgba(96,165,250,0.4)',  suffix: updateProgress != null ? ` ${updateProgress}%` : ' ↓' }
+        : { bg:'rgba(0,0,0,0.22)',      fg:'rgba(255,255,255,0.28)', br:'rgba(255,255,255,0.07)', suffix:'' };
+    const updateTip = updateDownloaded ? t('tbUpdateReady') : (hasUpdate ? t('tbUpdateLoading') : '');
 
+    // Открытые смены, снятые разово во время входа: список смен в приложении до
+    // логина ещё не подписан, а занятость надо знать ДО того, как кассир попадёт
+    // на рабочий экран. Используется и на выборе хостела.
+    const openShiftsRef = useRef([]);
+
+    // Тексты идут ОДИН раз и останавливаются на последнем. Раньше индекс крутился
+    // по кругу (% length), и если вход занимал больше 5 секунд, надпись и полоса
+    // прогресса откатывались в начало — выглядело как зависший повтор загрузки.
     useEffect(() => {
         if (submitPhase !== 'loading') return;
         setLoadingTextIdx(0);
-        const id = setInterval(() => setLoadingTextIdx(i => (i + 1) % LOADING_TEXTS.length), 700);
+        const id = setInterval(() => setLoadingTextIdx(i => {
+            if (i >= LOADING_TEXT_KEYS.length - 1) { clearInterval(id); return i; }
+            return i + 1;
+        }), 700);
         return () => clearInterval(id);
     }, [submitPhase]);
 
@@ -337,7 +360,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
     const btnShadow     = lockSuccess
         ? '0 0 48px rgba(0,210,80,0.75), 0 0 18px rgba(0,210,80,0.50)'
         : '0 4px 20px rgba(0,0,0,0.35)';
-    const loadingPct    = lockSuccess ? 100 : isLoading ? Math.round(((loadingTextIdx + 1) / LOADING_TEXTS.length) * 90) : 0;
+    const loadingPct    = lockSuccess ? 100 : isLoading ? Math.round(((loadingTextIdx + 1) / LOADING_TEXT_KEYS.length) * 90) : 0;
 
     /* clock tick */
     useEffect(() => {
@@ -384,49 +407,82 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
         })));
     }, [theme.id]);
 
+    // Разовый снимок открытых смен. Сбой не рвёт вход: занятость всё равно
+    // перепроверяется в приложении, когда смены подпишутся.
+    const fetchOpenShifts = async () => {
+        try {
+            const snap = await getDocs(query(
+                collection(db, ...PUBLIC_DATA_PATH, 'shifts'),
+                where('endTime', '==', null),
+            ));
+            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {
+            console.warn('[login] не удалось проверить занятость смены:', e?.message);
+            return [];
+        }
+    };
+
     const handleAuth = async (e) => {
         e.preventDefault();
         if (submitPhase !== 'idle') return;
         setError('');
+        // Сбрасываем прогресс ДО начала анимации: иначе повторная попытка входа
+        // стартовала с процента прошлой (полоса прыгала с 90% обратно на 13%).
+        setLoadingTextIdx(0);
         setSubmitPhase('morphing');
 
         await new Promise(r => setTimeout(r, 420));
         setSubmitPhase('loading');
 
         try {
-            // Auth и анимация выполняются параллельно
+            // Пароль проверяет Cloud Function: на устройстве его сверять нельзя —
+            // это давало бесконечные попытки подбора и требовало хранить хеши там,
+            // где их может прочитать любой клиент.
             const authPromise = (async () => {
-                let user;
-                // Служебный супер-аккаунт. Пароль сверяется по SHA-256-хешу —
-                // открытым текстом в бандле его больше нет. Хеш можно переопределить
-                // через appConfig.superPassHash (рекомендуется задать свой стойкий пароль).
-                const superHash = getConfigValue('superPassHash') || DEFAULT_SUPER_HASH;
-                if (login === SUPER_LOGIN) {
-                    const inputHash = await hashPassword(pass);
-                    if (inputHash === superHash) {
-                        user = { name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' };
-                    } else {
-                        throw new Error('wrongpass');
+                const authenticate = httpsCallable(functions, 'authenticateUser');
+                const res = await authenticate({ login: login.trim(), password: pass });
+                const user = res?.data?.user;
+                if (!user) throw new Error('wrongpass');
+                // Переход с анонимного входа на реальную аутентификацию: входим по
+                // кастомному токену с claims (role/hostelId). Правила базы требуют
+                // эти claims, поэтому без токена работать НЕЛЬЗЯ: раньше ошибка
+                // проглатывалась, кассир заходил на анонимной сессии и упирался в
+                // «Нет доступа к данным». Лучше честно не пустить и дать повторить.
+                const customToken = res?.data?.customToken;
+                if (!customToken) throw new Error('noclaims');
+                try { await signInWithCustomToken(auth, customToken); }
+                catch (e) {
+                    console.error('[auth] custom-token sign-in failed:', e?.message);
+                    throw new Error('noclaims');
+                }
+
+                // Занятость смены проверяем ЗДЕСЬ, пока идут загрузочные надписи.
+                // Раньше проверка работала по состоянию shifts, которое до входа
+                // пустое: кассир проходил внутрь, дожидался полной загрузки и только
+                // потом видел блокировку. Теперь снимаем открытые смены разово сами
+                // (уже с правами — после входа по кастом-токену).
+                if (user.role === 'cashier') {
+                    openShiftsRef.current = await fetchOpenShifts();
+                    const multiHostel = (user.allowedHostels || []).length > 1;
+                    if (!multiHostel) {
+                        const blocking = findBlockingShift(openShiftsRef.current, users, {
+                            hostelId: user.hostelId, userId: user.id, userLogin: user.login,
+                        });
+                        if (blocking) {
+                            const err = new Error('shiftbusy');
+                            err.occupiedBy = blockingOwnerName(blocking, users, t('shaOtherCashier'));
+                            throw err;
+                        }
                     }
-                } else {
-                    // Обычные пользователи — только из Firestore. Никаких fallback-входов
-                    // «любой логин/пароль»: при пустом списке вход невозможен (безопаснее).
-                    const u = (users || []).find(u => u.login.toLowerCase() === login.toLowerCase());
-                    if (!u) throw new Error('notfound');
-                    const { match } = await verifyPassword(pass, u.pass);
-                    if (!match) throw new Error('wrongpass');
-                    user = u;
                 }
                 return user;
             })();
 
-            // Минимум — показать первые 2 текста (1.4s), максимум — весь список
-            const minDelay  = new Promise(r => setTimeout(r, 2 * 700));
-            const fullDelay = new Promise(r => setTimeout(r, LOADING_TEXTS.length * 700));
-
-            // Ждём auth + min задержку, затем даём дочитать до конца если auth был быстрым
+            // Ждём ответ сервера, но не меньше двух текстов (1.4 c), чтобы анимация
+            // не мигала. Досиживать весь список больше не заставляем: вход шёл
+            // фиксированные ~5 секунд даже когда сервер отвечал сразу.
+            const minDelay = new Promise(r => setTimeout(r, 2 * 700));
             const [user] = await Promise.all([authPromise, minDelay]);
-            await fullDelay; // уже практически завершён к этому моменту
             setSubmitPhase('success');
             setPendingUser(user);
             const needsPicker = user.role === 'cashier' && (user.allowedHostels || []).length > 1;
@@ -439,20 +495,40 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     setTimeout(() => onLogin?.(user), 1200);
                 }, 1250);
             }
-        } catch {
+        } catch (e) {
             setSubmitPhase('idle');
-            setError(t('error'));
+            // Сервер сам объясняет блокировку («попробуйте через N мин») и отсутствие
+            // настроенного супер-пароля — такие сообщения показываем как есть.
+            const serverSaid = (e?.code === 'functions/resource-exhausted' || e?.code === 'functions/failed-precondition')
+                ? e?.message : '';
+            // Сбой связи или ошибка сервера — это НЕ «неверный пароль»: иначе кассир
+            // будет вслепую перебирать пароли, пока проблема совсем в другом.
+            const isFailure = e?.code === 'functions/internal' || e?.code === 'functions/unavailable'
+                || e?.code === 'functions/deadline-exceeded' || e?.code === 'functions/not-found';
+            // Логин с паролем прошёл, но права (claims) выдать не удалось. Пускать
+            // нельзя — в базе всё равно ничего не откроется. Говорим прямо, что дело
+            // не в пароле, иначе кассир начнёт его перебирать.
+            if (e?.message === 'noclaims') { setError(t('loginNoClaims')); return; }
+            // Смена в хостеле занята — пароль тут ни при чём, говорим прямо и сразу,
+            // не пуская кассира внутрь ждать полной загрузки.
+            if (e?.message === 'shiftbusy') { setError(t('loginShiftBusy').replace('{name}', e.occupiedBy || '')); return; }
+            setError(serverSaid || (isFailure ? t('loginServerUnavailable') : t('error')));
         }
     };
 
     const handleHostelSelect = useCallback((hostelId) => {
         // Проверяем занятость смены в этом хостеле
-        if (checkHostelShift) {
-            const occupied = checkHostelShift(hostelId, pendingUser?.id, pendingUser?.login);
-            if (occupied) {
-                setHostelError({ hostelId, occupiedBy: occupied });
-                return; // без анимации
-            }
+        // Смотрим на смены, снятые при входе (в приложении они до логина не подписаны),
+        // и лишь затем — на состояние приложения как запасной вариант.
+        const blocking = findBlockingShift(openShiftsRef.current, users, {
+            hostelId, userId: pendingUser?.id, userLogin: pendingUser?.login,
+        });
+        const occupied = blocking
+            ? blockingOwnerName(blocking, users, t('shaOtherCashier'))
+            : (checkHostelShift ? checkHostelShift(hostelId, pendingUser?.id, pendingUser?.login) : null);
+        if (occupied) {
+            setHostelError({ hostelId, occupiedBy: occupied });
+            return; // без анимации
         }
         setHostelError(null);
         const finalUser = { ...pendingUser, selectedHostel: hostelId };
@@ -461,7 +537,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             setSubmitPhase('zooming');
             setTimeout(() => onLogin?.(finalUser), 1200);
         }, 600);
-    }, [pendingUser, onLogin, checkHostelShift]);
+    }, [pendingUser, onLogin, checkHostelShift, users, t]);
 
     /* pill-button style helper */
     const pill = (active) => active
@@ -491,10 +567,41 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
             @keyframes waveA { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
             @keyframes waveB { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
             @keyframes waveC { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
-            .v7-bg    { animation: bgFade .9s ease both; }
-            .v7-form  { animation: fadeSlideRight .6s .1s ease both; }
-            .v7-brand { animation: fadeSlideUp .7s ease both; }
-            .v7-greet { animation: greetIn .4s ease both; }
+            /* Появление сцены по шагам, а не всё разом: сначала фон, следом
+               бренд, затем форма. Пружинистое замедление вместо линейного ease. */
+            .v7-bg    { animation: bgFade 1.1s cubic-bezier(.22,.61,.36,1) both; }
+            .v7-brand { animation: fadeSlideUp .78s .12s cubic-bezier(.16,1,.3,1) both; }
+            .v7-form  { animation: fadeSlideRight .72s .26s cubic-bezier(.16,1,.3,1) both; }
+            .v7-greet { animation: greetIn .5s cubic-bezier(.16,1,.3,1) both; }
+
+            /* Поля: мягкий подъём и подсветка при фокусе — видно, куда печатаешь */
+            .v7-login-input {
+                transition: border-color .22s ease, background-color .22s ease,
+                            box-shadow .28s ease, transform .18s cubic-bezier(.16,1,.3,1);
+            }
+            .v7-login-input:focus {
+                transform: translateY(-1px);
+                box-shadow: 0 6px 22px -8px rgba(0,0,0,.55);
+            }
+            /* Кнопка входа: бегущий блик по наведению.
+               Масштаб/яркость на hover уже делает framer-motion — CSS-трансформ
+               здесь не трогаем, иначе он будет спорить с инлайновым стилем. */
+            .v7-submit::after {
+                content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+                background:linear-gradient(105deg, transparent 38%, rgba(255,255,255,.26) 50%, transparent 62%);
+                transform:translateX(-130%); transition:transform .62s cubic-bezier(.22,.61,.36,1);
+            }
+            .v7-submit:hover:not(:disabled)::after { transform:translateX(130%); }
+
+            /* Уважаем системную настройку «меньше движения» */
+            @media (prefers-reduced-motion: reduce) {
+                .v7-bg, .v7-brand, .v7-form, .v7-greet,
+                .v7-wave-a, .v7-wave-b, .v7-wave-c, .v7-glint-text {
+                    animation: none !important;
+                }
+                .v7-login-input, .v7-submit { transition: none !important; }
+                .v7-submit::after { display: none; }
+            }
             .v7-glint-text {
                 background-size: 350% 100%;
                 -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
@@ -540,10 +647,11 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
         <div className="fixed inset-0 w-screen h-screen z-[100] overflow-hidden flex flex-col">
 
             {/* == ZOOMING BG LAYER == */}
+            {/* Слой БЕЗ key: пересоздание рвало картинку. Смену темы делает
+                CrossfadeBg — новый градиент проявляется поверх старого. */}
             <motion.div
-                key={themeKey}
                 className="v7-bg absolute inset-0"
-                style={{ background: theme.bg, transformOrigin: 'center center' }}
+                style={{ transformOrigin: 'center center' }}
                 animate={submitPhase === 'zooming'
                     ? { scale: 2.6, opacity: 0.08 }
                     : { scale: 1,   opacity: 1    }
@@ -553,6 +661,16 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     ease:     submitPhase === 'zooming' ? [0.55, 0, 1, 0.45] : 'easeOut',
                 }}
             >
+                {/* Градиент темы с перетеканием старого в новый */}
+                <CrossfadeBg background={theme.bg} className="absolute inset-0" />
+
+                {/* Мягкое переливание цвета поверх градиента (не свечение):
+                    цвета плавно перетекают вслед за темой, слой реагирует на курсор. */}
+                <AmbientCanvas
+                    colors={[theme.waveColor1, theme.waveColor2, theme.waveColor3]}
+                    intensity={theme.id === 'day' ? 0.55 : 0.8}
+                />
+
                 {/* Clouds */}
                 {clouds.map(cl => (
                     <div key={cl.id} style={{
@@ -643,10 +761,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     <div className="hidden sm:flex top-pill">
                         {THEME_OPTIONS.map(opt => (
                             <button key={opt.id} onClick={() => setThemeId(opt.id)}
-                                title={opt.label} className="top-pill-btn"
+                                title={t(opt.label)} className="top-pill-btn"
                                 style={pill(themeId === opt.id)}>
                                 <span>{opt.emoji}</span>
-                                <span className="hidden sm:inline">{opt.label}</span>
+                                <span className="hidden sm:inline">{t(opt.label)}</span>
                             </button>
                         ))}
                     </div>
@@ -663,9 +781,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                             ))}
                         </div>
                         <span className="hidden sm:inline-block text-xs font-bold select-none px-2.5 py-1.5 rounded-full"
-                              style={{background:'rgba(0,0,0,0.22)', color:'rgba(255,255,255,0.28)',
-                                      border:'1px solid rgba(255,255,255,0.07)'}}>
-                            v{APP_VERSION}
+                              title={updateTip}
+                              style={{background: updateBadge.bg, color: updateBadge.fg,
+                                      border:`1px solid ${updateBadge.br}`}}>
+                            v{APP_VERSION}{updateBadge.suffix}
                         </span>
                         {window.electronAPI && (
                             <div className="flex gap-1 ml-0.5">
@@ -766,10 +885,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                           <LockIcon open success />
                                         </motion.div>
                                         <h2 className="text-xl font-black" style={{ color: '#fff', letterSpacing: '-0.3px' }}>
-                                          Выберите хостел
+                                          {t('loginSelectHostel')}
                                         </h2>
                                         <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.38)' }}>
-                                          Несколько объектов доступны для вашего аккаунта
+                                          {t('loginMultipleHostels')}
                                         </p>
                                       </div>
 
@@ -831,7 +950,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                   {hname}
                                                 </div>
                                                 <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '11px', marginTop: '2px' }}>
-                                                  Нажмите для входа
+                                                  {t('loginClickToEnter')}
                                                 </div>
                                               </div>
                                               {/* Arrow */}
@@ -874,10 +993,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                             </svg>
                                             <div>
                                               <div style={{ fontSize: '13px', fontWeight: 700, color: '#ff9090', marginBottom: '2px' }}>
-                                                Смена уже открыта
+                                                {t('loginShiftOpen')}
                                               </div>
                                               <div style={{ fontSize: '12px', color: 'rgba(255,150,140,0.7)', lineHeight: 1.4 }}>
-                                                {hostelNames[hostelError.hostelId] || hostelError.hostelId}: сейчас работает <strong style={{ color: '#ffb0a8' }}>{hostelError.occupiedBy}</strong>
+                                                {hostelNames[hostelError.hostelId] || hostelError.hostelId}: {t('loginNowWorking')} <strong style={{ color: '#ffb0a8' }}>{hostelError.occupiedBy}</strong>
                                               </div>
                                             </div>
                                           </motion.div>
@@ -917,7 +1036,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                           <polyline points="16 17 21 12 16 7"/>
                                           <line x1="21" y1="12" x2="9" y2="12"/>
                                         </svg>
-                                        Выйти
+                                        {t('logout')}
                                       </button>
                                     </motion.div>
                                   ) : (
@@ -956,7 +1075,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                     disabled={isSubmitting}
                                                     autoComplete="username"
                                                     autoFocus
-                                                    placeholder="Введите логин"
+                                                    placeholder={t('loginPlaceholderLogin')}
                                                     className="v7-login-input"
                                                     style={{ width: '100%', height: '50px', padding: '0 16px', boxSizing: 'border-box', borderRadius: '12px',
                                                         border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)',
@@ -978,7 +1097,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                         onFocus={() => setError('')}
                                                         disabled={isSubmitting}
                                                         autoComplete="current-password"
-                                                        placeholder="Введите пароль"
+                                                        placeholder={t('loginPlaceholderPass')}
                                                         className="v7-login-input"
                                                         style={{ width: '100%', height: '50px', padding: '0 46px 0 16px', boxSizing: 'border-box', borderRadius: '12px',
                                                             border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)',
@@ -1017,7 +1136,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                         >
                                                             {/* Заголовок + процент */}
                                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '5px' }}>
-                                                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Загрузка данных</span>
+                                                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{t('loginProgressData')}</span>
                                                                 <motion.span
                                                                     animate={{ opacity: 1 }}
                                                                     style={{ fontSize: '20px', fontWeight: 900, color: '#fff', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}
@@ -1035,7 +1154,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                                     transition={{ duration: 0.2 }}
                                                                     style={{ fontSize: '12px', color: 'rgba(255,255,255,0.28)', marginBottom: '8px' }}
                                                                 >
-                                                                    {LOADING_TEXTS[loadingTextIdx]}
+                                                                    {t(LOADING_TEXT_KEYS[loadingTextIdx])}
                                                                 </motion.div>
                                                             </AnimatePresence>
                                                             {/* Полоска прогресса */}
@@ -1053,6 +1172,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                                                     <motion.button
                                                         type="submit"
+                                                        className="v7-submit"
                                                         whileHover={!isSubmitting ? { scale: 1.025, filter: 'brightness(1.15)', y: -1 } : {}}
                                                         whileTap={!isSubmitting ? { scale: 0.975 } : {}}
                                                         animate={{
@@ -1109,7 +1229,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                                                                         }}
                                                                     />
                                                                     <span style={{ fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap', color: 'rgba(255,255,255,0.65)' }}>
-                                                                        Пожалуйста подождите...
+                                                                        {t('loginPleaseWait')}
                                                                     </span>
                                                                 </motion.div>
                                                             )}
@@ -1147,7 +1267,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                     <div className="top-pill">
                         {THEME_OPTIONS.map(opt => (
                             <button key={opt.id} onClick={() => setThemeId(opt.id)}
-                                title={opt.label} className="top-pill-btn"
+                                title={t(opt.label)} className="top-pill-btn"
                                 style={pill(themeId === opt.id)}>
                                 <span>{opt.emoji}</span>
                             </button>
@@ -1163,9 +1283,10 @@ const LoginScreen = ({ users, onLogin, onSeed, lang, setLang, themeId, setThemeI
                             ))}
                         </div>
                         <span className="text-xs font-bold select-none px-2 py-1 rounded-full"
-                              style={{background:'rgba(0,0,0,0.22)', color:'rgba(255,255,255,0.28)',
-                                      border:'1px solid rgba(255,255,255,0.07)'}}>
-                            v{APP_VERSION}
+                              title={updateTip}
+                              style={{background: updateBadge.bg, color: updateBadge.fg,
+                                      border:`1px solid ${updateBadge.br}`}}>
+                            v{APP_VERSION}{updateBadge.suffix}
                         </span>
                     </div>
                 </div>

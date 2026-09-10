@@ -1,5 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Подписка на канал, возвращающая функцию отписки. Без неё снять слушателя из
+// рендерера невозможно (колбэк оборачивается здесь, наружу ссылка не уходит),
+// и при каждом перемонтировании компонента оставался «висячий» обработчик.
+const subscribe = (channel, cb) => {
+  const handler = (_e, payload) => cb(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+};
+
 contextBridge.exposeInMainWorld('electronAPI', {
   minimize:     () => ipcRenderer.invoke('window-minimize'),
   maximize:     () => ipcRenderer.invoke('window-maximize'),
@@ -17,21 +26,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emehmonCheck: (guest) => ipcRenderer.invoke('emehmon-check', guest),
   // e-mehmon: весь список /listok для синхронизации статусов регистрации
   emehmonList: (payload) => ipcRenderer.invoke('emehmon-list', payload),
+  emehmonRecalc: (payload) => ipcRenderer.invoke('emehmon-recalc', payload),
+  // Сбои главного процесса: подписка + разбор накопленного при старте
+  onMainError: (cb) => subscribe('main-error', cb),
+  takePendingErrors: () => ipcRenderer.invoke('take-pending-errors'),
+  emehmonTursbor: (payload) => ipcRenderer.invoke('emehmon-tursbor', payload),
   // e-mehmon: массовое выселение нескольких гостей одной модалкой
   emehmonDepartureBulk: (payload) => ipcRenderer.invoke('emehmon-departure-bulk', payload),
   // e-mehmon: уведомление об успешной регистрации прибытия (для авто-галочки)
-  onEmehmonRegistered: (cb) => ipcRenderer.on('emehmon-registered', (_e, data) => cb(data)),
+  onEmehmonRegistered: (cb) => subscribe('emehmon-registered', cb),
   // e-mehmon: полная авто-регистрация прибытия (граждане Узбекистана)
   emehmonArrivalAuto: (guest) => ipcRenderer.invoke('emehmon-arrival-auto', guest),
+  // e-mehmon: проверка паспорта в госбазе БЕЗ регистрации (разбор дубликатов)
+  emehmonPassportCheck: (payload) => ipcRenderer.invoke('emehmon-passport-check', payload),
 
   // Pending payments (offline safety net)
   savePendingPayments: (data) => ipcRenderer.invoke('save-pending-payments', data),
   loadPendingPayments: ()     => ipcRenderer.invoke('load-pending-payments'),
 
   // Auto-updater
-  onUpdateAvailable:  (cb) => ipcRenderer.on('update-available',  (_e, info) => cb(info)),
-  onUpdateProgress:   (cb) => ipcRenderer.on('update-progress',   (_e, p)    => cb(p)),
-  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, info) => cb(info)),
-  onUpdateError:      (cb) => ipcRenderer.on('update-error',      (_e, msg)  => cb(msg)),
+  onUpdateAvailable:  (cb) => subscribe('update-available',  cb),
+  onUpdateProgress:   (cb) => subscribe('update-progress',   cb),
+  onUpdateDownloaded: (cb) => subscribe('update-downloaded', cb),
+  onUpdateError:      (cb) => subscribe('update-error',      cb),
   installUpdate:      () => ipcRenderer.invoke('install-update'),
 });

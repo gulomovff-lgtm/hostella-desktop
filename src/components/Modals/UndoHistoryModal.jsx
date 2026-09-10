@@ -1,51 +1,52 @@
 import React, { useState, useMemo } from 'react';
 import { X, RotateCcw, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
-// Actions that can be undone and their UI metadata
+// Actions that can be undone and their UI metadata (labelKey → translations.js)
 const ACTION_META = {
-    checkin:     { icon: '🏨', label: 'Заселение',        color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-    payment:     { icon: '💵', label: 'Оплата',            color: 'bg-blue-50 border-blue-200 text-blue-800'         },
-    extend:      { icon: '📅', label: 'Продление',         color: 'bg-violet-50 border-violet-200 text-violet-800'   },
-    expense:     { icon: '💳', label: 'Расход',            color: 'bg-amber-50 border-amber-200 text-amber-800'      },
-    trim:        { icon: '✂️', label: 'Срез дней',          color: 'bg-orange-50 border-orange-200 text-orange-800'   },
-    debtPayment: { icon: '↩️', label: 'Погашение долга',   color: 'bg-rose-50 border-rose-200 text-rose-800'         },
-    rental:      { icon: '🏢', label: 'Аренда',            color: 'bg-teal-50 border-teal-200 text-teal-800'         },
+    checkin:     { icon: '🏨', labelKey: 'uhmActCheckin',  color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+    payment:     { icon: '💵', labelKey: 'uhmActPayment',  color: 'bg-blue-50 border-blue-200 text-blue-800'         },
+    extend:      { icon: '📅', labelKey: 'uhmActExtend',   color: 'bg-violet-50 border-violet-200 text-violet-800'   },
+    expense:     { icon: '💳', labelKey: 'uhmActExpense',  color: 'bg-amber-50 border-amber-200 text-amber-800'      },
+    trim:        { icon: '✂️', labelKey: 'uhmActTrim',     color: 'bg-orange-50 border-orange-200 text-orange-800'   },
+    debtPayment: { icon: '↩️', labelKey: 'uhmActDebtPay',  color: 'bg-rose-50 border-rose-200 text-rose-800'         },
+    rental:      { icon: '🏢', labelKey: 'uhmActRental',   color: 'bg-teal-50 border-teal-200 text-teal-800'         },
 };
 
 const UNDO_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
-function timeAgo(ts) {
+function timeAgo(ts, t) {
     const diff = Date.now() - new Date(ts).getTime();
     const min  = Math.floor(diff / 60000);
-    if (min < 1) return 'только что';
-    if (min < 60) return `${min} мин назад`;
-    return `${Math.floor(min / 60)} ч назад`;
+    if (min < 1) return t('uhmJustNow');
+    if (min < 60) return t('uhmMinAgo').replace('{n}', min);
+    return t('uhmHoursAgo').replace('{n}', Math.floor(min / 60));
 }
 
-function timeLeft(ts) {
+function timeLeft(ts, t) {
     const left = UNDO_WINDOW_MS - (Date.now() - new Date(ts).getTime());
     if (left <= 0) return null;
     const min = Math.ceil(left / 60000);
-    return `${min} мин`;
+    return t('uhmMinShort').replace('{n}', min);
 }
 
 // ─── Single confirm step ───────────────────────────────────────────────────────
-function ConfirmRow({ item, onConfirm, onCancel, confirming }) {
+function ConfirmRow({ item, onConfirm, onCancel, confirming, t }) {
     return (
         <div className="border border-amber-300 bg-amber-50 rounded-xl p-3 flex items-start gap-3">
             <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0"/>
             <div className="flex-1 min-w-0">
-                <div className="text-sm font-bold text-amber-800 mb-0.5">Подтвердите отмену</div>
+                <div className="text-sm font-bold text-amber-800 mb-0.5">{t('uhmConfirmUndo')}</div>
                 <div className="text-xs text-amber-700">{item.label}</div>
             </div>
             <div className="flex gap-1.5 shrink-0">
                 <button onClick={onCancel}
                     className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white border border-slate-300 text-slate-600 hover:bg-slate-50">
-                    Нет
+                    {t('no')}
                 </button>
                 <button onClick={() => onConfirm(item)} disabled={confirming}
                     className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500 hover:bg-rose-600 text-white disabled:opacity-50">
-                    {confirming ? '...' : 'Отменить'}
+                    {confirming ? '...' : t('uhmUndoAction')}
                 </button>
             </div>
         </div>
@@ -53,7 +54,8 @@ function ConfirmRow({ item, onConfirm, onCancel, confirming }) {
 }
 
 // ─── Main modal ────────────────────────────────────────────────────────────────
-const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
+const UndoHistoryModal = ({ undoStack, onClose, onUndo, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [confirmId, setConfirmId] = useState(null);
     const [loading,   setLoading  ] = useState(false);
 
@@ -85,7 +87,7 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-amber-500 to-orange-500">
                     <div className="flex items-center gap-2.5">
                         <RotateCcw size={17} className="text-white"/>
-                        <span className="font-black text-white text-sm">Отмена действий</span>
+                        <span className="font-black text-white text-sm">{t('uhmTitle')}</span>
                         {validItems.length > 0 && (
                             <span className="bg-white/25 text-white text-xs font-black px-2 py-0.5 rounded-full">
                                 {validItems.length}
@@ -102,13 +104,14 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
                     {validItems.length === 0 ? (
                         <div className="text-center py-8 text-slate-400">
                             <CheckCircle size={36} className="mx-auto mb-2 opacity-30"/>
-                            <div className="text-sm font-medium">Нет действий для отмены</div>
-                            <div className="text-xs mt-1">Действия доступны 30 минут</div>
+                            <div className="text-sm font-medium">{t('uhmEmpty')}</div>
+                            <div className="text-xs mt-1">{t('uhmAvail30')}</div>
                         </div>
                     ) : (
                         validItems.map(item => {
-                            const meta = ACTION_META[item.type] || { icon: '⚙️', label: item.type, color: 'bg-slate-50 border-slate-200 text-slate-800' };
-                            const tLeft = timeLeft(item.timestamp);
+                            const meta = ACTION_META[item.type] || { icon: '⚙️', labelKey: null, color: 'bg-slate-50 border-slate-200 text-slate-800' };
+                            const metaLabel = meta.labelKey ? t(meta.labelKey) : item.type;
+                            const tLeft = timeLeft(item.timestamp, t);
 
                             if (confirmId === item.id) {
                                 return (
@@ -116,6 +119,7 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
                                         onConfirm={handleConfirm}
                                         onCancel={() => setConfirmId(null)}
                                         confirming={loading}
+                                        t={t}
                                     />
                                 );
                             }
@@ -124,13 +128,13 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
                                 <div key={item.id} className={`border rounded-xl p-3 flex items-center gap-3 ${meta.color}`}>
                                     <span className="text-xl shrink-0">{meta.icon}</span>
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-black uppercase tracking-wide opacity-60 mb-0.5">{meta.label}</div>
+                                        <div className="text-xs font-black uppercase tracking-wide opacity-60 mb-0.5">{metaLabel}</div>
                                         <div className="text-sm font-bold truncate">{item.label}</div>
                                         <div className="flex items-center gap-2 mt-0.5">
                                             <Clock size={10} className="opacity-50"/>
-                                            <span className="text-[10px] opacity-60">{timeAgo(item.timestamp)}</span>
+                                            <span className="text-[10px] opacity-60">{timeAgo(item.timestamp, t)}</span>
                                             {tLeft && (
-                                                <span className="text-[10px] opacity-50">· осталось {tLeft}</span>
+                                                <span className="text-[10px] opacity-50">· {t('uhmRemaining').replace('{t}', tLeft)}</span>
                                             )}
                                         </div>
                                     </div>
@@ -138,7 +142,7 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
                                         onClick={() => setConfirmId(item.id)}
                                         className="shrink-0 flex items-center gap-1 px-3 py-1.5 bg-white/70 hover:bg-white border border-current/20 rounded-lg text-xs font-black transition-colors"
                                     >
-                                        <RotateCcw size={11}/> Отменить
+                                        <RotateCcw size={11}/> {t('uhmUndoAction')}
                                     </button>
                                 </div>
                             );
@@ -149,7 +153,7 @@ const UndoHistoryModal = ({ undoStack, onClose, onUndo }) => {
                 {/* Footer */}
                 <div className="px-5 py-3 border-t border-slate-100 bg-slate-50">
                     <p className="text-[11px] text-slate-400 text-center">
-                        Действия доступны для отмены в течение 30 минут с момента выполнения
+                        {t('uhmFooter')}
                     </p>
                 </div>
             </div>

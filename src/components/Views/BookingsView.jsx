@@ -33,13 +33,25 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
             {/* Header stripe */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-[#1a3c40]/5 to-[#e88c40]/5 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#e88c40] uppercase tracking-wide bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
-                        <Globe size={10} />
-                        {t('fromWebsite')}
-                    </span>
+                    {/* Откуда бронь: сайт или Telegram-бот */}
+                    {booking.channel === 'telegram' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#229ED9] uppercase tracking-wide bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
+                            ✈️ Telegram
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-[#e88c40] uppercase tracking-wide bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                            <Globe size={10} />
+                            {t('fromWebsite')}
+                        </span>
+                    )}
                     <span className="text-[11px] font-bold text-slate-400">
                         {HOSTELS[booking.hostelId] || booking.hostelId}
                     </span>
+                    {booking.bookingCode && (
+                        <span className="text-[10px] font-black text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md font-mono">
+                            {booking.bookingCode}
+                        </span>
+                    )}
                 </div>
                 <span className="text-[11px] text-slate-400 font-medium">
                     {booking.createdAt
@@ -77,10 +89,42 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                     </div>
                 </div>
 
+                {(booking.beds || 1) > 1 && (
+                    <div className="col-span-2 flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg">
+                            <BedDouble size={12} /> {t('bkGroupBooking').replace('{n}', booking.beds)}
+                        </span>
+                        {(booking.seatedCount || 0) > 0 && (
+                            <span className="text-xs font-bold text-indigo-600">{t('bkSeatedOf').replace('{done}', booking.seatedCount).replace('{total}', booking.beds)}</span>
+                        )}
+                    </div>
+                )}
+                {!booking.depositMoved && (Number(booking.amountPaid) || 0) > 0 && (
+                    <div className="col-span-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg">
+                            💰 {t('bkDepositMade')} {Number(booking.amountPaid).toLocaleString()} {t('sum')}
+                        </span>
+                    </div>
+                )}
+
                 {booking.country && (
                     <div className="col-span-2 flex items-center gap-2">
                         <Globe size={13} className="text-slate-400 flex-shrink-0" />
                         <span className="text-sm font-medium text-slate-600">{booking.country}</span>
+                    </div>
+                )}
+                {booking.totalPrice > 0 && (
+                    <div className="col-span-2 flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{t('amount')}</span>
+                        <span className="text-sm font-black text-slate-700">{Number(booking.totalPrice).toLocaleString()} {t('sum')}</span>
+                        {booking.channel === 'telegram' && (
+                            <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md" title={t('bkNegotiatedTitle')}>{t('bkNegotiated')}</span>
+                        )}
+                    </div>
+                )}
+                {booking.comment && (
+                    <div className="col-span-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
+                        💬 {booking.comment}
                     </div>
                 )}
             </div>
@@ -95,7 +139,7 @@ const BookingCard = ({ booking, onAccept, onReject, lang = 'ru' }) => {
                                    transition-all active:scale-[0.98]"
                     >
                         <BedDouble size={14} strokeWidth={2.5} />
-                        {t('checkin')}
+                        {(booking.seatedCount || 0) > 0 ? t('bkCheckinNth').replace('{n}', (booking.seatedCount || 0) + 1).replace('{total}', booking.beds) : t('checkin')}
                         <ChevronRight size={13} strokeWidth={3} />
                     </button>
                     <button
@@ -173,14 +217,14 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang = 'ru', 
             // 1. Get iCal URL from Firestore settings
             const cfgRef  = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
             const cfgSnap = await getDoc(cfgRef);
-            if (!cfgSnap.exists()) throw new Error('Настройки не найдены. Сохраните настройки хостела.');
+            if (!cfgSnap.exists()) throw new Error(t('bkErrNoSettings'));
             const icalUrl = cfgSnap.data()?.[hostelId]?.icalUrl;
-            if (!icalUrl) throw new Error('iCal URL не задан. Добавьте его в Настройках → хостел.');
+            if (!icalUrl) throw new Error(t('bkErrNoIcal'));
 
             // 2. Fetch iCal text via Electron IPC (no CORS)
-            if (!window.electronAPI?.fetchIcal) throw new Error('Функция доступна только в приложении Hostella.');
+            if (!window.electronAPI?.fetchIcal) throw new Error(t('bkErrElectronOnly'));
             const text = await window.electronAPI.fetchIcal(icalUrl);
-            if (!text || !text.includes('BEGIN:VCALENDAR')) throw new Error('Неверный ответ от Booking.com. Проверьте URL.');
+            if (!text || !text.includes('BEGIN:VCALENDAR')) throw new Error(t('bkErrBadIcal'));
 
             // 3. Parse
             const reservations = parseIcal(text);
@@ -297,7 +341,7 @@ const BookingsView = ({ bookings, onAccept, onReject, currentUser, lang = 'ru', 
                         </div>
                         <div className="flex items-center gap-3">
                             {syncMsg && (
-                                <span className={`text-xs font-bold px-3 py-1.5 rounded-xl ${syncMsg.startsWith('Ошибка') ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                                <span className={`text-xs font-bold px-3 py-1.5 rounded-xl ${syncMsg.startsWith(t('error')) ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
                                     {syncMsg}
                                 </span>
                             )}
@@ -379,7 +423,7 @@ const BookingComCard = ({ res, matchedRoom, lang = 'ru' }) => {
                 {res.guests > 1 && (
                     <div className="flex items-center gap-2">
                         <Users size={13} className="text-slate-400 shrink-0" />
-                        <span className="text-sm text-slate-600 font-medium">{res.guests} гостя</span>
+                        <span className="text-sm text-slate-600 font-medium">{res.guests} {t('bkGuestsWord')}</span>
                     </div>
                 )}
                 {res.room && (
