@@ -134,3 +134,11 @@ test('лист заново: скрипт страницы выехавших к
   assert.ok(mainSrc.includes("ipcMain.handle('emehmon-sheet-fetch'") && mainSrc.includes('/listokout'), 'в main нет листа заново');
   assert.ok(fs.readFileSync(path.join(root, 'electron/preload.js'), 'utf8').includes('emehmonSheetFetch'));
 });
+
+test('дамп последней вкладки несёт строки проживаний и не режет блоки до 300 знаков', () => {
+  const src = m.buildAutoArrivalScript({ ...FOREIGN, gateStays: true });
+  assert.ok(src.includes('stayLines'), 'строки проживаний не снимаются');
+  assert.ok(src.includes('slice(0,1500)'), 'блоки по-прежнему режутся до 300 знаков');
+  assert.ok(src.includes('lastActivity'));
+  assert.doesNotThrow(() => new vm.Script(src));
+});

@@ -106,6 +106,22 @@ const HAS_TIME_RX = /\d{1,2}:\d{2}/;
 // Заголовки таблицы прошлых проживаний.
 export const STAY_HDR_RX = /mehmonxona|hotel|отель|гостин|joylash|yashash|turar|sana|date|дата|kirish|chiqish|kelish|ketish|заезд|выезд|checkin|checkout/i;
 
+
+// Строка проживания с последней вкладки мастера: «1 10.09.2026 - 11.09.2026 - ASIA HOSTEL»,
+// открытое — «11.09.2026 - ... - HOSTELLA». Первый разделитель после даты обязателен:
+// иначе за проживание сошла бы строка «11.09.2026 21:19 | Регион: …» (последняя активность).
+const STAY_LINE_RX = /^\s*(?:\d{1,2}[.)]?\s+)?(\d{2}[.\-/]\d{2}[.\-/]\d{4})\s*[-–—]\s*(\d{2}[.\-/]\d{2}[.\-/]\d{4}|\.{3}|…)?\s*[-–—]?\s*(.*)$/;
+export const parseStayLine = (line) => {
+  const m = STAY_LINE_RX.exec(String(line || ''));
+  if (!m) return null;
+  const from = toIsoDate(m[1]);
+  if (!from) return null;
+  const to = m[2] && !/^(\.{3}|…)$/.test(m[2]) ? toIsoDate(m[2]) : null;
+  const hotel = String(m[3] || '').replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/g, '').replace(/\s+/g, ' ').trim();
+  if (!hotel && !to) return null;
+  return { hotel: hotel.slice(0, 80), from, to };
+};
+
 /** Ячейки строки таблицы: массив как есть, строку делим по « | ». */
 export const cellsOf = (row) => {
   if (Array.isArray(row)) return row.map(c => String(c ?? ''));
@@ -170,8 +186,13 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
   }
   if (!kppDate) kppDate = weakDate;
 
-  // Прошлые проживания: таблица с «отельными» заголовками и ≥2 датами в строках.
+  // Прошлые проживания. Источники по порядку: строки «дата - дата - отель» со
+  // всей последней вкладки (stayLines), таблица с «отельными» заголовками,
+  // текстовые блоки. Открытое проживание — «дата - … - отель», to = null.
   let stays = [];
+  const fromLines = (lines) => lines.map(parseStayLine).filter(Boolean);
+  const stayLines = Array.isArray(probe?.stayLines) ? probe.stayLines : [];
+  if (stayLines.length) stays = fromLines(stayLines);
   const rowStays = (rows) => {
     const out = [];
     for (const row of rows) {
@@ -184,19 +205,25 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
     }
     return out;
   };
-  for (const tb of tables) {
-    const headers = (tb?.headers || []).map(h => String(h ?? ''));
-    const rows = tb?.rows || [];
-    const hdrHits = headers.filter(h => STAY_HDR_RX.test(h)).length;
-    const looksLikeStays = hdrHits >= 2 || (headers.length === 0 && rows.length > 0 && rowStays(rows).length === rows.length);
-    if (!looksLikeStays) continue;
-    const parsed = rowStays(rows);
-    if (parsed.length) { stays = parsed; break; }
+  if (!stays.length) {
+    for (const tb of tables) {
+      const headers = (tb?.headers || []).map(h => String(h ?? ''));
+      const rows = tb?.rows || [];
+      const hdrHits = headers.filter(h => STAY_HDR_RX.test(h)).length;
+      const looksLikeStays = hdrHits >= 2 || (headers.length === 0 && rows.length > 0 && rowStays(rows).length === rows.length);
+      if (!looksLikeStays) continue;
+      const parsed = rowStays(rows);
+      if (parsed.length) { stays = parsed; break; }
+    }
   }
   if (!stays.length && blocks.length) {
-    // Запасной вариант: строки текста «Отель … 01.09.2026 … 05.09.2026».
+    // Текстовые блоки: сначала строки «дата - дата - отель», потом любые строки
+    // с двумя датами («Отель … 01.09.2026 … 05.09.2026»).
     for (const b of blocks) {
-      for (const line of String(b || '').split(/\n+/)) {
+      const lines = String(b || '').split(/\n+/);
+      const parsed = fromLines(lines);
+      if (parsed.length) { stays = parsed; break; }
+      for (const line of lines) {
         const dates = allDates(line).sort();
         if (dates.length < 2) continue;
         const hotel = line.replace(DATE_RX_G, '').replace(/[|:;–—-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -205,8 +232,13 @@ export function parseEmehmonProbe(probe = {}, opts = {}) {
       if (stays.length) break;
     }
   }
-  stays = stays.slice(0, 10).sort((a, b) => String(a.to).localeCompare(String(b.to)));
-  const lastCheckout = stays.map(s => s.to).filter(d => d && d <= today).sort().pop() || null;
+  stays = stays.slice(0, 10).sort((a, b) => String(a.to || '9999').localeCompare(String(b.to || '9999')));
+  // Последний выезд: закрытые проживания до сегодня. Открытое проживание, начатое
+  // раньше сегодняшнего дня, значит «зарегистрирован сейчас» — разрыва нет.
+  // Открытое с сегодняшней датой — это наша же регистрация в работе, её не считаем.
+  const closed = stays.map(s => s.to).filter(d => d && d <= today).sort().pop() || null;
+  const openElsewhere = stays.some(s => s.from && !s.to && s.from < today);
+  const lastCheckout = openElsewhere ? today : closed;
 
   return { kppDate, kppNumber, stays, lastCheckout, officialName: String(probe?.officialName || '') };
 }
@@ -257,6 +289,9 @@ export function trimProbe(probe, maxBytes = 8000) {
     // Имена всех полей, включая пустые: по ним видно, как портал называет
     // дату/№ КПП. Собирались с 0.15.9, но до документа не доезжали.
     keys: [...(probe?.keys || [])].slice(0, 120),
+    // Строки проживаний и последняя активность с последней вкладки (с 0.15.16 / моста 0.2.2).
+    stayLines: [...(probe?.stayLines || [])].slice(0, 20).map(x => String(x ?? '').slice(0, 160)),
+    lastActivity: String(probe?.lastActivity || '').slice(0, 160),
   };
   if (size(p) <= maxBytes) return p;
   p.blocks = [];

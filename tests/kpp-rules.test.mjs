@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import {
     toIsoDate, daysBetween, parseEmehmonProbe, assessKpp, registrationDue,
     trimProbe, shouldRetryNoRoom, getRegistrationWindow,
-  cellsOf,
-} from '../src/utils/kppRules.js';
+  cellsOf, parseStayLine } from '../src/utils/kppRules.js';
 
 test('toIsoDate: три формата портала, мусор — null', () => {
     assert.equal(toIsoDate('05.09.2026'), '2026-09-05');
@@ -172,4 +171,45 @@ test('trimProbe: строки таблиц всегда плоские (инач
     // Разбор плоского дампа даёт то же, что разбор исходного
     const flat = parseEmehmonProbe({ tables: [{ headers: ['Mehmonxona', 'Kirish', 'Chiqish'], rows: p.tables[0].rows }] }, { today: '2026-09-10' });
     assert.ok(Array.isArray(flat.stays));
+});
+
+test('parseEmehmonProbe: живой случай 11.09 — список «Mehmon bizda qolgan» строками, открытое проживание, выезд из соседнего отеля сегодня', () => {
+  // Скриншот последней вкладки: КПП 15.08, «1 11.09.2026 - ... - HOSTELLA», «2 10.09.2026 - 11.09.2026 - ASIA HOSTEL».
+  // Автомат до правки писал «прошлых проживаний нет» и «разрыв 25 дн.»: список не таблица, а текст.
+  const block = "Fuqaroligi: PAKISTAN\nBizning mehmonxonamizning qora ro'yxatida:: Yo'q\nGlobal qora ro'yxatda: Yo'q\n"
+    + 'E-MEHMON tizimidagi oxirgi faollik:: 11.09.2026 21:19 | Регион: TOSHKENT SHAXRI\nMehmon bizda qolgan::\n'
+    + '1 11.09.2026 - ... - HOSTELLA\n2 10.09.2026 - 11.09.2026 - ASIA HOSTEL';
+  const r = parseEmehmonProbe({ labels: { 'Chegara KPP sanasi': '15.08.2026' }, blocks: [block] }, { today: '2026-09-11' });
+  assert.equal(r.kppDate, '2026-08-15');
+  assert.deepEqual(r.stays, [
+    { hotel: 'ASIA HOSTEL', from: '2026-09-10', to: '2026-09-11' },
+    { hotel: 'HOSTELLA', from: '2026-09-11', to: null },
+  ]);
+  assert.equal(r.lastCheckout, '2026-09-11');
+  const a = assessKpp({ country: 'Пакистан', kppDate: r.kppDate, lastCheckout: r.lastCheckout, today: '2026-09-11' });
+  assert.equal(a.ok, true);
+  assert.equal(a.reason, 'after_hotel');
+  assert.equal(a.dayNumber, 28);
+  // Новый дамп несёт строки отдельно — тот же результат без блоков.
+  const r2 = parseEmehmonProbe({ stayLines: ['1 11.09.2026 - ... - HOSTELLA', '2 10.09.2026 - 11.09.2026 - ASIA HOSTEL'] }, { today: '2026-09-11' });
+  assert.equal(r2.lastCheckout, '2026-09-11');
+  assert.equal(r2.stays.length, 2);
+});
+
+test('parseStayLine: открытое проживание, нумерация, строка последней активности — не проживание', () => {
+  assert.deepEqual(parseStayLine('2 10.09.2026 - 11.09.2026 - ASIA HOSTEL'), { hotel: 'ASIA HOSTEL', from: '2026-09-10', to: '2026-09-11' });
+  assert.deepEqual(parseStayLine('11.09.2026 - … - HOSTELLA'), { hotel: 'HOSTELLA', from: '2026-09-11', to: null });
+  assert.deepEqual(parseStayLine('11.09.2026 - HOSTELLA'), { hotel: 'HOSTELLA', from: '2026-09-11', to: null });
+  assert.equal(parseStayLine('E-MEHMON tizimidagi oxirgi faollik:: 11.09.2026 21:19 | Регион: TOSHKENT SHAXRI'), null);
+  assert.equal(parseStayLine('11.09.2026 21:19 | Регион: TOSHKENT SHAXRI'), null);
+  assert.equal(parseStayLine('15.08.2026'), null);
+});
+
+test('lastCheckout: только наше открытое проживание с сегодняшней датой разрыва не закрывает; открытое с более ранней даты — закрывает', () => {
+  const ours = parseEmehmonProbe({ stayLines: ['1 11.09.2026 - ... - HOSTELLA'] }, { today: '2026-09-11' });
+  assert.equal(ours.lastCheckout, null);
+  assert.equal(assessKpp({ kppDate: '2026-08-15', lastCheckout: ours.lastCheckout, today: '2026-09-11', windowDays: 3 }).ok, false);
+  const elsewhere = parseEmehmonProbe({ stayLines: ['1 05.09.2026 - ... - GRAND HOTEL'] }, { today: '2026-09-11' });
+  assert.equal(elsewhere.lastCheckout, '2026-09-11');
+  assert.equal(assessKpp({ kppDate: '2026-08-15', lastCheckout: elsewhere.lastCheckout, today: '2026-09-11', windowDays: 3 }).ok, true);
 });
