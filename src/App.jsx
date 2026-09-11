@@ -795,6 +795,7 @@ function App() {
     kppFixPrompt, setKppFixPrompt,
     kppSituation, setKppSituation,
     handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
+    handleFetchSheet,
   } = useEmehmonAutomation({
     guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
     isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef,
@@ -2496,6 +2497,7 @@ return (
                 onSuperPayment={handleSuperPayment}
                 onCheckOut={handleCheckOut}
                 onEmehmonDepart={handleEmehmonDepart}
+                onFetchSheet={handleFetchSheet}
                 emehmonDepartingIds={emehmonDepartingIds}
                 onSplit={handleSplitGuest}
                 onOpenMove={() => setMoveGuestModal({ open: true, guest: guestDetailsModal.guest })} 

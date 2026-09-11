@@ -291,9 +291,11 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
 // emehmonSheet.js) — файл на этом компьютере и копия в облаке. Кассиру нужны
 // три вещи: открыть и распечатать; отдать гостю ссылкой — QR на экране, гость
 // сканирует и получает PDF в телефон; увидеть, если лист не снят.
-const EmehmonSheetRow = ({ guest, notify, t }) => {
+const EmehmonSheetRow = ({ guest, notify, t, onFetch }) => {
     const [qr, setQr] = useState(null);
     const [busy, setBusy] = useState(false);
+    // Лист заново — со страницы выехавших портала (main-процесс, emehmon-sheet-fetch).
+    const refetch = async () => { setBusy(true); try { await onFetch(guest); } finally { setBusy(false); } };
     const sheet = guest.emehmonSheet;
     const err = guest.emehmonSheetError;
     const open = async () => {
@@ -322,9 +324,14 @@ const EmehmonSheetRow = ({ guest, notify, t }) => {
     const when = (iso) => { try { return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
     if (!sheet || !(sheet.file || sheet.url)) {
         return (
-            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">
-                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                <div><b>{t('emsNotCaptured')}</b> {err?.message || err?.code || ''} {t('emsNotCapturedHint')}</div>
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+                <AlertTriangle size={16} className="shrink-0" />
+                <div className="flex-1 min-w-[160px]"><b>{err ? t('emsNotCaptured') : t('emsNoSheetYet')}</b> {err?.message || err?.code || ''} {onFetch ? t('emsFetchHint') : t('emsNotCapturedHint')}</div>
+                {onFetch && (
+                    <button disabled={busy} onClick={refetch} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 bg-white text-amber-800 text-xs font-bold hover:bg-amber-100 disabled:opacity-50">
+                        <RotateCcw size={14} /> {busy ? t('emsFetching') : t('emsFetch')}
+                    </button>
+                )}
             </div>
         );
     }
@@ -356,7 +363,7 @@ const EmehmonSheetRow = ({ guest, notify, t }) => {
     );
 };
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
@@ -1165,8 +1172,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 </div>
                             )}
 
-                            {!isBooking && (guest.emehmonSheet || guest.emehmonSheetError) && (
-                                <EmehmonSheetRow guest={guest} notify={notify} t={t} />
+                            {!isBooking && (guest.emehmonSheet || guest.emehmonSheetError || (isCheckedOut && guest.emehmonOut && onFetchSheet && window.electronAPI?.emehmonSheetFetch)) && (
+                                <EmehmonSheetRow guest={guest} notify={notify} t={t} onFetch={window.electronAPI?.emehmonSheetFetch ? onFetchSheet : null} />
                             )}
 
                             {guest.country && !isBooking && (

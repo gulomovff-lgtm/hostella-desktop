@@ -123,6 +123,20 @@ export async function departEmehmonBackground(guest, opts = {}) {
   }
 }
 
+// Лист убытия заново (гость выведен раньше или без листа): страница выехавших
+// портала, печать листа скрытым окном; ответ как у выселения (sheet/sheetBase64).
+export async function fetchDepartureSheet(guest) {
+  if (!window.electronAPI?.emehmonSheetFetch) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest.id || '', mode: 'departure', path: '/listokout' };
+  const acc = await getEmehmonAccount(payload.hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonSheetFetch(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
 // Проверить, активен ли гость в /listok e-mehmon (т.е. ещё НЕ выселен).
 //   present → ещё в активном списке; absent → уже выселен; need_login/error/…
 export async function checkEmehmonActive(guest) {

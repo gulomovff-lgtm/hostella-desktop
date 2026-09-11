@@ -6,7 +6,7 @@ import { emehmonAmountFor, getLocalDateString, HOSTELS } from '../utils/helpers'
 import { emehmonAmountForStay } from '../utils/emehmonAmount';
 import {
   openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered,
-  departEmehmonBackground, autoRegisterArrival, recalcEmehmonAmounts,
+  departEmehmonBackground, fetchDepartureSheet, autoRegisterArrival, recalcEmehmonAmounts,
   checkPassportInGov, getEmehmonStatus,
 } from '../utils/emehmon';
 import {
@@ -170,6 +170,35 @@ const handleEmehmonDepart = useCallback((guestOrList) => {
     }
   })();
 }, [handleDepartOutcome]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// Лист убытия заново — гостю, выведенному раньше или без листа: страница
+// выехавших портала, печать листа скрытым окном, копия в облако, отметка в
+// карточку. Факт вывода не трогаем — он уже стоит.
+const handleFetchSheet = useCallback(async (guest) => {
+  if (!guest || !guest.id) return;
+  if (!window.electronAPI?.emehmonSheetFetch) { showNotification(t('emsFetchNoElectron'), 'info'); return; }
+  showNotification(t('emsFetching'), 'info');
+  const res = await fetchDepartureSheet(guest);
+  if (res?.status === 'done' && res.sheet) {
+    let uploaded = null;
+    if (res.sheetBase64) {
+      try {
+        uploaded = await uploadDepartureSheet({ base64: res.sheetBase64, hostelId: guest.hostelId, guestId: guest.id, fileName: res.sheet.name });
+      } catch (e) {
+        console.warn('[e-mehmon] лист убытия не загружен в облако:', e?.message || e);
+      }
+    }
+    const marks = departureMarks(res, { uploaded });
+    await handleEmehmonFlag(guest.id, { emehmonSheet: marks.emehmonSheet, emehmonSheetError: deleteField() });
+    showNotification(t('emsFetched'), 'success');
+  } else if (res?.status === 'need_login') {
+    showNotification(t('emaLoginRepeatDepart'), 'info');
+  } else if (res?.status === 'not_found') {
+    showNotification(t('emsFetchNotFound'), 'warning');
+  } else {
+    showNotification(t('emsFetchFail').replace('{msg}', res?.message || res?.code || res?.status || ''), 'error');
+  }
+}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
 
 // «Готово»/«Уже выведен»: нельзя просто убрать плашку — сверяемся с e-mehmon.
 // absent (нет в активном /listok) → ставим отметку; present (ещё активен) →
@@ -830,6 +859,7 @@ useEffect(() => {
     kppFixPrompt, setKppFixPrompt,
     kppSituation, setKppSituation,
     handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
+    handleFetchSheet,
     // снимок портала по текущему филиалу
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
     // действия

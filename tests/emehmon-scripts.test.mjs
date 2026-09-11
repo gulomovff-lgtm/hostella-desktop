@@ -120,3 +120,17 @@ test('окна с вопросами при выводе больше нет: в
   const rules = fs.readFileSync(path.join(root, 'storage.rules'), 'utf8');
   assert.ok(rules.includes('match /sheets/{file=**}'), 'правила Storage не знают каталог листов');
 });
+
+test('лист заново: скрипт страницы выехавших компилируется, ищет строку гостя и кнопку печати портала', () => {
+  const src = m.buildSheetPrintScript({ guestName: "O'RINOV `${x}`", passport: 'AB1234567', sheet: true });
+  assert.doesNotThrow(() => new vm.Script(src));
+  for (const s of ['custom-print-btn', 'isDataTable', "status: 'not_found'", "status: 'multiple'", "status: 'no_print_btn'", "status: 'printed'", '__hostellaOpenWrapped']) {
+    assert.ok(src.includes(s), `в скрипте нет ${s}`);
+  }
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+  const mainSrc = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
+  assert.ok(mainSrc.includes("ipcMain.handle('emehmon-sheet-fetch'") && mainSrc.includes('/listokout'), 'в main нет листа заново');
+  assert.ok(fs.readFileSync(path.join(root, 'electron/preload.js'), 'utf8').includes('emehmonSheetFetch'));
+});

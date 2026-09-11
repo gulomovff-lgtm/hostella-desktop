@@ -7,7 +7,7 @@ const dns = require('dns');
 const net = require('net');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript } = require('./emehmonAutofill');
 const emehmonSheet = require('./emehmonSheet');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
@@ -492,6 +492,38 @@ ipcMain.handle('emehmon-sheet-open', async (_event, file) => {
     return err ? { ok: false, code: 'open', message: err } : { ok: true };
   } catch (e) {
     return { ok: false, code: 'error', message: e.message };
+  }
+});
+
+// Лист убытия заново — гостю, выведенному раньше или без листа: страница
+// выехавших /listokout, строка гостя, кнопка печати портала; окно листа
+// скрытое, как при убытии. Ответ — как у выселения: sheet / sheetBase64.
+ipcMain.handle('emehmon-sheet-fetch', async (_event, guest) => {
+  const payload = guest || {};
+  try {
+    const win = ensureDepartureWindow(payload.hostelId);
+    await win.loadURL('https://emehmon.uz/listokout');
+    const cap = emehmonSheet.armSheetCapture(win, { log });
+    let result;
+    try {
+      result = await win.webContents.executeJavaScript(buildSheetPrintScript({ ...payload, sheet: true }), true);
+    } catch (e) {
+      result = { status: 'error', message: e.message };
+    }
+    try {
+      if (result && result.status === 'printed') {
+        const saved = await saveSheet(await cap.result({ graceMs: 8000 }), payload);
+        result = saved.sheet ? { status: 'done', ...saved } : { status: 'no_sheet', ...saved };
+      }
+    } finally {
+      cap.dispose();
+    }
+    if (result && result.status === 'need_login') { win.show(); win.focus(); safeInjectAutofill(win, { ...payload, mode: 'departure' }); }
+    else win.hide();
+    return result || { status: 'error' };
+  } catch (e) {
+    log.error('[emehmon] sheet fetch failed:', e.message);
+    return { status: 'error', message: e.message };
   }
 });
 
