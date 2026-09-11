@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Save, CalendarClock, DollarSign, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import { getConfig, saveAppConfig } from '../../utils/appConfig';
+import { PAY_TYPES, normalizePayType } from '../../utils/emehmonDeparture';
 import TRANSLATIONS from '../../constants/translations';
 
 // Надёжный уникальный id сезона (Date.now() при быстрых кликах давал дубли → баг правки)
@@ -95,6 +96,8 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
     // Ставки, которые указываются в поле «Сумма оплаты» портала e-mehmon
     const [emLocal, setEmLocal] = useState(String(cfg.emehmonAmountLocal ?? 30000));
     const [emForeign, setEmForeign] = useState(String(cfg.emehmonAmountForeign ?? 50000));
+    // Тип оплаты в окне Check-Out при выводе: окна с вопросом больше нет, ставится всем.
+    const [emPayType, setEmPayType] = useState(normalizePayType(cfg.emehmonPayType));
 
     const addSeason = () => setSeasons(s => [...s, { id: newSeasonId(), open: true, name: '', from: '', to: '', ...mkSet(p.base, p.packageMinDays, p.packagePrice) }]);
     const updSeason = (id, patch) => setSeasons(s => s.map(x => x.id === id ? { ...x, ...patch } : x));
@@ -120,6 +123,7 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
                 priceApprovalChatIds: chatIds.split(',').map(x => x.trim()).filter(Boolean),
                 emehmonAmountLocal: parseInt(emLocal) || 30000,
                 emehmonAmountForeign: parseInt(emForeign) || 50000,
+                emehmonPayType: normalizePayType(emPayType),
             });
             notify?.(t('psSavedOk'), 'success');
         } catch (e) {
@@ -157,6 +161,13 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
                         <input className={inp} value={emForeign} inputMode="numeric"
                             onChange={e => setEmForeign(e.target.value.replace(/\D/g, ''))} placeholder="50000" />
                     </div>
+                </div>
+                <div className="max-w-xs">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">{t('psEmPayType')}</label>
+                    <select className={inp} value={emPayType} onChange={e => setEmPayType(e.target.value)}>
+                        {PAY_TYPES.map(p => <option key={p.value} value={p.value}>{p.literal || t(p.labelKey)}</option>)}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">{t('psEmPayTypeHint')}</p>
                 </div>
             </div>
 

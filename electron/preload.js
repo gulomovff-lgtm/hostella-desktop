@@ -31,8 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMainError: (cb) => subscribe('main-error', cb),
   takePendingErrors: () => ipcRenderer.invoke('take-pending-errors'),
   emehmonTursbor: (payload) => ipcRenderer.invoke('emehmon-tursbor', payload),
-  // e-mehmon: массовое выселение нескольких гостей одной модалкой
-  emehmonDepartureBulk: (payload) => ipcRenderer.invoke('emehmon-departure-bulk', payload),
+  // e-mehmon: открыть сохранённый лист убытия (PDF) системным просмотрщиком
+  emehmonSheetOpen: (file) => ipcRenderer.invoke('emehmon-sheet-open', file),
   // e-mehmon: уведомление об успешной регистрации прибытия (для авто-галочки)
   onEmehmonRegistered: (cb) => subscribe('emehmon-registered', cb),
   // e-mehmon: полная авто-регистрация прибытия (граждане Узбекистана)

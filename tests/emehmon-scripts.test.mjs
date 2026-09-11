@@ -91,3 +91,32 @@ test('поведение для местных не изменилось: без
   assert.ok(src.includes("setSelect('id_visittype', '5')") && src.includes("setSelect('payed', '2')") && src.includes("setSelect('id_guest', '4')"));
   assert.ok(src.includes('sub.click()'), 'кнопка «Сохранить» нажимается');
 });
+
+test('скрипты убытия глушат печать со стороны родителя, когда лист снимает автомат', () => {
+  for (const f of [m.buildDepartureAutoScript, m.buildDepartureBulkScript]) {
+    const src = f({ ...FOREIGN, guestName: 'X', sheet: true, print: true, list: [] });
+    assert.doesNotThrow(() => new vm.Script(src));
+    assert.ok(src.includes('__hostellaOpenWrapped') && src.includes('__hostellaPrintWanted'), 'заглушки печати нет');
+    assert.ok(src.includes('__hostellaSheetOff'), 'после снятия листа печать должна вернуться кассиру');
+  }
+  const sheet = require('../electron/emehmonSheet.js');
+  for (const k of ['installWindowOpenHandler', 'armSheetCapture', 'isCapturing', 'sheetFileName']) {
+    assert.equal(typeof sheet[k], 'function', k);
+  }
+  assert.equal(sheet.sheetFileName({ passport: 'AB 1234567', at: new Date(2026, 8, 11, 14, 5) }), 'AB1234567_20260911_1405.pdf');
+});
+
+test('окна с вопросами при выводе больше нет: выселение уходит с итогом, типом оплаты и листом', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+  assert.equal(fs.existsSync(path.join(root, 'src/components/Modals/EmehmonDepartureModal.jsx')), false);
+  const hook = fs.readFileSync(path.join(root, 'src/hooks/useEmehmonAutomation.js'), 'utf8');
+  assert.ok(hook.includes('departureExtras(') && hook.includes('departureMarks('), 'хук не пользуется emehmonDeparture.js');
+  assert.ok(!hook.includes('handleEmehmonDepartConfirm'), 'осталось подтверждение из удалённого окна');
+  const mainSrc = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
+  assert.ok(mainSrc.includes('armSheetCapture(') && mainSrc.includes("ipcMain.handle('emehmon-sheet-open'"));
+  assert.ok(!mainSrc.includes("'emehmon-departure-bulk'"), 'массовое выселение одной модалкой убрано: список идёт по одному');
+  const rules = fs.readFileSync(path.join(root, 'storage.rules'), 'utf8');
+  assert.ok(rules.includes('match /sheets/{file=**}'), 'правила Storage не знают каталог листов');
+});

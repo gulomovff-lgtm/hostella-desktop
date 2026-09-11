@@ -6,7 +6,7 @@ import { emehmonAmountFor, getLocalDateString, HOSTELS } from '../utils/helpers'
 import { emehmonAmountForStay } from '../utils/emehmonAmount';
 import {
   openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered,
-  departEmehmonBackground, departEmehmonBulk, autoRegisterArrival, recalcEmehmonAmounts,
+  departEmehmonBackground, autoRegisterArrival, recalcEmehmonAmounts,
   checkPassportInGov, getEmehmonStatus,
 } from '../utils/emehmon';
 import {
@@ -14,6 +14,9 @@ import {
   todayIso, daysBetween, getRegistrationWindow,
 } from '../utils/kppRules';
 import TRANSLATIONS from '../constants/translations';
+import { getConfig } from '../utils/appConfig';
+import { departureExtras, departureMarks } from '../utils/emehmonDeparture';
+import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
 
 const LOCAL_COUNTRY = 'Узбекистан';
 const isLocal = (g) => g?.country === LOCAL_COUNTRY;
@@ -49,7 +52,6 @@ export function useEmehmonAutomation({
 }) {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [emehmonReminder, setEmehmonReminder] = useState(null);
-  const [emehmonDepart, setEmehmonDepart] = useState(null);          // гость(и) для фонового выселения
   const [emehmonChecking, setEmehmonChecking] = useState(null);      // id гостя на проверке «Готово»
   const [emehmonArrivalPrompt, setEmehmonArrivalPrompt] = useState(null);
   const [emehmonDepartingIds, setEmehmonDepartingIds] = useState(() => new Set()); // в процессе вывода (лоадер)
@@ -99,31 +101,27 @@ const handleEmehmonFlag = useCallback(async (guestId, updates) => {
   }
 }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-// e-mehmon: открыть подтверждение фонового выселения. Если Electron недоступен
-// (веб) — фолбэк на старое окно. Иначе показываем модалку EmehmonDepartureModal.
-const handleEmehmonDepart = useCallback((guestOrList) => {
-  if (!guestOrList) return;
-  const arr = Array.isArray(guestOrList) ? guestOrList.filter(Boolean) : [guestOrList];
-  if (!arr.length) return;
-  setEmehmonReminder(null); // закрываем напоминание, чтобы не перекрывало модалку выселения
-  if (window.electronAPI?.emehmonDeparture) {
-    setEmehmonDepart(arr);
-  } else {
-    openEmehmonDeparture(arr[0]);
-    showNotification(t('emehmonOpenDeparture'), 'info');
-  }
-}, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-// Итог фонового выселения: помечаем «выведен», чистим лоадеры, обновляем список.
-const handleDepartOutcome = useCallback((res, list) => {
+// Итог фонового выселения: отметка «выведен», лист убытия (копия в облако и
+// в карточку), лоадеры, сверка списка.
+const handleDepartOutcome = useCallback(async (res, list) => {
   const ids = (list || []).filter(g => g && g.id).map(g => g.id);
-  setEmehmonDepartingIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
   const status = res?.status;
   if (status === 'done' || status === 'submitted') {
-    const now = new Date().toISOString();
-    ids.forEach(id => handleEmehmonFlag(id, { emehmonOut: true, emehmonOutAt: now }));
-    const n = res?.selected != null ? res.selected : (list || []).length;
-    showNotification(t('emaDepartedCount').replace('{n}', n), 'success');
+    let uploaded = null;
+    if (res?.sheetBase64 && ids.length) {
+      try {
+        uploaded = await uploadDepartureSheet({
+          base64: res.sheetBase64, hostelId: list[0]?.hostelId, guestId: ids[0], fileName: res.sheet?.name,
+        });
+      } catch (e) {
+        console.warn('[e-mehmon] лист убытия не загружен в облако:', e?.message || e);
+      }
+    }
+    const marks = departureMarks(res, { uploaded });
+    ids.forEach(id => handleEmehmonFlag(id, marks));
+    if (marks.emehmonSheet) showNotification(t('emaDepartedSheet'), 'success');
+    else if (marks.emehmonSheetError) showNotification(t('emaDepartedNoSheet').replace('{msg}', marks.emehmonSheetError.message || marks.emehmonSheetError.code), 'warning');
+    else showNotification(t('emaDepartedCount').replace('{n}', ids.length || 1), 'success');
     setEmehmonReminder(null);
     // Сверка с e-mehmon: подтянуть свежий /listok, подтвердить вывод по факту
     // (на случай если «submitted» — Check-Out прошёл, но закрытие не подтвердилось).
@@ -137,24 +135,41 @@ const handleDepartOutcome = useCallback((res, list) => {
   } else {
     showNotification(t('emaAutoDepartFail'), 'error');
   }
+  setEmehmonDepartingIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
 
-// Подтверждение из модалки: закрываем её сразу, выселяем в фоне, кнопки —
-// в загрузку (departingIds); по завершении гость уходит из всех плашек/вкладок.
-const handleEmehmonDepartConfirm = useCallback((opts) => {
-  const list = emehmonDepart || [];
-  if (!list.length) return;
-  setEmehmonDepart(null); // окно уходит в фон сразу
-  const ids = list.filter(g => g && g.id).map(g => g.id);
+// e-mehmon: вывести гостя или список — без окна с вопросами (решение владельца
+// 2026-09-11, одно на боевую и Hosti Cloud): сумма — итог за проживание, тип
+// оплаты — из настроек, лист убытия снимается в PDF (utils/emehmonDeparture.js).
+// Список идёт по одному: у каждого гостя свой итог и свой лист. Без Electron
+// (веб) — фолбэк на видимое окно портала.
+const handleEmehmonDepart = useCallback((guestOrList) => {
+  if (!guestOrList) return;
+  const arr = Array.isArray(guestOrList) ? guestOrList.filter(Boolean) : [guestOrList];
+  if (!arr.length) return;
+  setEmehmonReminder(null);
+  if (!window.electronAPI?.emehmonDeparture) {
+    openEmehmonDeparture(arr[0]);
+    showNotification(t('emehmonOpenDeparture'), 'info');
+    return;
+  }
+  const ids = arr.filter(g => g && g.id).map(g => g.id);
   setEmehmonDepartingIds(prev => new Set([...prev, ...ids]));
-  showNotification(t('emaDepartingBg').replace('{n}', list.length), 'info');
+  showNotification(t('emaDepartingBg').replace('{n}', arr.length), 'info');
   (async () => {
-    const res = list.length > 1
-      ? await departEmehmonBulk(list, opts)
-      : await departEmehmonBackground(list[0], opts);
-    handleDepartOutcome(res, list);
+    const cfg = getConfig() || {};
+    for (const g of arr) {
+      const opts = departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType });
+      const res = await departEmehmonBackground(g, opts);
+      await handleDepartOutcome(res, [g]);
+      if (res?.status === 'need_login') {
+        // Остальных не дёргаем: без входа каждый упрётся в то же.
+        setEmehmonDepartingIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
+        break;
+      }
+    }
   })();
-}, [emehmonDepart, handleDepartOutcome]); // eslint-disable-line react-hooks/exhaustive-deps
+}, [handleDepartOutcome]); // eslint-disable-line react-hooks/exhaustive-deps
 
 // «Готово»/«Уже выведен»: нельзя просто убрать плашку — сверяемся с e-mehmon.
 // absent (нет в активном /listok) → ставим отметку; present (ещё активен) →
@@ -178,15 +193,15 @@ const handleEmehmonDone = useCallback(async (guest) => {
   } else if (status === 'present') {
     showNotification(t('emaStillActive'), 'warning');
     setEmehmonReminder(null);
-    setEmehmonDepart([guest]);
+    handleEmehmonDepart(guest);
   } else if (status === 'need_login') {
     showNotification(t('emaLoginRepeat'), 'info');
   } else {
     showNotification(t('emaCheckFail'), 'error');
     setEmehmonReminder(null);
-    setEmehmonDepart([guest]);
+    handleEmehmonDepart(guest);
   }
-}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+}, [handleEmehmonFlag, handleEmehmonDepart]); // eslint-disable-line react-hooks/exhaustive-deps
 
 // ─── КПП иностранца: данные портала → карточка гостя ───────────────────────
 // Ответ портала (проверка паспорта или мастер прибытия) несёт сырой дамп
@@ -603,18 +618,21 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
           } catch (_) { /* пропускаем */ }
         };
         for (const r of absent) await markRemoved(r, 'auto_expiry_absent');
-        if (inListok.length > 0 && window.electronAPI?.emehmonDepartureBulk) {
-          const dep = await departEmehmonBulk(
-            inListok.map(r => ({ fullName: r.fullName, passport: r.passport, hostelId })),
-            { hostelId });
-          if (dep?.status === 'done' || dep?.status === 'submitted') {
-            for (const r of inListok) await markRemoved(r, 'auto_expiry');
-            showNotification(t('emaExpiredAutoDeparted').replace('{n}', inListok.length), 'success');
-          } else if (manual) {
-            showNotification(t('emaExpiredAutoDepartFail'), 'warning');
+        if (inListok.length > 0 && window.electronAPI?.emehmonDeparture) {
+          // Массовой модалки больше нет: выводим по одному, как и гостей, —
+          // у каждого свой итог и свой лист убытия (utils/emehmonDeparture.js).
+          const cfg = getConfig() || {};
+          let departed = 0;
+          let needLogin = false;
+          for (const r of inListok) {
+            const dep = await departEmehmonBackground(
+              { id: r.id, fullName: r.fullName, passport: r.passport, hostelId, country: r.country },
+              departureExtras(r, { rate: emehmonAmountFor(r.country), payType: cfg.emehmonPayType }));
+            if (dep?.status === 'done' || dep?.status === 'submitted') { await markRemoved(r, 'auto_expiry'); departed++; }
+            if (dep?.status === 'need_login') { needLogin = true; break; }
           }
-        } else if (absent.length > 0 && manual) {
-          showNotification(t('emaExpiredClosed').replace('{n}', absent.length), 'info');
+          if (departed > 0) showNotification(t('emaExpiredAutoDeparted').replace('{n}', departed), 'success');
+          else if (manual && !needLogin) showNotification(t('emaExpiredAutoDepartFail'), 'warning');
         }
       }
 
@@ -805,7 +823,6 @@ useEffect(() => {
   return {
     // состояние для разметки
     emehmonReminder, setEmehmonReminder,
-    emehmonDepart, setEmehmonDepart,
     emehmonChecking,
     emehmonArrivalPrompt, setEmehmonArrivalPrompt,
     emehmonDepartingIds,
@@ -816,7 +833,7 @@ useEffect(() => {
     // снимок портала по текущему филиалу
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
     // действия
-    handleEmehmonFlag, handleEmehmonDepart, handleEmehmonDepartConfirm,
+    handleEmehmonFlag, handleEmehmonDepart,
     handleEmehmonDone, handleEmehmonAutoArrival,
     handleDepartOutcome, runEmehmonSync, runEmehmonRecalc,
   };

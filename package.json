@@ -1,7 +1,7 @@
 {
   "name": "hostella-desktop",
   "private": true,
-  "version": "0.15.12",
+  "version": "0.15.13",
   "description": "Hostella Management System",
   "author": "Fazliddin Gulomov",
   "main": "electron/main.js",
@@ -60,6 +60,7 @@
     "flag-icons": "^7.5.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^0.300.0",
+    "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-country-flag": "^3.1.0",
     "react-dom": "^18.2.0",

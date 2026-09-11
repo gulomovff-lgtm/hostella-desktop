@@ -4,6 +4,7 @@ import {
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
     Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft, AlertTriangle, Settings
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays } from '../../utils/pricing';
@@ -285,6 +286,75 @@ const compressPhotoGDM = (file) => new Promise((resolve) => {
     };
     reader.readAsDataURL(file);
 });
+
+// Лист убытия e-mehmon: автомат снял его в PDF после «Check-Out» (electron/
+// emehmonSheet.js) — файл на этом компьютере и копия в облаке. Кассиру нужны
+// три вещи: открыть и распечатать; отдать гостю ссылкой — QR на экране, гость
+// сканирует и получает PDF в телефон; увидеть, если лист не снят.
+const EmehmonSheetRow = ({ guest, notify, t }) => {
+    const [qr, setQr] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const sheet = guest.emehmonSheet;
+    const err = guest.emehmonSheetError;
+    const open = async () => {
+        setBusy(true);
+        try {
+            if (sheet.file && window.electronAPI?.emehmonSheetOpen) {
+                const r = await window.electronAPI.emehmonSheetOpen(sheet.file);
+                if (r && r.ok) return;
+            }
+            if (sheet.url) { window.open(sheet.url, '_blank', 'noopener'); return; }
+            notify?.(t('emsNoLink'), 'warning');
+        } catch (e) { notify?.(`${t('emsOpenFail')}: ${e?.message || ''}`, 'error'); }
+        finally { setBusy(false); }
+    };
+    const share = async () => {
+        if (!sheet.url) { notify?.(t('emsNoLink'), 'warning'); return; }
+        setBusy(true);
+        try { setQr({ url: sheet.url, img: await QRCode.toDataURL(sheet.url, { width: 220, margin: 1 }) }); }
+        catch (e) { notify?.(`${t('emsOpenFail')}: ${e?.message || ''}`, 'error'); }
+        finally { setBusy(false); }
+    };
+    const copy = async () => {
+        try { await navigator.clipboard.writeText(qr.url); notify?.(t('emsCopied'), 'success'); }
+        catch { notify?.(t('emsCopyManual'), 'info'); }
+    };
+    const when = (iso) => { try { return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+    if (!sheet || !(sheet.file || sheet.url)) {
+        return (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                <div><b>{t('emsNotCaptured')}</b> {err?.message || err?.code || ''} {t('emsNotCapturedHint')}</div>
+            </div>
+        );
+    }
+    const btn = 'flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 disabled:opacity-50';
+    return (
+        <div className="px-3 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50">
+            <div className="flex flex-wrap items-center gap-2">
+                <FileText size={16} className="text-emerald-700 shrink-0" />
+                <div className="text-sm flex-1 min-w-[160px]">
+                    <b className="text-slate-800">{t('emsSheetTitle')}</b>
+                    <div className="text-xs text-slate-500">{when(sheet.at)}{sheet.bytes ? ` · ${Math.max(1, Math.round(sheet.bytes / 1024))} КБ` : ''}</div>
+                </div>
+                <button disabled={busy} onClick={open} className={btn}><Printer size={14} /> {t('emsOpen')}</button>
+                {sheet.url && <button disabled={busy} onClick={share} className={btn}><QrCode size={14} /> {t('emsShare')}</button>}
+            </div>
+            {qr && (
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                    <img src={qr.img} alt="QR" width={140} height={140} className="rounded-lg bg-white" />
+                    <div className="text-xs text-slate-600 flex-1 min-w-[160px]">
+                        {t('emsShareHint')}
+                        <div className="flex gap-2 mt-2">
+                            <button onClick={copy} className={btn}><Copy size={13} /> {t('emsCopy')}</button>
+                            <button onClick={() => setQr(null)} className={btn}><X size={13} /> {t('emsHide')}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
@@ -1093,6 +1163,10 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         );
                                     })()}
                                 </div>
+                            )}
+
+                            {!isBooking && (guest.emehmonSheet || guest.emehmonSheetError) && (
+                                <EmehmonSheetRow guest={guest} notify={notify} t={t} />
                             )}
 
                             {guest.country && !isBooking && (

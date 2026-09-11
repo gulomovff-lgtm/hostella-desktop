@@ -45,6 +45,9 @@ export const DEFAULT_APP_CONFIG = {
     // должна совпадать с декларируемой. Раньше подставлялась 1.
     emehmonAmountLocal: 30000,     // граждане Узбекистана
     emehmonAmountForeign: 50000,   // иностранные граждане
+    // Тип оплаты в окне Check-Out портала при выводе: 1 Другое … 6 Договор
+    // (utils/emehmonDeparture.js). Окна с вопросом нет — ставится всем.
+    emehmonPayType: '1',
     // Интеграция с сайтом hostella.uz: обратная связь по броням (подтверждение/отмена)
     siteCallbackUrl: 'https://hostella.uz/crm-callback.php',
     siteCallbackKey: 'hst-cb-a81f37c2d94e',   // должен совпадать с CRM_CALLBACK_KEY на сайте

@@ -39,6 +39,16 @@ service firebase.storage {
     }
 
     // Всё остальное — запрещено.
+    // Листы убытия e-mehmon: PDF, который автомат снимает при выводе гостя
+    // (electron/emehmonSheet.js) и кладёт сюда копией — открыть с любого
+    // компьютера сети, отдать гостю ссылкой. Только PDF и только небольшой.
+    match /sheets/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn()
+                   && request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType == 'application/pdf';
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

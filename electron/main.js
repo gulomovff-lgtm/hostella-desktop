@@ -7,7 +7,8 @@ const dns = require('dns');
 const net = require('net');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildAutoArrivalScript, buildRecalcScript } = require('./emehmonAutofill');
+const emehmonSheet = require('./emehmonSheet');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -316,7 +317,8 @@ const lightenEmehmonSession = (part) => {
   try {
     electron.session.fromPartition(part).webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
       const t = details.resourceType;
-      const cancel = t === 'font' || t === 'media' || (t === 'image' && !/captcha/i.test(details.url || ''));
+      // Пока снимается лист убытия, картинки и шрифты нужны: они попадут в PDF.
+      const cancel = !emehmonSheet.isCapturing() && (t === 'font' || t === 'media' || (t === 'image' && !/captcha/i.test(details.url || '')));
       cb({ cancel });
     });
   } catch (e) {
@@ -335,23 +337,9 @@ const hardenEmehmonWindow = (win, part) => {
   win.webContents.on('will-navigate', blockOffOrigin);
   // will-redirect ловит HTTP 3xx / meta-refresh, которые will-navigate пропускает.
   win.webContents.on('will-redirect', blockOffOrigin);
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isEmehmonUrl(url)) return { action: 'deny' };
-    return {
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        parent: mainWindow,
-        autoHideMenuBar: true,
-        webPreferences: {
-          partition: part,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-          webSecurity: true,
-        },
-      },
-    };
-  });
+  // Всплывающие окна — общий обработчик с мостом Hosti Cloud: только портал;
+  // на время снятия листа убытия окно создаётся скрытым (emehmonSheet.js).
+  emehmonSheet.installWindowOpenHandler(win, { isAllowedUrl: isEmehmonUrl, partition: part, parent: () => mainWindow, log });
 };
 
 // ─── e-mehmon: встроенное окно регистрации иностранцев ──────────────────────
@@ -438,7 +426,8 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
 // Гонит весь процесс убытия в СКРЫТОМ окне (та же сессия persist:emehmon, логин
 // сохранён): находит гостя, открывает модалку «Chiqish», заполняет TO‘LOV/тип/
 // печать и жмёт «Check-Out». Возвращает статус в рендер (см. emehmonAutofill.js).
-//  • print:true  → окно показывается, чтобы был виден диалог печати листа убытия;
+//  • лист убытия снимается в PDF скрытым окном (emehmonSheet.js) и сохраняется
+//    в каталог листов; в рендер уходит base64 — копия в облако, ссылка гостю;
 //  • проблема (вход/не найден/неоднозначно) → окно всплывает для ручного завершения.
 // Создаёт (или переиспользует) скрытое окно убытия в сессии persist:emehmon.
 // По одному скрытому окну на филиал — каждое в своей сессии, поэтому оба
@@ -470,22 +459,67 @@ function ensureDepartureWindow(hostelId) {
   return win;
 }
 
+// Лист убытия: PDF из скрытого окна → файл на этом компьютере (печать без
+// сети) и base64 в рендер (копия в облако, ссылка гостю). Ошибка снятия —
+// отдельным полем: убытие в госсистеме уже прошло.
+const SHEETS_DIR = () => path.join(app.getPath('userData'), 'emehmon-sheets');
+const safeSeg = (s) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) || 'x';
+async function saveSheet(got, payload) {
+  if (!got || !got.ok) return { sheetError: { code: (got && got.code) || 'no_sheet', message: (got && got.message) || '' } };
+  const name = emehmonSheet.sheetFileName({ passport: payload.passport });
+  const meta = { name, bytes: got.bytes, at: new Date().toISOString(), source: got.source };
+  const sheetBase64 = got.pdf.toString('base64');
+  try {
+    const dir = path.join(SHEETS_DIR(), safeSeg(payload.hostelId));
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${safeSeg(payload.guestId)}_${name}`);
+    fs.writeFileSync(file, got.pdf);
+    return { sheet: { ...meta, file }, sheetBase64 };
+  } catch (e) {
+    log.warn('[emehmon] лист убытия не сохранён на диск:', e.message);
+    return { sheet: meta, sheetBase64, sheetError: { code: 'sheet_save', message: e.message } };
+  }
+}
+
+// Открыть сохранённый лист убытия системным просмотрщиком PDF (печать — оттуда).
+// Только файлы из каталога листов: путь приходит из документа гостя.
+ipcMain.handle('emehmon-sheet-open', async (_event, file) => {
+  try {
+    const full = path.resolve(String(file || ''));
+    const root = path.resolve(SHEETS_DIR());
+    if (!full.startsWith(root + path.sep) || !fs.existsSync(full)) return { ok: false, code: 'missing' };
+    const err = await shell.openPath(full);
+    return err ? { ok: false, code: 'open', message: err } : { ok: true };
+  } catch (e) {
+    return { ok: false, code: 'error', message: e.message };
+  }
+});
+
 ipcMain.handle('emehmon-departure', async (_event, guest) => {
   const payload = guest || {};
-  const wantVisible = !!payload.print;
   try {
     const win = ensureDepartureWindow(payload.hostelId);
     // Свежая загрузка списка (фолбэк на /login, если не залогинен)
     await win.loadURL('https://emehmon.uz/listok');
-    if (wantVisible) { win.show(); win.focus(); }
 
+    // Лист убытия: окно листа не показываем, печать глушим, лист снимаем в
+    // PDF (emehmonSheet.js) — тот же модуль, что в мосте Hosti Cloud.
+    const cap = emehmonSheet.armSheetCapture(win, { log });
     let result;
     try {
-      result = await win.webContents.executeJavaScript(buildDepartureAutoScript(payload), true);
+      result = await win.webContents.executeJavaScript(buildDepartureAutoScript({ ...payload, print: true, sheet: true }), true);
     } catch (e) {
       result = { status: 'error', message: e.message };
     }
     const status = (result && result.status) || 'error';
+    try {
+      if (status === 'done' || status === 'submitted') {
+        const got = await cap.result({ graceMs: 8000 });
+        result = { ...result, ...(await saveSheet(got, payload)) };
+      }
+    } finally {
+      cap.dispose();
+    }
 
     const needsHuman = ['need_login', 'not_found', 'multiple', 'no_table',
       'no_modal', 'no_button', 'no_checkout_btn', 'error'].includes(status);
@@ -493,7 +527,7 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
       // Показать окно и подмешать ручную панель убытия / автозаполнение логина.
       win.show(); win.focus();
       safeInjectAutofill(win, payload);
-    } else if (status === 'done' && !wantVisible) {
+    } else if (status === 'done') {
       win.hide(); // успех в фоне — прячем (окно переиспользуется при след. выселении)
     }
 
@@ -636,40 +670,6 @@ ipcMain.handle('emehmon-passport-check', (_event, payload) => {
   });
   autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
   return run;
-});
-
-// ─── e-mehmon: массовое выселение ────────────────────────────────────────────
-// Выделяет все совпавшие строки /listok и выселяет одной модалкой Chiqish.
-// print:true → окно показываем (диалог печати); иначе фон. Проблема → окно всплывает.
-ipcMain.handle('emehmon-departure-bulk', async (_event, payload) => {
-  const data = payload || {};
-  const wantVisible = !!data.print;
-  try {
-    const win = ensureDepartureWindow(data.hostelId);
-    await win.loadURL('https://emehmon.uz/listok');
-    if (wantVisible) { win.show(); win.focus(); }
-    let result;
-    try {
-      result = await win.webContents.executeJavaScript(buildDepartureBulkScript(data), true);
-    } catch (e) {
-      result = { status: 'error', message: e.message };
-    }
-    const status = (result && result.status) || 'error';
-    const needsHuman = ['need_login', 'not_found', 'no_table', 'no_modal',
-      'no_button', 'no_checkout_btn', 'error'].includes(status);
-    if (needsHuman) {
-      win.show(); win.focus();
-      safeInjectAutofill(win, { mode: 'departure' });
-    } else if (status === 'done' && !wantVisible) {
-      win.hide();
-    }
-    return result || { status };
-  } catch (e) {
-    log.error('[emehmon] bulk departure failed:', e.message);
-    const w = departureWindows[emehmonPartition(data.hostelId)];
-    if (w && !w.isDestroyed()) { w.show(); }
-    return { status: 'error', message: e.message };
-  }
 });
 
 // ─── e-mehmon: список зарегистрированных (фоновая синхронизация статусов) ─────

@@ -124,7 +124,6 @@ import CreateDebtModal from './components/Modals/CreateDebtModal';
 // --- Views ---
 import DashboardView from './components/Views/DashboardView';
 import EmehmonPendingBanner from './components/UI/EmehmonPendingBanner';
-import EmehmonDepartureModal from './components/Modals/EmehmonDepartureModal';
 import StaffView from './components/Views/StaffView';
 import TaskManager from './components/Views/TasksView';
 import DebtsView from './components/Views/DebtsView';
@@ -786,12 +785,11 @@ function App() {
   // Вся автоматика госпортала — см. hooks/useEmehmonAutomation
   const {
     emehmonReminder, setEmehmonReminder,
-    emehmonDepart, setEmehmonDepart,
     emehmonChecking,
     emehmonArrivalPrompt, setEmehmonArrivalPrompt,
     emehmonDepartingIds,
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
-    handleEmehmonFlag, handleEmehmonDepart, handleEmehmonDepartConfirm,
+    handleEmehmonFlag, handleEmehmonDepart,
     handleEmehmonDone, handleEmehmonAutoArrival,
     runEmehmonSync, runEmehmonRecalc,
     kppFixPrompt, setKppFixPrompt,
@@ -2676,15 +2674,6 @@ return (
                         </div>
                     </div>
                 </div>
-            )}
-
-            {emehmonDepart && emehmonDepart.length > 0 && (
-                <EmehmonDepartureModal
-                    lang={lang}
-                    guests={emehmonDepart}
-                    onClose={() => setEmehmonDepart(null)}
-                    onConfirm={handleEmehmonDepartConfirm}
-                />
             )}
 
             {emehmonArrivalPrompt && (
