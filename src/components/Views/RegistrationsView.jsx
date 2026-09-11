@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
     ClipboardCheck, Search, CheckCircle2,
     Trash2, RefreshCw, Plus, X,
-    UserX, Plane, ChevronLeft, ChevronRight, Calculator,
+    UserX, Plane, ChevronLeft, ChevronRight, Calculator, FileText,
 } from 'lucide-react';
 import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 import TRANSLATIONS from '../../constants/translations';
@@ -600,6 +600,19 @@ const RegistrationsView = ({
 
     const removeCount = toDepart.length + expiredRegs.length;
 
+    // Листы убытия за неделю — короткий путь к печати без поиска гостя:
+    // автомат снял их в PDF при выводе (utils/emehmonDeparture.js), открыть
+    // и отдать гостю можно из карточки. На главном экране, а не внутри
+    // «Вывести»: та плитка при нуле выключена, а ноль — ровно момент, когда
+    // всех только что вывели и лист нужен.
+    const recentSheets = useMemo(() => {
+        const since = Date.now() - 7 * 86400e3;
+        return guests
+            .filter(g => g.emehmonSheet && (g.emehmonSheet.file || g.emehmonSheet.url) && g.emehmonSheet.at && new Date(g.emehmonSheet.at).getTime() >= since)
+            .sort((a, b) => String(b.emehmonSheet.at).localeCompare(String(a.emehmonSheet.at)))
+            .slice(0, 12);
+    }, [guests]);
+
     // ── Поиск по всем регистрациям ──
     const searched = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -757,6 +770,22 @@ const RegistrationsView = ({
                                 hint={t('registeredAndLiving')}
                                 disabled={registered.length + inCadastre.length === 0} />
                         </div>
+
+                        {/* Листы убытия за неделю: открыть карточку — печать и ссылка гостю */}
+                        {recentSheets.length > 0 && (
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">{t('emsRecent')}</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {recentSheets.map(g => (
+                                        <button key={g.id} type="button" onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
+                                            title={t('emsRecentHint')}
+                                            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">
+                                            <FileText size={14} /> {g.fullName} · {new Date(g.emehmonSheet.at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Итог задекларированных сумм — сверка с налоговой */}
                         <TaxTotals guests={guests} lang={lang} />
