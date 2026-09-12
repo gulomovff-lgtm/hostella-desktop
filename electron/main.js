@@ -448,6 +448,7 @@ function ensureDepartureWindow(hostelId) {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      ...emehmonSheet.windowWebPreferences(), // заглушка печати до скриптов страницы, и во фреймах
     },
   });
   win.setMenuBarVisibility(false);
@@ -512,11 +513,13 @@ ipcMain.handle('emehmon-sheet-fetch', async (_event, guest) => {
     }
     try {
       if (result && result.status === 'printed') {
-        const saved = await saveSheet(await cap.result({ graceMs: 8000 }), payload);
+        const got = await cap.result(result.sheetHtml ? { sheetHtml: result.sheetHtml, sheetIds: result.sheetIds } : { graceMs: 8000 });
+        const saved = await saveSheet(got, payload);
         result = saved.sheet ? { status: 'done', ...saved } : { status: 'no_sheet', ...saved };
       }
     } finally {
       cap.dispose();
+      if (result) { delete result.sheetHtml; delete result.sheetIds; }
     }
     if (result && result.status === 'need_login') { win.show(); win.focus(); safeInjectAutofill(win, { ...payload, mode: 'departure' }); }
     else win.hide();
@@ -546,11 +549,14 @@ ipcMain.handle('emehmon-departure', async (_event, guest) => {
     const status = (result && result.status) || 'error';
     try {
       if (status === 'done' || status === 'submitted') {
-        const got = await cap.result({ graceMs: 8000 });
+        // HTML листа приходит из скрипта (перехват $.ajax на /listok/print);
+        // без него — прежние пути: окно-потомок, загрузка файла, печать страницы.
+        const got = await cap.result(result.sheetHtml ? { sheetHtml: result.sheetHtml, sheetIds: result.sheetIds } : { graceMs: 8000 });
         result = { ...result, ...(await saveSheet(got, payload)) };
       }
     } finally {
       cap.dispose();
+      if (result) { delete result.sheetHtml; delete result.sheetIds; }
     }
 
     const needsHuman = ['need_login', 'not_found', 'multiple', 'no_table',

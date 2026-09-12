@@ -25,6 +25,14 @@ export const PAY_TYPES = Object.freeze([
   { value: '6', labelKey: 'emmPayContract' },
 ]);
 
+/** День выезда как в таблицах портала: «12.09.2026»; без даты — пустая строка. */
+export const checkOutDayOf = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+};
+
 export const normalizePayType = (v) => (PAY_TYPES.some((t) => t.value === String(v)) ? String(v) : '1');
 
 /**

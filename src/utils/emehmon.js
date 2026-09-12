@@ -4,6 +4,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { buildEmehmonPayload } from './helpers';
+import { checkOutDayOf } from './emehmonDeparture';
 
 const accDoc = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'emehmon');
 
@@ -127,7 +128,7 @@ export async function departEmehmonBackground(guest, opts = {}) {
 // портала, печать листа скрытым окном; ответ как у выселения (sheet/sheetBase64).
 export async function fetchDepartureSheet(guest) {
   if (!window.electronAPI?.emehmonSheetFetch) return { status: 'no_electron' };
-  const payload = { ...buildEmehmonPayload(guest), guestId: guest.id || '', mode: 'departure', path: '/listokout' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest.id || '', mode: 'departure', path: '/listokout', checkOutDay: checkOutDayOf(guest.checkOutDate) };
   const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {

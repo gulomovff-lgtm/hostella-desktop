@@ -124,7 +124,8 @@ test('окна с вопросами при выводе больше нет: в
 test('лист заново: скрипт страницы выехавших компилируется, ищет строку гостя и кнопку печати портала', () => {
   const src = m.buildSheetPrintScript({ guestName: "O'RINOV `${x}`", passport: 'AB1234567', sheet: true });
   assert.doesNotThrow(() => new vm.Script(src));
-  for (const s of ['custom-print-btn', 'isDataTable', "status: 'not_found'", "status: 'multiple'", "status: 'no_print_btn'", "status: 'printed'", '__hostellaOpenWrapped']) {
+  // «multiple» здесь больше нет: на странице выехавших гость встречается много раз, берётся нужная строка.
+  for (const s of ['custom-print-btn', 'isDataTable', "status: 'not_found'", "status: 'no_print_btn'", "status: 'printed'", '__hostellaOpenWrapped']) {
     assert.ok(src.includes(s), `в скрипте нет ${s}`);
   }
   const fs = require('node:fs');
@@ -141,4 +142,21 @@ test('дамп последней вкладки несёт строки про�
   assert.ok(src.includes('slice(0,1500)'), 'блоки по-прежнему режутся до 300 знаков');
   assert.ok(src.includes('lastActivity'));
   assert.doesNotThrow(() => new vm.Script(src));
+});
+
+test('лист убытия: скрипты перехватывают печать портала на уровне $.ajax и отдают HTML листа', () => {
+  for (const [f, arg] of [[m.buildDepartureAutoScript, { ...FOREIGN, sheet: true, print: true }], [m.buildDepartureBulkScript, { list: [], sheet: true }], [m.buildSheetPrintScript, { ...FOREIGN, sheet: true, checkOutDay: '12.09.2026' }]]) {
+    const src = f(arg);
+    assert.doesNotThrow(() => new vm.Script(src));
+    assert.ok(src.includes('__hostellaSheetHook') && src.includes('listok\\/print'), 'нет перехвата $.ajax /listok/print');
+    assert.ok(src.includes('sheetHtml'), 'HTML листа не возвращается');
+  }
+  const sheetSrc = m.buildSheetPrintScript({ ...FOREIGN, sheet: true });
+  assert.ok(sheetSrc.includes('checkOutDay') && sheetSrc.includes('cands.sort'), 'среди повторов гостя не выбирается нужная строка');
+  assert.ok(!sheetSrc.includes("status: 'multiple'"), 'лист заново не должен падать на повторах гостя');
+  const sheet = require('../electron/emehmonSheet.js');
+  assert.equal(typeof sheet.renderSheetHtml, 'function');
+  assert.equal(typeof sheet.windowWebPreferences, 'function');
+  const fs = require('node:fs');
+  assert.ok(fs.existsSync(sheet.PRELOAD), 'preload заглушки печати не на месте');
 });
