@@ -481,6 +481,17 @@ const HIDDEN_HELPERS = `
     for (var i=0;i<nodes.length;i++){ var tx=String(nodes[i].textContent||'').replace(/\\s+/g,' ').trim(); if (/topilmadi/i.test(tx)) return tx.slice(0,200); }
     return '';
   }
+  // Любое видимое сообщение портала (кроме «сохранено») — отказ, который раньше
+  // терялся как молчаливый таймаут: «комната переполнена», «уже зарегистрирован»…
+  function popupText(){
+    var nodes = popups();
+    for (var i=0;i<nodes.length;i++){
+      if (!vis(nodes[i])) continue;
+      var tx=String(nodes[i].textContent||'').replace(/\\s+/g,' ').trim();
+      if (tx && !/saqland|muvaffaqiyat/i.test(tx)) return tx.slice(0,240);
+    }
+    return '';
+  }
   async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
   function textOf(el){ return String((el && el.textContent) || '').replace(/\\s+/g,' ').trim(); }
   function labelFor(el){
@@ -602,8 +613,10 @@ function buildPassportCheckScript(guest) {
     fcb.click();
 
     // 3) вердикт: «не найден» либо переход на general-info
-    if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
+    if (!(await waitFor(function(){ return notFound() || popupText() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
     if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
+    var pe0 = popupText();
+    if (pe0 && activeTab()!=='general-info-tab') return { status:'portal_error', stage:'check', message: pe0 };
     await sleep(700);   // даём порталу дозаполнить general-info
     // Портал дописывает вкладку асинхронно (в т.ч. дату КПП) — ждём до 3 с признаков.
     await waitFor(function(){ var p=byId('general-info')||document; return !!(p.querySelector('table') || p.querySelector('[id*="kpp" i],[name*="kpp" i],[id*="chegara" i],[name*="chegara" i]')); }, 6, 500);
@@ -1001,9 +1014,11 @@ function buildAutoArrivalScript(guest) {
     fcb.removeAttribute('disabled');
     fcb.click();
 
-    // 3) ждём: general-info активна ИЛИ «не найден»
-    if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
+    // 3) ждём: general-info активна ИЛИ «не найден» ИЛИ иной отказ портала
+    if (!(await waitFor(function(){ return notFound() || popupText() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
     if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
+    var pe1 = popupText();
+    if (pe1 && activeTab()!=='general-info-tab') return { status:'portal_error', stage:'check', message: pe1 };
     await sleep(600);
 
     // 4) general-info. Местному портал заполняет всё сам. Иностранцу дописываем
@@ -1035,7 +1050,13 @@ function buildAutoArrivalScript(guest) {
         return false;
       }, 12, 700);
     }
-    if (!roomOk) return { status:'no_room', probe: mergeProbe(probe, harvestWizard('additional-info')) };
+    if (!roomOk) {
+      // Список комнат портала — чтобы отличить «комнаты нет в списке» (она у
+      // портала заполнена) от пустого списка или несовпадения номеров.
+      var sel0 = byId('propiska');
+      var opts0 = sel0 ? Array.prototype.map.call(sel0.options, function(o){ return (o.value||'')+':'+String(o.text||'').replace(/\\s+/g,' ').trim().slice(0,30); }).slice(0,40) : [];
+      return { status:'no_room', probe: mergeProbe(probe, harvestWizard('additional-info')), roomOptions: opts0 };
+    }
     setSelect('id_visittype', '5');  // Boshqa
     setSelect('payed', '2');         // To'liq to'langan
     setInput('amount', G.amount || '1');
@@ -1070,10 +1091,91 @@ function buildAutoArrivalScript(guest) {
       var t = document.querySelector('.swal2-title');
       return !!(ic && t && /saqland|muvaffaqiyat/i.test(t.textContent||''));
     }, 50, 500);
+    if (!done) {
+      // Портал отказал словами (комната переполнена, гость уже есть…) — отдаём
+      // текст: рендерер разберёт причину и покажет её кассиру, а не «не удалось».
+      var pe2 = popupText();
+      if (pe2) return { status:'portal_error', stage:'submit', message: pe2, probe: probe, last: last };
+    }
     return { status: done ? 'done' : 'submit_unconfirmed', probe: probe, last: last };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }
+// ── Смена комнаты у активной регистрации (/listok → правка листка) ───────────
+// Гость переехал внутри Hostella — в портале меняем комнату, а не выводим и
+// регистрируем заново (решение владельца 2026-09-14). DOM правки портала вживую
+// не видели: ищем кнопку/ссылку правки в строке (edit/tahrir/o‘zgartirish) или
+// общую над таблицей после выделения строки, затем ждём select комнаты
+// #propiska — тот же, что в мастере. При любой неудаче отдаём статус и дамп
+// найденных кнопок, чтобы уточнить селекторы по живым данным.
+function buildRoomChangeScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var G = ${G};
+  ${HIDDEN_HELPERS}
+  function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
+  function txt(el){ return String((el && (el.innerText||el.textContent))||'').replace(/\\s+/g,' ').trim(); }
+  var EDIT_RX = /edit|update|change|tahrir|o.zgartir|ozgartir|редакт|измен/i;
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) return { status:'need_login' };
+    function getTable(){ try { return ($ && $.fn && $.fn.DataTable) ? $('#listok-table').DataTable() : null; } catch(e){ return null; } }
+    var table=null; for (var i=0;i<20 && !table;i++){ table=getTable(); if(!table) await sleep(400); }
+    if (!table) return { status:'no_table' };
+    try { table.page.len(-1).draw(false); } catch(e){}
+    await sleep(300);
+    var gp=norm(G.passport), gn=norm(G.guestName), node=null, rowData=null;
+    table.rows().every(function(){
+      var d=this.data()||{};
+      var rp=norm(d.passport_numb||d.passport_full||d.passport), rn=norm(d.guest||d.guestname);
+      if (!node && ((gp&&rp&&rp===gp)||(gn&&rn&&rn===gn))) { node=this.node(); rowData=d; }
+    });
+    if (!node) return { status:'not_found' };
+    var controls = Array.prototype.slice.call(node.querySelectorAll('a, button'));
+    var sig = function(c){ return (c.getAttribute('href')||'')+' '+(c.getAttribute('onclick')||'')+' '+(c.id||'')+' '+(c.className||'')+' '+(c.title||'')+' '+txt(c); };
+    var found = controls.filter(function(c){ return EDIT_RX.test(sig(c)); })[0];
+    var probe = {
+      rowControls: controls.map(function(c){ return (c.tagName+' '+sig(c)).slice(0,120); }).slice(0,12),
+      rowKeys: Object.keys(rowData||{}).slice(0,40),
+    };
+    if (!found) {
+      try { table.row(node).select(); } catch(e){}
+      try { $(node).addClass('selected'); } catch(e){}
+      await sleep(300);
+      var globals = Array.prototype.slice.call(document.querySelectorAll('a.btn, button, a[href]')).filter(vis);
+      found = globals.filter(function(c){ return EDIT_RX.test(sig(c)) && !/delete|o.chir|удал|chiqish|checkout|print|chop/i.test(sig(c)); })[0];
+      probe.globalControls = globals.map(function(c){ return (c.tagName+' '+(c.id||'')+' '+(c.getAttribute('href')||'')+' '+txt(c)).slice(0,80); }).slice(0,24);
+    }
+    if (!found) return { status:'no_edit', probe: probe };
+    found.click();
+    if (!(await waitFor(function(){ return vis(byId('propiska')); }, 25, 500))) return { status:'no_form', probe: probe, page: location.pathname };
+    await sleep(600);
+    var room = String(G.room||'').trim(), rInt = parseInt(room, 10);
+    var sel = byId('propiska');
+    var opt = Array.prototype.filter.call(sel.options, function(o){
+      if (!o.value) return false;
+      var t = String(o.text||'').replace(/\\s+/g,' ').trim();
+      return String(o.value)===room || (!isNaN(rInt) && parseInt(t,10)===rInt);
+    })[0];
+    if (!opt) return { status:'no_room', probe: probe, roomOptions: Array.prototype.map.call(sel.options, function(o){ return (o.value||'')+':'+String(o.text||'').trim().slice(0,30); }).slice(0,40) };
+    setSelect('propiska', opt.value);
+    await sleep(300);
+    var form = sel.form || sel.closest('form');
+    var save = byId('submitForm') || (form && form.querySelector('button[type=submit], input[type=submit]'))
+      || Array.prototype.filter.call(document.querySelectorAll('button, input[type=submit]'), function(b){ return vis(b) && /saqla|save|сохран|yangila|update/i.test(txt(b)+' '+(b.value||'')); })[0];
+    if (!save) return { status:'no_submit', probe: probe };
+    var before = location.pathname;
+    save.click();
+    var ok = await waitFor(function(){
+      var ic=document.querySelector('.swal2-popup .swal2-icon.swal2-success'); var t=document.querySelector('.swal2-title');
+      if (ic && t && /saqland|muvaffaqiyat|yangiland/i.test(t.textContent||'')) return true;
+      return location.pathname!==before && !vis(byId('propiska'));
+    }, 40, 500);
+    if (!ok) { var pe = popupText(); return { status: pe ? 'portal_error' : 'submit_unconfirmed', message: pe, probe: probe }; }
+    return { status:'done', room: room };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+
 
 // ── Лист убытия заново: страница выехавших (/listokout) ─────────────────────
 // Гостю, выведенному раньше или без листа. Находит строку гостя в таблице
@@ -1183,4 +1285,4 @@ function buildSheetPrintScript(guest) {
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript };
+module.exports = { buildRoomChangeScript, buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript };

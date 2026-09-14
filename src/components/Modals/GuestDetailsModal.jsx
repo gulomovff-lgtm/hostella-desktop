@@ -1154,21 +1154,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             </button>
                                         )}
                                     </div>
-                                    {isCheckedOut && (() => {
-                                        const departing = emehmonDepartingIds && typeof emehmonDepartingIds.has === 'function' && emehmonDepartingIds.has(guest.id);
-                                        return (
-                                            <button
-                                                disabled={departing}
-                                                onClick={() => {
-                                                    if (onEmehmonDepart) onEmehmonDepart(guest);
-                                                    else { openEmehmonDeparture(guest); notify(t('emehmonOpenDeparture'), 'info'); }
-                                                }}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-bold hover:bg-rose-100 transition-colors disabled:opacity-50"
-                                            >
-                                                {departing ? `⏳ ${t('emehmonDeparting')}` : `✈️ ${t('emehmonDepartBg')}`}
-                                            </button>
-                                        );
-                                    })()}
+                                    {/* У выехавшего кнопки «Вывести из e-mehmon» нет: вывод делает
+                                        выселение само, отставших доберёт сверка со списком портала
+                                        (решение владельца 2026-09-14). Ниже — только отметки и лист. */}
                                 </div>
                             )}
 

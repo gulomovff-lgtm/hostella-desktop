@@ -798,7 +798,7 @@ function App() {
     handleFetchSheet,
   } = useEmehmonAutomation({
     guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
-    isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef,
+    isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef, rooms,
   });
 
   const handleLogin = (user) => {

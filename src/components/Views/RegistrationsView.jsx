@@ -951,7 +951,9 @@ const RegistrationsView = ({
                                             ? <span className="text-rose-600">⚠️ {g.emehmonRegError}</span>
                                             : (g.kppSituation && !g.kppSituationDecision)
                                                 ? <span className="text-rose-600">🚨 {t('kppSituationBadge')}</span>
-                                                : null}
+                                                : g.emehmonRegNote
+                                                    ? <span className="text-amber-700">🛏 {g.emehmonRegNote}</span>
+                                                    : null}
                                         onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                         actions={canAct && canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>

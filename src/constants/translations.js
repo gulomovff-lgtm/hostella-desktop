@@ -2492,7 +2492,14 @@ const TRANSLATIONS = {
     emaAutoOnDay: "{name}: срок ещё не вышел, зарегистрирую автоматически на {n}-й день",
     emaForeignStep2Fail: "{name}: портал не принял данные на 2-м шаге — оформите вручную",
     emaNoCitizenOption: "В e-mehmon нет страны «{country}» — оформите вручную",
-    emaNeedsDecision: "{name}: нарушение срока регистрации — нужно ваше решение"
+    emaNeedsDecision: "{name}: нарушение срока регистрации — нужно ваше решение",
+    // Кто в какой комнате: сверка комнаты портала с Hostella
+    emaRoomFull: "{name}: в e-mehmon комната {room} заполнена ({n} из {cap}): {who}. Выведите или переселите их в портале",
+    emaRoomMoved: "{name}: в e-mehmon переселён в комнату {room}",
+    emaRoomMoveFail: "{name}: не удалось сменить комнату в e-mehmon ({status}) — переселите вручную в портале",
+    emaUnknownInRoom: "В e-mehmon в комнате {room} числятся неизвестные Hostella: {who}",
+    emaPortalError: "{name}: e-mehmon отказал — {msg}",
+    emaAlreadyInPortal: "{name}: уже числится в e-mehmon — отметка поставлена"
   },
   uz: {
     // AuditLogView — o'zgarishlar jurnali
@@ -4985,7 +4992,14 @@ const TRANSLATIONS = {
     emaAutoOnDay: "{name}: muddat hali tugamagan, {n}-kuni avtomatik ro‘yxatga olaman",
     emaForeignStep2Fail: "{name}: portal 2-qadamda ma’lumotni qabul qilmadi — qo‘lda rasmiylashtiring",
     emaNoCitizenOption: "e-mehmon'da «{country}» davlati yo‘q — qo‘lda rasmiylashtiring",
-    emaNeedsDecision: "{name}: ro‘yxat muddati buzilgan — sizning qaroringiz kerak"
+    emaNeedsDecision: "{name}: ro‘yxat muddati buzilgan — sizning qaroringiz kerak",
+    // Kim qaysi xonada: portal xonasini Hostella bilan solishtirish
+    emaRoomFull: "{name}: e-mehmon'da {room}-xona to‘la ({n} / {cap}): {who}. Ularni portalda chiqaring yoki ko‘chiring",
+    emaRoomMoved: "{name}: e-mehmon'da {room}-xonaga ko‘chirildi",
+    emaRoomMoveFail: "{name}: e-mehmon'da xonani almashtirib bo‘lmadi ({status}) — portalda qo‘lda ko‘chiring",
+    emaUnknownInRoom: "e-mehmon'da {room}-xonada Hostella'ga noma’lum odamlar bor: {who}",
+    emaPortalError: "{name}: e-mehmon rad etdi — {msg}",
+    emaAlreadyInPortal: "{name}: e-mehmon'da allaqachon bor — belgi qo‘yildi"
   }
 };
 

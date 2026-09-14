@@ -86,6 +86,25 @@ test('итоги мастера несут дамп шага 2 — дата КП
   }
 });
 
+test('отказ портала словами не теряется как таймаут: portal_error с текстом на проверке и на сохранении', () => {
+  const src = m.buildAutoArrivalScript(FOREIGN);
+  assert.ok(src.includes('function popupText'), 'общий помощник чтения сообщений портала');
+  assert.ok(src.includes("status:'portal_error', stage:'check'"), 'отказ на первом шаге');
+  assert.ok(src.includes("status:'portal_error', stage:'submit'"), 'отказ после «Сохранить»');
+  assert.ok(src.includes('roomOptions: opts0'), 'при «нет комнаты» отдаём список комнат портала');
+  assert.ok(m.buildPassportCheckScript(FOREIGN).includes("status:'portal_error', stage:'check'"), 'проверка паспорта — тоже');
+});
+
+test('смена комнаты: скрипт компилируется, ищет строку гостя, кнопку правки и select комнаты, отдаёт дамп кнопок', () => {
+  const src = m.buildRoomChangeScript({ ...FOREIGN, guestName: 'WANG LI', room: '5' });
+  assert.doesNotThrow(() => new vm.Script(src));
+  assert.ok(src.includes("$('#listok-table').DataTable()"), 'та же таблица, что у выселения');
+  assert.ok(src.includes("vis(byId('propiska'))"), 'select комнаты — как в мастере');
+  assert.ok(src.includes("status:'no_edit', probe: probe") && src.includes('rowControls'), 'без кнопки правки — статус и дамп');
+  assert.ok(src.indexOf("save.click()") > src.indexOf("setSelect('propiska'"), 'сначала комната, потом сохранить');
+  assert.ok(!src.includes('Chiqish'), 'кнопку выселения не трогаем');
+});
+
 test('поведение для местных не изменилось: без gateStays сохраняем сразу', () => {
   const src = m.buildAutoArrivalScript({ citizenCode: 'UZB', passport: 'AA1', birthDate: '01.01.1990', room: '1', days: 1, amount: '30000' });
   assert.ok(src.includes("setSelect('id_visittype', '5')") && src.includes("setSelect('payed', '2')") && src.includes("setSelect('id_guest', '4')"));

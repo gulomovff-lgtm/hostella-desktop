@@ -7,7 +7,7 @@ const dns = require('dns');
 const net = require('net');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript } = require('./emehmonAutofill');
+const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript, buildRoomChangeScript } = require('./emehmonAutofill');
 const emehmonSheet = require('./emehmonSheet');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
@@ -660,6 +660,35 @@ async function runAutoArrival(payload) {
   }
   return result || { status };
 }
+
+// ─── e-mehmon: смена комнаты у активной регистрации ──────────────────────────
+// Гость переехал внутри Hostella — в портале меняем комнату, а не выводим и
+// регистрируем заново. Скрытое окно /listok, общая цепочка с регистрацией.
+// DOM правки портала вживую не видели: при неудаче рендерер получит статус
+// и дамп кнопок (probe) для уточнения селекторов.
+ipcMain.handle('emehmon-room-change', (_event, payload) => {
+  const data = payload || {};
+  const run = autoArrivalChain.then(async () => {
+    try {
+      const win = ensureDepartureWindow(data.hostelId);
+      await win.loadURL('https://emehmon.uz/listok');
+      let result;
+      try {
+        result = await win.webContents.executeJavaScript(buildRoomChangeScript(data), true);
+      } catch (e) {
+        result = { status: 'error', message: e.message };
+      }
+      if (result && result.status === 'need_login') { win.show(); win.focus(); safeInjectAutofill(win, { ...data, mode: 'departure' }); }
+      else win.hide();
+      return result || { status: 'error' };
+    } catch (e) {
+      log.error('[emehmon] room change failed:', e.message);
+      return { status: 'error', message: e.message };
+    }
+  });
+  autoArrivalChain = run.catch(() => {}); // не рвём цепочку на ошибке
+  return run;
+});
 
 ipcMain.handle('emehmon-arrival-auto', (_event, guest) => {
   const payload = guest || {};

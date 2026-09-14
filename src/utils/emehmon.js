@@ -138,6 +138,21 @@ export async function fetchDepartureSheet(guest) {
   }
 }
 
+// Смена комнаты у активной регистрации портала: гость переехал внутри Hostella.
+//   done / not_found / no_edit / no_form / no_room / no_submit / submit_unconfirmed
+//   / portal_error / need_login / error | no_electron
+export async function changeEmehmonRoom(guest, newRoom) {
+  if (!window.electronAPI?.emehmonRoomChange) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', room: String(newRoom || guest?.roomNumber || ''), mode: 'departure', path: '/listok' };
+  const acc = await getEmehmonAccount(payload.hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonRoomChange(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
 // Проверить, активен ли гость в /listok e-mehmon (т.е. ещё НЕ выселен).
 //   present → ещё в активном списке; absent → уже выселен; need_login/error/…
 export async function checkEmehmonActive(guest) {

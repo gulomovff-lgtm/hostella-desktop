@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { doc, updateDoc, deleteField, runTransaction } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { getDeviceId } from '../utils/clientTelemetry';
-import { emehmonAmountFor, getLocalDateString, HOSTELS } from '../utils/helpers';
+import { emehmonAmountFor, getLocalDateString, HOSTELS, isStaleSince } from '../utils/helpers';
+import { planRoomReconcile, matchRowToGuest, roomKey, namesOf, classifyPortalError } from '../utils/emehmonRooms';
 import { emehmonAmountForStay } from '../utils/emehmonAmount';
 import {
   openEmehmonDeparture, checkEmehmonActive, fetchEmehmonRegistered,
-  departEmehmonBackground, fetchDepartureSheet, autoRegisterArrival, recalcEmehmonAmounts,
+  departEmehmonBackground, fetchDepartureSheet, autoRegisterArrival, recalcEmehmonAmounts, changeEmehmonRoom,
   checkPassportInGov, getEmehmonStatus,
 } from '../utils/emehmon';
 import {
@@ -48,7 +49,7 @@ const fmtRu = (iso) => { try { return new Date(iso).toLocaleDateString('ru-RU');
  */
 export function useEmehmonAutomation({
   guests, registrations, cadastreRegs, currentUser, selectedHostelFilter,
-  isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef,
+  isDataReady, showNotification, setGuestDetailsModal, lang, uiBusyRef, rooms,
 }) {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [emehmonReminder, setEmehmonReminder] = useState(null);
@@ -103,7 +104,8 @@ const handleEmehmonFlag = useCallback(async (guestId, updates) => {
 
 // Итог фонового выселения: отметка «выведен», лист убытия (копия в облако и
 // в карточку), лоадеры, сверка списка.
-const handleDepartOutcome = useCallback(async (res, list) => {
+const handleDepartOutcome = useCallback(async (res, list, opts = {}) => {
+  const say = (msg, kind) => { if (!opts.quiet) showNotification(msg, kind); };
   const ids = (list || []).filter(g => g && g.id).map(g => g.id);
   const status = res?.status;
   if (status === 'done' || status === 'submitted') {
@@ -119,21 +121,21 @@ const handleDepartOutcome = useCallback(async (res, list) => {
     }
     const marks = departureMarks(res, { uploaded });
     ids.forEach(id => handleEmehmonFlag(id, marks));
-    if (marks.emehmonSheet) showNotification(t('emaDepartedSheet'), 'success');
-    else if (marks.emehmonSheetError) showNotification(t('emaDepartedNoSheet').replace('{msg}', marks.emehmonSheetError.message || marks.emehmonSheetError.code), 'warning');
-    else showNotification(t('emaDepartedCount').replace('{n}', ids.length || 1), 'success');
+    if (marks.emehmonSheet) say(t('emaDepartedSheet'), 'success');
+    else if (marks.emehmonSheetError) say(t('emaDepartedNoSheet').replace('{msg}', marks.emehmonSheetError.message || marks.emehmonSheetError.code), 'warning');
+    else say(t('emaDepartedCount').replace('{n}', ids.length || 1), 'success');
     setEmehmonReminder(null);
     // Сверка с e-mehmon: подтянуть свежий /listok, подтвердить вывод по факту
     // (на случай если «submitted» — Check-Out прошёл, но закрытие не подтвердилось).
     setTimeout(() => { if (emehmonSyncRef.current) emehmonSyncRef.current(false); }, 1500);
   } else if (status === 'need_login') {
-    showNotification(t('emaLoginRepeatDepart'), 'info');
+    say(t('emaLoginRepeatDepart'), 'info');
   } else if (status === 'multiple') {
-    showNotification(t('emaMultipleMatches'), 'warning');
+    say(t('emaMultipleMatches'), 'warning');
   } else if (status === 'not_found') {
-    showNotification(t('emaNotFoundDepart'), 'error');
+    say(t('emaNotFoundDepart'), 'error');
   } else {
-    showNotification(t('emaAutoDepartFail'), 'error');
+    say(t('emaAutoDepartFail'), 'error');
   }
   setEmehmonDepartingIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -307,9 +309,62 @@ const claimForPortal = useCallback(async (guestId) => {
   }
 }, []);
 
+// ─── Кто в какой комнате: сверка комнаты портала с Hostella ────────────────
+// Портал отказывает «комната переполнена» почти всегда из-за стала: выехавший
+// не выведен или переехавший остался в старой комнате. Берём свежий /listok,
+// раскладываем строки по комнате гостя (utils/emehmonRooms.js): выехавших —
+// выводим, переехавших — переселяем в портале (а не заново регистрируем),
+// про чужих — говорим кассиру. Возвращаем план и что удалось сделать.
+const roomTriedRef = useRef(new Map()); // guestId → когда пробовали сменить комнату
+const reconcileRoom = useCallback(async (guest, opts = {}) => {
+  const hostelId = opts.hostelId || guest?.hostelId || 'hostel1';
+  const quiet = !!opts.quiet;
+  const res = await fetchEmehmonRegistered(hostelId);
+  if (res?.status !== 'ok') return { ok: false, status: res?.status || 'error' };
+  const rows = res.rows || [];
+  patchEmehmon(hostelId, { rows, status: 'ok', at: Date.now() });
+  const roomDoc = (rooms || []).find(r => r.id === guest.roomId)
+    || (rooms || []).find(r => roomKey(r.number) === roomKey(guest.roomNumber) && (r.hostelId || 'hostel1') === hostelId);
+  const plan = planRoomReconcile({
+    room: guest.roomNumber || roomDoc?.number, rows, guests: guests || [],
+    capacity: parseInt(roomDoc?.capacity) || 0, hostelId,
+  });
+  const cfg = getConfig() || {};
+  let departed = 0, moved = 0;
+  for (const d of plan.depart) {
+    const g = d.guest;
+    const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType }));
+    await handleDepartOutcome(out, [g], { quiet });
+    if (out?.status === 'done' || out?.status === 'submitted') departed++;
+    if (out?.status === 'need_login') return { ok: false, status: 'need_login', plan, departed, moved };
+  }
+  for (const mv of plan.move) {
+    const g = mv.guest;
+    const last = roomTriedRef.current.get(g.id) || 0;
+    if (Date.now() - last < 6 * HOURS) continue;
+    roomTriedRef.current.set(g.id, Date.now());
+    const out = await changeEmehmonRoom(g, mv.toRoom);
+    if (out?.status === 'done') {
+      moved++;
+      await handleEmehmonFlag(g.id, { emehmonRoom: String(mv.toRoom), emehmonRoomAt: new Date().toISOString(), emehmonRoomChangeError: deleteField() });
+      if (!quiet) showNotification(t('emaRoomMoved').replace('{name}', g.fullName).replace('{room}', mv.toRoom), 'success');
+    } else {
+      await handleEmehmonFlag(g.id, { emehmonRoomChangeError: { status: out?.status || 'error', message: String(out?.message || '').slice(0, 200), at: new Date().toISOString(), probe: out?.probe || null } });
+      if (!quiet) showNotification(t('emaRoomMoveFail').replace('{name}', g.fullName).replace('{status}', out?.status || 'error'), 'warning');
+      if (out?.status === 'need_login') return { ok: false, status: 'need_login', plan, departed, moved };
+    }
+  }
+  if (plan.unknown.length && !quiet) {
+    showNotification(t('emaUnknownInRoom').replace('{room}', plan.room).replace('{who}', namesOf(plan.unknown)), 'warning');
+  }
+  return { ok: true, plan, departed, moved };
+}, [guests, rooms, patchEmehmon, handleDepartOutcome, handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
 // Единый разбор итога мастера прибытия — для местных и иностранцев, громко и тихо.
 // silent — без второстепенных тостов; quiet — вообще без тостов и окон
 // (чужой филиал: его кассир увидит всё у себя, а здесь это только шум).
+// opts.again — как повторить регистрацию после того, как комната освобождена.
+const finishRef = useRef(null);
 const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
   const st = res?.status;
   const silent = !!opts.silent || !!opts.quiet;
@@ -319,7 +374,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
   if (st === 'done') {
     await handleEmehmonFlag(guest.id, {
       emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
-      emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(),
+      emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(),
       emehmonAmount: emehmonAmountFor(guest.country),
     });
     if (!quiet) showNotification(t(silent ? 'emaRegisteredAuto' : 'emaRegistered').replace('{name}', name), 'success');
@@ -332,12 +387,55 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
     if (!quiet) showNotification(t(silent ? 'emaNotInGovDb' : 'emaNotInGovDbManual').replace('{name}', name), 'warning');
     return false;
   }
-  if (st === 'no_room') {
-    // Комнату не сопоставили. Ошибку гостю не вешаем — ставим метку времени и
-    // повторяем не раньше чем через несколько часов (раньше помнили только в RAM).
-    emehmonNoRoomTried.current.add(guest.id);
+  const kind = st === 'portal_error' ? classifyPortalError(res?.message) : '';
+  if (st === 'no_room' || kind === 'room_full') {
+    // Комнаты нет в списке портала или он сказал «переполнена». Сверяем, кто
+    // у него в этой комнате: выводим выехавших, переселяем переехавших — и
+    // пробуем ещё раз. Если и после этого полно — пишем гостю заметку с
+    // именами: кассир видит причину в «Оформить», а не «не удалось».
+    if (opts.retry !== false && opts.again && window.electronAPI?.emehmonList) {
+      const rec = await reconcileRoom(guest, { quiet });
+      if (rec.ok && (rec.departed > 0 || rec.moved > 0 || !rec.plan.fullAfter)) {
+        const again = await opts.again();
+        return finishRef.current(guest, again, { ...opts, retry: false });
+      }
+      if (rec.ok) {
+        const note = t('emaRoomFull').replace('{name}', name).replace('{room}', rec.plan.room)
+          .replace('{n}', rec.plan.occupiedAfter + rec.plan.unknown.length).replace('{cap}', rec.plan.capacity || '?')
+          .replace('{who}', namesOf([...rec.plan.keep, ...rec.plan.unknown]) || '—');
+        await handleEmehmonFlag(guest.id, { emehmonNoRoomAt: now, emehmonRegNote: note });
+        if (!quiet) showNotification(note, 'warning');
+        return false;
+      }
+    }
     await handleEmehmonFlag(guest.id, { emehmonNoRoomAt: now });
     if (!silent) showNotification(t('emaRoomMismatch').replace('{name}', name), 'warning');
+    return false;
+  }
+  if (st === 'portal_error') {
+    if (kind === 'already_active') {
+      // Портал говорит, что гость уже в нём: прошлый заезд не выведен или
+      // регистрировали вручную без отметки. Сверяем по списку: нашли — ставим
+      // отметку, а если комната в портале другая — переселяем.
+      const list = await fetchEmehmonRegistered(guest.hostelId || 'hostel1');
+      const row = (list?.rows || []).find(r => matchRowToGuest(r, [guest])?.id === guest.id);
+      if (row) {
+        if (roomKey(row.room) && roomKey(guest.roomNumber) && roomKey(row.room) !== roomKey(guest.roomNumber)) {
+          const mv = await changeEmehmonRoom(guest, guest.roomNumber);
+          if (mv?.status === 'done') { if (!quiet) showNotification(t('emaRoomMoved').replace('{name}', name).replace('{room}', guest.roomNumber), 'success'); }
+          else if (!quiet) showNotification(t('emaRoomMoveFail').replace('{name}', name).replace('{status}', mv?.status || 'error'), 'warning');
+        }
+        await handleEmehmonFlag(guest.id, {
+          emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
+          emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(),
+          emehmonAmount: emehmonAmountFor(guest.country),
+        });
+        if (!quiet) showNotification(t('emaAlreadyInPortal').replace('{name}', name), 'success');
+        return true;
+      }
+    }
+    await handleEmehmonFlag(guest.id, { emehmonRegError: 'e-mehmon: ' + String(res?.message || '').slice(0, 140), emehmonRegErrorAt: now });
+    if (!quiet) showNotification(t('emaPortalError').replace('{name}', name).replace('{msg}', String(res?.message || '').slice(0, 90)), 'error');
     return false;
   }
   if (st === 'no_citizen') {
@@ -351,7 +449,8 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
   if (st === 'no_electron' || st === 'busy' || st === 'needs_decision') return false;
   if (!silent) showNotification(t('emaAutoRegNotDone').replace('{name}', name), 'error');
   return false;
-}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+}, [handleEmehmonFlag, reconcileRoom]); // eslint-disable-line react-hooks/exhaustive-deps
+useEffect(() => { finishRef.current = finishAutoArrival; }, [finishAutoArrival]);
 
 // Регистрация иностранца. За пределами окна мастер останавливается перед
 // «Сохранить» и отдаёт список прошлых проживаний (needs_decision): если по
@@ -383,7 +482,8 @@ const runForeignRegistration = useCallback(async (guest, opts = {}) => {
     } else if (res?.probe && !guest.kppDate && !isLocal(guest)) {
       await applyProbeToGuest(guest, res);
     }
-    await finishAutoArrival(guest, res, { silent, quiet });
+    await finishAutoArrival(guest, res, { silent, quiet,
+      again: () => autoRegisterArrival(guest, { silent, gateStays, force: !!opts.force, quietFail: true }) });
     return res;
   } finally {
     emehmonAutoBusy.current.delete(guest.id);
@@ -511,7 +611,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
     !g.emehmonReg && !g.emehmonSkip && !g.emehmonRegError &&
     sameHostel(g) && paidOf(g) > 0 && !inCad(g) &&
     (listOk ? !inList(g) : (recent(g) && !g.emehmonRegAt)) &&
-    shouldRetryNoRoom(g) && !emehmonNoRoomTried.current.has(g.id) &&
+    shouldRetryNoRoom(g) &&
     !emehmonAutoBusy.current.has(g.id) && !foreignBusy.current.has(g.id) &&
     !(g.kppSituation && !g.kppSituationDecision)   // ждёт решения человека — не дёргаем портал
   );
@@ -525,7 +625,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
       try {
         const reg = await autoRegisterArrival(g, { silent: true });
         if (reg?.status === 'need_login') break;
-        await finishAutoArrival(g, reg, { silent: true, quiet });
+        await finishAutoArrival(g, reg, { silent: true, quiet, again: () => autoRegisterArrival(g, { silent: true }) });
       } catch (_) { /* пропускаем */ } finally { emehmonAutoBusy.current.delete(g.id); }
       continue;
     }
@@ -628,6 +728,46 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
           await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
             { emehmonOut: true, emehmonOutAt: now, emehmonOutAuto: true });
         } catch (_) { /* пропускаем */ }
+      }
+      // ── КТО ГДЕ: выехавшие, но всё ещё в /listok — выводим сами ──────────
+      // Без отметки о регистрации (оформляли вручную) выселение в Hostella
+      // портал не трогало — гость «жил» в e-mehmon и переполнял комнату.
+      const quietHere = hostelId !== emehmonHostelIdRef.current;
+      if (window.electronAPI?.emehmonDeparture) {
+        const cfgDep = getConfig() || {};
+        const staleInPortal = (guests || []).filter(g =>
+          g.status === 'checked_out' && !g.emehmonOut && sameHostel(g) &&
+          ((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))) &&
+          g.checkOutDate && !isStaleSince(g.checkOutDate, 30)).slice(0, 3);
+        for (const g of staleInPortal) {
+          const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfgDep.emehmonPayType }));
+          await handleDepartOutcome(out, [g], { quiet: quietHere });
+          if (out?.status === 'need_login') break;
+        }
+      }
+      // Переехал внутри Hostella, а в портале остался в старой комнате — переселяем
+      // в портале (не выводим и не регистрируем заново). Не чаще раза в 6 часов на гостя.
+      if (window.electronAPI?.emehmonRoomChange) {
+        const scoped = (guests || []).filter(g => g.status === 'active' && isReal(g) && sameHostel(g));
+        let moves = 0;
+        for (const row of (res.rows || [])) {
+          if (moves >= 2) break;
+          const g = matchRowToGuest(row, scoped);
+          if (!g || !roomKey(row.room) || !roomKey(g.roomNumber) || roomKey(row.room) === roomKey(g.roomNumber)) continue;
+          const last = roomTriedRef.current.get(g.id) || 0;
+          if (Date.now() - last < 6 * HOURS) continue;
+          roomTriedRef.current.set(g.id, Date.now());
+          moves++;
+          const out = await changeEmehmonRoom(g, g.roomNumber);
+          if (out?.status === 'done') {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { emehmonRoom: String(g.roomNumber), emehmonRoomAt: now, emehmonRoomChangeError: deleteField() }).catch(() => {});
+            if (!quietHere) showNotification(t('emaRoomMoved').replace('{name}', g.fullName).replace('{room}', g.roomNumber), 'success');
+          } else {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { emehmonRoomChangeError: { status: out?.status || 'error', message: String(out?.message || '').slice(0, 200), at: now, probe: out?.probe || null } }).catch(() => {});
+            if (!quietHere) showNotification(t('emaRoomMoveFail').replace('{name}', g.fullName).replace('{status}', out?.status || 'error'), 'warning');
+            if (out?.status === 'need_login') break;
+          }
+        }
       }
       // ── АВТО-ВЫВОД ПО ИСТЕЧЕНИИ СРОКА ────────────────────────────────────
       // Регистрации (журнал), у которых срок вышел, а статус ещё active:
@@ -822,7 +962,7 @@ const handleEmehmonAutoArrival = useCallback(async (guest) => {
   showNotification(t('emaRegistering').replace('{name}', guest.fullName), 'info');
   let res;
   try { res = await autoRegisterArrival(guest); } finally { if (guest.id) emehmonAutoBusy.current.delete(guest.id); }
-  await finishAutoArrival(guest, res, { silent: false });
+  await finishAutoArrival(guest, res, { silent: false, again: () => autoRegisterArrival(guest) });
 }, [finishAutoArrival, claimForPortal]); // eslint-disable-line react-hooks/exhaustive-deps
 useEffect(() => { handleEmehmonAutoArrivalRef.current = handleEmehmonAutoArrival; }, [handleEmehmonAutoArrival]);
 

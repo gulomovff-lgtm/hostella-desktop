@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emehmonSheetOpen: (file) => ipcRenderer.invoke('emehmon-sheet-open', file),
   // e-mehmon: лист убытия заново со страницы выехавших портала
   emehmonSheetFetch: (guest) => ipcRenderer.invoke('emehmon-sheet-fetch', guest),
+  emehmonRoomChange: (payload) => ipcRenderer.invoke('emehmon-room-change', payload),
   // e-mehmon: уведомление об успешной регистрации прибытия (для авто-галочки)
   onEmehmonRegistered: (cb) => subscribe('emehmon-registered', cb),
   // e-mehmon: полная авто-регистрация прибытия (граждане Узбекистана)
