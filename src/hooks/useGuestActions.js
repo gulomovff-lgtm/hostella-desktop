@@ -439,7 +439,13 @@ export function useGuestActions(ctx) {
 
       // Сразу (без задержки) предлагаем вывод из e-mehmon, если гость зарегистрирован
       // и ещё не выведен — окно выбора открывается прямо за подтверждением выселения.
-      if (onEmehmonDepart && guest.emehmonReg && !guest.emehmonOut && window.electronAPI?.emehmonDeparture) {
+      // Тот же человек уже живёт по новой записи (вернулся, переоформлен) —
+      // строка портала теперь его новая регистрация, выводить её нельзя.
+      const normPass = (v) => String(v || '').replace(/\s/g, '').toUpperCase();
+      const livesAgain = !!guest.passport && guests.some(x =>
+        x.id !== guest.id && x.status === 'active' && x.passport &&
+        normPass(x.passport) === normPass(guest.passport) && (x.hostelId || 'hostel1') === (guest.hostelId || 'hostel1'));
+      if (onEmehmonDepart && guest.emehmonReg && !guest.emehmonOut && !livesAgain && window.electronAPI?.emehmonDeparture) {
         onEmehmonDepart(guest);
       }
 

@@ -331,8 +331,11 @@ const reconcileRoom = useCallback(async (guest, opts = {}) => {
   });
   const cfg = getConfig() || {};
   let departed = 0, moved = 0;
+  const normP = (v) => String(v || '').replace(/\s/g, '').toUpperCase();
+  const livingP = new Set((guests || []).filter(x => x.status === 'active' && x.passport && (x.hostelId || 'hostel1') === hostelId).map(x => normP(x.passport)));
   for (const d of plan.depart) {
     const g = d.guest;
+    if (g.passport && livingP.has(normP(g.passport))) continue;   // тот же человек живёт по новой записи
     const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType }));
     await handleDepartOutcome(out, [g], { quiet });
     if (out?.status === 'done' || out?.status === 'submitted') departed++;
@@ -729,6 +732,20 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
             { emehmonOut: true, emehmonOutAt: now, emehmonOutAuto: true });
         } catch (_) { /* пропускаем */ }
       }
+      // ── ЖИВЫЕ: кого автомат из портала не выводит НИКОГДА ─────────────────
+      // Строка /listok — это человек, а не запись Hostella. У вернувшегося гостя
+      // есть старая выехавшая запись с тем же паспортом, у продлённого — истёкшая
+      // запись журнала; по ним автомат выводил из портала ЖИВОГО гостя
+      // (жалоба 2026-09-14: «выселяет активных при продлении и заселении»).
+      // Поэтому любая строка, совпадающая с активным гостем филиала, — неприкосновенна.
+      const activeP = new Set(), activeN = new Set();
+      for (const g of (guests || [])) {
+        if (g.status !== 'active' || !isReal(g) || !sameHostel(g)) continue;
+        if (g.passport) activeP.add(norm(g.passport));
+        if (g.fullName) activeN.add(norm(g.fullName));
+      }
+      const isLiving = (x) => (x?.passport && activeP.has(norm(x.passport))) || (x?.fullName && activeN.has(norm(x.fullName)));
+
       // ── КТО ГДЕ: выехавшие, но всё ещё в /listok — выводим сами ──────────
       // Без отметки о регистрации (оформляли вручную) выселение в Hostella
       // портал не трогало — гость «жил» в e-mehmon и переполнял комнату.
@@ -736,7 +753,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
       if (window.electronAPI?.emehmonDeparture) {
         const cfgDep = getConfig() || {};
         const staleInPortal = (guests || []).filter(g =>
-          g.status === 'checked_out' && !g.emehmonOut && sameHostel(g) &&
+          g.status === 'checked_out' && !g.emehmonOut && sameHostel(g) && !isLiving(g) &&
           ((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))) &&
           g.checkOutDate && !isStaleSince(g.checkOutDate, 30)).slice(0, 3);
         for (const g of staleInPortal) {
@@ -773,9 +790,12 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
       // Регистрации (журнал), у которых срок вышел, а статус ещё active:
       //  • есть в /listok → выселяем в фоне одной операцией → помечаем removed;
       //  • нет в /listok → уже выведен → просто помечаем removed.
+      // Срок журнала вышел, а гость всё ещё живёт (продлили проживание, журнал
+      // не тронули) — это не повод выводить его из портала: запись оставляем
+      // как есть, решает человек на экране регистраций.
       const expiredActive = (registrations || []).filter(r =>
         r.status === 'active' && r.hostelId === hostelId && r.endDate &&
-        new Date(r.endDate + 'T23:59:59').getTime() < Date.now());
+        new Date(r.endDate + 'T23:59:59').getTime() < Date.now() && !isLiving(r));
       if (expiredActive.length > 0) {
         const inListok = expiredActive.filter(r =>
           (r.passport && pSet.has(norm(r.passport))) || (r.fullName && nSet.has(norm(r.fullName))));

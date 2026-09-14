@@ -105,6 +105,21 @@ test('смена комнаты: скрипт компилируется, ище
   assert.ok(!src.includes('Chiqish'), 'кнопку выселения не трогаем');
 });
 
+test('автомат никогда не выводит из портала живого гостя: защита во всех путях авто-вывода', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+  const hook = fs.readFileSync(path.join(root, 'src/hooks/useEmehmonAutomation.js'), 'utf8');
+  const sync = hook.slice(hook.indexOf('const isLiving = '), hook.indexOf('АВТО-ВЫВОД ПО ИСТЕЧЕНИИ СРОКА'));
+  assert.ok(sync.includes("g.status === 'checked_out' && !g.emehmonOut && sameHostel(g) && !isLiving(g)"), 'выехавшие в /listok — только если тот же человек не живёт');
+  const expired = hook.slice(hook.indexOf('const expiredActive = '), hook.indexOf('if (expiredActive.length > 0)'));
+  assert.ok(expired.includes('!isLiving(r)'), 'истёкший журнал живого гостя не выводится');
+  const rec = hook.slice(hook.indexOf('const reconcileRoom = useCallback'), hook.indexOf('const finishRef = useRef'));
+  assert.ok(rec.includes('livingP.has(normP(g.passport))) continue'), 'сверка комнаты не выводит того, кто живёт по новой записи');
+  const ga = fs.readFileSync(path.join(root, 'src/hooks/useGuestActions.js'), 'utf8');
+  assert.ok(ga.includes('!livesAgain && window.electronAPI?.emehmonDeparture'), 'выселение старой записи не трогает новую регистрацию');
+});
+
 test('поведение для местных не изменилось: без gateStays сохраняем сразу', () => {
   const src = m.buildAutoArrivalScript({ citizenCode: 'UZB', passport: 'AA1', birthDate: '01.01.1990', room: '1', days: 1, amount: '30000' });
   assert.ok(src.includes("setSelect('id_visittype', '5')") && src.includes("setSelect('payed', '2')") && src.includes("setSelect('id_guest', '4')"));
