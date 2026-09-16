@@ -10,12 +10,13 @@ const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : (
 
 // ─── Top-up modal ─────────────────────────────────────────────────────────────
 const METHODS = [
-    { id: 'cash',     label: 'Наличные',  icon: Banknote,   color: 'emerald' },
-    { id: 'terminal', label: 'Терминал',   icon: CreditCard, color: 'sky' },
-    { id: 'qr',       label: 'QR / Перевод', icon: QrCode,     color: 'violet' },
+    { id: 'cash',     label: 'cash',         icon: Banknote,   color: 'emerald' },
+    { id: 'terminal', label: 'card',         icon: CreditCard, color: 'sky' },
+    { id: 'qr',       label: 'chmQrTransfer', icon: QrCode,     color: 'violet' },
 ];
 
-const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'add' }) => {
+const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'add', lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [amount, setAmount] = useState('');
     const [method, setMethod] = useState('cash');
     const isSuper = currentUser?.role === 'super';
@@ -40,7 +41,7 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                     <div>
-                        <div className="font-black text-slate-800">{deduct ? 'Списание с баланса' : 'Пополнение баланса'}</div>
+                        <div className="font-black text-slate-800">{deduct ? t('chmDeductTitle') : t('chmTopUpTitle')}</div>
                         <div className="text-xs text-slate-400 mt-0.5">{client.fullName}</div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18}/></button>
@@ -49,14 +50,14 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
                 <div className="p-5 space-y-4">
                     {/* Current balance */}
                     <div className={`flex items-center justify-between rounded-xl px-4 py-3 ${deduct ? 'bg-rose-50' : 'bg-blue-50'}`}>
-                        <span className={`text-sm font-bold ${deduct ? 'text-rose-600' : 'text-blue-600'}`}>💳 Текущий баланс</span>
-                        <span className={`text-lg font-black ${deduct ? 'text-rose-700' : 'text-blue-700'}`}>{bal.toLocaleString()} сум</span>
+                        <span className={`text-sm font-bold ${deduct ? 'text-rose-600' : 'text-blue-600'}`}>💳 {t('clCurrentBalance')}</span>
+                        <span className={`text-lg font-black ${deduct ? 'text-rose-700' : 'text-blue-700'}`}>{bal.toLocaleString()} {t('sum')}</span>
                     </div>
 
                     {/* Method — только при пополнении */}
                     {!deduct && (
                         <div>
-                            <div className="text-xs font-bold text-slate-400 uppercase mb-2">Метод оплаты</div>
+                            <div className="text-xs font-bold text-slate-400 uppercase mb-2">{t('paymentMethod')}</div>
                             <div className="grid grid-cols-3 gap-2">
                                 {METHODS.map(m => {
                                     const Icon = m.icon;
@@ -69,7 +70,7 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
                                                     : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300'
                                             }`}>
                                             <Icon size={20}/>
-                                            {m.label}
+                                            {t(m.label)}
                                         </button>
                                     );
                                 })}
@@ -79,7 +80,7 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
 
                     {/* Amount */}
                     <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">{deduct ? 'Сумма списания' : 'Сумма пополнения'}</div>
+                        <div className="text-xs font-bold text-slate-400 uppercase mb-2">{deduct ? t('chmDeductAmount') : t('chmTopUpAmount')}</div>
                         <input
                             type="number"
                             placeholder="0"
@@ -88,21 +89,21 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
                             autoFocus
                             className={`w-full px-4 py-3 text-xl font-black text-center rounded-xl border-2 border-slate-200 focus:outline-none bg-slate-50 ${deduct ? 'focus:border-rose-400' : 'focus:border-blue-400'}`}
                         />
-                        {tooMuch && <div className="text-[11px] text-amber-600 font-semibold mt-1 text-center">Будет списано не больше текущего баланса ({bal.toLocaleString()})</div>}
+                        {tooMuch && <div className="text-[11px] text-amber-600 font-semibold mt-1 text-center">{t('chmMaxDeduct').replace('{n}', bal.toLocaleString())}</div>}
                     </div>
 
                     {isSuper && !deduct && (
-                        <div className="text-[11px] text-violet-600 font-semibold bg-violet-50 rounded-lg px-3 py-2 text-center">Пополнение супером не отражается в кассе</div>
+                        <div className="text-[11px] text-violet-600 font-semibold bg-violet-50 rounded-lg px-3 py-2 text-center">{t('chmSuperNoCashbox')}</div>
                     )}
 
                     {/* Buttons */}
                     <div className="flex gap-3 pt-1">
-                        <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">Отмена</button>
+                        <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
                         <button
                             onClick={handleSubmit}
                             disabled={!amt || amt <= 0 || (deduct && bal <= 0)}
                             className={`flex-1 py-3 rounded-xl text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed ${deduct ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                            {deduct ? '−' : '+'}{amt ? amt.toLocaleString() : 0} сум
+                            {deduct ? '−' : '+'}{amt ? amt.toLocaleString() : 0} {t('sum')}
                         </button>
                     </div>
                 </div>
@@ -111,8 +112,8 @@ const TopUpModal = ({ client, currentUser, onClose, onTopUp, onDeduct, mode = 'a
     );
 };
 
-const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, onAdjustBalance, onEditClient, lang }) => {
-    if (!client) return null;
+const ClientHistoryModalInner = ({ client, guests, users, rooms, currentUser, onClose, onRepeatStay, onCheckOut, onActivateBooking, onDeleteGuest, onTopUpBalance, onAdjustBalance, onEditClient, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
     // Админ и Fazliddin могут только СПИСЫВАТЬ с баланса (не пополнять)
     const subtractOnly = currentUser?.role === 'admin' || currentUser?.login === 'fazliddin';
@@ -147,7 +148,6 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
     const avgCheck  = stats.stays > 0 ? Math.round(stats.totalSpent / stats.stays) : 0;
     const trustGood = stats.totalDebt === 0;
     const initials  = client.fullName?.split(' ').map(w=>w[0]).slice(0,2).join('') || '?';
-    const fmt = d => { try { return new Date(d).toLocaleDateString('ru',{day:'2-digit',month:'2-digit',year:'2-digit'}); } catch{ return '—'; }};
     const fmtFull = d => { try { return new Date(d).toLocaleDateString('ru',{day:'2-digit',month:'long',year:'numeric'}); } catch{ return '—'; }};
 
     const latestStay    = history[0] || client;
@@ -177,19 +177,19 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                             <div className="min-w-0">
                                 <h2 className="font-black text-slate-800 text-lg leading-tight break-words">{client.fullName}</h2>
                                 <span className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full mt-1 ${trustGood ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                    {trustGood ? <><ShieldCheck size={11}/> Надёжный</> : <><ShieldAlert size={11}/> Должник</>}
+                                    {trustGood ? <><ShieldCheck size={11}/> {t('chmReliable')}</> : <><ShieldAlert size={11}/> {t('chmDebtor')}</>}
                                 </span>
                             </div>
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                            <div className="text-xs font-bold text-slate-400 uppercase">Личные данные</div>
+                            <div className="text-xs font-bold text-slate-400 uppercase">{t('personalData')}</div>
                             {[
-                                [FileText,  'Паспорт',       passport],
-                                [Calendar,  'Дата рождения', birthDate  ? fmtFull(birthDate)  : '—'],
-                                [FileText,  'Дата выдачи',   passportIssue ? fmtFull(passportIssue) : '—'],
-                                [Phone,     'Телефон',       phone],
-                                [MapPin,    'Страна',        country],
+                                [FileText,  t('passport'),      passport],
+                                [Calendar,  t('birthDate'),     birthDate  ? fmtFull(birthDate)  : '—'],
+                                [FileText,  t('chmIssueDate'),  passportIssue ? fmtFull(passportIssue) : '—'],
+                                [Phone,     t('phone'),         phone],
+                                [MapPin,    t('country'),       country],
                             ].map(([Icon, label, val]) => (
                                 <div key={label} className="flex items-start gap-2.5">
                                     <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 mt-0.5"><Icon size={13} className="text-slate-500"/></div>
@@ -202,13 +202,13 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                         </div>
 
                         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2.5">
-                            <div className="text-xs font-bold text-slate-400 uppercase">Аналитика</div>
+                            <div className="text-xs font-bold text-slate-400 uppercase">{t('analytics')}</div>
                             {[
-                                ['Визитов',    stats.stays,                       'text-slate-700'],
-                                ['Ночей',      stats.nights,                      'text-slate-700'],
-                                ['Потрачено',  stats.totalSpent.toLocaleString(), 'text-indigo-600'],
-                                ['Средний чек',avgCheck.toLocaleString(),         'text-indigo-600'],
-                                ['Долг',       stats.totalDebt > 0 ? stats.totalDebt.toLocaleString() : '0', stats.totalDebt > 0 ? 'text-rose-600 font-black' : 'text-emerald-600'],
+                                [t('chmVisitsCount'), stats.stays,                       'text-slate-700'],
+                                [t('nights2'),        stats.nights,                      'text-slate-700'],
+                                [t('chmSpent'),       stats.totalSpent.toLocaleString(), 'text-indigo-600'],
+                                [t('anAvgCheck'),     avgCheck.toLocaleString(),         'text-indigo-600'],
+                                [t('debt'),           stats.totalDebt > 0 ? stats.totalDebt.toLocaleString() : '0', stats.totalDebt > 0 ? 'text-rose-600 font-black' : 'text-emerald-600'],
                             ].map(([l, v, cl]) => (
                                 <div key={l} className="flex justify-between text-sm">
                                     <span className="text-slate-400">{l}</span>
@@ -222,27 +222,27 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                         {/* Balance block */}
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-1">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-blue-600 uppercase">💳 Баланс счёта</span>
-                                <span className="text-base font-black text-blue-700">{(client.balance || 0).toLocaleString()} сум</span>
+                                <span className="text-xs font-bold text-blue-600 uppercase">💳 {t('accountBalance')}</span>
+                                <span className="text-base font-black text-blue-700">{(client.balance || 0).toLocaleString()} {t('sum')}</span>
                             </div>
                             <button onClick={() => setTopUpOpen(true)}
                                 className={`w-full mt-2 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1 transition-colors ${subtractOnly ? 'text-rose-700 bg-rose-100 hover:bg-rose-200' : 'text-blue-700 bg-blue-100 hover:bg-blue-200'}`}>
-                                {subtractOnly ? <><Trash2 size={12}/> Списать с баланса</> : <><Plus size={12}/> Пополнить</>}
+                                {subtractOnly ? <><Trash2 size={12}/> {t('chmDeductFromBalance')}</> : <><Plus size={12}/> {t('clTopUp')}</>}
                             </button>
                         </div>
                         {isAdmin && onEditClient && (
                             <button onClick={() => setEditOpen(true)}
                                 className="w-full py-2.5 bg-white text-slate-600 border border-slate-200 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-2 transition-colors">
-                                <Pencil size={14}/> Изменить данные
+                                <Pencil size={14}/> {t('chmEditData')}
                             </button>
                         )}
                         <button onClick={() => { onRepeatStay(client); onClose(); }}
                             className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 flex items-center justify-center gap-2">
-                            <History size={15}/> Повторить заезд
+                            <History size={15}/> {t('chmRepeatStay')}
                         </button>
                         <button onClick={onClose}
                             className="w-full py-3 bg-white text-slate-500 border border-slate-200 rounded-xl font-bold text-sm hover:bg-slate-50">
-                            Закрыть
+                            {t('close')}
                         </button>
                     </div>
                 </div>
@@ -250,16 +250,16 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                 {/* RIGHT: History */}
                 <div className="flex-1 flex flex-col overflow-hidden">
                     <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
-                        <span className="font-black text-slate-800">История проживания</span>
+                        <span className="font-black text-slate-800">{t('stayHistoryTitle')}</span>
                         <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full">{history.length} визит.</span>
+                            <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full">{t('chmVisitsShort').replace('{n}', history.length)}</span>
                             <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400"><X size={18}/></button>
                         </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
                         {history.length === 0 ? (
-                            <div className="text-center text-slate-400 py-16 text-sm">Нет данных о проживании</div>
+                            <div className="text-center text-slate-400 py-16 text-sm">{t('chmNoStays')}</div>
                         ) : history.map((stay, i) => {
                             const paid   = getTotalPaid(stay);
                             const debt   = (stay.totalPrice||0) - paid;
@@ -278,7 +278,7 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                     <div className="flex items-start justify-between gap-2 mb-3">
                                         <div>
                                             <div className="font-black text-slate-800 text-base leading-tight">
-                                                {isDebt ? 'Доп. оплата / Долг' : `Комната ${stay.roomNumber} · Место ${stay.bedId}`}
+                                                {isDebt ? t('chmExtraPayDebt') : t('chmRoomBed').replace('{room}', stay.roomNumber).replace('{bed}', stay.bedId)}
                                             </div>
                                             <div className="text-xs text-slate-400 mt-0.5">
                                                 {fmtFull(stay.checkInDate)} → {fmtFull(stay.checkOutDate)}
@@ -291,12 +291,12 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                             debt>0  ? 'bg-rose-100 text-rose-700' :
                                                       'bg-slate-100 text-slate-500'
                                         }`}>
-                                            {active ? 'Живёт' : booking ? 'Бронь' : isDebt ? (debt > 0 ? 'Долг' : 'Оплачен') : debt > 0 ? 'Долг' : 'Выселен'}
+                                            {active ? t('living') : booking ? t('booking') : isDebt ? (debt > 0 ? t('debt') : t('chmPaidStatus')) : debt > 0 ? t('debt') : t('calCheckedOutLabel')}
                                         </span>
                                     </div>
 
                                     <div className="grid grid-cols-3 gap-2 mb-3">
-                                        {[['Дней', stay.days],['Тариф', parseInt(stay.pricePerNight||0).toLocaleString()],['Итого', (stay.totalPrice||0).toLocaleString()]].map(([l,v])=>(
+                                        {[[t('days'), stay.days],[t('tariff'), parseInt(stay.pricePerNight||0).toLocaleString()],[t('total'), (stay.totalPrice||0).toLocaleString()]].map(([l,v])=>(
                                             <div key={l} className="bg-slate-50 rounded-lg p-2 text-center">
                                                 <div className="text-[10px] text-slate-400">{l}</div>
                                                 <div className="font-black text-slate-700 text-sm">{v}</div>
@@ -310,7 +310,7 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                         {stay.paidQR > 0       && <span className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-1 rounded-lg font-semibold"><QrCode size={11}/> {(+stay.paidQR).toLocaleString()}</span>}
                                         {stay.paidTransfer > 0 && <span className="flex items-center gap-1 bg-orange-50 text-orange-700 px-2 py-1 rounded-lg font-semibold"><ArrowRightLeft size={11}/> {(+stay.paidTransfer).toLocaleString()}</span>}
                                         <span className={`ml-auto font-black ${debt > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                            {debt > 0 ? `Долг: ${debt.toLocaleString()}` : `✓ Оплачено`}
+                                            {debt > 0 ? t('chmDebtAmount').replace('{n}', debt.toLocaleString()) : `✓ ${t('paid')}`}
                                         </span>
                                     </div>
 
@@ -318,22 +318,22 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
                                         <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
                                             {active && (
                                                 <button
-                                                    onClick={() => { if (window.confirm(`Выселить ${stay.fullName} из комнаты ${stay.roomNumber}?`)) { onCheckOut(stay, { totalPrice: stay.totalPrice || 0, refundAmount: 0 }); onClose(); } }}
+                                                    onClick={() => { if (window.confirm(t('chmConfirmEvict').replace('{name}', stay.fullName).replace('{room}', stay.roomNumber))) { onCheckOut(stay, { totalPrice: stay.totalPrice || 0, refundAmount: 0 }); onClose(); } }}
                                                     className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-xs font-bold border border-amber-200 transition-colors">
-                                                    <LogOut size={13}/> Выселить
+                                                    <LogOut size={13}/> {t('checkout')}
                                                 </button>
                                             )}
                                             {booking && (
                                                 <button
-                                                    onClick={() => { if (window.confirm(`Активировать заезд ${stay.fullName}?`)) { onActivateBooking(stay); onClose(); } }}
+                                                    onClick={() => { if (window.confirm(t('chmConfirmActivate').replace('{name}', stay.fullName))) { onActivateBooking(stay); onClose(); } }}
                                                     className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-colors">
-                                                    <CheckCircle2 size={13}/> Заселить
+                                                    <CheckCircle2 size={13}/> {t('checkin')}
                                                 </button>
                                             )}
                                             <button
-                                                onClick={() => { if (window.confirm(`Удалить запись о проживании ${stay.fullName}?`)) onDeleteGuest(stay); }}
+                                                onClick={() => { if (window.confirm(t('chmConfirmDelete').replace('{name}', stay.fullName))) onDeleteGuest(stay); }}
                                                 className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold border border-rose-200 transition-colors ml-auto">
-                                                <Trash2 size={13}/> Удалить запись
+                                                <Trash2 size={13}/> {t('deleteRecord')}
                                             </button>
                                         </div>
                                     )}
@@ -349,6 +349,7 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
             <TopUpModal
                 client={client}
                 currentUser={currentUser}
+                lang={lang}
                 mode={subtractOnly ? 'deduct' : 'add'}
                 onClose={() => setTopUpOpen(false)}
                 onTopUp={handleTopUp}
@@ -367,5 +368,9 @@ const ClientHistoryModal = ({ client, guests, users, rooms, currentUser, onClose
         </>
     );
 };
+
+// Та же причина, что и в карточке гостя: проверка на пустого клиента стояла
+// перед хуками и нарушала их порядок. Выносим в обёртку.
+const ClientHistoryModal = (props) => (props.client ? <ClientHistoryModalInner {...props} /> : null);
 
 export default ClientHistoryModal;

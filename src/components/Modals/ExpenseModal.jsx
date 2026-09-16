@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
-import { X, Camera, Trash2, ChevronLeft, CalendarClock, Plus } from 'lucide-react';
+import { X, Camera, Trash2, ChevronLeft, CalendarClock, Plus, Banknote } from 'lucide-react';
+import CategoryIcon from '../../utils/categoryIcon';
 import { fmtSum } from '../../utils/helpers';
 import { getConfig } from '../../utils/appConfig';
 import TRANSLATIONS from '../../constants/translations';
@@ -23,6 +24,25 @@ const BUILTIN_CATS = [
     { key: 'Ремонт',              icon: '🔧', bg: '#f8fafc', text: '#475569' },
     { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b' },
 ];
+
+// Карта перевода ДИСПЛЕЯ встроенных категорий. Ключ — то, что хранится в БД
+// (не менять!), значение — ключ словаря для показа. Пользовательские категории
+// (не из этой карты) показываются как есть.
+const CAT_LABEL_KEY = {
+    'Аренда': 'emCatRent',
+    'Коммунальные услуги': 'utilities',
+    'Зарплата': 'salary',
+    'Продукты': 'groceries',
+    'Налоги': 'emCatTaxes',
+    'Регистрация': 'registration',
+    'Интернет': 'emCatInternet',
+    'Реклама': 'emCatAds',
+    'Газ': 'emCatGas',
+    'Электричество': 'emCatElectricity',
+    'Вода': 'emCatWater',
+    'Ремонт': 'emCatRepair',
+    'Другое': 'other',
+};
 
 // Палитра для пользовательских категорий (циклично)
 const CUSTOM_PALETTE = [
@@ -92,7 +112,7 @@ const evalExpr = (raw) => {
     if (!s || !/[0-9]/.test(s)) return NaN;
     if (!/^[0-9+\-*/().]+$/.test(s)) return NaN;
     try {
-        // eslint-disable-next-line no-new-func
+         
         const val = Function(`"use strict"; return (${s});`)();
         return (typeof val === 'number' && isFinite(val)) ? val : NaN;
     } catch { return NaN; }
@@ -100,8 +120,10 @@ const evalExpr = (raw) => {
 // есть ли в строке арифметический оператор (игнорируем ведущий минус)
 const hasOperator = (s) => /[+\-*/×÷]/.test(String(s || '').slice(1));
 
-const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = '', usersList = [], selectedHostelFilter = '' }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCategory = '', usersList = [], selectedHostelFilter = '' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
+    // Показать перевод названия встроенной категории; пользовательские — как есть.
+    const catLabel = (key) => (CAT_LABEL_KEY[key] ? t(CAT_LABEL_KEY[key]) : key);
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
     // Полный список категорий — как в разделе «Расходы»: встроенные + центральные
@@ -194,7 +216,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
 
     const handlePhotoSelect = (file) => {
         if (!file) return;
-        if (file.size > 5 * 1024 * 1024) { alert('Файл слишком большой (макс. 5 МБ)'); return; }
+        if (file.size > 5 * 1024 * 1024) { alert(t('emFileTooBig')); return; }
         setPhotoFile(file);
         const reader = new FileReader();
         reader.onload = (e) => setPhotoPreview(e.target.result);
@@ -229,14 +251,14 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
     const handleSubmit = async (e) => {
         e.preventDefault();
         const finalAmount = currency === 'usd' ? computedUzs : Math.round(evalExpr(amount) || 0);
-        if (!category || !finalAmount || finalAmount <= 0) { alert('Заполните все обязательные поля (сумма должна быть больше 0)'); return; }
+        if (!category || !finalAmount || finalAmount <= 0) { alert(t('emFillRequiredAmount')); return; }
         if (currency === 'usd' && (!parseFloat(usdAmount) || !parseFloat(usdRate))) {
-            alert('Укажите сумму в USD и курс обмена');
+            alert(t('emSpecifyUsd'));
             return;
         }
         const parsedDate = expenseDate ? new Date(expenseDate) : null;
         if (canBackdate && (!parsedDate || Number.isNaN(parsedDate.getTime()))) {
-            alert('Укажите корректную дату расхода');
+            alert(t('emSpecifyDate'));
             return;
         }
         setLoading(true);
@@ -247,7 +269,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                 photoUrl = await uploadPhoto(photoFile);
                 setPhotoUploading(false);
             }
-            const usdNote = currency === 'usd' ? `$${usdAmount} × ${usdRate} = ${finalAmount.toLocaleString()} сум` : '';
+            const usdNote = currency === 'usd' ? `$${usdAmount} × ${usdRate} = ${finalAmount.toLocaleString()} ${t('sum')}` : '';
             const finalComment = usdNote ? (comment ? `${usdNote} | ${comment}` : usdNote) : comment;
             await onSubmit({
                 category, amount: finalAmount, comment: finalComment,
@@ -302,20 +324,22 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                     style={{ background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: 11, padding: 9, cursor: 'pointer', color: '#9ecdd0', display: 'flex', transition: 'background .15s' }}
                                     onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.14)'}
                                     onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.07)'}
-                                    title="Назад к категориям">
+                                    title={t('emBackToCategories')}>
                                     <ChevronLeft size={18}/>
                                 </button>
                             ) : (
-                                <div style={{ width: 42, height: 42, borderRadius: 13, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                                    {step === 2 && catMeta ? catMeta.icon : '💸'}
+                                <div style={{ width: 42, height: 42, borderRadius: 13, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#5eead4' }}>
+                                    {step === 2 && catMeta
+                                        ? <CategoryIcon cat={catMeta.key} emoji={catMeta.icon} size={20} color="#5eead4" />
+                                        : <Banknote size={20} color="#5eead4" />}
                                 </div>
                             )}
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ color: '#e2f7f8', fontSize: 15, fontWeight: 800 }}>
-                                    {step === 1 ? 'Новый расход' : (category || 'Новый расход')}
+                                    {step === 1 ? t('emNewExpense') : (category ? catLabel(category) : t('emNewExpense'))}
                                 </div>
                                 <div style={{ color: 'rgba(158,205,208,0.6)', fontSize: 11, marginTop: 2 }}>
-                                    {step === 1 ? 'Выберите категорию' : (currentUser?.name || currentUser?.login)}
+                                    {step === 1 ? t('emChooseCategory') : (currentUser?.name || currentUser?.login)}
                                 </div>
                             </div>
                             {/* Step dots */}
@@ -346,8 +370,10 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                             borderRadius: 16, padding: '16px 6px 12px',
                                             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
                                         }}>
-                                        <span style={{ width: 44, height: 44, borderRadius: 14, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{c.icon}</span>
-                                        <span style={{ fontSize: 11, lineHeight: 1.25, textAlign: 'center', fontWeight: 700, color: isDark ? '#9ecdd0' : '#475569' }}>{c.key}</span>
+                                        <span style={{ width: 44, height: 44, borderRadius: 14, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>
+                                            <CategoryIcon cat={c.key} emoji={c.icon} size={22} color={c.text} />
+                                        </span>
+                                        <span style={{ fontSize: 11, lineHeight: 1.25, textAlign: 'center', fontWeight: 700, color: isDark ? '#9ecdd0' : '#475569' }}>{catLabel(c.key)}</span>
                                     </button>
                                 ))}
                             </div>
@@ -362,7 +388,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                             {/* Сумма — главный элемент */}
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                    <label style={{ ...lbl, marginBottom: 0 }}>{currency === 'uzs' ? 'Сумма *' : 'Сумма (USD) *'}</label>
+                                    <label style={{ ...lbl, marginBottom: 0 }}>{currency === 'uzs' ? `${t('amount')} *` : `${t('amount')} (USD) *`}</label>
                                     <div style={{ display: 'flex', gap: 3, padding: 3, borderRadius: 10, background: fieldBg, border: `1px solid ${fieldBrd}` }}>
                                         {[['uzs','UZS'],['usd','USD']].map(([v,l]) => (
                                             <button key={v} type="button" onClick={() => setCurrency(v)}
@@ -390,11 +416,11 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                                     fontSize: 28, fontWeight: 900, letterSpacing: '0.02em', color: txtMain, background: isDark ? '#1e3a3e' : '#fff',
                                                     boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums', textAlign: 'center', transition: 'border-color 0.15s, box-shadow 0.15s' }}
                                             />
-                                            <span style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 800, color: txtMuted, pointerEvents: 'none' }}>сум</span>
+                                            <span style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 800, color: txtMuted, pointerEvents: 'none' }}>{t('sum')}</span>
                                         </div>
                                         {hasOperator(amount) && isFinite(evalExpr(amount)) && evalExpr(amount) > 0 && (
                                             <div style={{ marginTop: 6, textAlign: 'center', fontSize: 13, fontWeight: 800, color: '#0f9688', fontVariantNumeric: 'tabular-nums' }}>
-                                                = {fmtSum(String(Math.round(evalExpr(amount))))} сум · Enter
+                                                = {fmtSum(String(Math.round(evalExpr(amount))))} {t('sum')} · Enter
                                             </div>
                                         )}
                                         {/* Быстрые суммы */}
@@ -413,7 +439,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                                             <div>
-                                                <label style={{ ...lbl, marginBottom: 4 }}>Сумма $</label>
+                                                <label style={{ ...lbl, marginBottom: 4 }}>{t('emAmountUsd')}</label>
                                                 <input type="text" inputMode="decimal" className="exp-input" autoFocus
                                                     value={usdAmount} onChange={e => setUsdAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                                                     placeholder="0.00" required
@@ -421,7 +447,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                                 />
                                             </div>
                                             <div>
-                                                <label style={{ ...lbl, marginBottom: 4 }}>Курс (сум/$)</label>
+                                                <label style={{ ...lbl, marginBottom: 4 }}>{t('emRate')}</label>
                                                 <input type="text" inputMode="decimal" className="exp-input"
                                                     value={usdRate} onChange={e => setUsdRate(e.target.value.replace(/[^0-9.]/g, ''))}
                                                     placeholder="12900" required
@@ -431,8 +457,8 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                         </div>
                                         {computedUzs > 0 && (
                                             <div style={{ background: isDark ? 'rgba(15,150,136,0.15)' : '#f0fdfa', border: '1.5px solid #99f6e4', borderRadius: 12, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                <span style={{ fontSize: 11, color: '#0f9688', fontWeight: 600 }}>Итого в сумах:</span>
-                                                <span style={{ fontSize: 18, fontWeight: 900, color: '#0f9688', fontVariantNumeric: 'tabular-nums' }}>{computedUzs.toLocaleString()} сум</span>
+                                                <span style={{ fontSize: 11, color: '#0f9688', fontWeight: 600 }}>{t('emTotalInSum')}</span>
+                                                <span style={{ fontSize: 18, fontWeight: 900, color: '#0f9688', fontVariantNumeric: 'tabular-nums' }}>{computedUzs.toLocaleString()} {t('sum')}</span>
                                             </div>
                                         )}
                                     </div>
@@ -442,9 +468,9 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                             {/* Сотрудник для Зарплаты */}
                             {category === 'Зарплата' && usersList.length > 0 && (
                                 <div>
-                                    <label style={lbl}>Сотрудник</label>
+                                    <label style={lbl}>{t('employee')}</label>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
-                                        {[...usersList.filter(u => u.role !== 'super'), { id: '__cleaning__', name: '🧹 Уборка' }].map(u => {
+                                        {[...usersList.filter(u => u.role !== 'super'), { id: '__cleaning__', name: t('expCleaning') }].map(u => {
                                             const sel = targetStaffId === (u.id || u.login);
                                             return (
                                                 <button key={u.id || u.login} type="button" className="exp-chip"
@@ -469,20 +495,20 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
 
                             {/* Комментарий — всегда открыт */}
                             <div>
-                                <label style={lbl}>Комментарий <span style={{ opacity: 0.6, textTransform: 'none', letterSpacing: 0 }}>(не обязательно)</span></label>
+                                <label style={lbl}>{t('comment')} <span style={{ opacity: 0.6, textTransform: 'none', letterSpacing: 0 }}>{t('optionalLabel')}</span></label>
                                 <textarea
                                     value={comment} onChange={e => setComment(e.target.value)}
-                                    placeholder="Дополнительная информация..." rows={2} className="exp-input"
+                                    placeholder={t('emCommentPlaceholder')} rows={2} className="exp-input"
                                     style={{ width: '100%', padding: '11px 14px', border: `2px solid ${fieldBrd}`, borderRadius: 12, outline: 'none', fontSize: 13, color: txtMuted, background: isDark ? '#1e3a3e' : '#fff', resize: 'none', boxSizing: 'border-box', transition: 'border-color 0.15s, box-shadow 0.15s', fontFamily: 'inherit' }}
                                 />
                             </div>
 
                             {/* Детали — по требованию */}
                             <div>
-                                <label style={lbl}>Детали</label>
+                                <label style={lbl}>{t('emDetails')}</label>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                    <TogglePill active={!!photoPreview} onClick={() => fileRef.current?.click()} Icon={Camera} label={photoPreview ? 'Фото ✓' : 'Фото чека'}/>
-                                    {canBackdate && <TogglePill active={showDate} onClick={() => setShowDate(v => !v)} Icon={CalendarClock} label="Дата"/>}
+                                    <TogglePill active={!!photoPreview} onClick={() => fileRef.current?.click()} Icon={Camera} label={photoPreview ? `${t('photo')} ✓` : t('emReceiptPhoto')}/>
+                                    {canBackdate && <TogglePill active={showDate} onClick={() => setShowDate(v => !v)} Icon={CalendarClock} label={t('date')}/>}
                                 </div>
                                 <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
                                     onChange={e => handlePhotoSelect(e.target.files[0])}/>
@@ -490,7 +516,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                 {photoPreview && (
                                     <div style={{ position: 'relative', marginTop: 8, borderRadius: 12, overflow: 'hidden', border: '2px solid #99f6e4' }}
                                         onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
-                                        <img src={photoPreview} alt="чек" style={{ width: '100%', maxHeight: 130, objectFit: 'cover', display: 'block' }}/>
+                                        <img src={photoPreview} alt={t('emReceiptAlt')} style={{ width: '100%', maxHeight: 130, objectFit: 'cover', display: 'block' }}/>
                                         <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
                                             style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, background: 'rgba(239,68,68,0.9)', border: 'none', borderRadius: '50%', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <Trash2 size={13}/>
@@ -511,7 +537,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: isDark ? '#d1f5f3' : '#334155', marginTop: 10 }}>
                                         <input type="checkbox" checked={skipCashbox} onChange={e => setSkipCashbox(e.target.checked)}
                                             style={{ width: 16, height: 16, accentColor: '#0f9688' }} />
-                                        <span>Не вычитать с кассы</span>
+                                        <span>{t('emSkipCashbox')}</span>
                                     </label>
                                 )}
                             </div>
@@ -523,7 +549,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                 style={{ flex: 1, padding: '12px', background: fieldBg, border: `1px solid ${fieldBrd}`, borderRadius: 13, color: txtMuted, fontWeight: 600, fontSize: 13, cursor: 'pointer', outline: 'none', transition: 'background .15s' }}
                                 onMouseEnter={e => e.currentTarget.style.background= isDark ? '#2d4e52' : '#f1f5f9'}
                                 onMouseLeave={e => e.currentTarget.style.background= fieldBg}>
-                                Отмена
+                                {t('cancel')}
                             </button>
                             <button type="submit" disabled={!canSubmit}
                                 style={{ flex: 2, padding: '12px', background: !canSubmit ? (isDark ? '#1e3a3e' : '#e2e8f0') : 'linear-gradient(135deg,#0f9688,#0d7a6e)',
@@ -532,8 +558,8 @@ const ExpenseModal = ({ onClose, onSubmit, lang, currentUser, initialCategory = 
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, transition: 'all 0.15s',
                                     fontVariantNumeric: 'tabular-nums',
                                     boxShadow: !canSubmit ? 'none' : '0 4px 14px rgba(15,150,136,0.35)' }}>
-                                {photoUploading ? '📸 Загрузка…' : loading ? '⏳ Сохранение…'
-                                    : computedUzs > 0 ? `Добавить · ${computedUzs.toLocaleString()} сум` : 'Добавить расход'}
+                                {photoUploading ? t('emUploadingPhoto') : loading ? t('emSaving')
+                                    : computedUzs > 0 ? `${t('add')} · ${computedUzs.toLocaleString()} ${t('sum')}` : t('addExpense2')}
                             </button>
                         </div>
                     </form>

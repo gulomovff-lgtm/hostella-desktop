@@ -1,118 +1,355 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { LogOut, Copy, X, DollarSign, CreditCard, Smartphone, Lock, CheckCircle, AlertTriangle, RotateCcw } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { LogOut, Copy, X, DollarSign, CreditCard, Smartphone, Lock, CheckCircle, AlertTriangle, RotateCcw, ArrowRightLeft, ChevronLeft } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { computeShiftReport, buildShiftTelegramMsg, buildShiftReportText } from '../../utils/shiftReport';
 
 const MODAL_STYLE = `
     @keyframes scm-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
     @keyframes scm-card-in { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    @keyframes scm-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
     .scm-backdrop { animation: scm-backdrop-in 0.2s ease forwards; }
     .scm-card { animation: scm-card-in 0.28s cubic-bezier(0.34,1.3,0.64,1) forwards; will-change: transform, opacity; }
+    .scm-sheet { animation: scm-sheet-in 0.26s cubic-bezier(0.32,0.72,0,1) forwards; will-change: transform; }
 `;
 
-const ShiftClosingModal = ({ user, payments = [], expenses = [], onClose, onLogout, notify, onEndShift, lang, sendTelegramMessage }) => {
-    const t = useCallback((k) => TRANSLATIONS[lang][k], [lang]);
-    const shiftStart = user.lastShiftEnd || '1970-01-01T00:00:00.000Z';
+/** Телефон — вертикальная раскладка (шторка снизу). Планшет и десктоп — две колонки. */
+const useIsPhone = () => {
+    const q = '(max-width: 639px)';
+    const [isPhone, setIsPhone] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches);
+    useEffect(() => {
+        const mq = window.matchMedia(q);
+        const onChange = (e) => setIsPhone(e.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+    return isPhone;
+};
+
+const ShiftClosingModal = ({
+    user, payments = [], expenses = [], onClose, onLogout, notify, onEndShift, lang, sendTelegramMessage,
+    myShift = null, cashiersForTransfer = [], onTransferShift,
+    opening = null, openingFrom = null,
+}) => {
+    const t = useCallback((k) => TRANSLATIONS[lang]?.[k] || k, [lang]);
     const [confirming, setConfirming] = useState(false);
+    // Защита от двойной отправки: пока идёт закрытие/передача смены — кнопки заблокированы,
+    // иначе повторные клики шлют Telegram несколько раз и запускают гонку закрытия.
+    const [submitting, setSubmitting] = useState(false);
+    // Передача смены: null — обычный режим, иначе id выбранного напарника ('' — ещё не выбран)
+    const [transferTo, setTransferTo] = useState(null);
     const isDark = useMemo(() => document.documentElement.dataset.theme === 'dark', []);
+    const isPhone = useIsPhone();
 
-    const myPayments = useMemo(() => payments.filter(p => {
-        return ((p.staffId === user.id) || (p.staffId === user.login)) && p.date > shiftStart;
-    }), [payments, user.id, user.login, shiftStart]);
+    const canTransfer = !!(myShift && onTransferShift && cashiersForTransfer.length > 0);
+    // Напарник в хостеле один — выбирать не из чего, подставляем сразу
+    const openTransfer = () => setTransferTo(cashiersForTransfer.length === 1 ? cashiersForTransfer[0].id : '');
+    const transferTarget = cashiersForTransfer.find(u => u.id === transferTo) || null;
 
-    const myExpenses = useMemo(() => expenses.filter(e => {
-        return ((e.staffId === user.id) || (e.staffId === user.login)) && e.date > shiftStart && e.source !== 'cadastre';
-    }), [expenses, user.id, user.login, shiftStart]);
+    // Расчёт сверки — общий с бетой (utils/shiftReport).
+    // opening — итоги смены, принятой от напарника: сутки не закончены, касса не
+    // сдавалась, поэтому суммы складываются и сдаётся один общий отчёт за сутки.
+    const report = useMemo(() => computeShiftReport(user, payments, expenses, opening),
+        [user, payments, expenses, opening]);
+    const { income, totalRefunds, cashboxExpenses, totalRevenue, cashInHand } = report;
+    const otherExpenses = cashboxExpenses - totalRefunds;
 
-    const income = useMemo(() => myPayments.reduce((acc, p) => {
-        acc.cash     += p.cash     !== undefined ? (parseInt(p.cash)     || 0) : (p.method === 'cash'     ? (parseInt(p.amount) || 0) : 0);
-        acc.card     += p.card     !== undefined ? (parseInt(p.card)     || 0) : (p.method === 'card'     ? (parseInt(p.amount) || 0) : 0);
-        acc.qr       += p.qr       !== undefined ? (parseInt(p.qr)       || 0) : (p.method === 'qr'       ? (parseInt(p.amount) || 0) : 0);
-        const t = p.transfer !== undefined ? (parseInt(p.transfer) || 0) : (p.method === 'transfer' ? (parseInt(p.amount) || 0) : 0);
-        acc.transfer += t;
-        if (t > 0 && p.transferTo) acc.transferByEntity[p.transferTo] = (acc.transferByEntity[p.transferTo] || 0) + t;
-        return acc;
-    }, { cash: 0, card: 0, qr: 0, transfer: 0, transferByEntity: {} }), [myPayments]);
+    const handleEndShiftWithNotify = useCallback(async () => {
+        if (submitting) return;                       // защита от повторного клика
+        setSubmitting(true);
+        try {
+            sendTelegramMessage(buildShiftTelegramMsg(user, report, lang), 'shiftEnd');
+            await onEndShift();                        // при успехе приложение выйдет и размонтирует модалку
+        } catch (e) {
+            setSubmitting(false);                      // ошибка — разблокируем для повторной попытки
+            notify?.(t('scmCloseError'), 'error');
+        }
+    }, [submitting, user, report, sendTelegramMessage, onEndShift, lang, notify, t]);
 
-    const { totalRefunds, totalExpenses, cashboxExpenses } = useMemo(() => myExpenses.reduce((acc, e) => {
-        const amt = parseInt(e.amount) || 0;
-        acc.totalExpenses += amt;
-        if (e.category === '\u0412\u043e\u0437\u0432\u0440\u0430\u0442') acc.totalRefunds += amt;
-        if (!e.skipCashbox) acc.cashboxExpenses += amt;
-        return acc;
-    }, { totalRefunds: 0, totalExpenses: 0, cashboxExpenses: 0 }), [myExpenses]);
-
-    const totalRevenue = income.cash + income.card + income.qr + income.transfer;
-    const cashInHand = income.cash - cashboxExpenses;
-
-    const handleEndShiftWithNotify = useCallback(() => {
-        const transferEntries = Object.entries(income.transferByEntity || {});
-        const transferLine = income.transfer > 0
-            ? (transferEntries.length > 0
-                ? transferEntries.map(([entity, amt]) => `\n🏦 ${entity}: ${amt.toLocaleString()}`).join('')
-                : `\n🏦 Перечисление: ${income.transfer.toLocaleString()}`)
-            : '';
-        const refundLine = totalRefunds > 0 ? `\n🔄 Возврат: -${totalRefunds.toLocaleString()}` : '';
-        const msg = `<b>🔒 Закрытие смены</b>\nКассир: ${user.name}\n---\n💵 Наличные: ${income.cash.toLocaleString()}\n💳 Терминал: ${income.card.toLocaleString()}\n📱 QR: ${income.qr.toLocaleString()}${transferLine}\n---\n<b>✅ ИТОГО: ${totalRevenue.toLocaleString()}</b>${refundLine}\n🔴 Расходы: ${cashboxExpenses.toLocaleString()}\n<b>💰 В КАССЕ: ${cashInHand.toLocaleString()}</b>`;
-        sendTelegramMessage(msg, 'shiftEnd');
-        onEndShift();
-    }, [user, income, totalRevenue, totalRefunds, cashboxExpenses, cashInHand, sendTelegramMessage, onEndShift]);
+    const handleTransfer = useCallback(async () => {
+        if (submitting || !transferTarget) return;    // защита от повторного клика
+        setSubmitting(true);
+        try {
+            await onTransferShift(myShift.id, transferTarget.id, {
+                cash: income.cash, card: income.card, qr: income.qr,
+                transfer: income.transfer, transferByEntity: income.transferByEntity,
+                refunds: totalRefunds, expenses: cashboxExpenses,
+            });
+        } catch (e) {
+            setSubmitting(false);
+            notify?.(t('scmCloseError'), 'error');
+        }
+    }, [submitting, transferTarget, onTransferShift, myShift, income, totalRefunds, cashboxExpenses, notify, t]);
 
     const copyReport = useCallback(async () => {
-        const pad = (val, len) => String(val).padStart(len, ' ');
-        const line = '\u2500'.repeat(30);
-        const date = new Date().toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const nonRefundExpenses = cashboxExpenses - totalRefunds;
-
-        const parts = [
-            `\uD83D\uDD12 \u0417\u0410\u041a\u0420\u042b\u0422\u0418\u0415 \u0421\u041c\u0415\u041d\u042b`,
-            `\uD83D\uDC64 \u041a\u0430\u0441\u0441\u0438\u0440: ${user.name}`,
-            `\uD83D\uDCC5 ${date}`,
-            line,
-            `\uD83D\uDCC8 \u041f\u041e\u0421\u0422\u0423\u041f\u041b\u0415\u041d\u0418\u042f`,
-            `\uD83D\uDCB5 \u041d\u0430\u043b\u0438\u0447\u043d\u044b\u0435:   ${pad(income.cash.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-            `\uD83D\uDCB3 \u0422\u0435\u0440\u043c\u0438\u043d\u0430\u043b:   ${pad(income.card.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-            `\uD83D\uDCF1 QR-\u043a\u043e\u0434:     ${pad(income.qr.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-            ...(income.transfer > 0 ? (Object.entries(income.transferByEntity || {}).length > 0
-                ? Object.entries(income.transferByEntity).map(([entity, amt]) => `\uD83C\uDFE6 ${entity}: ${pad(amt.toLocaleString() + ' \u0441\u0443\u043c', 18)}`)
-                : [`\uD83C\uDFE6 \u041f\u0435\u0440\u0435\u0447\u0438\u0441\u043b\u0435\u043d\u0438\u0435: ${pad(income.transfer.toLocaleString() + ' \u0441\u0443\u043c', 18)}`]) : []),
-            line,
-            `\u2705 \u0418\u0442\u043e\u0433\u043e:      ${pad(totalRevenue.toLocaleString() + ' \u0441\u0443\u043c', 18)}`,
-        ];
-
-        if (totalRefunds > 0 || nonRefundExpenses > 0) {
-            parts.push(line);
-            parts.push(`\u2796 \u0412\u042b\u0427\u0415\u0422\u042b`);
-            if (totalRefunds > 0)      parts.push(`\uD83D\uDD04 \u0412\u043e\u0437\u0432\u0440\u0430\u0442:    ${pad('-' + totalRefunds.toLocaleString() + ' \u0441\u0443\u043c', 18)}`);
-            if (nonRefundExpenses > 0) parts.push(`\uD83D\uDD34 \u0420\u0430\u0441\u0445\u043e\u0434\u044b:    ${pad('-' + nonRefundExpenses.toLocaleString() + ' \u0441\u0443\u043c', 18)}`);
-        }
-
-        parts.push(line);
-        parts.push(`\uD83D\uDCB0 \u0412 \u041a\u0410\u0421\u0421\u0415:     ${pad(cashInHand.toLocaleString() + ' \u0441\u0443\u043c', 18)}`);
-        parts.push(line);
-
-        const text = parts.join('\n');
+        const text = buildShiftReportText(user, report, lang);
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
-                notify('\u2705 \u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e!', 'success');
+                notify(t('scmCopied'), 'success');
             } else {
                 const el = document.createElement('textarea');
                 el.value = text;
                 el.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
                 document.body.appendChild(el);
                 el.focus(); el.select();
-                try { document.execCommand('copy'); notify('\u2705 \u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e!', 'success'); }
-                catch { notify('\u041e\u0448\u0438\u0431\u043a\u0430 \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f', 'error'); }
+                try { document.execCommand('copy'); notify(t('scmCopied'), 'success'); }
+                catch { notify(t('copyError'), 'error'); }
                 document.body.removeChild(el);
             }
-        } catch { notify('\u041e\u0448\u0438\u0431\u043a\u0430 \u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f', 'error'); }
-    }, [user, income, totalRevenue, totalRefunds, cashboxExpenses, cashInHand, notify]);
+        } catch { notify(t('copyError'), 'error'); }
+    }, [user, report, notify, t, lang]);
 
+    const dateStr = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const money = (n) => (n || 0).toLocaleString('ru-RU');
+
+    // ── Строка суммы ────────────────────────────────────────────────────────
+    const Row = ({ icon, label, value, color, bg, border, sign = '' }) => (
+        <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+            padding: isPhone ? '11px 12px' : '9px 10px', borderRadius: 10, marginBottom: 4,
+            background: bg, border: `1px solid ${border}`,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color }}>
+                {icon}
+                <span style={{ fontSize: 13, color: color || (isDark ? '#9ecdd0' : '#475569'), fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+            </div>
+            <span style={{ color: color || (isDark ? '#e2f7f8' : '#0f172a'), fontWeight: 700, fontSize: isPhone ? 15 : 14, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                {sign}{money(value)}
+            </span>
+        </div>
+    );
+
+    const incomeRows = [
+        { key: 'cash', icon: <DollarSign size={13}/>, label: t('cash'), value: income.cash, color: '#0f9688', bg: isDark ? 'rgba(15,150,136,0.15)' : '#f0fdfa', border: '#0f968822' },
+        { key: 'card', icon: <CreditCard size={13}/>, label: t('card'), value: income.card, color: isDark ? '#60a5fa' : '#2563eb', bg: isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff', border: isDark ? '#60a5fa22' : '#3b82f622' },
+        { key: 'qr',   icon: <Smartphone size={13}/>, label: t('qr'),   value: income.qr,   color: isDark ? '#a78bfa' : '#7c3aed', bg: isDark ? 'rgba(124,58,237,0.15)' : '#f5f3ff', border: isDark ? '#a78bfa22' : '#7c3aed22' },
+    ];
+
+    const transferEntries = Object.entries(income.transferByEntity || {});
+    const transferStyle = {
+        color: isDark ? '#5eead4' : '#0f766e',
+        bg: isDark ? 'rgba(20,184,166,0.12)' : '#f0fdfa',
+        border: isDark ? 'rgba(20,184,166,0.2)' : 'rgba(94,234,212,0.3)',
+    };
+
+    const sectionLabel = (text) => (
+        <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '2px 0 8px' }}>{text}</div>
+    );
+
+    // ── Сверка (общая для обеих раскладок) ──────────────────────────────────
+    const summary = (
+        <>
+            {sectionLabel(t('scmReceipts'))}
+            {incomeRows.map(r => <Row key={r.key} {...r} />)}
+
+            {income.transfer > 0 && (transferEntries.length > 0
+                ? transferEntries.map(([entity, amt]) => (
+                    <Row key={entity} icon={<span style={{ fontSize: 13 }}>🏦</span>} label={entity} value={amt} {...transferStyle} />
+                ))
+                : <Row icon={<span style={{ fontSize: 13 }}>🏦</span>} label={t('scmBankTransfer')} value={income.transfer} {...transferStyle} />
+            )}
+
+            {(totalRefunds > 0 || otherExpenses > 0) && sectionLabel(t('scmDeductions'))}
+            {totalRefunds > 0 && (
+                <Row icon={<RotateCcw size={13} color="#f97316"/>} label={t('refund')} value={totalRefunds} sign="−"
+                    color="#ea580c" bg={isDark ? 'rgba(249,115,22,0.12)' : '#fff7ed'} border={isDark ? 'rgba(249,115,22,0.2)' : 'rgba(253,186,116,0.3)'} />
+            )}
+            {otherExpenses > 0 && (
+                <Row icon={<LogOut size={13} color="#ef4444"/>} label={t('expense')} value={otherExpenses} sign="−"
+                    color="#ef4444" bg={isDark ? 'rgba(239,68,68,0.12)' : '#fff5f5'} border={isDark ? 'rgba(239,68,68,0.2)' : 'rgba(254,202,202,0.3)'} />
+            )}
+
+            <div style={{
+                padding: isPhone ? '14px 16px' : '13px 16px', borderRadius: 12, marginTop: 10,
+                background: isDark ? 'rgba(15,150,136,0.15)' : 'linear-gradient(135deg,#f0fdfa,#ccfbf1)',
+                border: `1px solid ${isDark ? 'rgba(94,234,212,0.25)' : '#99f6e4'}`,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CheckCircle size={14} color="#0f9688"/>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? '#5eead4' : '#0f766e', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('total')}</span>
+                </div>
+                <span style={{ fontSize: isPhone ? 20 : 22, fontWeight: 900, color: isDark ? '#e2f7f8' : '#0f172a', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+                    {money(totalRevenue)}
+                </span>
+            </div>
+        </>
+    );
+
+    // ── Кнопки ──────────────────────────────────────────────────────────────
+    const ghostBtn = {
+        background: isDark ? '#1e3a3e' : '#f8fafc',
+        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`,
+        borderRadius: 12, color: isDark ? '#9ecdd0' : '#64748b',
+        fontWeight: 600, fontSize: 13, cursor: 'pointer',
+        padding: isPhone ? '13px' : '11px',
+    };
+
+    // ── Передача смены напарнику ────────────────────────────────────────────
+    const transferPanel = (
+        <div style={{
+            padding: isPhone ? '14px 16px 18px' : '16px 24px 22px',
+            borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : '#f1f5f9'}`,
+            background: isDark ? 'rgba(99,102,241,0.08)' : '#eef2ff',
+            display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button onClick={() => setTransferTo(null)} aria-label={t('back')}
+                    style={{ background: 'transparent', border: 'none', padding: 2, cursor: 'pointer', color: isDark ? '#a5b4fc' : '#4f46e5', display: 'flex' }}>
+                    <ChevronLeft size={18}/>
+                </button>
+                <div style={{ fontSize: 13, fontWeight: 800, color: isDark ? '#c7d2fe' : '#3730a3' }}>{t('scmTransferShift')}</div>
+            </div>
+
+            {!transferTarget ? (
+                <>
+                    <div style={{ fontSize: 12, color: isDark ? '#a5b4fc' : '#4338ca', lineHeight: 1.5 }}>{t('scmWhoContinues')}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+                        {cashiersForTransfer.map(u => (
+                            <button key={u.id} onClick={() => setTransferTo(u.id)}
+                                style={{ padding: isPhone ? '13px 14px' : '11px 14px', borderRadius: 12, textAlign: 'left', cursor: 'pointer',
+                                    background: isDark ? '#1e3a3e' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#c7d2fe'}`,
+                                    color: isDark ? '#e2f7f8' : '#0f172a', fontWeight: 700, fontSize: 13 }}>
+                                {u.name || u.login}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div style={{ fontSize: 12.5, color: isDark ? '#c7d2fe' : '#3730a3', lineHeight: 1.55 }}>
+                        {t('scmContinuePre')}<b>{transferTarget.name || transferTarget.login}</b>{t('scmContinueMid')}<b>50/50</b>{t('scmContinueMid2')}<b>{money(cashInHand)}</b>{t('scmContinuePost')}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => setTransferTo(cashiersForTransfer.length === 1 ? null : '')} disabled={submitting}
+                            style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff', opacity: submitting ? 0.5 : 1, cursor: submitting ? 'default' : 'pointer' }}>{t('back')}</button>
+                        <button onClick={handleTransfer} disabled={submitting}
+                            style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#4f46e5,#4338ca)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(79,70,229,0.35)' }}>
+                            <ArrowRightLeft size={14}/> {submitting ? t('scmClosing') : t('scmTransfer5050')}
+                        </button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+
+    const footer = transferTo !== null ? transferPanel : confirming ? (
+        <div style={{
+            padding: isPhone ? '16px 16px 18px' : '20px 24px 22px',
+            borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : '#f1f5f9'}`,
+            background: isDark ? 'rgba(217,119,6,0.08)' : '#fffbeb',
+            display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <AlertTriangle size={16} color="#d97706"/>
+                </div>
+                <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#fde68a' : '#92400e', marginBottom: 3 }}>{t('scmConfirmClose')}</div>
+                    <div style={{ fontSize: 12, color: isDark ? '#fbbf24' : '#78350f', lineHeight: 1.5 }}>
+                        {t('scmCashRemainsPre')}<span style={{ fontWeight: 800, color: '#059669' }}>{money(cashInHand)}</span>{t('scmCashRemainsPost')}
+                    </div>
+                </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setConfirming(false)} disabled={submitting} style={{ ...ghostBtn, flex: 1, background: isDark ? '#1e3a3e' : '#fff', opacity: submitting ? 0.5 : 1, cursor: submitting ? 'default' : 'pointer' }}>{t('cancel')}</button>
+                <button onClick={handleEndShiftWithNotify} disabled={submitting}
+                    style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#dc2626,#b91c1c)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(220,38,38,0.3)' }}>
+                    <LogOut size={14}/> {submitting ? t('scmClosing') : t('scmYesClose')}
+                </button>
+            </div>
+        </div>
+    ) : (
+        <div style={{
+            padding: isPhone ? '12px 16px 16px' : '12px 24px 20px',
+            borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : '#f1f5f9'}`,
+            display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0,
+        }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={copyReport} style={{ ...ghostBtn, flex: 1, color: isDark ? '#9ecdd0' : '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: isPhone ? '12px' : '10px' }}>
+                    <Copy size={14}/> {t('reportSingular')}
+                </button>
+                {canTransfer && (
+                    <button onClick={openTransfer}
+                        title={t('scmTransferHint')}
+                        style={{ ...ghostBtn, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: isPhone ? '12px' : '10px',
+                            background: isDark ? 'rgba(99,102,241,0.15)' : '#eef2ff', border: `1px solid ${isDark ? 'rgba(129,140,248,0.3)' : '#c7d2fe'}`, color: isDark ? '#c7d2fe' : '#4338ca' }}>
+                        <ArrowRightLeft size={14}/> {t('scmTransfer')}
+                    </button>
+                )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={onClose} style={{ ...ghostBtn, flex: 1 }}>{t('cancel')}</button>
+                <button onClick={() => setConfirming(true)}
+                    style={{ flex: 2, padding: isPhone ? '13px' : '11px', background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(15,150,136,0.35)' }}>
+                    <LogOut size={14}/> {t('shiftClose')}
+                </button>
+            </div>
+        </div>
+    );
+
+    const closeBtn = (
+        <button onClick={onClose} aria-label={t('cancel')}
+            style={{ background: isPhone ? 'rgba(255,255,255,0.1)' : (isDark ? '#1e3a3e' : '#f8fafc'), border: 'none', borderRadius: 10, padding: 8, cursor: 'pointer', color: isPhone ? '#9ecdd0' : (isDark ? '#9ecdd0' : '#94a3b8'), display: 'flex', flexShrink: 0 }}>
+            <X size={16}/>
+        </button>
+    );
+
+    // ── Телефон: шторка снизу ───────────────────────────────────────────────
+    if (isPhone) {
+        return (
+            <>
+                <style>{MODAL_STYLE}</style>
+                <div className="scm-backdrop fixed inset-0 z-[200] flex items-end justify-center" style={{ background: 'rgba(15,30,32,0.7)' }}>
+                    <div className="scm-sheet" role="dialog" aria-modal="true" aria-label={t('shiftClose')}
+                        style={{
+                            background: isDark ? '#162a2e' : '#fff',
+                            borderRadius: '20px 20px 0 0', width: '100%', maxHeight: '92dvh',
+                            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                            boxShadow: '0 -12px 40px rgba(0,0,0,0.35)',
+                            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                        }}>
+
+                        {/* Шапка: кассир, дата и касса — одним блоком, без узкой колонки */}
+                        <div style={{ background: 'linear-gradient(135deg,#1a3c40 0%,#14494f 100%)', padding: '14px 16px 16px', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{ width: 40, height: 40, borderRadius: 13, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    <Lock size={18} color="#5eead4"/>
+                                </div>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                    <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('shiftClose')}</div>
+                                    <div style={{ color: '#e2f7f8', fontSize: 16, fontWeight: 800, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</div>
+                                    <div style={{ color: 'rgba(158,205,208,0.45)', fontSize: 11 }}>
+                                        {dateStr}{openingFrom ? ` · ${t('scmAcceptedFrom').replace('{name}', openingFrom)}` : ''}
+                                    </div>
+                                </div>
+                                {closeBtn}
+                            </div>
+                            <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(94,234,212,0.1)', border: '1px solid rgba(94,234,212,0.2)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                                <span style={{ color: 'rgba(94,234,212,0.7)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('cashInHand')}</span>
+                                <span style={{ color: '#5eead4', fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{money(cashInHand)}</span>
+                            </div>
+                        </div>
+
+                        {/* Сверка — единственная прокручиваемая область */}
+                        <div style={{ padding: '14px 16px', overflowY: 'auto', flex: 1, minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
+                            {summary}
+                        </div>
+
+                        {footer}
+                    </div>
+                </div>
+            </>
+        );
+    }
+
+    // ── Планшет и десктоп: две колонки, как раньше ──────────────────────────
     return (
         <>
             <style>{MODAL_STYLE}</style>
             <div className="scm-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4" style={{ background: 'rgba(15,30,32,0.7)' }}>
-                <div className="scm-card" style={{ background: isDark ? '#162a2e' : '#fff', borderRadius: 24, width: '100%', maxWidth: 560, display: 'flex', overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', minHeight: 380 }}>
+                <div className="scm-card" role="dialog" aria-modal="true" aria-label={t('shiftClose')}
+                    style={{ background: isDark ? '#162a2e' : '#fff', borderRadius: 24, width: '100%', maxWidth: 560, display: 'flex', overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', minHeight: 380, maxHeight: '92dvh' }}>
 
                     {/* == Left dark column == */}
                     <div style={{ width: 190, background: '#1a3c40', display: 'flex', flexDirection: 'column', padding: '30px 22px', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
@@ -124,11 +361,11 @@ const ShiftClosingModal = ({ user, payments = [], expenses = [], onClose, onLogo
                         <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>{t('shiftClose')}</div>
                         <div style={{ color: '#e2f7f8', fontSize: 16, fontWeight: 800, lineHeight: 1.35, marginBottom: 4 }}>{user.name}</div>
                         <div style={{ color: 'rgba(158,205,208,0.45)', fontSize: 11, marginBottom: 'auto' }}>
-                            {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                            {dateStr}{openingFrom ? <><br/>{t('scmAcceptedFrom').replace('{name}', openingFrom)}</> : null}
                         </div>
                         <div style={{ padding: '14px 0 0', borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 28 }}>
                             <div style={{ color: 'rgba(94,234,212,0.45)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 5 }}>{t('cashInHand')}</div>
-                            <div style={{ color: '#5eead4', fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1 }}>{cashInHand.toLocaleString()}</div>
+                            <div style={{ color: '#5eead4', fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{money(cashInHand)}</div>
                         </div>
                     </div>
 
@@ -136,114 +373,14 @@ const ShiftClosingModal = ({ user, payments = [], expenses = [], onClose, onLogo
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <div style={{ padding: '20px 24px', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : '#f1f5f9'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#e2f7f8' : '#0f172a' }}>{t('shiftClose')}</div>
-                            <button onClick={onClose} style={{ background: isDark ? '#1e3a3e' : '#f8fafc', border: 'none', borderRadius: 8, padding: 7, cursor: 'pointer', color: isDark ? '#9ecdd0' : '#94a3b8', display: 'flex' }}
-                                onMouseEnter={e => e.currentTarget.style.background= isDark ? '#2d4e52' : '#e2e8f0'}
-                                onMouseLeave={e => e.currentTarget.style.background= isDark ? '#1e3a3e' : '#f8fafc'}>
-                                <X size={15}/>
-                            </button>
+                            {closeBtn}
                         </div>
 
-                        <div style={{ padding: '16px 24px', flex: 1, overflowY: 'auto' }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Поступления</div>
-                            {[
-                                { icon: <DollarSign size={13}/>, label: t('cash'), value: income.cash, color: '#0f9688', bg: isDark ? 'rgba(15,150,136,0.15)' : '#f0fdfa', dot: '#0f9688' },
-                                { icon: <CreditCard size={13}/>, label: t('card'), value: income.card, color: isDark ? '#60a5fa' : '#2563eb', bg: isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff', dot: isDark ? '#60a5fa' : '#3b82f6' },
-                                { icon: <Smartphone size={13}/>, label: t('qr'),   value: income.qr,   color: isDark ? '#a78bfa' : '#7c3aed', bg: isDark ? 'rgba(124,58,237,0.15)' : '#f5f3ff', dot: isDark ? '#a78bfa' : '#7c3aed' },
-                            ].map(({ icon, label, value, color, bg, dot }) => (
-                                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: 10, marginBottom: 4, background: bg, border: `1px solid ${dot}22` }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color }}>{icon}<span style={{ fontSize: 13, color: isDark ? '#9ecdd0' : '#475569', fontWeight: 500 }}>{label}</span></div>
-                                    <span style={{ color: isDark ? '#e2f7f8' : '#0f172a', fontWeight: 700, fontSize: 14 }}>{value.toLocaleString()}</span>
-                                </div>
-                            ))}
-
-                            {income.transfer > 0 && (Object.entries(income.transferByEntity || {}).length > 0
-                                ? Object.entries(income.transferByEntity).map(([entity, amt]) => (
-                                    <div key={entity} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: 10, marginBottom: 4, background: isDark ? 'rgba(20,184,166,0.12)' : '#f0fdfa', border: `1px solid ${isDark ? 'rgba(20,184,166,0.2)' : 'rgba(94,234,212,0.3)'}` }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span style={{ fontSize: 13 }}>🏦</span>
-                                            <span style={{ fontSize: 13, color: isDark ? '#9ecdd0' : '#475569', fontWeight: 500 }}>{entity}</span>
-                                        </div>
-                                        <span style={{ color: isDark ? '#e2f7f8' : '#0f172a', fontWeight: 700, fontSize: 14 }}>{amt.toLocaleString()}</span>
-                                    </div>
-                                ))
-                                : (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: 10, marginBottom: 4, background: isDark ? 'rgba(20,184,166,0.12)' : '#f0fdfa', border: `1px solid ${isDark ? 'rgba(20,184,166,0.2)' : 'rgba(94,234,212,0.3)'}` }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span style={{ fontSize: 13 }}>🏦</span>
-                                            <span style={{ fontSize: 13, color: isDark ? '#9ecdd0' : '#475569', fontWeight: 500 }}>Перечисление</span>
-                                        </div>
-                                        <span style={{ color: isDark ? '#e2f7f8' : '#0f172a', fontWeight: 700, fontSize: 14 }}>{income.transfer.toLocaleString()}</span>
-                                    </div>
-                                )
-                            )}
-
-                            {totalRefunds > 0 && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: 10, marginBottom: 4, background: isDark ? 'rgba(249,115,22,0.12)' : '#fff7ed', border: `1px solid ${isDark ? 'rgba(249,115,22,0.2)' : 'rgba(253,186,116,0.3)'}` }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <RotateCcw size={13} color="#f97316"/>
-                                        <span style={{ fontSize: 13, color: '#ea580c', fontWeight: 500 }}>{t('refund')}</span>
-                                    </div>
-                                    <span style={{ color: '#ea580c', fontWeight: 700, fontSize: 14 }}>-{totalRefunds.toLocaleString()}</span>
-                                </div>
-                            )}
-
-                            {(cashboxExpenses - totalRefunds) > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 10px', borderRadius: 10, marginBottom: 4, background: isDark ? 'rgba(239,68,68,0.12)' : '#fff5f5', border: `1px solid ${isDark ? 'rgba(239,68,68,0.2)' : 'rgba(254,202,202,0.3)'}` }}>
-                                <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 500 }}>{t('expense')}</span>
-                                <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 14 }}>-{(cashboxExpenses - totalRefunds).toLocaleString()}</span>
-                            </div>
-                            )}
-
-                            <div style={{ padding: '13px 16px', background: isDark ? 'rgba(15,150,136,0.15)' : 'linear-gradient(135deg,#f0fdfa,#ccfbf1)', borderRadius: 12, marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${isDark ? 'rgba(94,234,212,0.25)' : '#99f6e4'}` }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <CheckCircle size={14} color="#0f9688"/>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? '#5eead4' : '#0f766e', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('total')}</span>
-                                </div>
-                                <span style={{ fontSize: 22, fontWeight: 900, color: isDark ? '#e2f7f8' : '#0f172a', letterSpacing: '-0.02em' }}>{totalRevenue.toLocaleString()}</span>
-                            </div>
+                        <div style={{ padding: '16px 24px', flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                            {summary}
                         </div>
 
-                        {confirming ? (
-                            <div style={{ padding: '20px 24px 22px', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : '#f1f5f9'}`, background: isDark ? 'rgba(217,119,6,0.08)' : '#fffbeb', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                                    <div style={{ width: 34, height: 34, borderRadius: 10, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <AlertTriangle size={16} color="#d97706"/>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#fde68a' : '#92400e', marginBottom: 3 }}>Подтвердите закрытие</div>
-                                        <div style={{ fontSize: 12, color: isDark ? '#fbbf24' : '#78350f', lineHeight: 1.5 }}>В кассе остаётся <span style={{ fontWeight: 800, color: '#059669' }}>{cashInHand.toLocaleString()}</span> сум.</div>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button onClick={() => setConfirming(false)} style={{ flex: 1, padding: '11px', background: isDark ? '#1e3a3e' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`, borderRadius: 12, color: isDark ? '#9ecdd0' : '#64748b', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Отмена</button>
-                                    <button onClick={handleEndShiftWithNotify} style={{ flex: 2, padding: '11px', background: 'linear-gradient(135deg,#dc2626,#b91c1c)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(220,38,38,0.3)' }}
-                                        onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
-                                        onMouseLeave={e => e.currentTarget.style.opacity='1'}>
-                                        <LogOut size={14}/> Да, закрыть смену
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div style={{ padding: '12px 24px 20px', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : '#f1f5f9'}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                <button onClick={copyReport} style={{ width: '100%', padding: '10px', background: isDark ? '#1e3a3e' : '#f8fafc', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`, borderRadius: 12, color: isDark ? '#9ecdd0' : '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}
-                                    onMouseEnter={e => e.currentTarget.style.background= isDark ? '#2d4e52' : '#f1f5f9'}
-                                    onMouseLeave={e => e.currentTarget.style.background= isDark ? '#1e3a3e' : '#f8fafc'}>
-                                    <Copy size={14}/> Копировать отчёт
-                                </button>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button onClick={onClose} style={{ flex: 1, padding: '11px', background: isDark ? '#1e3a3e' : '#f8fafc', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`, borderRadius: 12, color: isDark ? '#9ecdd0' : '#64748b', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-                                        onMouseEnter={e => e.currentTarget.style.background= isDark ? '#2d4e52' : '#f1f5f9'}
-                                        onMouseLeave={e => e.currentTarget.style.background= isDark ? '#1e3a3e' : '#f8fafc'}>
-                                        {t('cancel')}
-                                    </button>
-                                    <button onClick={() => setConfirming(true)} style={{ flex: 2, padding: '11px', background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxShadow: '0 4px 14px rgba(15,150,136,0.35)' }}
-                                        onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
-                                        onMouseLeave={e => e.currentTarget.style.opacity='1'}>
-                                        <LogOut size={14}/> {t('shiftClose')}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+                        {footer}
                     </div>
 
                 </div>

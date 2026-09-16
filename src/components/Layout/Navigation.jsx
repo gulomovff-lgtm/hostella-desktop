@@ -7,7 +7,7 @@ import {
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
     Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
     SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
-    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck,
+    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon, Merge,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
@@ -19,17 +19,18 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'calendar',       icon: Calendar,          label: t('calendar')                                                 },
     { id: 'debts',          icon: AlertCircle,       label: t('debts'),          permKey: 'viewDebts'                    },
     { id: 'clients',        icon: Users,             label: t('clients'),        permKey: 'viewClients'                  },
+    { id: 'clientdupes',    icon: Merge,             label: t('cdTitle'),        adminOnly: true                        },
     { id: 'bookings',       icon: Globe,             label: t('bookings2'),      badge: pendingBookingsCount, glow: (pendingBookingsCount || 0) > 0, permKey: 'viewBookings' },
     { id: 'registrations',  icon: ClipboardCheck,    label: t('emehmon'),        badge: registrationsAlertCount, glow: (registrationsAlertCount || 0) > 0, permKey: 'viewRegistrations' },
-    { id: 'cadastre',       icon: Home,              label: 'Кадастр',           permKey: 'viewCadastre'                 },
+    { id: 'cadastre',       icon: Home,              label: t('navCadastre'),    permKey: 'viewCadastre'                 },
     { id: 'tasks',          icon: CheckSquare,       label: t('tasks'),          badge: pendingTasksCount, permKey: 'viewTasks' },
     { id: 'reports',        icon: FileText,          label: t('reports'),        adminOnly: true, permKey: 'viewReports' },
     { id: 'expenses',       icon: Wallet,            label: t('expenses'),       adminOnly: true, permKey: 'viewExpenses'},
     { id: 'analytics',      icon: BarChart3,         label: t('analytics'),      adminOnly: true                        },
-    { id: 'guesthistory',   icon: History,           label: 'История гостей',    adminOnly: true                        },
-    { id: 'manualstay',     icon: Users,             label: 'Ручной учёт',       permKey: 'viewManualStay'               },
+    { id: 'guesthistory',   icon: History,           label: t('navGuestHistory'),adminOnly: true                        },
+    { id: 'manualstay',     icon: Users,             label: t('navManualStay'),  permKey: 'viewManualStay'               },
     { id: 'staff',          icon: UserCog,           label: t('staff'),          adminOnly: true                        },
-    { id: 'pricePerms',     icon: ShieldCheck,       label: 'Понижение цены',    adminOnly: true                        },
+    { id: 'pricePerms',     icon: ShieldCheck,       label: t('navPriceLowering'),adminOnly: true                       },
     { id: 'shifts',         icon: Clock,             label: t('shifts'),         adminOnly: true                        },
     { id: 'telegram',       icon: BellRing,          label: t('telegram2'),      adminOnly: true                        },
     { id: 'promos',         icon: Tag,               label: t('promos2'),        adminOnly: true                        },
@@ -37,19 +38,19 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'hostelconfig',   icon: Settings,          label: t('hostelSettings'), adminOnly: true                        },
     { id: 'auditlog',       icon: ClipboardList,     label: t('auditHistory'),   superOnly: true                        },
     { id: 'sessions',       icon: Monitor,           label: t('sessions2'),      superOnly: true                        },
-    { id: 'versions',       icon: ClipboardCheck,    label: 'Версии клиентов',   adminOnly: true                        },
+    { id: 'versions',       icon: ClipboardCheck,    label: t('navClientVersions'),adminOnly: true                      },
 ];
 
 const APP_THEMES = [
-    { id: 'green', emoji: '🌿', label: 'Светлая' },
-    { id: 'dark',  emoji: '🌙', label: 'Тёмная'  },
+    { id: 'green', Icon: Sun,  labelKey: 'navThemeLight' },
+    { id: 'dark',  Icon: Moon, labelKey: 'navThemeDark'  },
 ];
 
 const POSITIONS = [
-    { id: 'left',   Icon: PanelLeft,   label: 'Слева'  },
-    { id: 'right',  Icon: PanelRight,  label: 'Справа' },
-    { id: 'top',    Icon: PanelTop,    label: 'Сверху' },
-    { id: 'bottom', Icon: PanelBottom, label: 'Снизу'  },
+    { id: 'left',   Icon: PanelLeft,   labelKey: 'navPosLeft'   },
+    { id: 'right',  Icon: PanelRight,  labelKey: 'navPosRight'  },
+    { id: 'top',    Icon: PanelTop,    labelKey: 'navPosTop'    },
+    { id: 'bottom', Icon: PanelBottom, labelKey: 'navPosBottom' },
 ];
 
 const FOLDER_ICONS = [
@@ -100,7 +101,6 @@ const Navigation = ({
     const [checkinOpen,   setCheckinOpen]   = React.useState(false);
     const [checkinPos,    setCheckinPos]    = React.useState({});
     const [customizeOpen, setCustomizeOpen] = React.useState(false);
-    const [hamburgerOpen, setHamburgerOpen] = React.useState(false);
     const [dragId,          setDragId]          = React.useState(null);  // item id being dragged in folder
     const [dragOverId,      setDragOverId]      = React.useState(null);  // item id or 'folder:fid'
     const [dragNavEntry,    setDragNavEntry]    = React.useState(null);  // 'folder:fid' or 'item:id' outer list
@@ -137,6 +137,10 @@ const Navigation = ({
         cancelAnimationFrame(scrollRafRef.current);
     }, []);
 
+    // Цикл автоскролла сам себя перезапускает через requestAnimationFrame. Если модалку
+    // закрыть прямо во время перетаскивания, он остался бы крутиться вечно — гасим при размонтировании.
+    React.useEffect(() => () => cancelAnimationFrame(scrollRafRef.current), []);
+
     React.useEffect(() => {
         const handler = (e) => {
             if (
@@ -170,22 +174,17 @@ const Navigation = ({
     const allItems = ALL_NAV_ITEMS(t, pendingBookingsCount, pendingTasksCount, registrationsAlertCount);
     const accessibleItems = allItems.filter(filterItem);
     const accessibleIds   = new Set(accessibleItems.map(i => i.id));
-    const hiddenSet = useMemo(() => new Set(navPrefs?.hidden ?? []), [navPrefs?.hidden]); // eslint-disable-line
+    const hiddenSet = useMemo(() => new Set(navPrefs?.hidden ?? []), [navPrefs?.hidden]);  
 
     // ── Folders (use saved or defaults) ──
     const folders = useMemo(() => {
         const src = navPrefs?.folders ?? DEFAULT_FOLDERS;
         return src.map(f => ({ ...f, items: (f.items || []).filter(id => accessibleIds.has(id)) }));
-    }, [navPrefs?.folders, accessibleIds]); // eslint-disable-line
+    }, [navPrefs?.folders, accessibleIds]);  
 
     const openFolders = navPrefs?.openFolders ?? {};
 
     const folderItemIds = useMemo(() => new Set(folders.flatMap(f => f.items)), [folders]);
-
-    // Items not in any folder (standalone) — just membership, order handled by resolvedNavOrder
-    const standaloneItems = useMemo(() => {
-        return accessibleItems.filter(i => !folderItemIds.has(i.id) && i.id !== 'dashboard');
-    }, [accessibleItems, folderItemIds]); // eslint-disable-line
 
     // Resolved render order for sidebar and customize modal
     const resolvedNavOrder = React.useMemo(() => {
@@ -212,7 +211,7 @@ const Navigation = ({
         const missingItems   = itemEntries.filter(e => !savedItems.includes(e));
         const missingFolders = folderEntries.filter(e => !savedFolders.includes(e));
         return [...savedItems, ...missingItems, ...savedFolders, ...missingFolders];
-    }, [navPrefs?.navOrder, navPrefs?.order, folders, accessibleItems, folderItemIds]); // eslint-disable-line
+    }, [navPrefs?.navOrder, navPrefs?.order, folders, accessibleItems, folderItemIds]);  
 
     const toggleFolder = (fid) => {
         const cur = openFolders[fid] ?? (navPrefs?.folders ? false : (DEFAULT_FOLDERS.find(f => f.id === fid)?.open ?? false));
@@ -229,7 +228,6 @@ const Navigation = ({
     const clearDrag = () => { setDragId(null); setDragOverId(null); setDragNavEntry(null); setDragOverNavEntry(null); };
 
     const handleDragStart = (id) => { setDragNavEntry(null); setDragId(id); };
-    const handleDragOver  = (id) => { if (id !== dragId) setDragOverId(id); };
 
     // Drag item into folder
     const handleDropOnFolder = (targetFolderId) => {
@@ -279,10 +277,10 @@ const Navigation = ({
     // Folder management
     const addFolder = () => {
         const id = `folder_${Date.now()}`;
-        const newF = { id, label: 'Новая папка', items: [], open: false };
+        const newF = { id, label: t('navNewFolder'), items: [], open: false };
         onNavPrefs?.({ folders: [...folders, newF] });
         setEditFolderId(id);
-        setEditFolderName('Новая папка');
+        setEditFolderName(t('navNewFolder'));
     };
 
     const renameFolder = (fid, name) => {
@@ -295,11 +293,6 @@ const Navigation = ({
 
     const setFolderIcon = (fid, iconId) => {
         onNavPrefs?.({ folders: folders.map(f => f.id === fid ? { ...f, icon: iconId === 'folder' ? undefined : iconId } : f) });
-    };
-
-    const reorderFolders = (fromId, toId) => {
-        if (!fromId || !toId || fromId === toId) return;
-        reorderNav('folder:' + fromId, 'folder:' + toId);
     };
 
     // Reorder entries in the outer nav list (folders + standalone items interleaved)
@@ -370,7 +363,7 @@ const Navigation = ({
             <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className="dsb nav-item relative flex flex-col items-center justify-center transition-all"
+                className={`dsb nav-item hov-soft ${act ? 'act' : ''} relative flex flex-col items-center justify-center transition-all`}
                 style={{
                     ...(isHoriz
                         ? { height: '100%', padding: '0 10px', minWidth: 64 }
@@ -379,12 +372,10 @@ const Navigation = ({
                     color: act ? '#f5b574' : 'var(--nav-muted)',
                     outline: 'none', border: 'none', flexShrink: 0,
                 }}
-                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
-                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--nav-muted)'; } }}
             >
                 {act && <ActiveBar/>}
                 <Icon size={isHoriz ? 20 : indent ? 20 : 24} strokeWidth={act ? 2.5 : 2}/>
-                <span className="nav-lbl" style={{ fontSize: indent ? 8 : 9 }}>{item.label}</span>
+                <span className="nav-lbl" style={{ fontSize: indent ? 9 : 10 }}>{item.label}</span>
                 {(item.badge ?? 0) > 0 && (
                     <span className="absolute top-1 right-1 flex items-center justify-center"
                         style={{ background: '#e88c40', color: '#fff', fontSize: 9, fontWeight: 900,
@@ -418,14 +409,12 @@ const Navigation = ({
             <div key={folder.id}>
                 <button
                     onClick={() => toggleFolder(folder.id)}
-                    className="dsb nav-item relative flex flex-col items-center justify-center w-full transition-all"
+                    className="dsb nav-item hov-soft6 relative flex flex-col items-center justify-center w-full transition-all"
                     style={{
                         background: hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent',
                         color: hasActive ? '#f5b574' : 'var(--nav-muted)',
                         outline: 'none', border: 'none', flexShrink: 0,
                     }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#c8d8da'; }}
-                    onMouseOut={e  => { e.currentTarget.style.background = hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent'; e.currentTarget.style.color = hasActive ? '#f5b574' : 'var(--nav-muted)'; }}
                 >
                     <div style={{ position: 'relative', display: 'inline-flex' }}>
                         <FolderIconComp size={22} strokeWidth={2}/>
@@ -440,7 +429,7 @@ const Navigation = ({
                             }}>{totalBadge}</span>
                         )}
                     </div>
-                    <span className="nav-lbl" style={{ fontSize: 8 }}>{folder.label}</span>
+                    <span className="nav-lbl" style={{ fontSize: 9 }}>{folder.label}</span>
                     <span style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', opacity: 0.35 }}>
                         {open ? <ChevronDown size={10}/> : <ChevronRight size={10}/>}
                     </span>
@@ -489,7 +478,7 @@ const Navigation = ({
         if (hiddenSet.has(item.id)) return null;
         return (
             <button key={item.id} onClick={() => setActiveTab(item.id)}
-                className="dsb"
+                className={`dsb hov-soft ${act ? 'act' : ''}`}
                 style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                     padding: '8px 12px', position: 'relative', border: 'none', borderRadius: 10,
@@ -497,8 +486,6 @@ const Navigation = ({
                     color: act ? '#f5b574' : 'var(--nav-muted)',
                     cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left', flexShrink: 0,
                 }}
-                onMouseOver={e => { if (!act) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#c8d8da'; } }}
-                onMouseOut={e  => { if (!act) { e.currentTarget.style.background = act ? 'rgba(232,140,64,0.12)' : 'transparent'; e.currentTarget.style.color = act ? '#f5b574' : 'var(--nav-muted)'; } }}
             >
                 {act && <span style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background:'#e88c40', borderRadius:'0 3px 3px 0' }}/>}
                 <Icon size={16} strokeWidth={act ? 2.5 : 2} style={{ flexShrink: 0 }}/>
@@ -527,7 +514,7 @@ const Navigation = ({
         return (
             <div key={folder.id} style={{ marginBottom: 2 }}>
                 <button onClick={() => toggleFolder(folder.id)}
-                    className="dsb"
+                    className="dsb hov-soft6"
                     style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                         padding: '7px 12px', border: 'none', borderRadius: 10,
@@ -535,8 +522,6 @@ const Navigation = ({
                         color: hasActive ? '#f5b574' : 'var(--nav-muted)',
                         cursor: 'pointer', transition: 'all 0.15s',
                     }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#c8d8da'; }}
-                    onMouseOut={e  => { e.currentTarget.style.background = hasActive && !open ? 'rgba(232,140,64,0.08)' : 'transparent'; e.currentTarget.style.color = hasActive ? '#f5b574' : 'var(--nav-muted)'; }}
                 >
                     <FolderIconComp size={16} strokeWidth={2} style={{ flexShrink: 0 }}/>
                     <span style={{ fontSize: 12, fontWeight: 600, flex: 1, textAlign: 'left' }}>{folder.label}</span>
@@ -582,14 +567,25 @@ const Navigation = ({
         <>
         <div className={`hidden md:flex shrink-0 overflow-hidden ${isHoriz ? 'flex-row' : 'flex-col'}`} style={{...outerStyle, padding: 0, margin: 0}}>
             <style>{`
-                .dsb:focus,.dsb-btn:focus{outline:none!important;box-shadow:none!important}
+                .dsb:focus:not(:focus-visible),.dsb-btn:focus:not(:focus-visible){outline:none!important;box-shadow:none!important}
                 @keyframes booking-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,140,64,0.8)}50%{box-shadow:0 0 0 6px rgba(232,140,64,0)}}
                 @keyframes checkin-border{0%,100%{box-shadow:0 0 0 0 rgba(20,184,166,0.55)}50%{box-shadow:0 0 0 4px rgba(20,184,166,0)}}
                 .nav-item{padding-top:9px;padding-bottom:9px;position:relative;transition:all .18s cubic-bezier(.4,0,.2,1)}
                 .nav-item svg{transition:transform .18s cubic-bezier(.4,0,.2,1)}
                 .nav-item:hover svg{transform:translateY(-1px)}
                 .nav-item:active svg{transform:scale(.92)}
-                .nav-lbl{font-size:9px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:72px}
+                .nav-lbl{font-size:10px;font-weight:700;letter-spacing:.02em;line-height:1;margin-top:2px;text-align:center;transition:color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:74px}
+                /* Hover через CSS вместо onMouseOver-мутаций (не «залипает», меньше кода) */
+                .hov-soft:not(.act):hover{background:rgba(255,255,255,0.05)!important;color:#c8d8da!important}
+                .hov-soft6:hover{background:rgba(255,255,255,0.06)!important;color:#c8d8da!important}
+                .hov-teal:hover{background:linear-gradient(160deg,#0f9688,#0d7a6e)!important;color:#fff!important}
+                .hov-amber:hover{background:rgba(234,179,8,0.32)!important;color:#fff!important}
+                .hov-red:hover{background:rgba(239,68,68,0.32)!important;color:#fff!important}
+                .hov-row:not(.act):hover{background:rgba(255,255,255,0.08)!important}
+                .hov-row-strong:hover{background:rgba(255,255,255,0.1)!important}
+                .hov-indigo:hover{background:rgba(165,180,252,0.1)!important}
+                .hov-danger:hover{background:rgba(239,68,68,0.15)!important}
+                .hov-accent:hover{background:#d4773a!important}
                 .dsb-btn{transition:all .18s cubic-bezier(.4,0,.2,1)!important}
                 .dsb-btn:hover{transform:translateY(-1.5px)}
                 .dsb-btn:active{transform:translateY(0) scale(.96)}
@@ -626,7 +622,7 @@ const Navigation = ({
                 }}>
                     {canCheckin && (
                         <button ref={checkinBtnRef} onClick={handleCheckinToggle}
-                            className="dsb-btn flex flex-col items-center justify-center rounded-2xl"
+                            className="dsb-btn hov-teal flex flex-col items-center justify-center rounded-2xl"
                             style={{ ...btnBase,
                                 ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '9px 4px 7px', width: '100%' }),
                                 gap: 4, background: checkinOpen ? 'linear-gradient(160deg,#0f9688,#0d7a6e)' : 'rgba(20,184,166,0.18)',
@@ -635,38 +631,32 @@ const Navigation = ({
                                 boxShadow: '0 2px 10px rgba(20,184,166,0.18), inset 0 1px 0 rgba(255,255,255,0.07)',
                                 animation: 'none',
                             }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'linear-gradient(160deg,#0f9688,#0d7a6e)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { if (!checkinOpen) { e.currentTarget.style.background = 'rgba(20,184,166,0.18)'; e.currentTarget.style.color = '#5eead4'; } }}
                         >
                             <UserPlus size={isHoriz ? 16 : 18} strokeWidth={2.5}/>
                             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('checkin')}</span>
                         </button>
                     )}
                     <button onClick={onOpenExpense}
-                        className="dsb-btn flex flex-col items-center justify-center rounded-xl"
+                        className="dsb-btn hov-amber flex flex-col items-center justify-center rounded-xl"
                         style={{ ...btnBase,
                             ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '7px 4px 5px', width: '100%' }),
                             gap: 3, background: 'rgba(234,179,8,0.14)', color: '#fde047',
                             border: '1px solid rgba(234,179,8,0.22)',
                             boxShadow: '0 2px 10px rgba(234,179,8,0.12), inset 0 1px 0 rgba(255,255,255,0.06)',
                         }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(234,179,8,0.32)'; e.currentTarget.style.color = '#fff'; }}
-                        onMouseOut={e  => { e.currentTarget.style.background = 'rgba(234,179,8,0.14)'; e.currentTarget.style.color = '#fde047'; }}
                     >
                         <Wallet size={isHoriz ? 14 : 16} strokeWidth={2.5}/>
                         <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('expense')}</span>
                     </button>
                     {canCheckin && (
                         <button onClick={onOpenShift}
-                            className="dsb-btn flex flex-col items-center justify-center rounded-xl"
+                            className="dsb-btn hov-red flex flex-col items-center justify-center rounded-xl"
                             style={{ ...btnBase,
                                 ...(isHoriz ? { padding: '3px 8px', height: 40, width: 72 } : isWide ? { padding: '7px 3px 6px', flex: 1 } : { padding: '7px 4px 5px', width: '100%' }),
                                 gap: 3, background: 'rgba(239,68,68,0.14)', color: '#fca5a5',
                                 border: '1px solid rgba(239,68,68,0.22)',
                                 boxShadow: '0 2px 10px rgba(239,68,68,0.12), inset 0 1px 0 rgba(255,255,255,0.06)',
                             }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.32)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.color = '#fca5a5'; }}
                         >
                             <Power size={isHoriz ? 14 : 16} strokeWidth={2.5}/>
                             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em' }}>{t('shift')}</span>
@@ -688,13 +678,11 @@ const Navigation = ({
                                 { label: t('checkinOneGuest'), Icon: UserPlus,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenCheckIn(); } },
                                 { label: t('checkinGroup'),     Icon: Users2,    color: '#a5b4fc', action: () => { setCheckinOpen(false); onOpenGroupCheckIn(); } },
                                 { label: t('checkinRental'),    Icon: Building2, color: '#6ee7b7', action: () => { setCheckinOpen(false); onOpenRoomRental(); } },
-                                { label: 'Лист в бухгалтерию',  Icon: FileText,  color: '#5eead4', action: () => { setCheckinOpen(false); onOpenGroupReceipt?.(); } },
+                                { label: t('navAccountingSheet'), Icon: FileText, color: '#5eead4', action: () => { setCheckinOpen(false); onOpenGroupReceipt?.(); } },
                             ].map(({ label, Icon, color, action }) => (
                                 <button key={label} onClick={action}
-                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
+                                    className="hov-row w-full flex items-center gap-3 px-4 py-3 text-sm text-left"
                                     style={{ color, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', transition: 'background 0.15s' }}
-                                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                                    onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                                 >
                                     <Icon size={15} strokeWidth={2}/>
                                     <span style={{ fontWeight: 600 }}>{label}</span>
@@ -718,7 +706,7 @@ const Navigation = ({
                 flexShrink: 0,
             }}>
                 <button ref={profileBtnRef} onClick={handleProfileToggle}
-                    className="flex items-center justify-center transition-all"
+                    className={`hov-row ${profileOpen ? 'act' : ''} flex items-center justify-center transition-all`}
                     style={{ ...btnBase,
                         ...(isHoriz
                             ? { width: 54, height: 56, flexDirection: 'row' }
@@ -728,8 +716,6 @@ const Navigation = ({
                         display: 'flex',
                         background: profileOpen ? 'rgba(255,255,255,0.12)' : 'transparent',
                     }}
-                    onMouseOver={e => { if (!profileOpen) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                    onMouseOut={e  => { if (!profileOpen) e.currentTarget.style.background = 'transparent'; }}
                 >
                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-black"
                          style={{ background: '#e88c40', color: '#fff', flexShrink: 0 }}>
@@ -782,13 +768,13 @@ const Navigation = ({
                         </div>
                         {setAppTheme && (
                             <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                                <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>Тема</div>
+                                <div className="text-[11px] font-bold uppercase mb-2" style={{ color: 'var(--nav-muted)' }}>{t('navTheme')}</div>
                                 <div className="flex gap-2">
                                     {APP_THEMES.map(th => (
                                         <button key={th.id} onClick={() => setAppTheme(th.id)}
                                             className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1"
                                             style={appTheme === th.id ? { background: '#e88c40', color: '#fff' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--nav-muted)' }}>
-                                            <span>{th.emoji}</span><span>{th.label}</span>
+                                            <th.Icon size={13}/><span>{t(th.labelKey)}</span>
                                         </button>
                                     ))}
                                 </div>
@@ -796,28 +782,22 @@ const Navigation = ({
                         )}
                         <button
                             onClick={() => { setProfileOpen(false); setCustomizeOpen(true); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
+                            className="hov-indigo w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
                             style={{ color: '#a5b4fc', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)', outline: 'none', transition: 'background .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(165,180,252,0.1)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
-                            <SlidersHorizontal size={15}/> Настроить меню
+                            <SlidersHorizontal size={15}/> {t('navCustomizeMenu')}
                         </button>
                         <button
                             onClick={() => { setProfileOpen(false); onOpenChangePassword(); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
+                            className="hov-row w-full flex items-center gap-3 px-5 py-3 text-sm text-left"
                             style={{ color: '#c9e8ea', background: 'transparent', border: 'none', outline: 'none', transition: 'background .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
                             <Lock size={15}/> {t('changePassword')}
                         </button>
                         <button
                             onClick={() => { setProfileOpen(false); onLogout(); }}
-                            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-left border-t"
+                            className="hov-danger w-full flex items-center gap-3 px-5 py-3 text-sm text-left border-t"
                             style={{ color: '#fca5a5', background: 'transparent', borderColor: 'rgba(255,255,255,0.08)', outline: 'none', transition: 'background .15s' }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; }}
-                            onMouseOut={e  => { e.currentTarget.style.background = 'transparent'; }}
                         >
                             <LogOut size={15}/> {t('logout')}
                         </button>
@@ -840,7 +820,7 @@ const Navigation = ({
                         {/* Header */}
                         <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: 10 }}>
                             <SlidersHorizontal size={17} style={{ color: '#a5b4fc' }}/>
-                            <span style={{ color: '#fff', fontWeight: 800, fontSize: 15, flex: 1 }}>Настройка меню</span>
+                            <span style={{ color: '#fff', fontWeight: 800, fontSize: 15, flex: 1 }}>{t('navMenuSettings')}</span>
                             <button onClick={() => setCustomizeOpen(false)}
                                 style={{ color: 'var(--nav-muted)', cursor: 'pointer', background: 'none', border: 'none', padding: 4, fontSize: 16 }}>✕</button>
                         </div>
@@ -848,10 +828,10 @@ const Navigation = ({
                         {/* Position picker */}
                         <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                             <div style={{ color: 'rgba(158,205,208,0.5)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
-                                Расположение меню
+                                {t('navMenuPosition')}
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                                {POSITIONS.map(({ id, Icon: PosIcon, label }) => (
+                                {POSITIONS.map(({ id, Icon: PosIcon, labelKey }) => (
                                     <button key={id} onClick={() => onNavPrefs?.({ position: id })}
                                         style={{
                                             padding: '10px 4px', borderRadius: 10, cursor: 'pointer',
@@ -862,7 +842,7 @@ const Navigation = ({
                                             transition: 'all 0.15s',
                                         }}>
                                         <PosIcon size={18} strokeWidth={position === id ? 2.5 : 2}/>
-                                        <span style={{ fontSize: 10, fontWeight: 700 }}>{label}</span>
+                                        <span style={{ fontSize: 10, fontWeight: 700 }}>{t(labelKey)}</span>
                                     </button>
                                 ))}
                             </div>
@@ -872,12 +852,12 @@ const Navigation = ({
                         {!isHoriz && (
                             <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                                 <div style={{ color: 'rgba(158,205,208,0.5)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
-                                    Стиль меню
+                                    {t('navMenuStyle')}
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                                     {[
-                                        { id: 'compact', label: 'Компактное', desc: '80px · иконки' },
-                                        { id: 'wide',    label: 'Широкое',    desc: '220px · с текстом' },
+                                        { id: 'compact', label: t('navStyleCompact'), desc: t('navStyleCompactDesc') },
+                                        { id: 'wide',    label: t('navStyleWide'),    desc: t('navStyleWideDesc') },
                                     ].map(s => (
                                         <button key={s.id} onClick={() => onNavPrefs?.({ navStyle: s.id })}
                                             style={{
@@ -908,7 +888,7 @@ const Navigation = ({
                             {/* Standalone items row */}
                             <div style={{ marginBottom: 18 }}>
                                 <div style={{ color: 'rgba(158,205,208,0.45)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 10 }}>
-                                    Основные пункты
+                                    {t('navMainItems')}
                                 </div>
                                 <div
                                     style={{ display: 'flex', flexWrap: 'wrap', gap: 8, minHeight: 80, borderRadius: 12, padding: 6, border: `1.5px dashed ${dragId ? 'rgba(232,140,64,0.4)' : 'transparent'}`, transition: 'border-color 0.15s' }}
@@ -969,11 +949,11 @@ const Navigation = ({
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                                     <span style={{ color: 'rgba(158,205,208,0.45)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.09em' }}>
-                                        Папки
+                                        {t('navFolders')}
                                     </span>
                                     <button onClick={addFolder}
                                         style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(165,180,252,0.12)', border: '1px solid rgba(165,180,252,0.25)', color: '#a5b4fc', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                                        <FolderPlus size={13}/> Добавить папку
+                                        <FolderPlus size={13}/> {t('navAddFolder')}
                                     </button>
                                 </div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -1131,7 +1111,7 @@ const Navigation = ({
                                                                     {item.label}
                                                                 </span>
                                                                 <button
-                                                                    title="Вынести из папки"
+                                                                    title={t('navMoveOutFolder')}
                                                                     onClick={() => {
                                                                         const newFolders = folders.map(f => ({ ...f, items: f.id === folder.id ? f.items.filter(id => id !== itemId) : f.items }));
                                                                         const itemEntry = 'item:' + itemId;
@@ -1149,14 +1129,14 @@ const Navigation = ({
                                                         );
                                                     })}
                                                     {visItemCount === 0 && (
-                                                        <span style={{ fontSize: 11, color: 'rgba(158,205,208,0.3)', fontStyle: 'italic', alignSelf: 'center' }}>Перетащите пункты</span>
+                                                        <span style={{ fontSize: 11, color: 'rgba(158,205,208,0.3)', fontStyle: 'italic', alignSelf: 'center' }}>{t('navDragItems')}</span>
                                                     )}
                                                 </div>
                                             </div>
                                         );
                                     })}
                                     {resolvedNavOrder.filter(e => e.startsWith('folder:')).length === 0 && (
-                                        <div style={{ fontSize: 12, color: 'rgba(158,205,208,0.3)', padding: '8px 0', fontStyle: 'italic' }}>Папок нет — нажмите «Добавить папку»</div>
+                                        <div style={{ fontSize: 12, color: 'rgba(158,205,208,0.3)', padding: '8px 0', fontStyle: 'italic' }}>{t('navNoFolders')}</div>
                                     )}
                                 </div>
                             </div>
@@ -1170,19 +1150,17 @@ const Navigation = ({
                                     folders: currentUser?.role === 'cashier' ? DEFAULT_CASHIER_FOLDERS : null,
                                     navOrder: currentUser?.role === 'cashier' ? DEFAULT_CASHIER_ORDER : null,
                                 })}
+                                className="hov-row-strong"
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'rgba(158,205,208,0.7)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-                                onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-                                onMouseOut={e  => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                             >
-                                <RotateCcw size={13}/> Сбросить
+                                <RotateCcw size={13}/> {t('resetBtn')}
                             </button>
                             <button
                                 onClick={() => setCustomizeOpen(false)}
+                                className="hov-accent"
                                 style={{ flex: 1, padding: '9px', borderRadius: 10, background: '#e88c40', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 800 }}
-                                onMouseOver={e => { e.currentTarget.style.background = '#d4773a'; }}
-                                onMouseOut={e  => { e.currentTarget.style.background = '#e88c40'; }}
                             >
-                                Готово
+                                {t('done')}
                             </button>
                         </div>
                     </div>

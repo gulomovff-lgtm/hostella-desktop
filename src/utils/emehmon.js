@@ -4,6 +4,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { buildEmehmonPayload } from './helpers';
+import { checkOutDayOf } from './emehmonDeparture';
 
 const accDoc = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'emehmon');
 
@@ -52,16 +53,42 @@ export function openEmehmonArrival(guest) {
   return openWith({ ...buildEmehmonPayload(guest), guestId: guest?.id || '' });
 }
 
-// Полная авто-регистрация прибытия (граждане Узбекистана) — всё в фоне.
-//   done / need_login / not_found / no_room / … | no_electron
-// opts.silent — при сбое НЕ показывать окно кассиру (для фоновых попыток).
+// Полная авто-регистрация прибытия — всё в фоне.
+//   done / needs_decision / need_login / not_found / no_room / no_citizen / … | no_electron
+// opts.silent    — при сбое НЕ показывать окно кассиру (для фоновых попыток).
+// opts.gateStays — иностранец за пределами окна: перед «Сохранить» прочитать
+//                  список прошлых проживаний и ОСТАНОВИТЬСЯ (needs_decision) —
+//                  регистрировать или направить в миграционную службу решает человек.
+// opts.force     — решение принято: сохранить, не глядя на список.
+// opts.quietFail — при любом сбое, кроме входа, окно не показывать: рендерер
+//                  сам покажет своё окно («исправьте данные» / «ситуация»).
 export async function autoRegisterArrival(guest, opts = {}) {
   if (!window.electronAPI?.emehmonArrivalAuto) return { status: 'no_electron' };
-  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', amount: '1', silent: !!opts.silent };
+  // amount берём из payload (ставка по гражданству), раньше здесь жёстко стояла 1
+  const payload = {
+    ...buildEmehmonPayload(guest), guestId: guest?.id || '',
+    silent: !!opts.silent, gateStays: !!opts.gateStays, force: !!opts.force, quietFail: !!opts.quietFail,
+  };
   const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {
     return await window.electronAPI.emehmonArrivalAuto(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
+// Проверка гостя в госбазе (только первый шаг мастера, ничего не сохраняет).
+//   valid {officialName, fields, labels, tables, blocks} / not_found {notFoundText}
+//   / need_login / no_form / check_timeout / no_citizen / error | no_electron
+// Для иностранца отсюда берём дату прохода КПП (вторая вкладка мастера).
+export async function checkPassportInGov(guest) {
+  if (!window.electronAPI?.emehmonPassportCheck) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '' };
+  const acc = await getEmehmonAccount(payload.hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonPassportCheck(payload);
   } catch (e) {
     return { status: 'error', message: e?.message || String(e) };
   }
@@ -73,16 +100,20 @@ export function openEmehmonDeparture(guest) {
 }
 
 // Фоновое выселение: всё делается в скрытом окне и возвращается статус.
-// opts: { amount, payType, print } — TO‘LOV, тип оплаты (1=Boshqa…), печать листа.
+// opts: { amount, payType } — TO‘LOV и тип оплаты (utils/emehmonDeparture.js).
+// Лист убытия снимается всегда: main-процесс держит окно листа скрытым и
+// возвращает PDF (`sheet`, `sheetBase64`) либо `sheetError`.
 export async function departEmehmonBackground(guest, opts = {}) {
   if (!window.electronAPI?.emehmonDeparture) return { status: 'no_electron' };
   const payload = {
     ...buildEmehmonPayload(guest),
+    guestId: guest.id || '',
     mode: 'departure',
     path: '/listok',
     amount: opts.amount != null ? String(opts.amount) : '1',
     payType: opts.payType != null ? String(opts.payType) : '1',
-    print: !!opts.print,
+    print: true,
+    sheet: true,
   };
   const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
@@ -93,25 +124,30 @@ export async function departEmehmonBackground(guest, opts = {}) {
   }
 }
 
-// Массовое выселение: список гостей одной операцией. Гости могут быть «orphan»
-// (есть в e-mehmon, нет в Hostella) — сопоставление по паспорту/ФИО.
-export async function departEmehmonBulk(guests, opts = {}) {
-  if (!window.electronAPI?.emehmonDepartureBulk) return { status: 'no_electron' };
-  const list = (guests || []).map(g => {
-    const p = buildEmehmonPayload(g);
-    return { passport: p.passport, name: g.fullName || g.guestName || '' };
-  });
-  const payload = {
-    list,
-    amount: opts.amount != null ? String(opts.amount) : '1',
-    payType: opts.payType != null ? String(opts.payType) : '1',
-    print: !!opts.print,
-  };
-  const hostelId = opts.hostelId || (guests[0] && guests[0].hostelId) || '';
-  const acc = await getEmehmonAccount(hostelId);
+// Лист убытия заново (гость выведен раньше или без листа): страница выехавших
+// портала, печать листа скрытым окном; ответ как у выселения (sheet/sheetBase64).
+export async function fetchDepartureSheet(guest) {
+  if (!window.electronAPI?.emehmonSheetFetch) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest.id || '', mode: 'departure', path: '/listokout', checkOutDay: checkOutDayOf(guest.checkOutDate) };
+  const acc = await getEmehmonAccount(payload.hostelId);
   if (acc) { payload.login = acc.login; payload.password = acc.password; }
   try {
-    return await window.electronAPI.emehmonDepartureBulk(payload);
+    return await window.electronAPI.emehmonSheetFetch(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
+// Смена комнаты у активной регистрации портала: гость переехал внутри Hostella.
+//   done / not_found / no_edit / no_form / no_room / no_submit / submit_unconfirmed
+//   / portal_error / need_login / error | no_electron
+export async function changeEmehmonRoom(guest, newRoom) {
+  if (!window.electronAPI?.emehmonRoomChange) return { status: 'no_electron' };
+  const payload = { ...buildEmehmonPayload(guest), guestId: guest?.id || '', room: String(newRoom || guest?.roomNumber || ''), mode: 'departure', path: '/listok' };
+  const acc = await getEmehmonAccount(payload.hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonRoomChange(payload);
   } catch (e) {
     return { status: 'error', message: e?.message || String(e) };
   }
@@ -145,6 +181,22 @@ export async function fetchEmehmonRegistered(hostelId) {
   }
 }
 
+// Пересчитать стоимость услуг в листках прибытия.
+// items: [{ passport, name, amount }] — суммы считает приложение (utils/emehmonAmount).
+//   { status:'done', updated, matched, skipped } | need_login | not_found | error | no_electron
+export async function recalcEmehmonAmounts(items, hostelId) {
+  if (!window.electronAPI?.emehmonRecalc) return { status: 'no_electron' };
+  if (!items?.length) return { status: 'done', updated: 0, matched: 0, skipped: 0 };
+  const payload = { hostelId: hostelId || '', items, paymentStatus: '2' };
+  const acc = await getEmehmonAccount(hostelId);
+  if (acc) { payload.login = acc.login; payload.password = acc.password; }
+  try {
+    return await window.electronAPI.emehmonRecalc(payload);
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
 // Сохранить доступы. Пустой пароль не затирает существующий; clear:true удаляет филиал.
 export async function saveEmehmonAccounts(accounts) {
   const cur = await getDoc(accDoc()).then(s => (s.exists() ? s.data() : {})).catch(() => ({}));
@@ -155,7 +207,37 @@ export async function saveEmehmonAccounts(accounts) {
     if (a.clear) { delete next[hid]; continue; }
     const login = (a.login || '').trim();
     const password = a.password || '';
-    if (login && password) next[hid] = { login, pw: enc(password) };
+    // ЧАСТИЧНОЕ обновление: раньше запись сохранялась только если заполнены ОБА
+    // поля, поэтому смена одного пароля (при пустом логине) молча не сохранялась.
+    // Теперь пустое поле = «оставить прежнее значение».
+    const prev = cur[hid] || {};
+    const finalLogin = login || prev.login || '';
+    const finalPw    = password ? enc(password) : (prev.pw || '');
+    if (finalLogin && finalPw) next[hid] = { login: finalLogin, pw: finalPw };
   }
   await setDoc(accDoc(), next);
+}
+
+// Турсбор: отчёт со страницы /tursborpays за период.
+// range — 'YYYY-MM-DD ~ YYYY-MM-DD' (формат портала). Возвращает
+// { status, data: { HT, LT, ST }, brvText, depositText } либо { status:'need_login'|'error' }.
+export async function fetchTursbor(range, hostelId) {
+  if (!window.electronAPI?.emehmonTursbor) return { status: 'no_electron' };
+  try {
+    return await window.electronAPI.emehmonTursbor({ range, hostelId });
+  } catch (e) {
+    return { status: 'error', message: e?.message || String(e) };
+  }
+}
+
+// Логины по филиалам (без паролей) — чтобы форма настроек показывала текущий
+// логин и его не нужно было вводить заново ради смены пароля.
+export async function getEmehmonLogins() {
+  try {
+    const snap = await getDoc(accDoc());
+    const d = snap.exists() ? snap.data() : {};
+    return { hostel1: d.hostel1?.login || '', hostel2: d.hostel2?.login || '' };
+  } catch {
+    return { hostel1: '', hostel2: '' };
+  }
 }

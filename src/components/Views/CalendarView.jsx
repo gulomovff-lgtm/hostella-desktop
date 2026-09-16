@@ -10,7 +10,13 @@ import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { computeContractFinancials } from '../../utils/contractFinancials';
 
 // --- Utilities ---
-const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+const getTotalPaid = (g) => {
+    // Number.isFinite-защита: битый amountPaid (NaN/Infinity) раньше отравлял долг
+    // всего календаря в NaN и ломал полосу.
+    const p = Number(g?.amountPaid);
+    const n = (v) => { const x = parseInt(v, 10); return Number.isFinite(x) ? x : 0; };
+    return Number.isFinite(p) ? p : (n(g?.paidCash) + n(g?.paidCard) + n(g?.paidQR));
+};
 
 const parseDate = (dateInput) => {
     if (!dateInput) return null;
@@ -40,7 +46,8 @@ const Flag = ({ code, size = 20 }) => {
 };
 
 // --- RentalInfoPopup ---
-const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], payments = [], onClose, onEdit, onPayRental, canEdit }) => {
+const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], payments = [], onClose, onEdit, onPayRental, canEdit, lang = 'ru' }) => {
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const r = rental || room?.rental;
     const [group, setGroup] = useState(null);
     const [loadingContract, setLoadingContract] = useState(false);
@@ -98,8 +105,8 @@ const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], p
             <div className="px-4 py-3 flex items-start justify-between gap-2" style={{ background: TEAL.bg }}>
                 <div className="min-w-0">
                     <div className="text-white font-black text-sm leading-tight flex items-center gap-1.5">
-                        Комната №{room.number} · Аренда
-                        {historical && <span className="text-[9px] font-black bg-white/25 px-1.5 py-0.5 rounded-full">ЗАВЕРШЕНО</span>}
+                        {t('room')} №{room.number} · {t('checkinRental')}
+                        {historical && <span className="text-[9px] font-black bg-white/25 px-1.5 py-0.5 rounded-full">{t('calRentalDone')}</span>}
                     </div>
                     <div className="text-white/80 text-xs mt-0.5 font-semibold truncate">{r.tenantName || '—'}</div>
                 </div>
@@ -109,60 +116,60 @@ const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], p
             <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
                 {/* Период + арендатор */}
                 <div className="space-y-1.5">
-                    <Row label="Период">{fmtDate(r.checkInDate)} — {fmtDate(r.checkOutDate)} <span className="text-slate-400 font-normal">({r.days||'?'} дн.)</span></Row>
-                    {r.passport && <Row label="Паспорт"><span className="font-mono">{r.passport}</span></Row>}
-                    {r.phone && <Row label="Телефон"><span className="inline-flex items-center gap-1"><Phone size={10}/>{r.phone}</span></Row>}
-                    {r.comment && <Row label="Комментарий"><span className="italic">{r.comment}</span></Row>}
-                    {r.contractNote && !hasContract && <Row label="Договор">{r.contractNote}</Row>}
+                    <Row label={t('period')}>{fmtDate(r.checkInDate)} — {fmtDate(r.checkOutDate)} <span className="text-slate-400 font-normal">({r.days||'?'} {t('daysShort')})</span></Row>
+                    {r.passport && <Row label={t('passport')}><span className="font-mono">{r.passport}</span></Row>}
+                    {r.phone && <Row label={t('phone')}><span className="inline-flex items-center gap-1"><Phone size={10}/>{r.phone}</span></Row>}
+                    {r.comment && <Row label={t('comment')}><span className="italic">{r.comment}</span></Row>}
+                    {r.contractNote && !hasContract && <Row label={t('calContract')}>{r.contractNote}</Row>}
                 </div>
 
                 {/* Финансы — крупно и заметно */}
                 {loadingContract ? (
-                    <div className="text-[11px] text-slate-400 text-center py-3">Загрузка договора…</div>
+                    <div className="text-[11px] text-slate-400 text-center py-3">{t('calLoadingContract')}</div>
                 ) : (charged > 0 || paid > 0) ? (
                     <div className="rounded-xl border overflow-hidden" style={{ borderColor: debt > 0 ? '#fecaca' : '#bbf7d0' }}>
                         <div className="px-3 py-2 flex items-center justify-between gap-2" style={{ background: debt > 0 ? '#fef2f2' : '#f0fdf4' }}>
                             {hasContract ? (
                                 <span className="inline-flex items-center gap-1.5 text-[11px] font-black truncate" style={{ color: '#0f9688' }}>
-                                    <FileText size={11} className="shrink-0"/> {group.name || r.contractGroupName || 'Договор'}
+                                    <FileText size={11} className="shrink-0"/> {group.name || r.contractGroupName || t('calContract')}
                                 </span>
-                            ) : <span className="text-[11px] font-bold text-slate-500">Финансы аренды</span>}
+                            ) : <span className="text-[11px] font-bold text-slate-500">{t('calRentalFinance')}</span>}
                             {debt > 0
-                                ? <span className="text-[11px] font-black text-rose-600 shrink-0">Есть долг</span>
-                                : fullyPaid ? <span className="text-[11px] font-black text-emerald-600 shrink-0">✓ Оплачено</span> : null}
+                                ? <span className="text-[11px] font-black text-rose-600 shrink-0">{t('hasDebt')}</span>
+                                : fullyPaid ? <span className="text-[11px] font-black text-emerald-600 shrink-0">✓ {t('paid')}</span> : null}
                         </div>
                         <div className="px-3 py-2.5 space-y-1.5">
                             {hasContract && fin.contractRate > 0 ? (
-                                <div className="text-[10px] text-slate-400">{fmtMoney(fin.contractRate)} сум/чел-ночь × {fin.totalPersonNights} чел-ночей</div>
+                                <div className="text-[10px] text-slate-400">{t('calRatePerPersonNight').replace('{rate}', fmtMoney(fin.contractRate)).replace('{n}', fin.totalPersonNights)}</div>
                             ) : (!hasContract && r.pricePerDay > 0 ? (
-                                <div className="text-[10px] text-slate-400">{fmtMoney(r.pricePerDay)} сум/день × {r.days || '?'} дн.</div>
+                                <div className="text-[10px] text-slate-400">{t('calRatePerDay').replace('{rate}', fmtMoney(r.pricePerDay)).replace('{days}', r.days || '?')}</div>
                             ) : null)}
                             <div className="flex justify-between text-xs">
-                                <span className="text-slate-500 font-semibold">Начислено</span>
-                                <span className="font-black text-slate-800">{fmtMoney(charged)} сум</span>
+                                <span className="text-slate-500 font-semibold">{t('calCharged')}</span>
+                                <span className="font-black text-slate-800">{fmtMoney(charged)} {t('sum')}</span>
                             </div>
                             <div className="flex justify-between text-xs">
-                                <span className="text-slate-500 font-semibold">Оплачено</span>
-                                <span className="font-black text-emerald-600">{fmtMoney(paid)} сум</span>
+                                <span className="text-slate-500 font-semibold">{t('paid')}</span>
+                                <span className="font-black text-emerald-600">{fmtMoney(paid)} {t('sum')}</span>
                             </div>
                             {hasContract ? (
                                 <div className="pl-2 space-y-0.5">
-                                    {fin.paidCash > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">наличные</span><span className="text-slate-500">{fmtMoney(fin.paidCash)}</span></div>}
-                                    {fin.paidTransfer > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">перечисление</span><span className="text-slate-500">{fmtMoney(fin.paidTransfer)}</span></div>}
-                                    {fin.paidCard > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">карта</span><span className="text-slate-500">{fmtMoney(fin.paidCard)}</span></div>}
+                                    {fin.paidCash > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">{t('calCash')}</span><span className="text-slate-500">{fmtMoney(fin.paidCash)}</span></div>}
+                                    {fin.paidTransfer > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">{t('calTransfer')}</span><span className="text-slate-500">{fmtMoney(fin.paidTransfer)}</span></div>}
+                                    {fin.paidCard > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">{t('calCard')}</span><span className="text-slate-500">{fmtMoney(fin.paidCard)}</span></div>}
                                     {fin.paidQR > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">QR</span><span className="text-slate-500">{fmtMoney(fin.paidQR)}</span></div>}
                                 </div>
                             ) : (
                                 <div className="pl-2 space-y-0.5">
-                                    {r.paidCash > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">наличные</span><span className="text-slate-500">{fmtMoney(r.paidCash)}</span></div>}
-                                    {r.paidCard > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">карта</span><span className="text-slate-500">{fmtMoney(r.paidCard)}</span></div>}
+                                    {r.paidCash > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">{t('calCash')}</span><span className="text-slate-500">{fmtMoney(r.paidCash)}</span></div>}
+                                    {r.paidCard > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">{t('calCard')}</span><span className="text-slate-500">{fmtMoney(r.paidCard)}</span></div>}
                                     {r.paidQR > 0 && <div className="flex justify-between text-[10px]"><span className="text-slate-300">QR</span><span className="text-slate-500">{fmtMoney(r.paidQR)}</span></div>}
                                 </div>
                             )}
                             {debt > 0 && (
                                 <div className="flex justify-between items-center pt-2 mt-1 border-t border-rose-100">
-                                    <span className="text-xs font-black text-rose-600">Долг</span>
-                                    <span className="text-base font-black text-rose-600">{fmtMoney(debt)} сум</span>
+                                    <span className="text-xs font-black text-rose-600">{t('debt')}</span>
+                                    <span className="text-base font-black text-rose-600">{fmtMoney(debt)} {t('sum')}</span>
                                 </div>
                             )}
                         </div>
@@ -172,7 +179,7 @@ const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], p
                 {/* Оформил */}
                 {(r.staffName || r.createdAt) && (
                     <div className="flex justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-                        <span>Оформил: {r.staffName || '—'}</span>
+                        <span>{t('calIssuedBy')}: {r.staffName || '—'}</span>
                         {r.createdAt && <span>{fmtDate(r.createdAt)}</span>}
                     </div>
                 )}
@@ -184,19 +191,19 @@ const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], p
                         <button onClick={() => { onClose(); onPayRental(room); }}
                             className="w-full py-2.5 flex items-center justify-center gap-1.5 text-white rounded-xl font-black text-xs transition-colors"
                             style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)' }}>
-                            <Wallet size={13}/> Оплатить долг · {fmtMoney(debt)}
+                            <Wallet size={13}/> {t('calPayDebt')} · {fmtMoney(debt)}
                         </button>
                     )}
                     <button onClick={() => { onClose(); onEdit(room); }}
                         className="w-full py-2 flex items-center justify-center gap-1.5 rounded-xl font-bold text-xs transition-colors border border-slate-200 text-slate-600 hover:bg-slate-50">
-                        <Edit2 size={12}/> Редактировать аренду
+                        <Edit2 size={12}/> {t('calEditRental')}
                     </button>
                 </div>
             )}
             {historical && (
                 <div className="px-4 pb-4 pt-1">
                     <div className="w-full py-2 flex items-center justify-center gap-1.5 text-slate-400 bg-slate-50 rounded-xl font-bold text-[11px] border border-slate-200">
-                        Завершённая аренда (из архива)
+                        {t('calArchivedRental')}
                     </div>
                 </div>
             )}
@@ -531,13 +538,23 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         if (isExp) return { cls: 'border-red-700 text-white', bg: '#dc2626' };
         if (isOut && debt > 0) return { cls: 'border-rose-300 text-rose-700', bg: '#fecdd3' };
         if (isOut) return { cls: 'border-slate-300 text-slate-500', bg: '#e2e8f0' };
-        // Бонус В СЕРЕДИНЕ бара: зелёный → оранжевый → зелёный
+        // Бонус В СЕРЕДИНЕ бара: зелёный → оранжевый(бонус) → зелёный[/красный если долг]
         if (bonusCo && co && bonusCo <= co && bonusPct1 != null && bonusPct2 != null) {
+            if (debt > 0 && g.totalPrice > 0) {
+                // Неоплаченный «хвост» показываем красным (после бонусной вставки).
+                const redStart = Math.max(bonusPct2, Math.min(100, Math.round(rawPct * 100)));
+                return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${bonusPct1}%,#f97316 ${bonusPct1}%,#ea580c ${bonusPct2}%,#16a34a ${bonusPct2}%,#22c55e ${redStart}%,#ef4444 ${redStart}%,#dc2626 100%)` };
+            }
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${bonusPct1}%,#f97316 ${bonusPct1}%,#ea580c ${bonusPct2}%,#16a34a ${bonusPct2}%,#22c55e 100%)` };
         }
-        // Бонус В КОНЦЕ бара: зелёный → оранжевый
+        // Бонус В КОНЦЕ бара: зелёный[/красный долг] → оранжевый(бонус)
         if (bonusCo && co && bonusCo > co) {
-            const pp = bonusColorPct ?? 70;
+            const pp = bonusColorPct ?? 70;   // граница конца оплачиваемого периода
+            if (debt > 0 && g.totalPrice > 0) {
+                // Внутри платного участка (0→pp) делим на зелёный(оплачено) и красный(долг).
+                const paidEdge = Math.max(0, Math.min(pp, Math.round(rawPct * pp)));
+                return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${paidEdge}%,#ef4444 ${paidEdge}%,#dc2626 ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
+            }
             return { cls: 'border-orange-500 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${pp}%,#f97316 ${pp}%,#ea580c 100%)` };
         }
         if (debt > 0 && paid > 0) return { cls: 'border-red-600 text-white', bg: `linear-gradient(90deg,#22c55e 0%,#16a34a ${gradPct}%,#ef4444 ${gradPct}%,#dc2626 100%)` };
@@ -580,16 +597,16 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
             {/* Toolbar — desktop */}
             <div className="hidden md:flex flex-wrap items-center gap-2 px-3 py-2 bg-white border-b border-slate-200 shadow-sm z-50 shrink-0">
                 <div className="flex items-center gap-1">
-                    <button onClick={() => shift(-7)} title="-7 дней" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronsLeft size={15}/></button>
-                    <button onClick={() => shift(-1)} title="-1 день" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronLeft size={15}/></button>
+                    <button onClick={() => shift(-7)} title={t('calMinus7')} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronsLeft size={15}/></button>
+                    <button onClick={() => shift(-1)} title={t('calMinus1')} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronLeft size={15}/></button>
                     <button onClick={goToday} className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-700 shadow-sm">{t('today')}</button>
-                    <button onClick={() => shift(1)} title="+1 день" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronRight size={15}/></button>
-                    <button onClick={() => shift(7)} title="+7 дней" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronsRight size={15}/></button>
+                    <button onClick={() => shift(1)} title={t('calPlus1')} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronRight size={15}/></button>
+                    <button onClick={() => shift(7)} title={t('calPlus7')} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 border border-slate-200"><ChevronsRight size={15}/></button>
                 </div>
                 <div className="text-sm font-bold text-slate-700 px-2 capitalize">{monthLabel}</div>
                 <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 border border-slate-200 ml-auto">
                     {[7, 14, 21, 30].map(z => (
-                        <button key={z} onClick={() => setZoom(z)} className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${zoom === z ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{z}д</button>
+                        <button key={z} onClick={() => setZoom(z)} className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${zoom === z ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{z}{t('calDayLetter')}</button>
                     ))}
                 </div>
                 <div className="flex items-center gap-1 border border-slate-200 rounded-lg bg-slate-50 px-2 py-1">
@@ -624,7 +641,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                             <button key={z} onClick={() => setZoom(z)}
                                 className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${
                                     zoom === z ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'
-                                }`}>{z}д</button>
+                                }`}>{z}{t('calDayLetter')}</button>
                         ))}
                     </div>
                 </div>
@@ -720,7 +737,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                             className={`text-[9px] font-black px-1.5 py-0.5 rounded-md transition-colors ${isRented ? 'cursor-pointer' : ''} ${occColor}`}
                                             style={isRented && isPopupOpen ? { background: '#0f9688' } : {}}
                                             onClick={isRented ? (e) => { e.stopPropagation(); setRentalPopup(p => p?.room.id === room.id ? null : { room, pos: { x: e.clientX, y: e.clientY } }); } : undefined}
-                                        >{isRented ? '🏢 Аренда' : `${occupied}/${capNum}`}</span>
+                                        >{isRented ? `🏢 ${t('checkinRental')}` : `${occupied}/${capNum}`}</span>
                                     </div>
                                     {days.map((d) => {
                                         const isToday = d.str === todayStr;
@@ -739,10 +756,10 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                         <div key={bedId} className={`flex relative border-b border-slate-100 group/row ${hasCurrent ? '' : 'bg-white'}`} style={{ height: ROW_H }}>
                                             <div className={`shrink-0 flex items-center border-r-2 border-slate-200 sticky left-0 z-[35] text-xs font-bold text-slate-500 ${todayRented ? 'bg-teal-50/50' : hasCurrent ? 'bg-emerald-50' : 'bg-white'} ${isMobile ? 'gap-1 px-2' : 'gap-2 px-3'}`} style={{ width: LABEL_W }}>
                                                 <BedDouble size={isMobile ? 11 : 13} className={todayRented ? 'text-teal-500' : hasCurrent ? 'text-emerald-500' : 'text-slate-300'}/>
-                                                <span className="truncate">{isMobile ? `М.${bedId}` : `Место ${bedId}`}</span>
-                                                {todayRented && !isMobile && <span className="ml-auto text-[9px] text-teal-600 font-black">аренда</span>}
+                                                <span className="truncate">{isMobile ? `${t('calBedShort')}${bedId}` : `${t('bed2')} ${bedId}`}</span>
+                                                {todayRented && !isMobile && <span className="ml-auto text-[9px] text-teal-600 font-black">{t('checkinRental')}</span>}
                                                 {todayRented && isMobile && <span className="ml-auto text-[8px] text-teal-600 font-black">🏢</span>}
-                                                {!todayRented && !hasCurrent && !isMobile && <span className="ml-auto text-[9px] text-emerald-500 font-black">свободно</span>}
+                                                {!todayRented && !hasCurrent && !isMobile && <span className="ml-auto text-[9px] text-emerald-500 font-black">{t('free')}</span>}
                                                 {!todayRented && !hasCurrent && isMobile && <span className="ml-auto text-[8px] text-emerald-500 font-black">✓</span>}
                                             </div>
                                             <div className="relative flex-1 overflow-hidden" style={{ width: zoom * DAY_W }}>
@@ -810,15 +827,15 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                                 {!isBk && !isExp && debt > 0 && <Wallet size={10} strokeWidth={3}/>}
                                                                 {!isBk && !isExp && debt <= 0 && <Check size={10} strokeWidth={4}/>}
                                                                 <span className="font-bold text-[11px] truncate leading-none select-none">{g.fullName}</span>
-                                                                {bar.width >= 80 && <span className="ml-auto shrink-0 text-[9px] font-black opacity-80">{days_count}н</span>}
+                                                                {bar.width >= 80 && <span className="ml-auto shrink-0 text-[9px] font-black opacity-80">{days_count}{t('calNightLetter')}</span>}
                                                                 {debt > 0 && bar.width >= 60 && (
-                                                                    <span className={`shrink-0 text-[9px] font-black px-1 rounded ${isOut?'text-rose-700 bg-white/60':'bg-black/20'}`}>-{Math.round(debt/1000)}к</span>
+                                                                    <span className={`shrink-0 text-[9px] font-black px-1 rounded ${isOut?'text-rose-700 bg-white/60':'bg-black/20'}`}>-{Math.round(debt/1000)}{t('calThousandLetter')}</span>
                                                                 )}
                                                             </div>
                                                             {canEditBars && isOut && onRescheduleGuest && (
                                                                 <div
                                                                     className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/40 rounded-r-md z-20 flex items-center justify-center"
-                                                                    title="Изменить длину"
+                                                                    title={t('calResizeLength')}
                                                                     onMouseDown={e=>{
                                                                         e.stopPropagation();
                                                                         e.preventDefault();
@@ -857,6 +874,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     onEdit={(room) => { onRentalClick?.(room); }}
                     onPayRental={onPayRental}
                     canEdit={canEditBars}
+                    lang={lang}
                 />
             )}
         </div>

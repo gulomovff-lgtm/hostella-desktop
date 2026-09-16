@@ -9,6 +9,20 @@ const escTgHtml = (s) => String(s ?? '')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
+// Санитизация целого HTML-сообщения для Telegram: экранируем ВСЁ, затем возвращаем
+// только безопасные теги форматирования. Инъектированный <a href> и любые чужие
+// теги остаются экранированными — не станут кликабельной ссылкой и не вызовут 400.
+// Клиентское экранирование не граница безопасности: text присылает клиент (в т.ч.
+// аноним), поэтому чистим на сервере, где сообщение реально уходит боту.
+const TG_ALLOWED_TAGS = ['b', 'strong', 'i', 'em', 'u', 's', 'code', 'pre'];
+const sanitizeTgHtml = (text) => {
+  let s = escTgHtml(text);
+  for (const tag of TG_ALLOWED_TAGS) {
+    s = s.split(`&lt;${tag}&gt;`).join(`<${tag}>`).split(`&lt;/${tag}&gt;`).join(`</${tag}>`);
+  }
+  return s;
+};
+
 // Сравнение строк за константное время (защита от timing-атак).
 const safeEqual = (a, b) => {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -40,6 +54,11 @@ exports.scanPassport = functions
 
   if (!data || !data.image) {
     throw new functions.https.HttpsError("invalid-argument", "Image data missing.");
+  }
+  // Ограничение размера base64: без него можно нагружать Vision API большими
+  // изображениями (стоимость/таймаут). ~10 МБ base64 ≈ 7.5 МБ исходника.
+  if (typeof data.image !== 'string' || data.image.length > 10 * 1024 * 1024) {
+    throw new functions.https.HttpsError("invalid-argument", "Image too large.");
   }
 
   try {
@@ -73,8 +92,9 @@ exports.scanPassport = functions
     return { success: true, data: parsedData };
 
   } catch (error) {
+    // Внутренние детали — только в лог; клиенту общий текст (не раскрываем стек/инфру).
     console.error("Vision API Error:", error);
-    throw new functions.https.HttpsError("internal", error.message);
+    throw new functions.https.HttpsError("internal", "OCR failed.");
   }
 });
 
@@ -114,9 +134,6 @@ function parseMRZ(text) {
   // I<UZB...
   if (firstLine.includes('<<')) {
       const parts = firstLine.split('<<');
-      let namePart = parts[0];
-      // Убираем префикс (P<UZB, I<UZB, A<UZB)
-      namePart = namePart.replace(/^[A-Z0-9<]{5}/, ''); 
       // Часто в начале остается часть фамилии, если она не отделена.
       // Попробуем просто взять то, что разделено <<
       if (parts.length > 1) {
@@ -213,7 +230,7 @@ function isUpperCase(str) {
 
 // --- TELEGRAM MESSAGE FUNCTION ---
 // Reads recipients from Firestore settings/telegram, filters by notificationType
-exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
+exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'KPP_BOT_TOKEN'] }).https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated to send messages');
     }
@@ -221,10 +238,22 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('invalid-argument', 'Message text is required');
     }
 
+    // Звать может любой клиент с анонимной сессией — ограничиваем частоту,
+    // чтобы через приложение нельзя было устроить рассылку владельцу.
+    const tgKey = 'tg_' + (context.auth?.uid || callerIp(context));
+    const tgLimit = await rateLimit(tgKey, 120, 10 * 60 * 1000);
+    if (!tgLimit.allowed) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Слишком много уведомлений подряд');
+    }
+
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) {
         throw new functions.https.HttpsError('internal', 'Telegram bot not configured');
     }
+
+    // Санитизируем на сервере: клиент (в т.ч. аноним) мог прислать произвольный
+    // HTML (фишинг-ссылка <a href>). Разрешаем только теги форматирования.
+    const safeText = sanitizeTgHtml(data.text);
 
     // If explicit chatIds override is provided (e.g. test sends), use main bot directly
     if (Array.isArray(data.chatIds) && data.chatIds.length > 0) {
@@ -232,7 +261,7 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
             const chatId = typeof target === 'string' ? target : target.chatId;
             const rawThreadId = typeof target === 'object' ? (target.threadId || '').toString().trim() : '';
             const tid = rawThreadId ? parseInt(rawThreadId, 10) : null;
-            const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+            const payload = { chat_id: chatId, text: safeText, parse_mode: 'HTML' };
             if (tid && !isNaN(tid)) payload.message_thread_id = tid;
             return fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                 method: 'POST',
@@ -262,6 +291,27 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
     const notificationType = data.notificationType || null;
     const disabledTypes = new Set(settings?.disabledTypes || []);
 
+    // ── Типы, которые уходят ТОЛЬКО через бот регистраций ────────────────────
+    // Привязки типа к боту раньше не было вовсе: оба бота фильтровались одним
+    // правилом «получатель подписан на всё, что явно не отключил»
+    // (notifications[type] !== false). Отсутствующий ключ считался подпиской,
+    // поэтому КАЖДЫЙ новый тип молча включался всем, кто настраивался до его
+    // появления. Типы регистрации добавили позже получателей основного бота —
+    // и регистрации полетели во все каналы, хотя их никто не включал.
+    //
+    // Список можно переопределить в настройках (registrationBotTypes),
+    // по умолчанию — регистрации, КПП и кадастр.
+    const DEFAULT_REGISTRATION_BOT_TYPES = [
+        'registration', 'registrationExtend', 'registrationRemove',
+        'kppAlert', 'cadastreNew', 'cadastreExpiring',
+    ];
+    const registrationBotTypes = new Set(
+        Array.isArray(settings?.registrationBotTypes) && settings.registrationBotTypes.length
+            ? settings.registrationBotTypes
+            : DEFAULT_REGISTRATION_BOT_TYPES
+    );
+    const isRegistrationOnly = !!notificationType && registrationBotTypes.has(notificationType);
+
     // If this notification type is globally disabled, skip
     if (notificationType && disabledTypes.has(notificationType)) {
         return { success: true, sent: 0, total: 0, skipped: 'type_disabled' };
@@ -270,8 +320,8 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
     // ── Build sends: [ { token, target } ] ───────────────────────────────────
     const sends = [];
 
-    // 1. Main bot recipients
-    const mainRecipients = (settings?.recipients || []).filter(r => {
+    // 1. Main bot recipients — кроме типов, закреплённых за ботом регистраций.
+    const mainRecipients = isRegistrationOnly ? [] : (settings?.recipients || []).filter(r => {
         if (!r.active || !r.telegramId) return false;
         if (notificationType) return r.notifications?.[notificationType] !== false;
         return true;
@@ -280,19 +330,28 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         sends.push({ token: botToken, chatId: r.telegramId, threadId: r.threadId || null });
     }
 
-    // 2. KPP-bot recipients (if token is set)
-    if (settings?.kppBotToken) {
+    // 2. KPP-bot recipients — токен из Secret Manager (KPP_BOT_TOKEN), НЕ из
+    // Firestore settings (там его читал любой аноним, C5). Список получателей
+    // (kppBotRecipients) остаётся в settings — это не секрет, только chatId.
+    const kppToken = String(process.env.KPP_BOT_TOKEN || '').trim();
+    if (kppToken) {
         const kppRecipients = (settings?.kppBotRecipients || []).filter(r => {
             if (!r.active || !r.telegramId) return false;
             if (notificationType) return r.notifications?.[notificationType] !== false;
             return true;
         });
         for (const r of kppRecipients) {
-            sends.push({ token: settings.kppBotToken, chatId: r.telegramId, threadId: r.threadId || null });
+            sends.push({ token: kppToken, chatId: r.telegramId, threadId: r.threadId || null });
         }
     }
 
     if (sends.length === 0) {
+        if (isRegistrationOnly) {
+            // Специально не откатываемся на основной бот: молчаливый откат вернул бы
+            // ровно ту рассылку во все каналы, ради которой правило и вводилось.
+            console.warn(`[telegram] ${notificationType}: бот регистраций не настроен — уведомление не отправлено`);
+            return { success: true, sent: 0, total: 0, skipped: 'no_registration_bot_recipients' };
+        }
         return { success: true, sent: 0, total: 0, skipped: 'no_recipients' };
     }
 
@@ -300,7 +359,7 @@ exports.sendTelegramMessage = functions.https.onCall(async (data, context) => {
         sends.map(({ token, chatId, threadId }) => {
             const rawThreadId = (threadId || '').toString().trim();
             const tid = rawThreadId ? parseInt(rawThreadId, 10) : null;
-            const payload = { chat_id: chatId, text: data.text, parse_mode: 'HTML' };
+            const payload = { chat_id: chatId, text: safeText, parse_mode: 'HTML' };
             if (tid && !isNaN(tid)) payload.message_thread_id = tid;
             console.log(`Sending to chatId=${chatId} threadId=${tid ?? 'none'}`);
             return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -410,18 +469,71 @@ exports.getAvailability = functions.https.onRequest(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// getPublicAvailability — публичные данные для виджета брони БЕЗ PII.
+// Раньше виджет читал всю коллекцию guests напрямую (паспорта, имена, телефоны
+// уходили в браузер любого посетителя страницы брони, C6). Теперь отдаём только
+// то, что нужно для календаря занятости: вместимость комнат, интервалы
+// проживания (roomId + даты, без единого поля PII) и публичные промокоды.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getPublicAvailability = functions.https.onRequest(async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    try {
+        const { getFirestore } = require('firebase-admin/firestore');
+        const hostellaDb = getFirestore('hostella');
+        const base = `artifacts/hostella-multi-v4/public/data`;
+        const [roomsSnap, guestsSnap, promosSnap] = await Promise.all([
+            hostellaDb.collection(`${base}/rooms`).get(),
+            hostellaDb.collection(`${base}/guests`).get(),
+            hostellaDb.collection(`${base}/promos`).get(),
+        ]);
+        const rooms = roomsSnap.docs.map(d => {
+            const x = d.data() || {};
+            return { id: d.id, hostelId: x.hostelId, capacity: parseInt(x.capacity ?? x.beds ?? x.totalBeds ?? x.numberOfBeds) || 0 };
+        });
+        // ТОЛЬКО интервалы проживания — без имени/паспорта/телефона.
+        const stays = guestsSnap.docs.map(d => d.data() || {})
+            .filter(g => g.status !== 'checked_out' && (g.checkInDate || g.checkInDateTime) && g.checkOutDate)
+            .map(g => ({ roomId: g.roomId, checkInDate: g.checkInDate || g.checkInDateTime, checkOutDate: g.checkOutDate }));
+        // Только активные промо и только нужные поля — не сливаем публично весь
+        // список кодов, счётчики использования и просроченные/выключенные акции.
+        const promos = promosSnap.docs
+            .map(d => ({ id: d.id, ...(d.data() || {}) }))
+            .filter(p => p.active !== false)
+            .map(p => ({ id: p.id, code: p.code, discount: p.discount, type: p.type }));
+        res.set('Cache-Control', 'public, max-age=60');
+        res.json({ ok: true, rooms, stays, promos });
+    } catch (e) {
+        console.error('getPublicAvailability', e);
+        res.status(500).json({ ok: false });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // createWebBooking — creates a guest/booking document in Firestore
 // from the booking website so it appears instantly in the Hostella app.
 // POST body (JSON): { fullName, phone, hostelId, bedType, bedsCount, checkIn,
 //                    checkOut, nights, amount, pricePerDay, paymentMethod,
 //                    paymentStatus, mysqlBookingId, comment }
 // ─────────────────────────────────────────────────────────────────────────────
-exports.createWebBooking = functions.https.onRequest(async (req, res) => {
+exports.createWebBooking = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onRequest(async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
     if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
+
+    // Точка публичная: без лимита с одного адреса можно засыпать бронями и
+    // уведомлениями кассиров. 10 заявок за 10 минут — с запасом для живого сайта.
+    const bookIp = trustedClientIp(req);
+    const bookLimit = await rateLimit('book_' + bookIp, 10, 10 * 60 * 1000);
+    if (!bookLimit.allowed) {
+        res.set('Retry-After', String(bookLimit.retryAfterSec));
+        res.status(429).json({ ok: false, error: 'too many requests' });
+        return;
+    }
 
     try {
         const d = req.body || {};
@@ -528,13 +640,363 @@ exports.createWebBooking = functions.https.onRequest(async (req, res) => {
         res.json({ ok: true, firestoreId: ref.id });
     } catch (e) {
         console.error('createWebBooking error:', e);
+        await alertOwnerError('Бронь с сайта (createWebBooking)', e);
         res.status(500).json({ ok: false, error: e.message });
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Вход в приложение — проверка пароля НА СЕРВЕРЕ.
+//
+// Зачем: раньше клиент читал users.pass из Firestore и сверял пароль сам. Значит
+// любой, у кого есть публичный конфиг Firebase (он в бандле), мог анонимно войти,
+// выгрузить все хеши и перебрать их офлайн. Теперь:
+//   • секрет лежит в userSecrets/{userId} — коллекция закрыта правилами наглухо;
+//   • проверка идёт здесь, с ограничением числа попыток (см. lib/authPolicy);
+//   • старый формат (SHA-256 / plaintext в users.pass) принимается один раз и
+//     сразу перехешируется в PBKDF2 (upgrade-on-login).
+//
+// Поле users.pass пока НЕ удаляем: кассы обновляются не мгновенно, старым сборкам
+// оно ещё нужно для входа. Удаление — отдельным релизом, см. SECURITY.md.
+// ─────────────────────────────────────────────────────────────────────────────
+const AUTH_APP_ID = 'hostella-multi-v4';
+const authPolicy = require('./lib/authPolicy');
+const passwordLib = require('./lib/password');
+
+const authDb = () => {
+    const { getFirestore } = require('firebase-admin/firestore');
+    return getFirestore('hostella');
+};
+const authBase = () => `artifacts/${AUTH_APP_ID}/public/data`;
+const throttleRef = (db, key) => db.doc(`${authBase()}/authThrottle/${encodeURIComponent(key)}`);
+
+/** Ключ троттлинга по IP вызова (за прокси Firebase — x-forwarded-for). */
+const trustedClientIp = (req) => {
+    const fwd = req?.headers?.['x-forwarded-for'];
+    const chain = (Array.isArray(fwd) ? fwd.join(',') : (fwd || ''))
+        .split(',').map((s) => s.trim()).filter(Boolean);
+    // Берём ПЕРВЫЙ (клиентский) адрес XFF — документированный клиентский IP на
+    // Cloud Functions gen1. Он подделываем (атакующий может обходить СВОЙ лимит),
+    // но не сталкивает разных пользователей в один бакет — в отличие от «последнего»
+    // хопа, который на gen1 = постоянный фронтенд Google и глобально заблокировал бы
+    // всех. Перебор конкретного аккаунта всё равно ограничен ключом login_<login>.
+    // Полноценный устойчивый к спуфингу лимит — при переезде на gen2 / captcha.
+    return chain.length ? chain[0] : (req?.ip || 'unknown');
+};
+
+const callerIp = (context) => `ip_${trustedClientIp(context?.rawRequest)}`;
+
+/** Бросает resource-exhausted, если ключ заблокирован. Возвращает состояния для записи. */
+async function assertNotThrottled(db, keys, now) {
+    const states = {};
+    for (const key of keys) {
+        const snap = await throttleRef(db, key).get();
+        const res = authPolicy.checkAttempt(snap.exists ? snap.data() : null, now);
+        if (!res.allowed) {
+            throw new functions.https.HttpsError(
+                'resource-exhausted',
+                authPolicy.lockMessage(res.retryAfterSec),
+                { retryAfterSec: res.retryAfterSec },
+            );
+        }
+        states[key] = res.state;
+    }
+    return states;
+}
+
+async function noteFailure(db, keys, states, now) {
+    await Promise.all(keys.map(key => {
+        const { state } = authPolicy.registerFailure(states[key], now);
+        return throttleRef(db, key).set(state, { merge: false });
+    }));
+}
+
+async function noteSuccess(db, keys) {
+    await Promise.all(keys.map(key => throttleRef(db, key).set(authPolicy.registerSuccess(), { merge: false })));
+}
+
+// Служебный супер-аккаунт. Раньше его пароль сверялся на клиенте с хешем из бандла,
+// а хеш по умолчанию — sha256('super'), то есть у всех, кто не задал свой, работал
+// вход Super/super с полными правами. Теперь проверка только здесь и только против
+// заданного секрета; общеизвестный дефолт не принимается никогда.
+const SUPER_LOGIN = 'Super';
+const KNOWN_DEFAULT_SUPER_HASH = '73d1b1b1bc1dabfb97f216d897b7968e44b06457920f00f2dc6c1ed3be25ad4c';
+// Идентификаторы вида __xxx__ Firestore считает служебными и не даёт создавать
+const SUPER_SECRET_ID = 'super-account';
+
+// Кастомный токен Firebase Auth с claims (role, hostelId) — фундамент перехода с
+// анонимного входа на реальную аутентификацию. НИКОГДА не бросает: при сбое
+// (напр. у сервис-аккаунта нет роли Token Creator) возвращает null, и клиент
+// остаётся на анонимной сессии — вход не ломается. Правила пока не требуют claims.
+async function mintClaimsToken(uid, role, hostelId) {
+    try {
+        return await admin.auth().createCustomToken(String(uid), {
+            hostellaRole: String(role || 'cashier'),
+            hostellaHostel: String(hostelId || ''),
+        });
+    } catch (e) {
+        console.error('[auth] createCustomToken failed:', e.message);
+        return null;
+    }
+}
+
+async function authenticateSuper(db, password, now, keys, states) {
+    const denied = () => new functions.https.HttpsError('permission-denied', 'Неверный логин или пароль');
+
+    const secretRef = db.doc(`${authBase()}/userSecrets/${SUPER_SECRET_ID}`);
+    const secretSnap = await secretRef.get();
+    const bySecret = secretSnap.exists && passwordLib.verifyAgainstSecret(password, secretSnap.data());
+
+    if (!bySecret) {
+        // Ожидаемый хеш — ТОЛЬКО из Secret Manager (SUPER_PASSWORD_HASH). Раньше при
+        // пустом env читался superPassHash из settings/appConfig, а он анонимно
+        // ЗАПИСЫВАЕМ — атакующий подставлял свой хеш, входил супером и перезаписывал
+        // секрет владельца (zero-to-super + лок-аут). Fallback на settings удалён.
+        const envHash = String(process.env.SUPER_PASSWORD_HASH || '').trim().toLowerCase();
+        if (!envHash || envHash === KNOWN_DEFAULT_SUPER_HASH) {
+            if (secretSnap.exists) {
+                await noteFailure(db, keys, states, now);
+                throw denied();
+            }
+            throw new functions.https.HttpsError(
+                'failed-precondition',
+                'Супер-аккаунт не настроен: задайте секрет SUPER_PASSWORD_HASH (firebase functions:secrets:set) и привяжите к функции.',
+            );
+        }
+        if (!passwordLib.verifyLegacy(password, envHash)) {
+            await noteFailure(db, keys, states, now);
+            throw denied();
+        }
+        const secret = passwordLib.hashPassword(password);
+        await secretRef.set({ ...secret, updatedAt: new Date().toISOString() });
+    }
+
+    await noteSuccess(db, keys);
+    const customToken = await mintClaimsToken(SUPER_SECRET_ID, 'super', 'all');
+    return { user: { id: SUPER_SECRET_ID, name: 'Super Admin', login: SUPER_LOGIN, role: 'super', hostelId: 'all' }, customToken };
+}
+
+/**
+ * Немедленный алерт владельцу о серверной ошибке.
+ * Раньше сбои функций уходили только в логи Cloud Console — владелец о них
+ * не узнавал вовсе. Шлём напрямую в Telegram, без очередей и БД-посредников.
+ * Дедупликация: одинаковая ошибка не чаще раза в 10 минут (счётчик в authThrottle).
+ */
+async function alertOwnerError(context, err, extra = {}) {
+    try {
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (!botToken) return;
+
+        const db = authDb();
+        const cfgSnap = await db.doc(`${authBase()}/settings/appConfig`).get();
+        const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+        if (cfg.errorAlertsEnabled === false) return;
+        const chatId = String(cfg.errorAlertChatId || process.env.ERROR_ALERT_CHAT_ID || '').trim();
+        if (!chatId) return;
+
+        const message = String(err?.message || err || 'неизвестная ошибка').slice(0, 400);
+        const gate = await rateLimit('srverr_' + context + '_' + message.slice(0, 40), 1, 10 * 60 * 1000);
+        if (!gate.allowed) return;   // о той же ошибке уже сообщили
+
+        const lines = [
+            '🛑 <b>Ошибка на сервере</b>',
+            `📍 ${escTgHtml(context)}`,
+            `💬 ${escTgHtml(message)}`,
+        ];
+        Object.entries(extra).forEach(([k, v]) => {
+            if (v !== undefined && v !== null && v !== '') lines.push(`${escTgHtml(k)}: ${escTgHtml(String(v).slice(0, 120))}`);
+        });
+        lines.push(`🕒 ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Tashkent' })}`);
+
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: lines.join(String.fromCharCode(10)), parse_mode: 'HTML' }),
+        });
+    } catch (e) {
+        console.warn('[alertOwnerError] не доставлено:', e.message);
+    }
+}
+
+/**
+ * Лимит частоты для публичных точек входа (без авторизации).
+ * Считаем по ключу в той же коллекции authThrottle, что и попытки входа:
+ * она закрыта правилами, поэтому счётчик нельзя обнулить с клиента.
+ * Возвращает { allowed, retryAfterSec }.
+ */
+async function rateLimit(key, maxPerWindow, windowMs) {
+    try {
+        const db = authDb();
+        const ref = throttleRef(db, key);
+        const now = Date.now();
+        return await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            const cur = snap.exists ? snap.data() : null;
+            const startedAt = Number(cur?.firstFailAt) || 0;
+            const hits = Number(cur?.fails) || 0;
+            if (!startedAt || now - startedAt > windowMs) {
+                tx.set(ref, { fails: 1, firstFailAt: now, lockedUntil: 0 });
+                return { allowed: true, retryAfterSec: 0 };
+            }
+            if (hits >= maxPerWindow) {
+                return { allowed: false, retryAfterSec: Math.ceil((startedAt + windowMs - now) / 1000) };
+            }
+            tx.set(ref, { fails: hits + 1, firstFailAt: startedAt, lockedUntil: 0 });
+            return { allowed: true, retryAfterSec: 0 };
+        });
+    } catch (e) {
+        // Сбой счётчика не должен ронять рабочую операцию
+        console.warn('[rateLimit] skipped:', e.message);
+        return { allowed: true, retryAfterSec: 0 };
+    }
+}
+
+exports.authenticateUser = functions.https.onCall(async (data, context) => {
+    const login = String(data?.login || '').trim();
+    const password = String(data?.password || '');
+    if (!login || !password) {
+        throw new functions.https.HttpsError('invalid-argument', 'Введите логин и пароль');
+    }
+
+    const db = authDb();
+    const now = Date.now();
+    const keys = [`login_${login.toLowerCase()}`, callerIp(context)];
+    const states = await assertNotThrottled(db, keys, now);
+
+    // Один и тот же ответ для «нет такого логина» и «неверный пароль» —
+    // иначе перебором можно собрать список действующих логинов.
+    const denied = () => new functions.https.HttpsError('permission-denied', 'Неверный логин или пароль');
+
+    if (login.toLowerCase() === SUPER_LOGIN.toLowerCase()) {
+        return authenticateSuper(db, password, now, keys, states);
+    }
+
+    const usersSnap = await db.collection(`${authBase()}/users`).get();
+    const userDoc = usersSnap.docs.find(d => String(d.data()?.login || '').toLowerCase() === login.toLowerCase());
+
+    if (!userDoc) {
+        await noteFailure(db, keys, states, now);
+        throw denied();
+    }
+
+    const userData = userDoc.data();
+    const secretSnap = await db.doc(`${authBase()}/userSecrets/${userDoc.id}`).get();
+    const secretData = secretSnap.exists ? secretSnap.data() : null;
+    const { match, needsUpgrade } = passwordLib.verifyPassword(password, {
+        secret: secretData,
+        // Легаси-хеш: сначала из ЗАКРЫТОЙ userSecrets.legacyPass (аноним её не
+        // читает), затем — из users.pass (свежесозданные до первого входа).
+        legacyPass: (secretData && secretData.legacyPass) || userData.pass,
+    });
+
+    if (!match) {
+        await noteFailure(db, keys, states, now);
+        throw denied();
+    }
+
+    if (needsUpgrade) {
+        const secret = passwordLib.hashPassword(password);
+        await db.doc(`${authBase()}/userSecrets/${userDoc.id}`)
+            .set({ ...secret, updatedAt: new Date().toISOString() });
+        // Самолечение: убираем читаемый легаси-хеш из users, чтобы аноним не мог
+        // его прочитать и перебрать по словарю. Любой pass исчезает при 1-м входе.
+        if (userData.pass !== undefined) {
+            try { await userDoc.ref.update({ pass: admin.firestore.FieldValue.delete() }); } catch (e) { /* ignore */ }
+        }
+    }
+
+    await noteSuccess(db, keys);
+
+    const { pass: _pass, ...safeUser } = userData;
+    const customToken = await mintClaimsToken(userDoc.id, safeUser.role, safeUser.hostelId);
+    return { user: { id: userDoc.id, ...safeUser }, customToken };
+});
+
+// ── Одноразовая миграция: убрать читаемый users.pass ──────────────────────────
+// Легаси-хеш users.pass лежал в анонимно читаемой коллекции users (sha256 слабых
+// паролей → вход админом за минуту). Переносим его в ЗАКРЫТУЮ userSecrets.legacyPass
+// и удаляем из users. Вход по легаси продолжает работать (authenticateUser читает
+// legacyPass из userSecrets). Идемпотентна и самозатухает: когда pass ни у кого не
+// осталось — no-op. Gated секретом ADMIN_STATS_PASSWORD в заголовке x-admin-secret.
+exports.migrateLegacyPass = functions
+    .runWith({ secrets: ['ADMIN_STATS_PASSWORD'] })
+    .https.onRequest(async (req, res) => {
+        const expected = process.env.ADMIN_STATS_PASSWORD || '';
+        const got = req.get('x-admin-secret') || '';
+        if (!expected || !safeEqual(got, expected)) { res.status(401).send('unauthorized'); return; }
+        const db = authDb();
+        const usersSnap = await db.collection(`${authBase()}/users`).get();
+        let moved = 0, cleared = 0, skipped = 0;
+        for (const d of usersSnap.docs) {
+            const data = d.data() || {};
+            if (data.pass === undefined || data.pass === null) { skipped++; continue; }
+            const secRef = db.doc(`${authBase()}/userSecrets/${d.id}`);
+            const secSnap = await secRef.get();
+            const sec = secSnap.exists ? secSnap.data() : {};
+            // Легаси-хеш кладём только если нет современного секрета и legacyPass ещё нет
+            if (!sec.hash && sec.legacyPass === undefined) {
+                await secRef.set({ legacyPass: String(data.pass) }, { merge: true });
+                moved++;
+            }
+            await d.ref.update({ pass: admin.firestore.FieldValue.delete() });
+            cleared++;
+        }
+        res.json({ ok: true, moved, cleared, skipped, total: usersSnap.size });
+    });
+
+/**
+ * Установить пароль пользователя. Право: сам пользователь либо admin/super
+ * (роль проверяется по базе, а не по тому, что прислал клиент).
+ */
+exports.setUserPassword = functions.https.onCall(async (data, context) => {
+    const targetId = String(data?.userId || '').trim();
+    const newPassword = String(data?.newPassword || '');
+    const actorLogin = String(data?.actorLogin || '').trim();
+    const actorPassword = String(data?.actorPassword || '');
+
+    if (!targetId || newPassword.length < 6) {
+        throw new functions.https.HttpsError('invalid-argument', 'Пароль слишком короткий (минимум 6 символов)');
+    }
+
+    const db = authDb();
+    const now = Date.now();
+    const keys = [`login_${actorLogin.toLowerCase()}`, callerIp(context)];
+    const states = await assertNotThrottled(db, keys, now);
+
+    // Кто просит — подтверждает себя своим же паролем (сессии на клиенте, доверять им нельзя)
+    const usersSnap = await db.collection(`${authBase()}/users`).get();
+    const actorDoc = usersSnap.docs.find(d => String(d.data()?.login || '').toLowerCase() === actorLogin.toLowerCase());
+    if (!actorDoc) {
+        await noteFailure(db, keys, states, now);
+        throw new functions.https.HttpsError('permission-denied', 'Не удалось подтвердить права');
+    }
+    const actorSecret = await db.doc(`${authBase()}/userSecrets/${actorDoc.id}`).get();
+    const actorOk = passwordLib.verifyPassword(actorPassword, {
+        secret: actorSecret.exists ? actorSecret.data() : null,
+        legacyPass: actorDoc.data().pass,
+    }).match;
+    if (!actorOk) {
+        await noteFailure(db, keys, states, now);
+        throw new functions.https.HttpsError('permission-denied', 'Не удалось подтвердить права');
+    }
+
+    const actorRole = actorDoc.data().role;
+    const isSelf = actorDoc.id === targetId;
+    if (!isSelf && actorRole !== 'admin' && actorRole !== 'super') {
+        throw new functions.https.HttpsError('permission-denied', 'Менять чужой пароль может только администратор');
+    }
+
+    const secret = passwordLib.hashPassword(newPassword);
+    await db.doc(`${authBase()}/userSecrets/${targetId}`)
+        .set({ ...secret, updatedAt: new Date().toISOString() });
+
+    await noteSuccess(db, keys);
+    return { ok: true };
+});
+
 // Admin Stats Password Verification
 // Secure password check for admin-stats.html
-exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
+exports.verifyAdminPassword = functions.runWith({ secrets: ['ADMIN_STATS_PASSWORD'] }).https.onCall(async (data, context) => {
     const submittedPassword = data?.password;
     const adminPassword = process.env.ADMIN_STATS_PASSWORD || 'NOT_SET';
 
@@ -545,10 +1007,22 @@ exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
         );
     }
 
+    // Тот же лимит попыток, что и на входе кассира — пароль статистики тоже подбираем не дадим
+    const db = authDb();
+    const now = Date.now();
+    // Per-IP ловит обычных, ГЛОБАЛЬНЫЙ ключ — тех, кто спуфит X-Forwarded-For
+    // (иначе ротацией XFF идёт безлимитный перебор единственного admin-пароля).
+    // Пароль один на всех, поэтому глобальный кап уместен; минорный DoS на
+    // owner-фичу — меньшее зло, чем открытый брутфорс.
+    const keys = ['adminStats_' + callerIp(context), 'adminStats'];
+    const states = await assertNotThrottled(db, keys, now);
+
     // Compare passwords (constant-time)
     if (safeEqual(submittedPassword, adminPassword)) {
+        await noteSuccess(db, keys);
         return { success: true, message: 'Password accepted' };
     } else {
+        await noteFailure(db, keys, states, now);
         throw new functions.https.HttpsError(
             'permission-denied',
             'Invalid password'
@@ -586,13 +1060,15 @@ exports.getFreeBeds = functions
     if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
 
     // --- Проверка API-ключа ---
-    const apiKey = req.query.key || req.headers['x-api-key'];
+    // Только из заголовка: ключ в query-строке (?key=…) утекал бы в логи доступа,
+    // Referer и прокси. Сравнение — константного времени (safeEqual).
+    const apiKey = req.headers['x-api-key'] || '';
     const validKey = process.env.N8N_API_KEY;
     if (!validKey || validKey === 'NOT_SET') {
         res.status(503).json({ ok: false, error: 'API key not configured on server' });
         return;
     }
-    if (!apiKey || apiKey !== validKey) {
+    if (!apiKey || !safeEqual(apiKey, validKey)) {
         res.status(401).json({ ok: false, error: 'Invalid or missing API key' });
         return;
     }
@@ -701,7 +1177,7 @@ const { v1: firestoreV1 } = require("@google-cloud/firestore");
 const firestoreAdminClient = new firestoreV1.FirestoreAdminClient();
 
 exports.scheduledFirestoreBackup = functions
-  .runWith({ memory: "256MB", timeoutSeconds: 540 })
+  .runWith({ memory: '256MB', timeoutSeconds: 540, secrets: ['TELEGRAM_BOT_TOKEN'] })
   .pubsub.schedule("0 4 * * *")
   .timeZone("Asia/Tashkent")
   .onRun(async () => {
@@ -727,6 +1203,9 @@ exports.scheduledFirestoreBackup = functions
       return response;
     } catch (err) {
       console.error("❌ Firestore backup failed:", err);
+      // Молчаливый сбой бэкапа — самый опасный: о нём узнают, только когда
+      // понадобится восстановление. Сообщаем сразу.
+      await alertOwnerError('Автобэкап Firestore не выполнен', err);
       throw err;
     }
   });
@@ -748,22 +1227,15 @@ async function tgAnswerCallback(botToken, cbId, text) {
   } catch (e) { console.error('answerCallbackQuery', e.message); }
 }
 
-// Токен бота одобрения цены: настраиваемый в приложении (settings/appConfig.priceBotToken),
-// с fallback на общий TELEGRAM_BOT_TOKEN. Используется и для отправки, и для вебхука.
 async function getPriceBotToken() {
-  let token = process.env.TELEGRAM_BOT_TOKEN;
-  try {
-    const { getFirestore } = require('firebase-admin/firestore');
-    const hostellaDb = getFirestore('hostella');
-    const APP_ID = 'hostella-multi-v4';
-    const snap = await hostellaDb.doc(`artifacts/${APP_ID}/public/data/settings/appConfig`).get();
-    const pbt = snap.exists ? (snap.data() || {}).priceBotToken : '';
-    if (pbt && String(pbt).trim()) token = String(pbt).trim();
-  } catch (e) { /* fallback на env */ }
-  return token;
+  // Токен бота одобрения цены — из Secret Manager (PRICE_BOT_TOKEN), fallback на
+  // общий TELEGRAM_BOT_TOKEN. Больше НЕ читается из Firestore settings: там его
+  // мог прочитать любой аноним (C5). Настраивается через Secret Manager, не в UI.
+  const pbt = String(process.env.PRICE_BOT_TOKEN || '').trim();
+  return pbt || process.env.TELEGRAM_BOT_TOKEN;
 }
 
-exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
+exports.sendPriceRequest = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Требуется авторизация');
   }
@@ -802,7 +1274,7 @@ exports.sendPriceRequest = functions.https.onCall(async (data, context) => {
   return { success: sent > 0, sent };
 });
 
-exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
+exports.telegramWebhook = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET'] }).https.onRequest(async (req, res) => {
   // Вебхук обрабатывает только pricereq-колбэки → используем токен бота цены.
   const botToken = await getPriceBotToken();
 
@@ -812,15 +1284,19 @@ exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
   // и приходит в заголовке X-Telegram-Bot-Api-Secret-Token.
   // Настройте env TELEGRAM_WEBHOOK_SECRET и пересоздайте вебхук с тем же secret_token.
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (expectedSecret) {
-    const gotSecret = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
-    if (gotSecret !== expectedSecret) {
-      console.warn('[telegramWebhook] rejected: bad secret token');
-      res.status(401).send('unauthorized');
-      return;
-    }
-  } else {
-    console.warn('[telegramWebhook] TELEGRAM_WEBHOOK_SECRET not set — webhook is UNPROTECTED');
+  // Fail-closed: без настроенного секрета вебхук НЕ обрабатывает запросы (иначе
+  // любой, зная URL, подделывал бы «одобрение» снижения цен). Сравнение —
+  // константного времени (safeEqual), чтобы не утекал секрет по таймингу.
+  if (!expectedSecret) {
+    console.error('[telegramWebhook] TELEGRAM_WEBHOOK_SECRET not set — refusing request');
+    res.status(503).send('webhook not configured');
+    return;
+  }
+  const gotSecret = req.get('X-Telegram-Bot-Api-Secret-Token') || '';
+  if (!safeEqual(gotSecret, expectedSecret)) {
+    console.warn('[telegramWebhook] rejected: bad secret token');
+    res.status(401).send('unauthorized');
+    return;
   }
 
   try {

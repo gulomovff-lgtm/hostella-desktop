@@ -1,30 +1,21 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { BedDouble, User, FileText, Phone, DollarSign, CreditCard, QrCode, Magnet, X, ChevronRight, CheckCircle2, Wallet, Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, ArrowRightLeft, AlertTriangle } from 'lucide-react';
+import { BedDouble, User, FileText, Phone, CreditCard, QrCode, Magnet, X, CheckCircle2, Wallet,
+         Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, AlertTriangle,
+         Cake, Globe, MapPin, Tag, CalendarDays, Moon, Banknote, Landmark, Signpost } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice } from '../../utils/pricing';
+import { recentStays } from '../../utils/guestStayHistory';
+import { dedupePeople } from '../../utils/clientMatch';
+import { sourceOptions, sourceOf, DEFAULT_SOURCE } from '../../utils/guestSource';
+import { getConfig } from '../../utils/appConfig';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 
 // --- Helpers ---
-const getStayDetails = (checkInDateTime, days) => {
-    const start = new Date(checkInDateTime);
-    const checkInHour = start.getHours();
-    if (checkInHour === 0) {
-        const end = new Date(start);
-        end.setDate(end.getDate() + parseInt(days));
-        end.setHours(12, 0, 0, 0);
-        return { start, end };
-    }
-    start.setHours(12, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + parseInt(days));
-    return { start, end };
-};
-
 /**
  * Auto-select price based on bed position and room bunk type.
  * Lower beds (1..ceil(cap/2)) -> prices.lower, upper -> prices.upper.
@@ -44,6 +35,21 @@ const getRoomPrice = (room, bedId) => {
 };
 
 const EXTRA_BED_ID = 'extra';
+
+/**
+ * Склонения. «31 лет» и «6 заезд» читаются как ошибка системы, а не как
+ * округление, и подрывают доверие к соседним числам — тем, что про деньги.
+ * Формы приходят из словаря: в узбекском склонения нет, и там все три
+ * значения совпадают.
+ */
+const plural = (n, one, few, many) => {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b === 1) return one;
+    if (b > 1 && b < 5) return few;
+    return many;
+};
 
 const isExtraBed = (bedId) => String(bedId || '').toLowerCase() === EXTRA_BED_ID;
 
@@ -104,14 +110,6 @@ const MODAL_STYLE = `
 `;
 
 // --- Sub-components ---
-const StepIndicator = ({ step, total }) => (
-    <div className="flex gap-2 mb-5">
-        {Array.from({ length: total }).map((_, i) => (
-            <div key={i} className="h-1.5 rounded-full flex-1 transition-all duration-300" style={{ background: i + 1 <= step ? '#0f9688' : '#e2e8f0' }}/>
-        ))}
-    </div>
-);
-
 const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon: Icon, rightElement, error, formatNumber }) => (
     <div className="space-y-1">
         {label && <label className={`text-xs font-bold uppercase ml-1 ${error ? 'text-rose-500' : 'text-slate-600'}`}>{label}{error && ' *'}</label>}
@@ -132,12 +130,13 @@ const SimpleInput = ({ label, value, onChange, type = "text", placeholder, icon:
 );
 
 // Дата через единый кастомный календарь приложения (как в бронированиях/отчётах)
-const DateField = ({ label, value, onChange, error, placeholder }) => (
+const DateField = ({ label, value, onChange, error, placeholder, lang = 'ru' }) => (
     <div className="space-y-1">
         {label && <label className={`text-xs font-bold uppercase ml-1 ${error ? 'text-rose-500' : 'text-slate-600'}`}>{label}{error && ' *'}</label>}
         <DatePicker
             value={value}
             onChange={onChange}
+            lang={lang}
             placeholder={placeholder || 'дд.мм.гггг'}
             className={`w-full bg-white border rounded-xl py-2.5 px-3 font-medium text-slate-800 shadow-sm transition-all ${error ? 'border-rose-400 ring-2 ring-rose-200 bg-rose-50' : 'border-slate-200'}`}
         />
@@ -177,18 +176,47 @@ const cyrToLat = (str) => str.toUpperCase().split('').map(ch => {
 }).join('');
 
 // --- Main Component ---
-const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
+const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, isFromBooking = false, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
     const t = (k) => TRANSLATIONS[lang][k];
 
-    const safeInitialRoom = initialRoom || (allRooms.length > 0 ? allRooms[0] : null);
-    const initialStep = (initialRoom && preSelectedBedId) ? 2 : 1;
-    const [step, setStep] = useState(initialStep);
+    /**
+     * Бронь с сайта/бота открывается без явной комнаты (handleAcceptBooking
+     * передаёт room: null), но сама запись знает, куда гость бронировал.
+     * Берём комнату и место из неё — иначе кассир выбирает заново то, что
+     * гость уже выбрал на сайте.
+     */
+    const bookingRoom = (!initialRoom && isFromBooking && initialClient?.roomId)
+        ? allRooms.find(r => r.id === initialClient.roomId) || null
+        : null;
+    const safeInitialRoom = initialRoom || bookingRoom || (allRooms.length > 0 ? allRooms[0] : null);
+    const initialBedId = preSelectedBedId
+        ? String(preSelectedBedId)
+        : (bookingRoom && initialClient?.bedId ? String(initialClient.bedId) : '');
+    /**
+     * Условия из брони: сутки, цена за ночь и тариф гость уже выбрал (и,
+     * возможно, оплатил залог под них). Без переноса окно открывалось с
+     * «1 сутки × цена комнаты» и кассир восстанавливал условия по памяти.
+     */
+    const bookingDays  = isFromBooking ? Math.max(0, parseInt(initialClient?.days) || 0) : 0;
+    const bookingPrice = isFromBooking
+        ? (parseInt(initialClient?.pricePerNight) || (bookingDays > 0 ? Math.round((parseInt(initialClient?.totalPrice) || 0) / bookingDays) : 0))
+        : 0;
+    /**
+     * Раскрыт ли выбор места.
+     *
+     * Открыт, только если места ещё нет: окно позвали кнопкой «Заселить»,
+     * а не нажатием на койку в сетке комнат. Во втором случае место уже
+     * известно, и держать под него треть окна незачем.
+     */
+    const [bedPickerOpen, setBedPickerOpen] = useState(!initialBedId);
+    /** Время открытия окна — для подписи в подвале. */
+    const [openedAt] = useState(() => new Date());
 
     const [formData, setFormData] = useState({
         roomId: safeInitialRoom?.id || '',
         roomNumber: safeInitialRoom?.number || '',
-        bedId: preSelectedBedId ? String(preSelectedBedId) : '',
-        pricePerNight: getRoomPrice(safeInitialRoom, preSelectedBedId ? String(preSelectedBedId) : ''),
+        bedId: initialBedId,
+        pricePerNight: bookingPrice > 0 ? String(bookingPrice) : getRoomPrice(safeInitialRoom, initialBedId),
 
         fullName: initialClient?.fullName || '',
         passport: initialClient?.passport || '',
@@ -197,10 +225,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         kppDate: initialClient?.kppDate || '',
         birthDate: initialClient?.birthDate || '',
         phone: initialClient?.phone || '',
+        // Откуда гость: у брони с сайта/бота выводится из записи (sourceOf),
+        // у обычного заселения — «с улицы». Разбор словаря — utils/guestSource.js.
+        source: sourceOf(initialClient, getConfig().guestSources),
 
         checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
-        days: 1,
-        tariff: 'standard', // 'standard' | 'package' (пакет 65000, от 10 дней, невозвратный)
+        days: bookingDays > 0 ? bookingDays : 1,
+        tariff: (isFromBooking && initialClient?.nonRefundable) ? 'package' : 'standard', // 'standard' | 'package' (пакет, от N дней, невозвратный)
 
         paidCash: '',
         paidCard: '',
@@ -219,6 +250,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
 
+    /** Список «Откуда гость» из настроек; уже записанный источник остаётся, даже если его скрыли. */
+    const srcOptions = useMemo(() => sourceOptions(getConfig().guestSources, lang, formData.source), [lang, formData.source]);
+
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [errors, setErrors] = useState({});
@@ -234,16 +268,33 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const [usdInputs, setUsdInputs] = useState({ paidCash: '', paidCard: '', paidQR: '' });
     const [manualRate, setManualRate] = useState('');
     const [clientBalance, setClientBalance] = useState(0);
+    /**
+     * Карточка клиента целиком — ради истории визитов.
+     *
+     * Раньше из неё брался только баланс, а `visits` и `lastVisit`
+     * пропадали: касса не показывала, что перед ней постоянный гость,
+     * хотя база это знает.
+     */
+    const [clientCard, setClientCard] = useState(null);
 
     // Подтягиваем баланс клиента при каждом изменении паспорта (включая initialClient, скан, ручной ввод)
     useEffect(() => {
         const passport = formData.passport?.replace(/\s/g, '').toUpperCase();
-        if (!passport || passport.length < 5) { setClientBalance(0); return; }
+        if (!passport || passport.length < 5) {
+            setClientBalance(0);
+            setClientCard(null);
+            setFormData(p => ({ ...p, paidBalance: 0 }));
+            return;
+        }
         const found = clientsDb.find(c => c.passport && c.passport.replace(/\s/g, '').toUpperCase() === passport);
         const bal = found?.balance || 0;
         setClientBalance(bal);
-        // Сбрасываем ранее применённый баланс если клиент изменился
-        setFormData(p => ({ ...p, paidBalance: 0 }));
+        setClientCard(found || null);
+        // Применялся при переходе со второго шага на третий. Шагов нет —
+        // применяем там же, где баланс и узнаётся: касса всё равно зачитывала
+        // его целиком, просто на два нажатия позже.
+        setFormData(p => ({ ...p, paidBalance: bal > 0 ? bal : 0,
+            ...(bal > 0 ? { paidCash: '', paidCard: '', paidQR: '' } : {}) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formData.passport]);
 
@@ -264,7 +315,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     birthDate: result.birthDate || p.birthDate,
                     country:   result.country   || p.country,
                 }));
-                notify('\u2705 Паспорт считан', 'success');
+                notify(t('passportScanned'), 'success');
             }
         }
         setScanMode(false);
@@ -307,13 +358,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     birthDate: result.birthDate || p.birthDate,
                     country:   result.country   || p.country,
                 }));
-                notify('\u2705 Данные из фото извлечены', 'success');
+                notify(t('dataFromPhoto'), 'success');
             } else {
-                notify('\u{1F4F7} Фото сохранено', 'success');
+                notify(t('photoSaved'), 'success');
             }
         } catch (err) {
             console.warn('OCR error:', err);
-            notify('\u{1F4F7} Фото сохранено', 'success');
+            notify(t('photoSaved'), 'success');
         } finally {
             if (worker) await worker.terminate().catch(() => {});
             setOcrLoading(false);
@@ -324,11 +375,49 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const usdRate = rates?.USD?.rate || 0;
     const effectiveRate = (parseInt(manualRate) > 0 ? parseInt(manualRate) : usdRate);
 
+    /**
+     * Запись, которую прямо сейчас превращают в заселение.
+     *
+     * При заселении по брони сама эта бронь лежит в списке гостей — и
+     * попадает в поиск «кто заезжает на это место следующим». Окно
+     * предупреждало о том самом человеке, которого кассир заселяет:
+     * «через 0 дн. на это место заезжает …, уменьшите количество дней
+     * до 0». Совет невыполним, а испуг настоящий.
+     *
+     * Своя запись конкурентом за койку не является — исключаем её везде,
+     * где список гостей просматривают на занятость.
+     */
+    const selfGuestId = initialClient?.id || null;
+    const otherGuests = useMemo(
+        () => (selfGuestId ? guests.filter(g => g.id !== selfGuestId) : guests),
+        [guests, selfGuestId],
+    );
+
     const totalPrice = (parseInt(formData.days) || 0) * (parseInt(formData.pricePerNight) || 0);
     const appliedBalance = formData.paidBalance || 0;
     const totalPaid = (parseInt(formData.paidCash) || 0) + (parseInt(formData.paidCard) || 0) + (parseInt(formData.paidQR) || 0) + (parseInt(formData.paidTransfer) || 0) + (parseInt(formData.paidBalance) || 0);
     const effectiveTotal = Math.max(0, totalPrice - appliedBalance);
-    const balance = effectiveTotal - totalPaid;
+    /**
+     * Деньги, РЕАЛЬНО принятые в кассу, — без зачтённого баланса.
+     *
+     * Здесь была ошибка, и стоила она денег. Остаток считался как
+     * `effectiveTotal - totalPaid`, но баланс клиента вычитался в ОБОИХ
+     * слагаемых: из цены (`effectiveTotal`) и внутри `totalPaid`, куда
+     * `paidBalance` входит. При цене 300 000 и балансе 100 000 окно
+     * показывало остаток 100 000 вместо 200 000 — кассир брал с гостя
+     * на сумму баланса меньше, чем нужно, и недостача всплывала
+     * на закрытии смены.
+     *
+     * Заметно это было только у клиентов с балансом, то есть
+     * у постоянных. Кнопка «вся сумма» при этом считала верно
+     * (`effectiveTotal - others`, без баланса) — то есть магнит
+     * и надпись рядом показывали разное.
+     *
+     * `totalPaid` остаётся прежним: в документ гостя пишется всё
+     * оплаченное, включая зачтённый баланс.
+     */
+    const collected = totalPaid - appliedBalance;
+    const balance = effectiveTotal - collected;
 
     // Конвертация для USD-режима
     const fromDisplay = (val) => {
@@ -351,8 +440,119 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             setUsdInputs({ paidCash: '', paidCard: '', paidQR: '' });
         }
     };
-    const displayTotal = currencyMode === 'USD' && effectiveRate > 0 ? `${(totalPrice / effectiveRate).toFixed(2)} USD` : `${totalPrice.toLocaleString()} сум`;
-    const displayBalance = currencyMode === 'USD' && effectiveRate > 0 ? `${(balance / effectiveRate).toFixed(2)} USD` : `${balance.toLocaleString()} сум`;
+    /** Способы оплаты. Порядок — по частоте в кассе, наличные первыми. */
+    const PAY_METHODS = [
+        { key: 'paidCash',     label: t('cash'),           Icon: Wallet,     usd: 'paidCash' },
+        { key: 'paidCard',     label: t('card'),           Icon: CreditCard, usd: 'paidCard' },
+        { key: 'paidQR',       label: t('qrTransfer'),     Icon: QrCode,     usd: 'paidQR'   },
+        // Перечисление принимают только в сумах — валюты ввода у него нет.
+        { key: 'paidTransfer', label: t('transferMethod'), Icon: Landmark,   usd: null       },
+    ];
+
+    /** Сколько раз гость уже жил — из карточки клиента. */
+    const visitCount = parseInt(clientCard?.visits, 10) || 0;
+
+    /**
+     * По сколько гость оставался в прошлые разы.
+     *
+     * Число визитов само по себе мало что даёт: постоянный гость обычно берёт
+     * один и тот же срок, и знать его — значит сразу понимать, сколько суток
+     * ставить. Считаем по фактическим датам выезда, а не по оформленному сроку.
+     */
+    const pastStays = useMemo(
+        () => recentStays(guests, { passport: formData.passport, excludeId: selfGuestId, limit: 3 }),
+        [guests, formData.passport, selfGuestId],
+    );
+
+    /**
+     * Ярус и вместимость выбранного места. Ярус называется, только если
+     * в комнате две цены: в одноместной «нижний ярус» — выдумка.
+     */
+    const bedDetail = useMemo(() => {
+        const room = allRooms.find(r => r.id === formData.roomId);
+        if (!room) return '';
+        const cap = parseInt(room.capacity) || 0;
+        const parts = [];
+        if (formData.bedId && !isExtraBed(formData.bedId) && cap > 1) {
+            const upper = parseInt(room.prices?.upper);
+            const lower = parseInt(room.prices?.lower) || parseInt(room.price) || 0;
+            const n = parseInt(formData.bedId) || 0;
+            if (n && upper && upper !== lower) {
+                parts.push(n > Math.ceil(cap / 2) ? t('upperTier') : t('lowerTier'));
+            }
+        }
+        if (cap > 0) parts.push(t('capacityBeds').replace('{n}', cap));
+        return parts.join(' · ').toLowerCase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [allRooms, formData.roomId, formData.bedId, lang]);
+
+    /** Возраст гостя — паспорт с чужой датой видно сразу. */
+    const guestAge = useMemo(() => {
+        if (!formData.birthDate) return null;
+        const d = new Date(formData.birthDate);
+        if (Number.isNaN(d.getTime())) return null;
+        const now = new Date();
+        let a = now.getFullYear() - d.getFullYear();
+        const m = now.getMonth() - d.getMonth();
+        if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a -= 1;
+        return a >= 0 && a < 130 ? a : null;
+    }, [formData.birthDate]);
+
+    /**
+     * Сколько полей гостя заполнено. Число в заголовке графы отвечает
+     * на вопрос «всё ли я внёс», не заставляя перечитывать строки.
+     */
+    const guestFilled = useMemo(() => {
+        const vals = [formData.fullName, formData.passport, formData.birthDate,
+            formData.country, formData.phone];
+        // Дата КПП в счётчик не входит: её подставляет e-mehmon (см. kppRules).
+        if (formData.country && formData.country !== 'Узбекистан') {
+            vals.push(formData.passportIssueDate);
+        }
+        return { done: vals.filter(v => String(v ?? '').trim() !== '').length, total: vals.length };
+    }, [formData]);
+
+    /** Дата выезда — считается, а не вводится: два поля про одни сутки разойдутся. */
+    const checkOutPreview = useMemo(() => {
+        const d = new Date(formData.checkInDate);
+        if (Number.isNaN(d.getTime())) return '';
+        d.setDate(d.getDate() + (parseInt(formData.days) || 1));
+        return d.toLocaleDateString('ru-RU');
+    }, [formData.checkInDate, formData.days]);
+
+    /**
+     * Все проверки полей разом.
+     *
+     * Раньше они висели на кнопке «Далее» между вторым и третьим шагом.
+     * Шагов больше нет, а проверять по-прежнему надо. Собраны в одно место
+     * и показывают ВСЕ ошибки сразу: на одном экране это и естественно,
+     * и быстрее — кассир видит одним взглядом, что дозаполнить.
+     */
+    const validate = (status = 'active') => {
+        const errs = {};
+        if (!formData.fullName.trim()) errs.fullName = t('fieldRequired');
+        // Бронь — гость ещё не пришёл, паспорта и КПП на руках нет; всё это
+        // спросится при фактическом заселении (см. handleSubmit). В трёхшаговой
+        // анкете кнопка «Бронь» стояла до проверки документов, одноэкранный
+        // бланк требовал их со всех — и бронь стало невозможно оформить.
+        if (status !== 'booking') {
+            if (!formData.passport.trim()) errs.passport = t('fieldRequired');
+            if (!formData.birthDate) errs.birthDate = t('fieldRequired');
+            // Дата КПП НЕ обязательна: её берёт из госбазы авто-регистрация, а
+            // введённую вручную сверяет и при расхождении исправляет. Оставлена
+            // на бланке для случая, когда кассир видит штамп и хочет записать сразу.
+            if (formData.country && formData.country !== 'Узбекистан') {
+                if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
+            }
+        }
+        if (formData.tariff === 'package') {
+            if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) errs.days = t('minDaysError').replace('{days}', PACKAGE_MIN_DAYS);
+        } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
+            errs.pricePerNight = t('minSumOrApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString());
+        }
+        return errs;
+    };
+
 
     const rentalConflict = useMemo(() => {
         if (!formData.roomId || !formData.checkInDate) return null;
@@ -381,13 +581,25 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         // Гость со статусом active, заехавший сегодня (даже если расчётный час 14:00 ещё
         // не настал при раннем заезде), уже занимает кровать.
         const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
-        const occupiedIds = guests
-            .filter(g => g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday)
+        const debtOf = (g) => Math.max(0, (parseInt(g.totalPrice) || 0) -
+            (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0))));
+        const arrived = otherGuests.filter(g =>
+            g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday);
+        // Текущие жильцы (срок не вышел) — койка занята
+        const occupants = {};
+        arrived
             .filter(g => { const out = new Date(g.checkOutDate); return !g.checkOutDate || now < out; })
-            .map(g => String(g.bedId));
+            .forEach(g => { occupants[String(g.bedId)] = g; });
+        // «Просроченные»: срок вышел, но гость НЕ выселен (возможно ещё в койке / не оплатил).
+        // Койка формально свободна, но кассир должен это ВИДЕТЬ перед подтверждением брони.
+        const expired = {};
+        arrived
+            .filter(g => g.checkOutDate && now >= new Date(g.checkOutDate) && !occupants[String(g.bedId)])
+            .forEach(g => { expired[String(g.bedId)] = g; });
+        const shortName = (g) => (g?.fullName || '').split(' ')[0] || '';
         return Array.from({ length: room.capacity || 0 }, (_, i) => {
             const id = String(i + 1);
-            const nextConflict = guests
+            const nextConflict = otherGuests
                 .filter(g =>
                     g.roomId === formData.roomId &&
                     String(g.bedId) === id &&
@@ -398,15 +610,28 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             const maxFreeDays = nextConflict
                 ? Math.max(0, Math.floor((new Date(nextConflict.checkInDate) - checkIn) / (1000 * 60 * 60 * 24)))
                 : null;
+            const occ = occupants[id] || null;
+            const exp = expired[id] || null;
             return {
                 id,
-                isOccupied: occupiedIds.includes(id),
+                isOccupied: !!occ,
+                occupantName: shortName(occ),
+                occupantDebt: occ ? debtOf(occ) : 0,
+                // Просроченный «жилец»: койка выбирается, но с предупреждением
+                expiredName: shortName(exp),
+                expiredDebt: exp ? debtOf(exp) : 0,
+                expiredSince: exp?.checkOutDate || null,
                 maxFreeDays,
                 nextGuestName: nextConflict?.fullName || null,
                 nextGuestDate: nextConflict?.checkInDate || null,
             };
         });
-    }, [formData.roomId, formData.checkInDate, guests, allRooms]);
+    }, [formData.roomId, formData.checkInDate, otherGuests, allRooms]);
+
+    /** Выбранное место — из уже посчитанного списка коек. Объявлено здесь,
+        а не выше: `availableBeds` считается ниже по файлу, и обращение
+        к нему раньше — обращение к переменной до её инициализации. */
+    const selectedBed = availableBeds.find(b => b.id === formData.bedId) || null;
 
     const bedConflict = useMemo(() => {
         if (!formData.bedId || isExtraBed(formData.bedId)) return null;
@@ -463,8 +688,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const requestPriceApproval = async () => {
         if (!onCheckinPriceRequest) return;
         const price = parseInt(formData.pricePerNight) || 0;
-        if (price <= 0) { notify('Укажите желаемую цену', 'error'); return; }
-        if (!formData.fullName.trim()) { notify('Сначала укажите ФИО гостя', 'error'); return; }
+        if (price <= 0) { notify(t('enterDesiredPrice'), 'error'); return; }
+        if (!formData.fullName.trim()) { notify(t('enterGuestNameFirst'), 'error'); return; }
         setPriceReqSending(true);
         setPriceReqStatus('pending');
         try {
@@ -498,16 +723,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 // Если в тексте есть кирилица - пробуем перекладку по QWERTY
                 const hasCyrillic = /[а-яё]/i.test(term);
                 const termLat = hasCyrillic ? cyrToLat(term).toLowerCase() : null;
-                const seen = new Set();
-                const matches = clients.filter(c => {
-                    if (seen.has(c.passport)) return false;
+                // Подсказки берутся из истории заездов, а там одна запись на каждый
+                // заезд: постоянный гость показывался столько раз, сколько жил.
+                // Свёртка шла по сырому паспорту, поэтому «AD1830757» и «AD 1830757»
+                // считались разными, а запись без паспорта висела отдельной строкой
+                // рядом с полной. Теперь одна строка на человека, самая свежая.
+                const hits = clients.filter(c => {
                     const name = (c.fullName || '').toLowerCase();
                     const pass = (c.passport || '').toLowerCase();
-                    const hit = name.includes(term) || pass.includes(term)
+                    return name.includes(term) || pass.includes(term)
                         || (termLat && (name.includes(termLat) || pass.includes(termLat)));
-                    if (hit) seen.add(c.passport);
-                    return hit;
-                }).slice(0, 5);
+                });
+                const matches = dedupePeople(hits).slice(0, 5);
                 setSuggestions(matches);
                 setShowSuggestions(true);
             } else {
@@ -576,14 +803,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 // Пропускаем текущее выбранное место
                 if (room.id === formData.roomId && bedId === formData.bedId) continue;
                 // Есть ли активный жилец
-                const hasActive = guests.some(g =>
+                const hasActive = otherGuests.some(g =>
                     g.roomId === room.id && String(g.bedId) === bedId &&
                     g.status === 'active' && new Date(g.checkInDate) <= now &&
                     (!g.checkOutDate || new Date(g.checkOutDate) > checkIn)
                 );
                 if (hasActive) continue;
                 // Есть ли перекрывающая бронь
-                const conflict = guests.find(g =>
+                const conflict = otherGuests.find(g =>
                     g.roomId === room.id && String(g.bedId) === bedId &&
                     (g.status === 'booking' || g.status === 'active') &&
                     new Date(g.checkInDate) < checkOut &&
@@ -595,22 +822,44 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             }
         }
         return results.slice(0, 6); // не более 6 вариантов
-    }, [allRooms, guests, formData.roomId, formData.bedId, formData.checkInDate, formData.days]);
+    }, [allRooms, otherGuests, formData.roomId, formData.bedId, formData.checkInDate, formData.days]);
 
     const handleSubmit = async (status) => {
         if (isSubmitting) return;
+        if (!formData.bedId) { notify(t('selectBedFirst'), 'error'); return; }
+        const errs = validate(status);
+        if (Object.keys(errs).length > 0) {
+            setErrors(errs);
+            notify(t('fillAllFields'), 'error');
+            return;
+        }
+        setErrors({});
         if (!formData.fullName || !formData.roomId || !formData.bedId) {
             notify(t('fillAllFields'), 'error');
             return;
         }
+        // Бронь с сайта/бота приходит без паспорта. При ФАКТИЧЕСКОМ заселении (гость
+        // пришёл) паспортные данные обязательны — просим дополнить.
+        if (status === 'active' && isFromBooking) {
+            const pass = (formData.passport || '').replace(/\s/g, '');
+            if (pass.length < 5 || !formData.birthDate) {
+                // Раньше здесь стоял возврат на второй шаг. Шагов нет —
+                // поле паспорта и так на экране, достаточно подсветить.
+                setErrors(e => ({ ...e,
+                    passport: pass.length < 5 ? t('completeGuestPassport') : '',
+                    birthDate: !formData.birthDate ? t('enterBirthDateMsg') : '' }));
+                notify(t('bookingCompletePassportMsg'), 'error');
+                return;
+            }
+        }
         // Правила тарифов (финальный контроль)
         if (formData.tariff === 'package') {
             if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) {
-                notify(`Пакетный тариф: минимум ${PACKAGE_MIN_DAYS} дней`, 'error');
+                notify(t('packageMinDaysError').replace('{days}', PACKAGE_MIN_DAYS), 'error');
                 return;
             }
         } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
-            notify(`Цена ниже ${MIN_NIGHT_PRICE.toLocaleString()} — нужно одобрение администратора`, 'error');
+            notify(t('priceBelowMinApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString()), 'error');
             return;
         }
         if (blacklistWarning?.level === 'blacklist') {
@@ -634,7 +883,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         // Защита от некорректной даты заезда (иначе toISOString() бросит RangeError и заселение молча провалится)
         const checkInBase = new Date(formData.checkInDate);
         if (isNaN(checkInBase.getTime())) {
-            notify('Укажите корректную дату заезда', 'error');
+            notify(t('enterValidCheckInDate'), 'error');
             return;
         }
         setIsSubmitting(true);
@@ -668,7 +917,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             });
         } catch (e) {
             console.error('[checkin]', e);
-            notify('Ошибка заселения: ' + (e?.message || e), 'error');
+            notify(t('checkinError').replace('{msg}', (e?.message || e)), 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -678,45 +927,135 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         <>
         <style>{MODAL_STYLE}</style>
         <div className="ci-backdrop modal-centered fixed inset-0 z-[200] flex items-center justify-center p-4 pb-[84px] sm:pb-4" style={{ background: 'rgba(15,30,32,0.7)' }}>
-            <div className="ci-card w-full max-w-2xl overflow-hidden flex flex-col relative" style={{ borderRadius: 24, boxShadow: '0 32px 80px rgba(0,0,0,0.35)', maxHeight: '95vh', background: '#fff' }}>
+            {/* ── ОКНО — БЛАНК, А НЕ АНКЕТА В ТРИ ШАГА ────────────────────
+                Шагов было три: койка, гость, оплата. Высота окна одна
+                на все три, под самый длинный, — и на коротких шагах
+                пустовала треть экрана. Плюс два нажатия «Далее» на каждое
+                заселение: при сорока за смену это восемьдесят нажатий,
+                и цена становилась видна только на третьем шаге.
 
-                <div style={{ background: '#1a3c40', padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ position: 'absolute', top: -40, right: 60, width: 130, height: 130, borderRadius: '50%', background: 'rgba(94,234,212,0.06)', pointerEvents: 'none' }}/>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                        <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(94,234,212,0.12)', border: '1px solid rgba(94,234,212,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <BedDouble size={18} color="#5eead4"/>
-                        </div>
-                        <div>
-                            <div style={{ color: 'rgba(158,205,208,0.55)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>{t('checkin')}</div>
-                            <div style={{ color: '#e2f7f8', fontSize: 14, fontWeight: 700, lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <span>{formData.roomNumber ? `${t('room')} ${formData.roomNumber}` : t('newCheckin')}</span>
-                                {formData.bedId && (
-                                    isExtraBed(formData.bedId) ? (
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', background: 'rgba(251,146,60,0.25)', borderRadius: 6 }}>
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" style={{ flexShrink: 0 }} aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
-                                            <span style={{ fontSize: 12 }}>Доп. гость</span>
-                                        </span>
-                                    ) : (
-                                        <span style={{ opacity: 0.7, fontSize: 12 }}>· {t('bed2')} {formData.bedId}</span>
-                                    )
-                                )}
-                            </div>
+                Теперь три графы рядом: кто, на каких условиях, за сколько.
+                Ширина выросла с 2xl до 7xl — содержимое уходит вбок,
+                а не вниз. Прокрутка оставлена страховкой: телефон боком
+                и увеличенный системный шрифт окно пережить обязано. */}
+            <div className="ci-card w-full max-w-7xl overflow-hidden flex flex-col relative"
+                 style={{ borderRadius: 14, boxShadow: '0 32px 80px rgba(0,0,0,0.35)',
+                          height: 'min(900px, 93dvh)' }}>
+
+                {/* ── ШАПКА ── */}
+                <div className="ci-head shrink-0 flex items-end gap-4 px-6 pt-3 pb-3">
+                    <div className="min-w-0">
+                        <h2 className="text-[19px] font-black leading-none tracking-tight">{t('checkinSheetTitle')}</h2>
+                        <div className="ci-head-sub mt-1.5 text-[11.5px] font-semibold truncate">
+                            {openedAt.toLocaleDateString('ru-RU')}
+                            {(currentUser?.name || currentUser?.login)
+                                && <> · {t('cashDeskShort')} {currentUser.name || currentUser.login}</>}
                         </div>
                     </div>
-                    <button onClick={onClose} style={{ background: 'rgba(94,234,212,0.1)', border: '1px solid rgba(94,234,212,0.15)', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#5eead4', display: 'flex' }}>
-                        <X size={16}/>
+                    <button onClick={onClose} aria-label={t('close')}
+                        className="ci-x ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+                        <X size={15}/>
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-6 py-6 bg-white">
-                    <StepIndicator step={step} total={3}/>
+                {/* ── ПОЛОСА МЕСТА ────────────────────────────────────────
+                    Выбор койки занимал шаг целиком ВСЕГДА — и тогда, когда
+                    выбирать уже нечего: кассир в девяти случаях из десяти
+                    открывает окно нажатием на койку в сетке комнат.
+                    Теперь это строка, и она же кнопка «сменить». */}
+                {formData.bedId && !bedPickerOpen && (
+                    <button type="button" onClick={() => setBedPickerOpen(true)}
+                        className="ci-bed shrink-0 flex w-full items-center gap-3 px-6 py-2.5 text-left">
+                        <span className="ci-bed-lb text-[9px] font-black uppercase tracking-[0.2em]">{t('bed2')}</span>
+                        <BedDouble size={16} className="shrink-0"/>
+                        <b className="text-[15px] font-black tracking-tight">
+                            {t('room')} {formData.roomNumber}
+                            <span> · </span>
+                            {isExtraBed(formData.bedId) ? t('extraGuest') : `${t('bed2')} ${formData.bedId}`}
+                        </b>
+                        {bedDetail && <span className="ci-bed-lb text-[11.5px] font-medium">{bedDetail}</span>}
+                        <span className="ci-bed-pr ml-auto text-sm font-black tabular-nums">
+                            {(parseInt(formData.pricePerNight) || 0).toLocaleString()} {t('sumPerNight')}
+                        </span>
+                        <span className="ci-bed-chg px-2.5 py-1 text-[11px] font-bold">{t('changeBed')}</span>
+                    </button>
+                )}
 
-                    {/* Step 1: Choose room/bed */}
-                    {step === 1 && (
-                        <div className="space-y-6 animate-in slide-in-from-right duration-200">
-                            <div className="bg-white p-4 rounded-xl border" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
-                                <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase">{t('bedSelection')}</h3>
-                                <div className="mb-4">
+                {/* ── ПРЕДУПРЕЖДЕНИЯ ──────────────────────────────────────
+                    Полосами во всю ширину и над графами: всё, что кассир
+                    обязан увидеть ДО того, как продолжит. Внутри шага они
+                    оказывались ниже сгиба. */}
+                {isFromBooking && (formData.passport || '').replace(/\s/g, '').length < 5 && (
+                    <div className="ci-notice ci-info shrink-0"><i/>
+                        <div>{t('bookingNoPassportPre')} <b>{t('bookingCompletePassportBold')}</b> {t('bookingNoPassportPost')}</div>
+                    </div>
+                )}
+                {/* Иностранец на кассе: дату КПП подставит e-mehmon, вводить не обязательно */}
+                {formData.country && formData.country !== 'Узбекистан' && !!window.electronAPI?.emehmonPassportCheck && (
+                    <div className="ci-notice ci-info shrink-0"><i/>
+                        <div>{t('kppOptionalHint')}</div>
+                    </div>
+                )}
+                {blacklistWarning && (
+                    <div className={`ci-notice shrink-0 ${blacklistWarning.level === 'blacklist' ? 'ci-danger' : 'ci-warn'}`}><i/>
+                        <div>
+                            <b>{blacklistWarning.level === 'blacklist' ? t('blacklistLabel') : t('warningLabel')}</b>
+                            {' — '}{blacklistWarning.name}
+                            {': '}{blacklistWarning.level === 'blacklist' ? t('blacklistDesc') : t('warningGuestDesc')}
+                        </div>
+                        <button onClick={() => setBlacklistWarning(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100"><X size={13}/></button>
+                    </div>
+                )}
+                {isFromBooking && !initialClient?.depositMoved && (Number(initialClient?.amountPaid) || 0) > 0 && (
+                    <div className="ci-notice ci-ok shrink-0"><i/>
+                        <div><b>{t('bookingDeposit')} {Number(initialClient.amountPaid).toLocaleString()} {t('sum')}</b> — {t('depositAutoApplied')}</div>
+                    </div>
+                )}
+                {currentUser?.role === 'admin' && (
+                    <div className="ci-notice ci-warn shrink-0"><i/>
+                        <div><b>{t('adminNoPayment')}</b> — {t('adminNoPaymentSub')}</div>
+                    </div>
+                )}
+                {/* При нуле совет «уменьшите срок до 0» невыполним: заселить
+                    на ноль суток нельзя. Значит место занято с сегодняшнего
+                    дня, и делать надо другое — брать другое место. */}
+                {bedConflict && (
+                    <div className="ci-notice ci-warn shrink-0"><i/>
+                        <div>
+                            {bedConflict.maxDays > 0 ? (
+                                <><b>{t('conflictBannerTitle')}</b> — {t('conflictInDays')} {bedConflict.maxDays} {t('daysShort')}
+                                {' '}{t('conflictArrivesOnBed')} {bedConflict.guestName}. {t('conflictReduceDaysTo')} {bedConflict.maxDays}.</>
+                            ) : (
+                                <><b>{t('conflictBannerTitle')}</b> — {t('conflictTodayArrives').replace('{name}', bedConflict.guestName || '')}</>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {(() => {
+                    const sel = availableBeds.find(b => b.id === formData.bedId);
+                    if (!sel || sel.isOccupied || !sel.expiredName) return null;
+                    return (
+                        <div className="ci-notice ci-danger shrink-0"><i/>
+                            <div>
+                                <b>{t('expiredGuestOnBedTitle')}</b> — {sel.expiredName}{' '}
+                                {t('expiredWasCheckout').replace('{date}', new Date(sel.expiredSince).toLocaleDateString('ru'))}
+                                {sel.expiredDebt > 0 && <> {t('andConj')} {t('expiredNotPaid').replace('{n}', sel.expiredDebt.toLocaleString())}</>}.
+                                {' '}{t('expiredResolveFirst')}
+                            </div>
+                        </div>
+                    );
+                })()}
+
+                {/* Прокручивается середина: полоса прокрутки не должна
+                    уносить кнопку «Заселить» за нижний край. */}
+                <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+
+                    {/* ── ВЫБОР МЕСТА ── */}
+                    {(!formData.bedId || bedPickerOpen) && (
+                        <div className="shrink-0 px-6 pt-3 pb-1">
+                            <div className="lg:grid lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
+                                <div>
+                                    <div className="ci-cap mb-2">{t('bedSelection')}</div>
                                     <SimpleSelect
                                         label={t('room')}
                                         value={formData.roomId}
@@ -725,13 +1064,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                             const cfg = configuredNightPrice(r.hostelId, r.number);
                                             let priceStr;
                                             if (cfg != null) {
-                                                priceStr = `${cfg.toLocaleString()} сум`;
+                                                priceStr = `${cfg.toLocaleString()} ${t('sum')}`;
                                             } else {
                                                 const lower = parseInt(r.prices?.lower) || parseInt(r.price) || 0;
                                                 const upper = parseInt(r.prices?.upper);
                                                 priceStr = upper && upper !== lower
-                                                    ? `↓${lower.toLocaleString()} / ↑${upper.toLocaleString()} сум`
-                                                    : `${lower.toLocaleString()} сум`;
+                                                    ? `↓${lower.toLocaleString()} / ↑${upper.toLocaleString()} ${t('sum')}`
+                                                    : `${lower.toLocaleString()} ${t('sum')}`;
                                             }
                                             return { value: r.id, label: `№${r.number} · ${r.capacity} ${t('kpiBeds')} · ${priceStr}` };
                                         })}
@@ -748,44 +1087,62 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     const _hasTiers = _cfg == null && _pUp && _pUp !== _pLow && _cap > 1;
                                     const lowerBeds = availableBeds.filter(b => parseInt(b.id) <= _mid);
                                     const upperBeds = availableBeds.filter(b => parseInt(b.id) >  _mid);
-                                    const BedBtn = ({ bed }) => (
+                                    const BedBtn = ({ bed }) => {
+                                        const hasExpired = !bed.isOccupied && !!bed.expiredName;
+                                        const title =
+                                            bed.isOccupied ? `${t('bedOccupied').replace('{name}', bed.occupantName)}${bed.occupantDebt > 0 ? t('bedDebtPart').replace('{n}', bed.occupantDebt.toLocaleString()) : ''}` :
+                                            hasExpired ? `${t('bedExpiredTitle').replace('{name}', bed.expiredName).replace('{date}', new Date(bed.expiredSince).toLocaleDateString('ru'))}${bed.expiredDebt > 0 ? t('bedExpiredUnpaid').replace('{n}', bed.expiredDebt.toLocaleString()) : ''}${t('bedExpiredSuffix')}` :
+                                            bed.maxFreeDays != null ? t('bedFreeDaysTitle').replace('{days}', bed.maxFreeDays).replace('{name}', bed.nextGuestName) :
+                                            t('bedPlaceTitle').replace('{id}', bed.id);
+                                        return (
                                         <button
                                             onClick={() => {
                                                 if (!bed.isOccupied) {
                                                     const price = getRoomPrice(_room, bed.id);
                                                     setFormData(prev => ({ ...prev, bedId: bed.id, pricePerNight: price }));
+                                                    setBedPickerOpen(false);
                                                 }
                                             }}
                                             disabled={bed.isOccupied}
-                                            title={
-                                                bed.isOccupied ? 'Занято' :
-                                                bed.maxFreeDays != null ? `Свободно ${bed.maxFreeDays} дн. — потом ${bed.nextGuestName}` :
-                                                `Место ${bed.id}`
-                                            }
-                                            className={`w-14 h-14 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all border-2
+                                            title={title}
+                                            className={`w-14 h-14 rounded-xl font-bold text-[10px] flex flex-col items-center justify-center gap-0 transition-all border-2 relative
                                                 ${formData.bedId === bed.id
                                                     ? 'bg-teal-600 text-white border-teal-600 shadow-md scale-105'
                                                     : bed.isOccupied
-                                                        ? 'bg-slate-100 text-slate-300 cursor-not-allowed border-slate-200'
-                                                        : bed.maxFreeDays != null
-                                                            ? 'bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-500 hover:bg-amber-100'
-                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-600'
+                                                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                                                        : hasExpired
+                                                            ? 'bg-rose-50 text-rose-700 border-rose-300 hover:border-rose-500 hover:bg-rose-100'
+                                                            : bed.maxFreeDays != null
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-500 hover:bg-amber-100'
+                                                                : 'bg-white text-slate-600 border-slate-200 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-600'
                                                 }`}>
-                                            <BedDouble size={15}/>
-                                            <span>{bed.id}</span>
-                                            {bed.maxFreeDays != null && !bed.isOccupied && (
-                                                <span className="text-[8px] font-black leading-none">{bed.maxFreeDays}дн</span>
+                                            {/* Индикатор долга у текущего/просроченного жильца */}
+                                            {((bed.isOccupied && bed.occupantDebt > 0) || (hasExpired && bed.expiredDebt > 0)) && (
+                                                <span className="absolute -top-1.5 -right-1.5 text-[10px] leading-none" title={t('hasDebtTitle')}>💰</span>
+                                            )}
+                                            <BedDouble size={13}/>
+                                            <span className="text-xs font-bold leading-tight">{bed.id}</span>
+                                            {bed.isOccupied && (
+                                                <span className="text-[7px] font-black leading-none truncate max-w-[52px] px-0.5">{bed.occupantName}</span>
+                                            )}
+                                            {hasExpired && (
+                                                <span className="text-[7px] font-black leading-none truncate max-w-[52px] px-0.5">⏰{bed.expiredName}</span>
+                                            )}
+                                            {bed.maxFreeDays != null && !bed.isOccupied && !hasExpired && (
+                                                <span className="text-[8px] font-black leading-none">{bed.maxFreeDays}{t('daysShort')}</span>
                                             )}
                                         </button>
-                                    );
+                                        );
+                                    };
                                     return (
-                                        <div className="space-y-3 mt-1">
+                                        <div className="space-y-3 mt-3 lg:mt-0">
                                             {upperBeds.length > 0 && (
-                                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                                <div>
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">↑ {t('upperTier')}</span>
+                                                        <span className="text-[11px] font-black uppercase tracking-wider" style={{ color: 'var(--ci-ink-3)' }}>↑ {t('upperTier')}</span>
                                                         {_hasTiers && (
-                                                            <span className="text-[10px] font-bold text-violet-600 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-md">
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                                                                  style={{ color: 'var(--ci-info-ink)', background: 'rgba(79,70,229,.1)' }}>
                                                                 {_pUp.toLocaleString()} {t('sumPerNight')}
                                                             </span>
                                                         )}
@@ -796,12 +1153,13 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 </div>
                                             )}
                                             {lowerBeds.length > 0 && (
-                                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                                <div>
                                                     <div className="flex items-center gap-2 mb-2">
-                                                        <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">↓ {t('lowerTier')}</span>
+                                                        <span className="text-[11px] font-black uppercase tracking-wider" style={{ color: 'var(--ci-ink-3)' }}>↓ {t('lowerTier')}</span>
                                                         {_hasTiers && (
-                                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md">
-                                                                {_pLow.toLocaleString()} сум/ночь
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                                                                  style={{ color: 'var(--ci-accent-ink)', background: 'rgba(15,150,136,.12)' }}>
+                                                                {_pLow.toLocaleString()} {t('sumPerNight')}
                                                             </span>
                                                         )}
                                                     </div>
@@ -811,342 +1169,447 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 </div>
                                             )}
                                             {canSelectExtraBed && (
-                                                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
-                                                    <div className="flex items-center gap-1.5 text-[11px] font-black text-orange-700 uppercase tracking-wider mb-2">
-                                                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
-                                                        Доп. гость
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const price = getRoomPrice(_room, '');
+                                                        setFormData(prev => ({ ...prev, bedId: EXTRA_BED_ID, pricePerNight: price }));
+                                                        setBedPickerOpen(false);
+                                                    }}
+                                                    className={`w-full rounded-xl border-2 px-3 py-2 text-left transition-all ${
+                                                        isExtraBed(formData.bedId)
+                                                            ? 'bg-orange-500 text-white border-orange-500 shadow-md'
+                                                            : 'bg-white text-orange-700 border-orange-300 hover:bg-orange-100 hover:border-orange-400'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-1.5 font-bold text-sm">
+                                                        <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
+                                                        {t('onFloor')}
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const price = getRoomPrice(_room, '');
-                                                            setFormData(prev => ({ ...prev, bedId: EXTRA_BED_ID, pricePerNight: price }));
-                                                        }}
-                                                        className={`w-full rounded-xl border-2 px-3 py-2 text-left transition-all ${
-                                                            isExtraBed(formData.bedId)
-                                                                ? 'bg-orange-500 text-white border-orange-500 shadow-md'
-                                                                : 'bg-white text-orange-700 border-orange-300 hover:bg-orange-100 hover:border-orange-400'
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center gap-1.5 font-bold text-sm">
-                                                            <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><circle cx="5" cy="6" r="2.8"/><rect x="2" y="11" width="20" height="4" rx="2"/></svg>
-                                                            На полу
-                                                        </div>
-                                                        <div className={`text-xs mt-0.5 ${isExtraBed(formData.bedId) ? 'text-orange-100' : 'text-orange-600'}`}>
-                                                            {t('extraBedHint') || 'Временное размещение без свободной койки'}
-                                                        </div>
-                                                    </button>
-                                                </div>
+                                                    <div className={`text-xs mt-0.5 ${isExtraBed(formData.bedId) ? 'text-orange-100' : 'text-orange-600'}`}>
+                                                        {t('extraBedHint')}
+                                                    </div>
+                                                </button>
                                             )}
                                         </div>
                                     );
                                 })()}
                             </div>
-                            {/* Conflict warning after bed selection */}
-                            {bedConflict && (
-                                <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-2">
-                                    <span className="text-amber-500 text-lg shrink-0">⚠️</span>
-                                    <div>
-                                        <div className="font-black text-amber-700 text-sm">{t('conflictBannerTitle')}</div>
-                                        <div className="text-xs text-amber-600 mt-0.5">
-                                            {t('conflictInDays')} <b>{bedConflict.maxDays} {t('daysShort')}</b> {t('conflictArrivesOnBed')} <b>{bedConflict.guestName}</b>.
-                                            {t('conflictReduceDaysTo')} <b>{bedConflict.maxDays}</b>.
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     )}
 
-                    {/* Step 2: Guest data */}
-                    {step === 2 && (
-                        <div className="space-y-5 animate-in slide-in-from-right duration-200">
-                            {/* Blacklist / Warning banner */}
-                            {blacklistWarning && (
-                                <div className={`rounded-xl p-3 flex items-start gap-2 text-sm font-semibold ${blacklistWarning.level === 'blacklist' ? 'bg-rose-50 border border-rose-300 text-rose-700' : 'bg-amber-50 border border-amber-300 text-amber-700'}`}>
-                                    <span className="text-lg leading-none shrink-0">{blacklistWarning.level === 'blacklist' ? '🚫' : '⚠️'}</span>
-                                    <div>
-                                        <div className="font-black">{blacklistWarning.level === 'blacklist' ? t('blacklistLabel') : t('warningLabel')}</div>
-                                        <div className="text-xs font-medium mt-0.5">{blacklistWarning.name} — {blacklistWarning.level === 'blacklist' ? t('blacklistDesc') : t('warningGuestDesc')}</div>
-                                    </div>
-                                    <button onClick={() => setBlacklistWarning(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100"><X size={14}/></button>
-                                </div>
-                            )}
-                            {/* Scan + Photo buttons */}
-                            <div className="flex gap-2 flex-wrap">
+                    {/* ── ТРИ ГРАФЫ ── */}
+                    <div className="ci-sheet3 flex-1">
+
+                        {/* ───────────── I. ГОСТЬ ───────────── */}
+                        <div className="ci-col ci-col-a">
+                            <div className="ci-cap">
+                                {t('guestData')}
+                                {/[а-яёА-ЯЁ]/.test(formData.fullName) && (
+                                    <button type="button" className="ci-cap-act"
+                                        onClick={() => handleChange('fullName', cyrToLat(formData.fullName))}
+                                        title={t('translitTitle')}>{t('translitBtn')}</button>
+                                )}
+                                <span className="ci-cap-ct">
+                                    {t('filledOf').replace('{done}', guestFilled.done).replace('{total}', guestFilled.total)}
+                                </span>
+                            </div>
+
+                            {/* Сканер и снимок паспорта — те же, что были на шаге «Гость». */}
+                            <div className="flex gap-2 flex-wrap py-2">
                                 <button type="button"
                                     onClick={() => { setScanMode('usb'); setTimeout(() => scanInputRef.current?.focus(), 80); }}
-                                    className="flex items-center gap-1.5 px-3 py-2 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 rounded-lg text-xs font-bold transition-colors">
-                                    <ScanLine size={14}/> {t('scanUsb')}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold"
+                                    style={{ background: 'rgba(15,150,136,.1)', color: 'var(--ci-accent-ink)' }}>
+                                    <ScanLine size={13}/> {t('scanUsb')}
                                 </button>
                                 <button type="button"
                                     onClick={() => photoInputRef.current?.click()}
                                     disabled={ocrLoading}
-                                    className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-xs font-bold transition-colors ${
-                                        ocrLoading ? 'bg-amber-50 border-amber-200 text-amber-600 cursor-wait'
-                                        : formData.passportPhoto ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
-                                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'}`}>
-                                    <Camera size={14}/>
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold"
+                                    style={{ background: 'var(--ci-surface-2)', color: 'var(--ci-ink-2)' }}>
+                                    <Camera size={13}/>
                                     {ocrLoading ? t('recognizing') : formData.passportPhoto ? `✓ ${t('changePhoto')}` : t('photoMrz')}
                                 </button>
                                 <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoChange}/>
-                            </div>
-                            {formData.passportPhoto && (
-                                <div className="relative inline-block">
-                                    <img src={formData.passportPhoto} alt={t('passport')} className="h-20 rounded-xl border border-slate-200 object-cover shadow-sm"/>
-                                    <button type="button" onClick={() => setFormData(p => ({ ...p, passportPhoto: '' }))}
-                                        className="absolute -top-2 -right-2 w-5 h-5 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-500 hover:text-rose-500 shadow-sm">
-                                        <X size={10}/>
-                                    </button>
-                                </div>
-                            )}
-                            <div className="relative z-50">
-                                <div className="flex items-center justify-between mb-0.5">
-                                    <label className="text-xs font-bold uppercase ml-1 text-slate-600">{t('guestName')}</label>
-                                    {/[а-яёА-ЯЁ]/.test(formData.fullName) && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleChange('fullName', cyrToLat(formData.fullName))}
-                                            className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg transition-colors"
-                                            style={{ color: '#0f9688', background: 'rgba(15,150,136,0.08)', border: '1px solid rgba(15,150,136,0.2)' }}
-                                            title="Перевести в латиницу">
-                                            АБВ → ABC
+                                {formData.passportPhoto && (
+                                    <span className="relative inline-block">
+                                        <img src={formData.passportPhoto} alt={t('passport')} className="h-8 rounded-md object-cover"/>
+                                        <button type="button" onClick={() => setFormData(p => ({ ...p, passportPhoto: '' }))}
+                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                            style={{ background: 'var(--ci-surface)', border: '1px solid var(--ci-line)', color: 'var(--ci-ink-3)' }}>
+                                            <X size={9}/>
                                         </button>
-                                    )}
-                                </div>
-                                <SimpleInput
-                                    value={formData.fullName}
-                                    onChange={val => handleChange('fullName', val)}
-                                    placeholder={t('startTypingName')} icon={User} error={errors.fullName}
-                                />
-                                {showSuggestions && suggestions.length > 0 && (() => {
-                                    const dark = document.documentElement.dataset.theme === 'dark';
-                                    return (
-                                    <div className="absolute top-full left-0 right-0 mt-1 rounded-lg shadow-xl overflow-hidden z-50 border"
-                                        style={{ background: dark ? '#1e293b' : '#ffffff', borderColor: dark ? '#334155' : '#e2e8f0' }}>
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="ci-r" style={{ position: 'relative', zIndex: 30 }}>
+                                <span className="ci-r-k"><User size={15}/>{t('guestName')}<b className="ci-req">∗</b></span>
+                                <span className={`ci-r-v${errors.fullName ? ' ci-err' : ''}`}>
+                                    <input className="ci-f" value={formData.fullName}
+                                        onChange={e => handleChange('fullName', e.target.value)}
+                                        placeholder={t('startTypingName')}/>
+                                </span>
+                                {showSuggestions && suggestions.length > 0 && (
+                                    <div className="absolute top-full left-[132px] right-0 mt-1 rounded-xl shadow-xl overflow-hidden z-50"
+                                        style={{ background: 'var(--ci-surface)', border: '1px solid var(--ci-accent)' }}>
                                         {suggestions.map((c, idx) => (
                                             <button key={c.id} onClick={() => handleSelectClient(c)}
-                                                className="w-full text-left px-4 py-3 flex justify-between items-center border-b outline-none"
-                                                style={{ borderColor: dark ? '#334155' : '#f1f5f9' }}
-                                                onMouseEnter={e => { if (idx !== 0) e.currentTarget.style.background = dark ? '#263045' : '#eff6ff'; }}
-                                                onMouseLeave={e => { if (idx !== 0) e.currentTarget.style.background = 'transparent'; }}
-                                                onFocus={e =>    { if (idx !== 0) e.currentTarget.style.background = dark ? '#263045' : '#eff6ff'; }}
-                                                onBlur={e =>     { if (idx !== 0) e.currentTarget.style.background = 'transparent'; }}
-                                                ref={el => { if (el) el.style.background = idx === 0 ? '#2563eb' : 'transparent'; }}>
-                                                <div>
-                                                    <div className="font-bold text-sm" style={{ color: idx === 0 ? '#ffffff' : (dark ? '#e2e8f0' : '#1e293b') }}>{c.fullName}</div>
-                                                    <div className="text-xs" style={{ color: idx === 0 ? '#bfdbfe' : (dark ? '#64748b' : '#94a3b8') }}>{c.passport} · {c.country}</div>
-                                                </div>
+                                                className="w-full text-left px-3.5 py-2.5 flex justify-between items-center gap-3 outline-none"
+                                                style={{ borderTop: idx ? '1px solid var(--ci-line)' : 'none',
+                                                         background: idx === 0 ? 'var(--ci-accent)' : 'transparent' }}>
+                                                <span className="min-w-0">
+                                                    <span className="block truncate font-bold text-[13.5px]"
+                                                          style={{ color: idx === 0 ? '#fff' : 'var(--ci-ink)' }}>{c.fullName}</span>
+                                                    <span className="block truncate text-[11px]"
+                                                          style={{ color: idx === 0 ? 'rgba(255,255,255,.75)' : 'var(--ci-ink-3)' }}>{c.passport} · {c.country}</span>
+                                                </span>
                                                 {COUNTRY_FLAGS[c.country] && <Flag code={COUNTRY_FLAGS[c.country]} size={20}/>}
                                             </button>
                                         ))}
                                     </div>
-                                    );
-                                })()}
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-                                <SimpleInput label={t('passport')} value={formData.passport} onChange={val => handleChange('passport', val)} placeholder="AA 1234567" icon={FileText} error={errors.passport}/>
-                                <DateField label={t('birthDate')} value={formData.birthDate} onChange={val => handleChange('birthDate', val)} error={errors.birthDate}/>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-                                {formData.country && formData.country !== 'Узбекистан' && (
-                                    <DateField label={t('passportIssueDateLabel')} value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)} error={errors.passportIssueDate}/>
                                 )}
-                                <SimpleInput label={t('phone')} value={formData.phone} onChange={val => handleChange('phone', val)} placeholder="+998..." icon={Phone}/>
                             </div>
 
-                            <div className="space-y-1">
-                                <label className="text-xs font-bold text-slate-600 uppercase ml-1">{t('country')}</label>
-                                <div className="relative">
-                                    <select
-                                        value={formData.country}
-                                        onChange={e => handleChange('country', e.target.value)}
-                                        className="w-full bg-white border border-slate-300 rounded-lg py-2.5 pl-3 pr-8 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all shadow-sm appearance-none cursor-pointer">
+                            <div className="ci-r">
+                                <span className="ci-r-k"><FileText size={15}/>{t('passport')}<b className="ci-req">∗</b></span>
+                                <span className={`ci-r-v${errors.passport ? ' ci-err' : ''}`}>
+                                    <input className="ci-f" value={formData.passport}
+                                        onChange={e => handleChange('passport', e.target.value)} placeholder="AA 1234567"/>
+                                </span>
+                            </div>
+                            {errors.passport && <div className="ci-errmsg pl-[142px] pb-1">{errors.passport}</div>}
+
+                            <div className="ci-r">
+                                <span className="ci-r-k"><Cake size={15}/>{t('birthDate')}<b className="ci-req">∗</b></span>
+                                <span className={`ci-r-v${errors.birthDate ? ' ci-err' : ''}`}>
+                                    <DatePicker className="ci-f" lang={lang} placeholder={t('dateFmt')}
+                                        value={formData.birthDate} onChange={val => handleChange('birthDate', val)}/>
+                                </span>
+                                {guestAge !== null && (
+                                    <span className="ci-r-side">
+                                        {guestAge} {plural(guestAge, t('yearsOne'), t('yearsFew'), t('yearsMany'))}
+                                    </span>
+                                )}
+                            </div>
+                            {errors.birthDate && <div className="ci-errmsg pl-[142px] pb-1">{errors.birthDate}</div>}
+
+                            <div className="ci-r">
+                                <span className="ci-r-k"><Globe size={15}/>{t('country')}</span>
+                                <span className="ci-r-v">
+                                    <select className="ci-f cursor-pointer" value={formData.country}
+                                        onChange={e => handleChange('country', e.target.value)}>
                                         {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
-                                        <ChevronDown size={16}/>
-                                    </div>
-                                </div>
+                                </span>
                             </div>
 
                             {formData.country && formData.country !== 'Узбекистан' && (
-                                <DateField
-                                    label="Дата прохода КПП"
-                                    value={formData.kppDate}
-                                    onChange={val => handleChange('kppDate', val)}
-                                    error={errors.kppDate}
-                                />
+                                <div className="ci-r">
+                                    <span className="ci-r-k"><FileText size={15}/>{t('passportIssueDateLabel')}<b className="ci-req">∗</b></span>
+                                    <span className={`ci-r-v${errors.passportIssueDate ? ' ci-err' : ''}`}>
+                                        <DatePicker className="ci-f" lang={lang} placeholder={t('dateFmt')}
+                                            value={formData.passportIssueDate} onChange={val => handleChange('passportIssueDate', val)}/>
+                                    </span>
+                                </div>
                             )}
 
-                            <div className="bg-white p-4 rounded-xl border mt-2" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
-                                <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-100 pb-2">{t('stayConditions')}</h3>
+                            <div className="ci-r">
+                                <span className="ci-r-k"><Phone size={15}/>{t('phone')}</span>
+                                <span className="ci-r-v">
+                                    <input className="ci-f" value={formData.phone}
+                                        onChange={e => handleChange('phone', e.target.value)} placeholder="+998..."/>
+                                </span>
+                            </div>
 
-                                {/* Тариф */}
-                                <label className="text-xs font-bold uppercase ml-1 text-slate-600 block mb-1">Тариф</label>
-                                <div className="grid grid-cols-2 gap-2 mb-3">
-                                    <button type="button" onClick={() => selectTariff('standard')}
-                                        className={`py-2.5 rounded-xl border text-sm font-bold transition-colors ${formData.tariff === 'standard' ? 'bg-teal-600 text-white border-teal-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                                        Обычный
-                                    </button>
-                                    <button type="button" onClick={() => selectTariff('package')}
-                                        className={`py-2.5 rounded-xl border text-sm font-bold transition-colors flex flex-col items-center leading-tight ${formData.tariff === 'package' ? 'bg-orange-500 text-white border-orange-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                                        <span>Пакет · {PACKAGE_PRICE.toLocaleString()}</span>
-                                        <span className="text-[10px] font-semibold opacity-80">от {PACKAGE_MIN_DAYS} дн. · невозвратный</span>
-                                    </button>
+                            {/* ── ОТКУДА ГОСТЬ ───────────────────────────────
+                                Одно поле, которое отвечает владельцу на вопрос
+                                «какой канал выгоден». Список правится в настройках,
+                                статистика — в аналитике. */}
+                            <div className="ci-r">
+                                <span className="ci-r-k"><Signpost size={15}/>{t('guestSource')}</span>
+                                <span className="ci-r-v">
+                                    <select className="ci-f cursor-pointer" value={formData.source || DEFAULT_SOURCE}
+                                        onChange={e => handleChange('source', e.target.value)}>
+                                        {srcOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                    </select>
+                                </span>
+                            </div>
+
+                            {formData.country && formData.country !== 'Узбекистан' && (
+                                <div className="ci-r">
+                                    <span className="ci-r-k"><MapPin size={15}/>{t('kppDatePassed')}</span>
+                                    <span className={`ci-r-v${errors.kppDate ? ' ci-err' : ''}`}>
+                                        <DatePicker className="ci-f" lang={lang} placeholder={t('dateFmt')}
+                                            value={formData.kppDate} onChange={val => handleChange('kppDate', val)}/>
+                                    </span>
                                 </div>
-                                {formData.tariff === 'package' && (
-                                    <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-300 rounded-xl mb-3">
-                                        <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-                                        <p className="text-xs text-amber-700 font-semibold leading-snug">
-                                            Пакетный тариф <b>невозвратный</b>. Минимум {PACKAGE_MIN_DAYS} дней. При выселении пакет <b>сгорает полностью</b> — возврат не предусмотрен.
-                                        </p>
-                                    </div>
-                                )}
+                            )}
 
-                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 mb-4">
-                                    <DateField label={t('checkIn')} value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
-                                    {formData.tariff === 'package' ? (
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-bold uppercase ml-1 text-slate-600 block">{t('price')}</label>
-                                            <div className="w-full bg-orange-50 border border-orange-200 rounded-xl py-2.5 px-3 font-bold text-orange-700 flex items-center justify-between">
-                                                <span>{PACKAGE_PRICE.toLocaleString()}</span>
-                                                <span className="text-[10px] font-semibold text-orange-500">пакет · сум</span>
-                                            </div>
+                            {/* ── ОТМЕТКИ ────────────────────────────────
+                                То, что база знает о госте, но полем не является:
+                                сколько раз жил, есть ли деньги на карточке, нет ли
+                                его в чёрном списке. Без этого касса не отличает
+                                постоянного гостя от впервые зашедшего, а «нет
+                                в чёрном списке» приходится выводить из отсутствия
+                                предупреждения — то есть из молчания. */}
+                            <div className="ci-cap ci-cap-sub">{t('marksTitle')}</div>
+                            <div className="mt-1.5">
+                                {clientCard ? (
+                                    <>
+                                        <div className="ci-note">
+                                            <span className={`ci-dot${visitCount >= 2 ? '' : ' ci-off'}`}/>
+                                            <span>
+                                                {visitCount >= 2
+                                                    ? <>{t('regularGuest')} — <b>{visitCount} {plural(visitCount, t('staysOne'), t('staysFew'), t('staysMany'))}</b></>
+                                                    : visitCount === 1 ? t('stayedOnce') : t('noStaysMarked')}
+                                                {clientCard.lastVisit && t('lastStayOn').replace('{d}', new Date(clientCard.lastVisit).toLocaleDateString('ru-RU'))}
+                                            </span>
                                         </div>
-                                    ) : (
-                                        <SimpleInput label={`${t('price')} (от ${MIN_NIGHT_PRICE.toLocaleString()})`} type="number" formatNumber value={formData.pricePerNight} onChange={val => handleChange('pricePerNight', val)}
-                                            rightElement={<span className="text-xs font-bold text-slate-400">сум</span>} error={errors.pricePerNight}/>
-                                    )}
-                                </div>
-
-                                {/* Запрос на понижение цены (цена < 70 000, обычный тариф) */}
-                                {formData.tariff === 'standard' && (parseInt(formData.pricePerNight)||0) > 0 && (parseInt(formData.pricePerNight)||0) < MIN_NIGHT_PRICE && (
-                                    <div className="mb-4">
-                                        {clientWhitelisted ? (
-                                            <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
-                                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
-                                                <p className="text-xs text-emerald-700 font-semibold">Клиент в списке разрешённых на понижение — цену можно ставить ниже 70 000, запрос не нужен.</p>
-                                            </div>
-                                        ) : priceReqStatus === 'approved' ? (
-                                            <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
-                                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
-                                                <p className="text-xs text-emerald-700 font-semibold">Цена {priceReqApproved.toLocaleString()} сум одобрена администратором — можно заселять.</p>
-                                            </div>
-                                        ) : priceReqStatus === 'pending' ? (
-                                            <div className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 border border-amber-300 rounded-xl">
-                                                <span className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin shrink-0"/>
-                                                <p className="text-xs text-amber-700 font-semibold">Ожидает одобрения в Telegram… Не закрывайте окно.</p>
-                                            </div>
-                                        ) : (
-                                            <div className="px-3 py-2.5 bg-orange-50 border border-orange-300 rounded-xl space-y-2">
-                                                <div className="flex items-start gap-2">
-                                                    <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5"/>
-                                                    <p className="text-xs text-orange-700 font-semibold leading-snug">
-                                                        Цена ниже {MIN_NIGHT_PRICE.toLocaleString()} сум — нужно одобрение администратора.
-                                                        {priceReqStatus === 'rejected' && <b className="block text-rose-600 mt-1">Предыдущий запрос отклонён.</b>}
-                                                    </p>
-                                                </div>
-                                                <button type="button" onClick={requestPriceApproval} disabled={priceReqSending}
-                                                    className="w-full py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-bold">
-                                                    🔻 Запросить понижение цены ({(parseInt(formData.pricePerNight)||0).toLocaleString()})
-                                                </button>
+                                        {pastStays.length > 0 && (
+                                            <div className="ci-note">
+                                                <span className="ci-dot"/>
+                                                <span>
+                                                    {t('pastStayLengths')}{' '}
+                                                    {pastStays.map((st, i) => (
+                                                        <React.Fragment key={st.id}>
+                                                            {i > 0 && ' · '}
+                                                            <b>
+                                                                {st.nights != null
+                                                                    ? `${st.nights} ${plural(st.nights, t('night'), t('nights'), t('nightsMany'))}`
+                                                                    : '—'}
+                                                                {st.nightPrice != null && ` × ${st.nightPrice.toLocaleString()}`}
+                                                            </b>
+                                                        </React.Fragment>
+                                                    ))}
+                                                </span>
                                             </div>
                                         )}
+                                        <div className="ci-note">
+                                            <span className={`ci-dot${clientBalance > 0 ? '' : ' ci-off'}`}/>
+                                            <span>
+                                                {clientBalance > 0
+                                                    ? <>{t('balance')} <b>{clientBalance.toLocaleString()}</b> — {appliedBalance > 0 ? t('balanceCounted') : t('balanceNotCounted')}</>
+                                                    : t('noBalanceOnCard')}
+                                            </span>
+                                        </div>
+                                        <div className="ci-note">
+                                            <span className={`ci-dot${blacklistWarning ? '' : ' ci-off'}`}/>
+                                            <span>
+                                                {t('inBlacklistLine')}{' '}
+                                                <b style={blacklistWarning ? { color: 'var(--ci-danger-ink)' } : undefined}>
+                                                    {blacklistWarning?.level === 'blacklist' ? t('blYes')
+                                                        : blacklistWarning ? t('blMark') : t('blNo')}
+                                                </b>
+                                            </span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="ci-note"><span className="ci-dot ci-off"/>
+                                        <span>{(formData.passport || '').replace(/\s/g, '').length >= 5
+                                            ? t('noClientCardNew') : t('noClientCardHint')}</span>
                                     </div>
                                 )}
-                                <div className="relative">
-                                    <SimpleInput label={`${t('quantityDays')}${formData.tariff === 'package' ? ` (от ${PACKAGE_MIN_DAYS})` : ''}`} type="number" value={formData.days} onChange={val => handleChange('days', val)} error={errors.days}/>
-                                    <div className="absolute right-2 top-[26px] flex gap-1">
-                                        <button onClick={() => handleChange('days', Math.max(1, (parseInt(formData.days)||1)-1))} className="p-1 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><Minus size={14}/></button>
-                                        <button onClick={() => handleChange('days', (parseInt(formData.days)||1)+1)} className="p-1 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><Plus size={14}/></button>
-                                    </div>
-                                </div>
                             </div>
                         </div>
-                    )}
 
-                    {/* Step 3: Payment */}
-                    {step === 3 && (
-                        <div className="space-y-6 animate-in slide-in-from-right duration-200">
-                            {currentUser?.role === 'admin' && (
-                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-                                    <p className="text-amber-700 font-bold text-sm">{t('adminNoPayment')}</p>
-                                    <p className="text-amber-600 text-xs mt-1">{t('adminNoPaymentSub')}</p>
+                        {/* ───────────── II. УСЛОВИЯ ───────────── */}
+                        <div className="ci-col ci-col-b">
+                            <div className="ci-cap">
+                                {t('stayConditions')}
+                                <span className="ci-cap-ct">{parseInt(formData.days) || 0} {t('daysShort')}</span>
+                            </div>
+
+                            <div className="ci-r">
+                                <span className="ci-r-k ci-r-k-w"><Tag size={15}/>{t('tariff')}</span>
+                                <span className="ci-r-v ci-flat">
+                                    <span className="ci-pick">
+                                        <button type="button" onClick={() => selectTariff('standard')}
+                                            className={formData.tariff === 'standard' ? 'ci-on' : ''}>{t('tariffStandard')}</button>
+                                        <button type="button" onClick={() => selectTariff('package')}
+                                            className={formData.tariff === 'package' ? 'ci-on' : ''}>{t('tariffPackage')}</button>
+                                    </span>
+                                </span>
+                            </div>
+
+                            <div className="ci-r">
+                                <span className="ci-r-k ci-r-k-w"><CalendarDays size={15}/>{t('checkIn')}</span>
+                                <span className="ci-r-v">
+                                    <DatePicker className="ci-f" lang={lang} placeholder={t('dateFmt')}
+                                        value={formData.checkInDate} onChange={val => handleChange('checkInDate', val)}/>
+                                </span>
+                            </div>
+
+                            <div className="ci-r">
+                                <span className="ci-r-k ci-r-k-w"><Moon size={15}/>{t('days')}</span>
+                                <span className={`ci-r-v${errors.days ? ' ci-err' : ''}`}>
+                                    <input className="ci-f" inputMode="numeric" value={formData.days}
+                                        onChange={e => handleChange('days', e.target.value.replace(/\D/g, ''))}/>
+                                </span>
+                                {/* Сколько суток место свободно до чужого заезда — видно ДО
+                                    того, как поставлены лишние сутки, а не только полосой после. */}
+                                {selectedBed?.maxFreeDays != null && (
+                                    <span className={`ci-r-side${(parseInt(formData.days) || 1) <= selectedBed.maxFreeDays ? ' ci-ok' : ''}`}>
+                                        {t('maxDaysShort').replace('{n}', selectedBed.maxFreeDays)}
+                                    </span>
+                                )}
+                                <span className="flex shrink-0 gap-1">
+                                    <button type="button" aria-label="−"
+                                        onClick={() => handleChange('days', Math.max(1, (parseInt(formData.days) || 1) - 1))}
+                                        className="rounded p-1" style={{ background: 'var(--ci-surface-2)', color: 'var(--ci-ink-2)' }}><Minus size={13}/></button>
+                                    <button type="button" aria-label="+"
+                                        onClick={() => handleChange('days', (parseInt(formData.days) || 1) + 1)}
+                                        className="rounded p-1" style={{ background: 'var(--ci-surface-2)', color: 'var(--ci-ink-2)' }}><Plus size={13}/></button>
+                                </span>
+                            </div>
+                            {errors.days && <div className="ci-errmsg pl-[134px] pb-1">{errors.days}</div>}
+
+                            <div className="ci-r">
+                                <span className="ci-r-k ci-r-k-w"><CalendarDays size={15}/>{t('checkOut')}</span>
+                                <span className="ci-r-v ci-flat text-[15px] font-bold tabular-nums" style={{ padding: '5px 2px' }}>
+                                    {checkOutPreview || '—'}
+                                </span>
+                                <span className="ci-r-side">{t('untilHour').replace('{h}', String(checkOutHour).padStart(2, '0'))}</span>
+                            </div>
+
+                            <div className="ci-r">
+                                <span className="ci-r-k ci-r-k-w"><Banknote size={15}/>{t('price')}</span>
+                                {formData.tariff === 'package' ? (
+                                    <>
+                                        <span className="ci-r-v ci-flat text-[15px] font-bold tabular-nums" style={{ padding: '5px 2px' }}>
+                                            {PACKAGE_PRICE.toLocaleString()}
+                                        </span>
+                                        <span className="ci-r-side">{t('packageSumLabel')}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className={`ci-r-v${errors.pricePerNight ? ' ci-err' : ''}`}>
+                                            <input className="ci-f" inputMode="numeric"
+                                                value={fmtSum(formData.pricePerNight)}
+                                                onChange={e => handleChange('pricePerNight', parseSum(e.target.value))}/>
+                                        </span>
+                                        <span className="ci-r-side">{t('fromMinSuffix').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}</span>
+                                    </>
+                                )}
+                            </div>
+                            {errors.pricePerNight && <div className="ci-errmsg pl-[134px] pb-1">{errors.pricePerNight}</div>}
+
+                            <div className="ci-cap ci-cap-sub">{t('notesTitle')}</div>
+                            <div className="mt-1.5">
+                                <div className="ci-note">
+                                    <span className={`ci-dot${formData.tariff === 'package' ? '' : ' ci-off'}`}/>
+                                    <span>{t('tariffPackage')} <b>{PACKAGE_PRICE.toLocaleString()}</b>
+                                        {' — '}{t('packageFromDays').replace('{days}', PACKAGE_MIN_DAYS)}</span>
                                 </div>
-                            )}
-                            {/* Balance block — visible for all roles if client has balance */}
-                            {clientBalance > 0 && (
-                                <div className="border rounded-xl p-4" style={{ background: '#f0fdfa', borderColor: 'rgba(15,150,136,0.25)' }}>
-                                    <div className="flex justify-between items-center mb-3">
-                                        <span className="text-sm font-black text-teal-700">💳 Баланс клиента</span>
-                                        <span className="text-lg font-black text-teal-700">{clientBalance.toLocaleString()} сум</span>
-                                    </div>
-                                    {appliedBalance === 0 ? (
-                                        <button
-                                            onClick={() => setFormData(p => ({ ...p, paidBalance: Math.min(clientBalance, totalPrice), paidCash: '', paidCard: '', paidQR: '' }))}
-                                            className="w-full py-2 text-white rounded-xl text-sm font-bold transition-opacity"
-                                            style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)' }}
-                                            onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
-                                            onMouseLeave={e => e.currentTarget.style.opacity='1'}
-                                        >
-                                            Применить к оплате
-                                        </button>
+                                <div className="ci-note"><span className="ci-dot ci-off"/>
+                                    <span>{t('priceBelowMinApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}</span>
+                                </div>
+                            </div>
+
+                            {/* Запрос на понижение цены — с состоянием, поэтому блок,
+                                а не строка примечания. */}
+                            {formData.tariff === 'standard' && (parseInt(formData.pricePerNight) || 0) > 0 && (parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && (
+                                <div className="mt-3">
+                                    {clientWhitelisted ? (
+                                        <div className="flex items-start gap-2 rounded-xl px-3 py-2.5"
+                                             style={{ background: 'rgba(15,150,136,.12)', color: 'var(--ci-accent-ink)' }}>
+                                            <CheckCircle2 size={15} className="shrink-0 mt-0.5"/>
+                                            <p className="text-[11.5px] font-semibold">{t('clientWhitelistedMsg')}</p>
+                                        </div>
+                                    ) : priceReqStatus === 'approved' ? (
+                                        <div className="flex items-start gap-2 rounded-xl px-3 py-2.5"
+                                             style={{ background: 'rgba(15,150,136,.12)', color: 'var(--ci-accent-ink)' }}>
+                                            <CheckCircle2 size={15} className="shrink-0 mt-0.5"/>
+                                            <p className="text-[11.5px] font-semibold">{t('priceApprovedMsg').replace('{n}', priceReqApproved.toLocaleString())}</p>
+                                        </div>
+                                    ) : priceReqStatus === 'pending' ? (
+                                        <div className="flex items-center gap-2 rounded-xl px-3 py-2.5"
+                                             style={{ background: 'rgba(245,158,11,.12)', color: 'var(--ci-warn-ink)' }}>
+                                            <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0"/>
+                                            <p className="text-[11.5px] font-semibold">{t('waitingTelegramApproval')}</p>
+                                        </div>
                                     ) : (
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-1 text-sm font-semibold text-blue-700">✅ Применено {appliedBalance.toLocaleString()} сум</div>
-                                            <button
-                                                onClick={() => setFormData(p => ({ ...p, paidBalance: 0 }))}
-                                                className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors"
-                                            >
-                                                Отменить
+                                        <div className="rounded-xl px-3 py-2.5 space-y-2"
+                                             style={{ background: 'rgba(245,158,11,.12)', color: 'var(--ci-warn-ink)' }}>
+                                            <div className="flex items-start gap-2">
+                                                <AlertTriangle size={15} className="shrink-0 mt-0.5"/>
+                                                <p className="text-[11.5px] font-semibold leading-snug">
+                                                    {t('priceBelowMinApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}
+                                                    {priceReqStatus === 'rejected' && <b className="block mt-1" style={{ color: 'var(--ci-danger-ink)' }}>{t('prevRequestRejected')}</b>}
+                                                </p>
+                                            </div>
+                                            <button type="button" onClick={requestPriceApproval} disabled={priceReqSending}
+                                                className="w-full py-2 rounded-xl text-white text-xs font-bold disabled:opacity-50"
+                                                style={{ background: '#f59e0b' }}>
+                                                {t('requestPriceReduction').replace('{n}', (parseInt(formData.pricePerNight) || 0).toLocaleString())}
                                             </button>
                                         </div>
                                     )}
                                 </div>
                             )}
-                            {currentUser?.role !== 'admin' && (<>
-                                <div className="rounded-xl p-6 text-white shadow-lg" style={{ background: '#1a3c40', boxShadow: '0 8px 32px rgba(15,30,32,0.25)' }}>
-                                    <div className="flex justify-between items-end mb-4">
-                                        <div className="opacity-70 text-sm font-medium uppercase">{t('totalDue')}</div>
-                                        <div className="text-3xl font-bold">{displayTotal}</div>
-                                    </div>
-                                    {appliedBalance > 0 && (
-                                        <div className="flex justify-between items-center mb-2 text-emerald-300">
-                                            <span className="text-sm opacity-90">💳 Баланс клиента</span>
-                                            <span className="font-bold">−{appliedBalance.toLocaleString()} сум</span>
-                                        </div>
+                        </div>
+
+                        {/* ───────────── III. РАСЧЁТ ───────────── */}
+                        <div className="ci-col ci-col-c">
+                            <div className="ci-cap">
+                                {t('calcTitle')}
+                                <span className="ci-cap-ct">{currencyMode === 'USD' ? 'USD' : t('sum')}</span>
+                            </div>
+
+                            <div className="ci-crow">
+                                <span>{t('accommodationLine')} · {(parseInt(formData.pricePerNight) || 0).toLocaleString()} × {parseInt(formData.days) || 0}</span>
+                                <b>{totalPrice.toLocaleString()}</b>
+                            </div>
+
+                            {/* Баланс клиента — строка вычета, а не отдельная карточка
+                                с кнопкой «Применить». Он и есть вычет из счёта. */}
+                            {clientBalance > 0 && (
+                                <div className="ci-crow ci-minus">
+                                    <span>{t('clientBalanceLabel')}</span>
+                                    {appliedBalance > 0 ? (
+                                        <button type="button" className="ml-2 text-[11px] font-bold underline"
+                                            style={{ color: 'var(--ci-ink-3)' }}
+                                            onClick={() => setFormData(p => ({ ...p, paidBalance: 0 }))}>{t('undoApply')}</button>
+                                    ) : (
+                                        <button type="button" className="ml-2 text-[11px] font-bold underline"
+                                            style={{ color: 'var(--ci-accent-ink)' }}
+                                            onClick={() => setFormData(p => ({ ...p, paidBalance: Math.min(clientBalance, totalPrice), paidCash: '', paidCard: '', paidQR: '' }))}>
+                                            {t('applyToPayment')}
+                                        </button>
                                     )}
-                                    <div className="h-px bg-white/10 mb-4"/>
-                                    <div className="flex justify-between items-center">
-                                        <span className="font-bold opacity-90">{t('remaining')}</span>
-                                        <span className={`px-3 py-1 rounded-lg font-bold text-sm ${balance > 0 ? 'bg-white/20 text-white' : 'bg-emerald-500 text-white'}`}>
-                                            {balance > 0 ? displayBalance : t('paid')}
+                                    <b>−{appliedBalance.toLocaleString()}</b>
+                                </div>
+                            )}
+
+                            <div className="ci-sum">
+                                <span className="ci-sum-k">{t('totalDue')}</span>
+                                <span className="ci-sum-v">{effectiveTotal.toLocaleString()}</span>
+                            </div>
+
+                            {/* ── КАССА ─────────────────────────────────
+                                Ввод денег стоял на той же подложке, что и счёт,
+                                и терялся среди чисел, которые только читают.
+                                Теперь он на своей поверхности. */}
+                            {currentUser?.role !== 'admin' && (
+                                <div className="ci-kassa">
+                                    <div className="ci-kcap">
+                                        {t('acceptedTitle')}
+                                        <span className="ci-cap-ct">
+                                            <span className="ci-pick">
+                                                {[['UZS', t('sumCurrency')], ['USD', 'USD']].map(([mode, label]) => (
+                                                    <button key={mode} type="button" onClick={() => handleModeSwitch(mode)}
+                                                        className={currencyMode === mode ? 'ci-on' : ''}
+                                                        style={{ padding: '2px 8px', fontSize: 11 }}>{label}</button>
+                                                ))}
+                                            </span>
                                         </span>
                                     </div>
-                                </div>
-                                {/* Currency toggle */}
-                                <div className="flex items-center flex-wrap gap-2">
-                                    <span className="text-xs font-bold text-slate-400 uppercase">{t('currencyInput')}</span>
-                                    {[['UZS', t('sumCurrency')], ['USD', 'USD']].map(([mode, label]) => (
-                                        <button key={mode}
-                                            onClick={() => handleModeSwitch(mode)}
-                                            className={`px-3 py-1 rounded-lg text-xs font-black transition-colors ${
-                                                currencyMode === mode
-                                                    ? 'bg-indigo-600 text-white'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                            }`}>
-                                            {label}
-                                        </button>
-                                    ))}
+
                                     {currencyMode === 'USD' && (
-                                        <div className="flex items-center gap-1 ml-1">
-                                            <span className="text-xs text-slate-400">{t('exchangeRateLabel')}</span>
-                                            <input
-                                                type="number"
-                                                value={manualRate}
+                                        <div className="flex items-center gap-2 pt-2 text-[11px] font-semibold" style={{ color: 'var(--ci-ink-3)' }}>
+                                            <span>{t('exchangeRateLabel')}</span>
+                                            <input type="number" value={manualRate}
                                                 onChange={e => {
                                                     setManualRate(e.target.value);
                                                     const rate = parseInt(e.target.value) > 0 ? parseInt(e.target.value) : usdRate;
@@ -1159,39 +1622,57 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                     }
                                                 }}
                                                 placeholder={usdRate > 0 ? Math.round(usdRate).toLocaleString() : ''}
-                                                className="w-24 px-2 py-0.5 text-xs border border-slate-300 rounded-lg text-slate-700 focus:outline-none focus:border-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                            />
+                                                className="w-24 rounded-lg px-2 py-0.5 text-[11px]"
+                                                style={{ border: '1px solid var(--ci-line)' }}/>
                                             {effectiveRate > 0 && parseInt(manualRate) > 0 && usdRate > 0 && (
-                                                <button onClick={() => { setManualRate(''); handleModeSwitch('USD'); }} className="text-[10px] text-slate-400 hover:text-indigo-500 underline">авто</button>
+                                                <button type="button" onClick={() => { setManualRate(''); handleModeSwitch('USD'); }}
+                                                    className="underline">{t('autoRate')}</button>
                                             )}
                                         </div>
                                     )}
+
+                                    {PAY_METHODS.map(m => {
+                                        const usdOn  = !!m.usd && currencyMode === 'USD';
+                                        const amount = parseInt(formData[m.key]) || 0;
+                                        const MIcon  = m.Icon;
+                                        return (
+                                            <div key={m.key} className={`ci-m${amount > 0 ? ' ci-filled' : ''}`}>
+                                                <span className="ci-m-k"><MIcon size={15}/>{m.label}</span>
+                                                <span className="ci-m-field">
+                                                    <input inputMode="numeric"
+                                                        value={usdOn ? usdInputs[m.usd] : fmtSum(formData[m.key])}
+                                                        onChange={e => (usdOn
+                                                            ? handleUsdChange(m.usd, e.target.value)
+                                                            : handleChange(m.key, parseSum(e.target.value)))}
+                                                        placeholder={usdOn ? '0.00' : '—'}/>
+                                                    {/* Магнит был и раньше — значком внутри поля. Теперь это
+                                                        кнопка: самое частое движение кассира не должно быть
+                                                        бледнее рамки. */}
+                                                    <button type="button" className="ci-mag" tabIndex={-1}
+                                                        onClick={() => handleMagnet(m.key)}
+                                                        title={t('fillRemainderTitle')}>
+                                                        <Magnet size={14}/>
+                                                    </button>
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+
+                                    <div className="ci-sum">
+                                        <span className="ci-sum-k">{t('depositedTitle')}</span>
+                                        <span className="ci-sum-v">{collected.toLocaleString()}</span>
+                                    </div>
                                 </div>
-                                <div className="bg-white p-4 rounded-xl border space-y-4" style={{ borderColor: 'rgba(15,150,136,0.18)' }}>
-                                    <SimpleInput label={t('cash') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number" formatNumber={currencyMode !== 'USD'}
-                                        value={currencyMode === 'USD' ? usdInputs.paidCash : formData.paidCash}
-                                        onChange={val => currencyMode === 'USD' ? handleUsdChange('paidCash', val) : handleChange('paidCash', val)} icon={DollarSign}
-                                        rightElement={<button onClick={() => handleMagnet('paidCash')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
-                                    {currencyMode === 'USD' && formData.paidCash && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidCash).toLocaleString()} сум</p>}
-                                    <SimpleInput label={t('card') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number" formatNumber={currencyMode !== 'USD'}
-                                        value={currencyMode === 'USD' ? usdInputs.paidCard : formData.paidCard}
-                                        onChange={val => currencyMode === 'USD' ? handleUsdChange('paidCard', val) : handleChange('paidCard', val)} icon={CreditCard}
-                                        rightElement={<button onClick={() => handleMagnet('paidCard')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
-                                    {currencyMode === 'USD' && formData.paidCard && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidCard).toLocaleString()} сум</p>}
-                                    <SimpleInput label={t('qrTransfer') + (currencyMode === 'USD' ? ' (USD)' : '')} type="number" formatNumber={currencyMode !== 'USD'}
-                                        value={currencyMode === 'USD' ? usdInputs.paidQR : formData.paidQR}
-                                        onChange={val => currencyMode === 'USD' ? handleUsdChange('paidQR', val) : handleChange('paidQR', val)} icon={QrCode}
-                                        rightElement={<button onClick={() => handleMagnet('paidQR')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
-                                    {currencyMode === 'USD' && formData.paidQR && <p className="-mt-3 ml-1 text-[10px] text-slate-400">≈ {parseInt(formData.paidQR).toLocaleString()} сум</p>}
-                                    <SimpleInput label="Перечисление" type="number" formatNumber
-                                        value={formData.paidTransfer}
-                                        onChange={val => handleChange('paidTransfer', val)} icon={ArrowRightLeft}
-                                        rightElement={<button onClick={() => handleMagnet('paidTransfer')} className="p-1 text-teal-500 hover:bg-teal-50 rounded" tabIndex="-1"><Magnet size={18}/></button>}/>
-                                </div>
-                            </>)}
+                            )}
+
+                            <div className={`ci-rest${balance > 0 ? '' : ' ci-done'}`}>
+                                <span className="ci-rest-k">{balance > 0 ? t('remaining') : t('paid')}</span>
+                                <span className="ci-rest-v">
+                                    {balance > 0 ? balance.toLocaleString() : (balance < 0 ? `+${Math.abs(balance).toLocaleString()}` : '0')}
+                                </span>
+                            </div>
                         </div>
-                    )}
-                </div>
+                    </div>
 
                 {/* ── Аренда конфликт ── */}
                 {rentalConflict && (
@@ -1199,16 +1680,16 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                         <div className="bg-orange-500 px-4 py-3 flex items-center gap-2">
                             <span className="text-white text-lg">🏢</span>
                             <div>
-                                <div className="text-white font-black text-sm">Комната арендована</div>
-                                <div className="text-orange-100 text-xs">Заселение в эти даты невозможно</div>
+                                <div className="text-white font-black text-sm">{t('roomRented')}</div>
+                                <div className="text-orange-100 text-xs">{t('checkinImpossibleDates')}</div>
                             </div>
                         </div>
                         <div className="bg-orange-50 px-4 py-3">
                             <p className="text-sm text-orange-800 font-semibold">
-                                {rentalConflict.tenantName && <span>Арендатор: <b>{rentalConflict.tenantName}</b> · </span>}
-                                Период аренды: <b>{rentalConflict.from}</b> — <b>{rentalConflict.to}</b>
+                                {rentalConflict.tenantName && <span>{t('tenantLabel')}: <b>{rentalConflict.tenantName}</b> · </span>}
+                                {t('rentalPeriod')}: <b>{rentalConflict.from}</b> — <b>{rentalConflict.to}</b>
                             </p>
-                            <p className="text-xs text-orange-600 mt-1">Измените даты заезда/выезда или выберите другую комнату</p>
+                            <p className="text-xs text-orange-600 mt-1">{t('changeDatesOrRoom')}</p>
                         </div>
                     </div>
                 )}
@@ -1231,7 +1712,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 {submitConflict.guestDate && (
                                     <span className="text-rose-600"> ({new Date(submitConflict.guestDate).toLocaleDateString(lang === 'uz' ? 'uz-UZ' : 'ru-RU')})</span>
                                 )}.{' '}
-                                {t('conflictBedMax')} <b>{submitConflict.maxDays} {t('daysShort')}</b>.
+                                {submitConflict.maxDays > 0
+                                    ? <>{t('conflictBedMax')} <b>{submitConflict.maxDays} {t('daysShort')}</b>.</>
+                                    : <b>{t('conflictTodayArrives').replace('{name}', submitConflict.guestName || '')}</b>}
                             </div>
                             {submitConflict.alternatives.length > 0 ? (
                                 <div>
@@ -1252,7 +1735,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 }}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white border-2 border-emerald-400 rounded-xl text-emerald-700 font-bold text-xs hover:bg-emerald-50 hover:border-emerald-500 transition-all shadow-sm">
                                                 🛏 {t('room')} {alt.roomNumber} · {t('bed')} {alt.bedId}
-                                                {alt.price > 0 && <span className="text-emerald-500 font-medium">{alt.price.toLocaleString()} {lang === 'uz' ? "so'm" : 'сум'}</span>}
+                                                {alt.price > 0 && <span className="text-emerald-500 font-medium">{alt.price.toLocaleString()} {t('sum')}</span>}
                                             </button>
                                         ))}
                                     </div>
@@ -1269,77 +1752,46 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     </div>
                 )}
 
-                <div className="px-6 py-4 shrink-0 flex items-center gap-3" style={{ borderTop: '1px solid #f1f5f9', background: '#fff' }}>
-                    {step === 2 && (
+                </div>
+
+                {/* ── ПОДВАЛ ──────────────────────────────────────────────
+                    Деньги переехали в графу расчёта — она видна всё время
+                    и без прокрутки, поэтому дублировать итог здесь незачем.
+                    Остаётся то, чего в графах нет: кто оформляет и что делает. */}
+                <div className="ci-foot shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-2.5">
+                    <div className="ci-foot-sig">
+                        {t('issuedBy')} <b>{currentUser?.name || currentUser?.login || '—'}</b>
+                        {' · '}
+                        {openedAt.toLocaleString('ru-RU', {
+                            day: '2-digit', month: '2-digit', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                        })}
+                    </div>
+
+                    <div className="ml-auto flex items-center gap-2">
                         <button onClick={() => handleSubmit('booking')}
                             disabled={isSubmitting || !!rentalConflict}
-                            className="mr-auto px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors flex items-center gap-2 shadow-sm">
+                            className="px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors">
                             {t('booking')}
                         </button>
-                    )}
-                    {step !== 2 && <div className="mr-auto"/>}
-
-                    {step > initialStep && (
-                        <button onClick={() => setStep(step - 1)} className="px-5 py-2.5 rounded-lg text-slate-600 hover:bg-slate-100 font-bold transition-colors">
-                            {t('back')}
-                        </button>
-                    )}
-                    {step < 3 ? (
-                        <button onClick={() => {
-                            if (step === 1 && !formData.bedId) return notify(t('selectBedFirst'), 'error');
-                            if (step === 2) {
-                                const errs = {};
-                                if (!formData.fullName.trim()) errs.fullName = t('fieldRequired');
-                                if (!formData.passport.trim()) errs.passport = t('fieldRequired');
-                                if (!formData.birthDate) errs.birthDate = t('fieldRequired');
-                                if (formData.country && formData.country !== 'Узбекистан') {
-                                    if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
-                                    if (!formData.kppDate) errs.kppDate = t('fieldRequired');
-                                }
-                                if (formData.tariff === 'package') {
-                                    if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) errs.days = `Минимум ${PACKAGE_MIN_DAYS} дней`;
-                                } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
-                                    errs.pricePerNight = `Минимум ${MIN_NIGHT_PRICE.toLocaleString()} сум (или одобрение)`;
-                                }
-                                if (Object.keys(errs).length > 0) { setErrors(errs); return; }
-                                setErrors({});
-                            }
-                            // При переходе на шаг оплаты — авто-применяем баланс (читаем актуальный clientBalance)
-                            if (step === 2) {
-                                const passport = formData.passport?.replace(/\s/g, '').toUpperCase();
-                                const found = clientsDb.find(c => c.passport && c.passport.replace(/\s/g, '').toUpperCase() === passport);
-                                const freshBal = found?.balance || 0;
-                                setClientBalance(freshBal);
-                                if (freshBal > 0) {
-                                    setFormData(p => ({ ...p, paidBalance: freshBal, paidCash: '', paidCard: '', paidQR: '' }));
-                                }
-                            }
-                            setStep(step + 1);
-                        }} className="px-8 py-2.5 text-white rounded-xl font-bold transition-opacity flex items-center gap-2"
-                            style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', boxShadow: '0 4px 14px rgba(15,150,136,0.3)' }}
-                            onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
-                            onMouseLeave={e => e.currentTarget.style.opacity='1'}>
-                            {t('next')} <ChevronRight size={18}/>
-                        </button>
-                    ) : (
-                        <>
+                        {/* «В долг» — только когда в кассу не внесено ничего. Внёс
+                            часть — это уже не долг целиком, и кнопка ушла бы мимо смысла. */}
+                        {collected === 0 && totalPrice > 0 && (
                             <button type="button" onClick={() => handleSubmit('active')}
                                 disabled={isSubmitting || !!rentalConflict}
-                                className="px-10 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-opacity flex items-center gap-2"
-                                style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', boxShadow: '0 4px 14px rgba(15,150,136,0.3)' }}
-                                onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
-                                onMouseLeave={e => e.currentTarget.style.opacity='1'}>
-                                {isSubmitting ? <span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full inline-block"/> : <CheckCircle2 size={20}/>} {t('checkin').toUpperCase()}
+                                className="px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
+                                <Wallet size={14}/> {t('inDebt')}
                             </button>
-                            {totalPaid === 0 && totalPrice > 0 && (
-                                <button type="button" onClick={() => handleSubmit('active')}
-                                    disabled={isSubmitting || !!rentalConflict}
-                                    className="ml-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">
-                                    <Wallet size={14}/> {t('inDebt')}
-                                </button>
-                            )}
-                        </>
-                    )}
+                        )}
+                        <button type="button" onClick={() => handleSubmit('active')}
+                            disabled={isSubmitting || !!rentalConflict}
+                            className="px-10 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-opacity flex items-center gap-2"
+                            style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)', boxShadow: '0 4px 14px rgba(15,150,136,0.3)' }}>
+                            {isSubmitting
+                                ? <span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full inline-block"/>
+                                : <CheckCircle2 size={20}/>} {t('checkin').toUpperCase()}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1394,3 +1846,4 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 };
 
 export default CheckInModal;
+
