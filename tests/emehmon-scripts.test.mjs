@@ -120,6 +120,21 @@ test('автомат никогда не выводит из портала жи
   assert.ok(ga.includes('!livesAgain && window.electronAPI?.emehmonDeparture'), 'выселение старой записи не трогает новую регистрацию');
 });
 
+test('печатные формы (лист в бухгалтерию, долги, листок регистрации) открываются: about:blank разрешён, остальное — запрет', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+  const mainSrc = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8');
+  const h = mainSrc.slice(mainSrc.indexOf('mainWindow.webContents.setWindowOpenHandler'), mainSrc.indexOf("mainWindow.webContents.on('did-create-window'"));
+  assert.ok(h.includes("if (!url || url === 'about:blank')") && h.includes("action: 'allow'"), 'пустое окно печати должно открываться');
+  assert.ok(h.includes('sandbox: true') && h.includes('nodeIntegration: false'), 'окно печати — в песочнице, без Node');
+  assert.ok(h.includes("return { action: 'deny' };"), 'всё остальное по-прежнему запрещено');
+  assert.ok(mainSrc.includes("child.webContents.on('will-navigate'"), 'окно печати не может уйти на другой адрес');
+  // формы действительно печатают через window.open('')
+  const gr = fs.readFileSync(path.join(root, 'src/utils/groupReceipt.js'), 'utf8');
+  assert.ok(gr.includes("window.open('', ''") && gr.includes('w.print()'), 'лист в бухгалтерию печатается через пустое окно');
+});
+
 test('поведение для местных не изменилось: без gateStays сохраняем сразу', () => {
   const src = m.buildAutoArrivalScript({ citizenCode: 'UZB', passport: 'AA1', birthDate: '01.01.1990', room: '1', days: 1, amount: '30000' });
   assert.ok(src.includes("setSelect('id_visittype', '5')") && src.includes("setSelect('payed', '2')") && src.includes("setSelect('id_guest', '4')"));

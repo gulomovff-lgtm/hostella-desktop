@@ -206,8 +206,31 @@ function createWindow() {
     }
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Пустое окно (about:blank) — наши печатные формы: лист в бухгалтерию,
+    // листок регистрации, долги — window.open('') + document.write + print().
+    // Замок аудита (651fd4e) запрещал их вместе с внешними ссылками, и «Печатать
+    // лист» молча не реагировал (window.open возвращал null). Пустое окно —
+    // разрешаем, но закрытым: без Node, в песочнице и без права уйти на другой
+    // адрес (см. did-create-window ниже). Внешние ссылки — в системный браузер.
+    if (!url || url === 'about:blank') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          parent: mainWindow, autoHideMenuBar: true,
+          webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
+        },
+      };
+    }
     if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
     return { action: 'deny' };
+  });
+  // Окно печати живёт только с тем, что в него записали: любой переход — запрет.
+  mainWindow.webContents.on('did-create-window', (child) => {
+    try {
+      child.setMenuBarVisibility(false);
+      child.webContents.on('will-navigate', (e, url) => { if (url && url !== 'about:blank') e.preventDefault(); });
+      child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    } catch (_) { /* окно могло закрыться */ }
   });
 
   if (isDev) {
