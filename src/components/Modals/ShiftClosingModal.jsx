@@ -1,11 +1,8 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { LogOut, Copy, X, DollarSign, CreditCard, Smartphone, Lock, CheckCircle, AlertTriangle, RotateCcw, ArrowRightLeft, ChevronLeft, List } from 'lucide-react';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
-import { computeShiftReport, buildShiftTelegramMsg, buildShiftReportText } from '../../utils/shiftReport';
-import { buildTimeline, summarizeTimeline, staffKeysOf } from '../../utils/cashierTimeline';
-import TimelineList from '../UI/TimelineList';
+import { computeShiftReport, buildShiftTelegramMsg, buildShiftReportText, shiftByMethod } from '../../utils/shiftReport';
+import { describePayment, purposeText } from '../../utils/cashierTimeline';
 
 const MODAL_STYLE = `
     @keyframes scm-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -36,10 +33,8 @@ const ShiftClosingModal = ({
 }) => {
     const t = useCallback((k) => TRANSLATIONS[lang]?.[k] || k, [lang]);
     const [confirming, setConfirming] = useState(false);
-    // «Подробно»: лента смены (как во вкладке «Лента кассира») вместо сводки
+    // «Подробно»: касса по способам оплаты — под каждым за что каждая оплата
     const [details, setDetails] = useState(false);
-    const [ownAudit, setOwnAudit] = useState(null);   // null — не грузили; [] — пусто
-    const [auditFailed, setAuditFailed] = useState(false);
     // Защита от двойной отправки: пока идёт закрытие/передача смены — кнопки заблокированы,
     // иначе повторные клики шлют Telegram несколько раз и запускают гонку закрытия.
     const [submitting, setSubmitting] = useState(false);
@@ -61,36 +56,26 @@ const ShiftClosingModal = ({
     const { income, totalRefunds, cashboxExpenses, totalRevenue, cashInHand } = report;
     const otherExpenses = cashboxExpenses - totalRefunds;
 
-    // Начало ленты — как у сверки кассы: с прошлого закрытия смены; если его
-    // нет — с начала текущей смены, в крайнем случае последние сутки.
-    const shiftFrom = useMemo(() => {
-        if (user?.lastShiftEnd && user.lastShiftEnd > '1971') return user.lastShiftEnd;
-        return myShift?.startTime || new Date(Date.now() - 86400000).toISOString();
-    }, [user?.lastShiftEnd, myShift?.startTime]);
-
-    // Свои записи журнала за смену (кассиру правила отдают только его записи)
-    useEffect(() => {
-        if (!details || ownAudit !== null) return;
-        let alive = true;
-        const me = String(user?.id || user?.login || '');
-        getDocs(query(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
-            where('userId', '==', me), where('timestamp', '>=', shiftFrom), orderBy('timestamp', 'asc')))
-            .then(snap => { if (alive) setOwnAudit(snap.docs.map(d => ({ id: d.id, ...d.data() }))); })
-            .catch(e => { console.warn('[shift details] audit:', e.message); if (alive) { setOwnAudit([]); setAuditFailed(true); } });
-        return () => { alive = false; };
-    }, [details, ownAudit, user?.id, user?.login, shiftFrom]);
-
-    const guestsById = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests]);
-    const shiftEvents = useMemo(() => {
-        if (!details) return [];
-        return buildTimeline({
-            audit: ownAudit || [], payments,
-            expenses: expenses.filter(e => e.source !== 'cadastre'),
-            shifts: myShift ? [myShift] : [], keys: staffKeysOf(user),
-            from: shiftFrom, to: null, guestsById,
-        });
-    }, [details, ownAudit, payments, expenses, myShift, user, shiftFrom, guestsById]);
-    const shiftSum = useMemo(() => summarizeTimeline(shiftEvents), [shiftEvents]);
+    // Раскладка по способам — считается той же формулой, что и итоги выше
+    const byMethod = useMemo(() => {
+        if (!details) return null;
+        const byId = new Map(guests.map(g => [g.id, g]));
+        const { groups, expenses: exp } = shiftByMethod(user, payments, expenses);
+        const textOf = (p) => (p.type === 'cash_to_terminal'
+            ? `${t('ptCtt')}${p.comment ? ': ' + p.comment : ''}`
+            : purposeText(describePayment(p, byId.get(p.guestId) || null), t));
+        return {
+            groups: Object.fromEntries(Object.entries(groups).map(([k, rows]) => [k, rows.map(({ p, amount }) => ({
+                id: p.id, date: p.date, amount, text: textOf(p),
+                extra: [k === 'transfer' && p.transferTo, p.method === 'split' && t('scmPartOfMix')].filter(Boolean).join(' · '),
+            }))])),
+            expenses: exp.map(e => ({
+                id: e.id, date: e.date, amount: parseInt(e.amount) || 0,
+                text: `${e.category === 'Возврат' ? t('refund') : (e.category || t('expense'))}${e.comment ? ': ' + e.comment : ''}`,
+                extra: e.skipCashbox ? t('scmNotFromCash') : '',
+            })),
+        };
+    }, [details, user, payments, expenses, guests, t]);
 
     const handleEndShiftWithNotify = useCallback(async () => {
         if (submitting) return;                       // защита от повторного клика
@@ -215,22 +200,58 @@ const ShiftClosingModal = ({
         </>
     );
 
-    const detailList = (
+    const hhmm = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const carried = report.opening || {};
+    const detailRow = (r, sign, color) => (
+        <div key={r.id} style={{ display: 'flex', gap: 10, padding: '6px 4px 6px 10px', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : '#f1f5f9'}` }}>
+            <div style={{ width: 36, flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#94a3b8', fontVariantNumeric: 'tabular-nums', paddingTop: 1 }}>{r.date ? hhmm(r.date) : ''}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: isDark ? '#e2f7f8' : '#0f172a', lineHeight: 1.35 }}>{r.text}</div>
+                {r.extra && <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.extra}</div>}
+            </div>
+            <div style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color }}>{sign}{money(r.amount)}</div>
+        </div>
+    );
+    const methodHead = (k) => ({
+        cash: { icon: <DollarSign size={13}/>, label: t('cash'), ...incomeRows[0] },
+        card: { icon: <CreditCard size={13}/>, label: t('card'), ...incomeRows[1] },
+        qr:   { icon: <Smartphone size={13}/>, label: t('qr'), ...incomeRows[2] },
+        transfer: { icon: <span style={{ fontSize: 13 }}>🏦</span>, label: t('scmBankTransfer'), ...transferStyle },
+    }[k]);
+    const detailList = byMethod && (
         <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 8px' }}>
                 <button onClick={() => setDetails(false)} aria-label={t('back')}
                     style={{ background: 'transparent', border: 'none', padding: 2, cursor: 'pointer', color: '#0f9688', display: 'flex' }}><ChevronLeft size={16}/></button>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('scmDetailsTitle')}</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('scmByMethodTitle')}</div>
             </div>
-            <div style={{ fontSize: 12, color: isDark ? '#9ecdd0' : '#475569', marginBottom: 6 }}>
-                {t('ctlSumCheckins')}: <b>{shiftSum.checkins}</b> · {t('ctlSumExtends')}: <b>{shiftSum.extends}</b>{shiftSum.extendDays ? ` (${t('ptPlusDays').replace('{n}', shiftSum.extendDays)})` : ''} · {t('ctlSumCheckouts')}: <b>{shiftSum.checkouts}</b>
+            {['cash', 'card', 'qr', 'transfer'].map(k => {
+                const rows = byMethod.groups[k];
+                const carry = parseInt(carried[k]) || 0;
+                if (!rows.length && !carry) return null;
+                const h = methodHead(k);
+                return (
+                    <div key={k} style={{ marginBottom: 10 }}>
+                        <Row icon={h.icon} label={h.label} value={income[k]} color={h.color} bg={h.bg} border={h.border} />
+                        {carry > 0 && detailRow({ id: 'carry_' + k, text: t('scmCarriedRow').replace('{name}', openingFrom || '—'), amount: carry }, '+', '#059669')}
+                        {rows.map(r => detailRow(r, '+', '#059669'))}
+                    </div>
+                );
+            })}
+            {(byMethod.expenses.length > 0 || (parseInt(carried.expenses) || 0) > 0) && (
+                <div style={{ marginBottom: 10 }}>
+                    <Row icon={<LogOut size={13} color="#ef4444"/>} label={t('scmExpensesTitle')} value={cashboxExpenses} sign="−"
+                        color="#ef4444" bg={isDark ? 'rgba(239,68,68,0.12)' : '#fff5f5'} border={isDark ? 'rgba(239,68,68,0.2)' : 'rgba(254,202,202,0.3)'} />
+                    {(parseInt(carried.expenses) || 0) > 0 && detailRow({ id: 'carry_exp', text: t('scmCarriedRow').replace('{name}', openingFrom || '—'), amount: parseInt(carried.expenses) || 0 }, '−', '#dc2626')}
+                    {byMethod.expenses.map(r => detailRow(r, '−', '#dc2626'))}
+                </div>
+            )}
+            {!['cash', 'card', 'qr', 'transfer'].some(k => byMethod.groups[k].length) && !byMethod.expenses.length && (
+                <div style={{ fontSize: 13, color: '#94a3b8', padding: '20px 0', textAlign: 'center' }}>{t('scmDetailsEmpty')}</div>
+            )}
+            <div style={{ fontSize: 12, fontWeight: 700, color: isDark ? '#5eead4' : '#0f766e', padding: '4px 2px' }}>
+                {t('scmCashFormula').replace('{cash}', money(income.cash)).replace('{exp}', money(cashboxExpenses)).replace('{left}', money(cashInHand))}
             </div>
-            {ownAudit === null && <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>{t('scmDetailsLoading')}</div>}
-            {auditFailed && <div style={{ fontSize: 11, color: '#d97706', marginBottom: 6 }}>{t('scmDetailsNoAudit')}</div>}
-            {opening && <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>{t('scmDetailsOpening')}</div>}
-            {shiftEvents.length === 0
-                ? <div style={{ fontSize: 13, color: '#94a3b8', padding: '20px 0', textAlign: 'center' }}>{t('ctlEmpty')}</div>
-                : <div style={{ margin: '0 -12px' }}><TimelineList events={shiftEvents} guestsById={guestsById} t={t} /></div>}
         </>
     );
 

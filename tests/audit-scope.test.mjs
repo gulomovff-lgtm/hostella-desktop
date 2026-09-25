@@ -32,12 +32,12 @@ test('админ видит общий журнал без зачётов; су�
     assert.deepEqual(visibleAuditFor('cashier', common, sup), []);
 });
 
-test('правила: общий журнал читает админ (кассир — только свои записи), суперский — только супер; править и удалять — только супер', async () => {
+test('правила: общий журнал читает админ, суперский — только супер; править и удалять — только супер', async () => {
     const fs = await import('node:fs');
     const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
     const common = rules.slice(rules.indexOf('match /auditLog/{doc}'), rules.indexOf('match /auditLogSuper/{doc}'));
     const sup = rules.slice(rules.indexOf('match /auditLogSuper/{doc}'), rules.indexOf('}', rules.indexOf('allow update, delete: if isSuper();', rules.indexOf('match /auditLogSuper/{doc}'))) + 1);
-    assert.ok(common.includes('allow read:   if isAdmin() || (isStaff() && resource.data.userId == request.auth.uid);'));
+    assert.ok(common.includes('allow read:   if isAdmin();'));
     assert.ok(sup.includes('allow read:   if isSuper();'));
     assert.ok(common.includes('allow update, delete: if isSuper();') && sup.includes('allow update, delete: if isSuper();'));
 });

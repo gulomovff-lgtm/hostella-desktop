@@ -41,22 +41,49 @@ const readOpening = (opening) => {
  *   принявший закрывает смену одним общим отчётом за сутки, как и раньше, — а не
  *   своей половиной. Число поддерживается для смен, записанных ранним форматом.
  */
-export function computeShiftReport(user, payments = [], expenses = [], opening = null) {
-    const shiftStart = user.lastShiftEnd || '1970-01-01T00:00:00.000Z';
-    const carried = readOpening(opening);
+/** Часть оплаты по способу: запись по способам (cash/card/…) или одиночная (method). */
+const partOf = (p, k) => (p[k] !== undefined ? (parseInt(p[k]) || 0) : (p.method === k ? (parseInt(p.amount) || 0) : 0));
 
+/** Записи кассы текущей смены — ровно те, из которых считаются итоги. */
+export function shiftRows(user, payments = [], expenses = []) {
+    const shiftStart = user.lastShiftEnd || '1970-01-01T00:00:00.000Z';
     const myPayments = payments.filter(p =>
         ((p.staffId === user.id) || (p.staffId === user.login)) && p.date > shiftStart);
-
     const myExpenses = expenses.filter(e =>
         ((e.staffId === user.id) || (e.staffId === user.login)) && e.date > shiftStart && e.source !== 'cadastre');
+    return { myPayments, myExpenses };
+}
+
+/**
+ * «Подробно» в окне кассы (владелец 2026-09-25): наличные — и под ними за что
+ * каждая, потом терминал, QR, перевод; расходы отдельно. Смешанная оплата
+ * попадает в несколько групп своими частями. Сумма группы = строка итогов.
+ */
+export const SHIFT_METHODS = ['cash', 'card', 'qr', 'transfer'];
+export function shiftByMethod(user, payments = [], expenses = []) {
+    const { myPayments, myExpenses } = shiftRows(user, payments, expenses);
+    const byDate = (a, b) => String(a.date || a.p?.date).localeCompare(String(b.date || b.p?.date));
+    const groups = Object.fromEntries(SHIFT_METHODS.map(k => [k, []]));
+    for (const p of myPayments) {
+        for (const k of SHIFT_METHODS) {
+            const amount = partOf(p, k);
+            if (amount) groups[k].push({ p, amount });
+        }
+    }
+    for (const k of SHIFT_METHODS) groups[k].sort(byDate);
+    return { groups, expenses: [...myExpenses].sort(byDate) };
+}
+
+export function computeShiftReport(user, payments = [], expenses = [], opening = null) {
+    const carried = readOpening(opening);
+    const { myPayments, myExpenses } = shiftRows(user, payments, expenses);
 
     // Принятая смена входит в те же строки отчёта: сдаётся общая касса за сутки
     const income = myPayments.reduce((acc, p) => {
-        acc.cash += p.cash !== undefined ? (parseInt(p.cash) || 0) : (p.method === 'cash' ? (parseInt(p.amount) || 0) : 0);
-        acc.card += p.card !== undefined ? (parseInt(p.card) || 0) : (p.method === 'card' ? (parseInt(p.amount) || 0) : 0);
-        acc.qr   += p.qr   !== undefined ? (parseInt(p.qr)   || 0) : (p.method === 'qr'   ? (parseInt(p.amount) || 0) : 0);
-        const t = p.transfer !== undefined ? (parseInt(p.transfer) || 0) : (p.method === 'transfer' ? (parseInt(p.amount) || 0) : 0);
+        acc.cash += partOf(p, 'cash');
+        acc.card += partOf(p, 'card');
+        acc.qr   += partOf(p, 'qr');
+        const t = partOf(p, 'transfer');
         acc.transfer += t;
         if (t > 0 && p.transferTo) acc.transferByEntity[p.transferTo] = (acc.transferByEntity[p.transferTo] || 0) + t;
         return acc;

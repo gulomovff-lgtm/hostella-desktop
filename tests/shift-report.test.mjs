@@ -79,3 +79,30 @@ test('возвраты и расходы с skipCashbox считаются по-
   assert.equal(r.cashboxExpenses, 100000, 'skipCashbox из кассы не вычитается');
   assert.equal(r.cashInHand, 400000);
 });
+
+test('«Подробно» по способам: сумма каждой группы = строка итогов; микс делится по частям; чужое и старое не попадает', async () => {
+    const { shiftByMethod } = await import('../src/utils/shiftReport.js');
+    const U = { id: 'u1', login: 'l1', lastShiftEnd: '2026-09-25T00:00:00.000Z' };
+    const payments = [
+        { id: 'a', staffId: 'u1', amount: 300, cash: 100, card: 200, method: 'split', date: '2026-09-25T09:00:00Z' },
+        { id: 'b', staffId: 'l1', amount: 50, method: 'qr', date: '2026-09-25T10:00:00Z' },
+        { id: 'c', staffId: 'u1', amount: 70, method: 'cash', date: '2026-09-25T08:00:00Z' },
+        { id: 'd', staffId: 'u1', amount: 40, transfer: 40, transferTo: 'ООО Ромашка', date: '2026-09-25T11:00:00Z' },
+        { id: 'old', staffId: 'u1', amount: 999, method: 'cash', date: '2026-09-24T20:00:00Z' },
+        { id: 'x', staffId: 'u2', amount: 555, method: 'cash', date: '2026-09-25T10:00:00Z' },
+    ];
+    const expenses = [
+        { id: 'e2', staffId: 'u1', amount: 20, date: '2026-09-25T12:00:00Z' },
+        { id: 'e1', staffId: 'u1', amount: 10, category: 'Возврат', date: '2026-09-25T09:30:00Z' },
+        { id: 'cad', staffId: 'u1', amount: 5, source: 'cadastre', date: '2026-09-25T09:30:00Z' },
+    ];
+    const r = computeShiftReport(U, payments, expenses);
+    const { groups, expenses: ex } = shiftByMethod(U, payments, expenses);
+    for (const k of ['cash', 'card', 'qr', 'transfer']) {
+        assert.equal(groups[k].reduce((s, x) => s + x.amount, 0), r.income[k], k);
+    }
+    assert.deepEqual(groups.cash.map(x => x.p.id), ['c', 'a'], 'по времени');
+    assert.deepEqual(groups.card.map(x => [x.p.id, x.amount]), [['a', 200]]);
+    assert.deepEqual(ex.map(e => e.id), ['e1', 'e2']);
+    assert.equal(ex.reduce((s, e) => s + e.amount, 0), r.cashboxExpenses);
+});
