@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     LayoutDashboard, TrendingUp, TrendingDown, BedDouble, Users, AlertCircle,
     Plus, UserPlus, LogOut, Calendar, Clock, Wallet, DollarSign, CreditCard,
-    QrCode, BarChart3, CalendarDays, CheckCircle2, User, Download, ArrowRightLeft, FileText
+    QrCode, BarChart3, CalendarDays, CheckCircle2, User, Download, ArrowRightLeft, FileText, ChevronRight
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import * as XLSX from 'xlsx';
@@ -10,6 +10,7 @@ import { printGroupReceipt } from '../../utils/groupReceipt';
 import GroupReceiptModal from '../Modals/GroupReceiptModal';
 import { chargeOf } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
+import DashboardDetailModal from '../Modals/DashboardDetailModal';
 
 // -- Export helpers ----------------------------------------------------------
 const exportGuestsToExcel = (guests) => {
@@ -119,6 +120,8 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
     const [groupModalOpen, setGroupModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [bulkDays, setBulkDays] = useState('1');
+    // Плитка, по которой нажали: окно «подробно» (DashboardDetailModal)
+    const [detail, setDetail] = useState(null);
     const nowMs = useNow();
     const now = new Date(nowMs);
 
@@ -262,6 +265,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         }).sort((a, b) => b.income - a.income);
 
         return {
+            relPayments, relExpenses,
             relRooms, relGuests, totalBeds, activeGuests, occupancyGuests, occupancyPct, occupancyRaw, isOverCapacity,
             rentedBeds, occupiedBeds, freeBeds,
             pay30, last7, totalIncome, totalExpense, incomeToday, incomeWeek, incomeMonth, incomeThisMonth, expenseThisMonth,
@@ -314,7 +318,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         );
     };
 
-    const StatCard = ({ label, value, sub, icon: Icon, color, suffix }) => {
+    const StatCard = ({ label, value, sub, icon: Icon, color, suffix, onClick }) => {
         const cfg = {
             emerald: { ring: 'ring-emerald-200', bg: 'bg-emerald-50', text: 'text-emerald-600', icon: 'bg-emerald-100' },
             rose:    { ring: 'ring-rose-200',    bg: 'bg-rose-50',    text: 'text-rose-600',    icon: 'bg-rose-100' },
@@ -324,7 +328,9 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             purple:  { ring: 'ring-purple-200',  bg: 'bg-purple-50',  text: 'text-purple-600',  icon: 'bg-purple-100' },
         }[color] || { ring: 'ring-slate-200', bg: 'bg-white', text: 'text-slate-800', icon: 'bg-slate-100' };
         return (
-            <div className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+            <div role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined} title={onClick ? t('ddClickHint') : undefined}
+                onClick={onClick} onKeyDown={onClick ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }) : undefined}
+                className={`relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${onClick ? 'cursor-pointer hover:ring-2 hover:ring-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-300' : ''}`}>
                 <div className={`absolute -right-5 -top-5 w-20 h-20 rounded-full ${cfg.bg}`} />
                 <div className="relative">
                     <div className="flex items-start justify-between mb-3">
@@ -334,7 +340,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                         {sub && <span className="text-[10px] font-bold text-slate-500 bg-white/80 border border-slate-100 px-2 py-0.5 rounded-full">{sub}</span>}
                     </div>
                     <div className={`text-2xl font-black ${cfg.text}`}>{value}{suffix && <span className="text-sm font-semibold ml-0.5">{suffix}</span>}</div>
-                    <div className="text-xs font-semibold text-slate-400 mt-0.5 uppercase tracking-wide">{label}</div>
+                    <div className="text-xs font-semibold text-slate-400 mt-0.5 uppercase tracking-wide flex items-center gap-1">{label}{onClick && <ChevronRight size={12} className="text-slate-300" />}</div>
                 </div>
             </div>
         );
@@ -400,12 +406,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
     ];
 
     const kpis = [
-        { label: t('guestsNow'), value: data.activeGuests.length, suffix: '', icon: Users, color: 'indigo', sub: `+${data.arrivalsToday.length} ${t('todayShort')}` },
-        { label: t('occupancy'), value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: `${data.occupancyGuests.length}/${data.totalBeds}${data.isOverCapacity ? ' ⚠' : ''}` },
-        { label: t('incomeToday'), value: data.incomeToday.toLocaleString(), suffix: '', icon: TrendingUp, color: 'emerald', sub: 'UZS' },
-        { label: t('debts'), value: data.totalDebt.toLocaleString(), suffix: '', icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'slate', sub: data.totalRentalDebt > 0 ? `${data.debtors.length} (${t('rentLower')} ${data.totalRentalDebt.toLocaleString()})` : `${data.debtors.length} ${t('debtorsShort')}` },
-        { label: t('overdueCount'), value: expired.length, suffix: '', icon: AlertCircle, color: expired.length > 0 ? 'amber' : 'slate', sub: t('notEvicted') },
-        { label: t('freeBedsLabel'), value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `${t('ofLabel')} ${data.totalBeds}${data.rentedBeds ? ` · ${t('rentLower')} ${data.rentedBeds}` : ''}` },
+        { detail: 'guests', label: t('guestsNow'), value: data.activeGuests.length, suffix: '', icon: Users, color: 'indigo', sub: `+${data.arrivalsToday.length} ${t('todayShort')}` },
+        { detail: 'occupancy', label: t('occupancy'), value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: `${data.occupancyGuests.length}/${data.totalBeds}${data.isOverCapacity ? ' ⚠' : ''}` },
+        { detail: 'incomeToday', label: t('incomeToday'), value: data.incomeToday.toLocaleString(), suffix: '', icon: TrendingUp, color: 'emerald', sub: 'UZS' },
+        { detail: 'debts', label: t('debts'), value: data.totalDebt.toLocaleString(), suffix: '', icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'slate', sub: data.totalRentalDebt > 0 ? `${data.debtors.length} (${t('rentLower')} ${data.totalRentalDebt.toLocaleString()})` : `${data.debtors.length} ${t('debtorsShort')}` },
+        { detail: 'overdue', label: t('overdueCount'), value: expired.length, suffix: '', icon: AlertCircle, color: expired.length > 0 ? 'amber' : 'slate', sub: t('notEvicted') },
+        { detail: 'free', label: t('freeBedsLabel'), value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `${t('ofLabel')} ${data.totalBeds}${data.rentedBeds ? ` · ${t('rentLower')} ${data.rentedBeds}` : ''}` },
     ];
 
     const scopeLabel = currentHostelId === 'all' ? t('expAllHostels') : currentHostelId === 'hostel1' ? t('expHostel1') : currentHostelId === 'hostel2' ? t('expHostel2') : t('expHostel');
@@ -431,21 +437,29 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100">
+                    <button onClick={() => setDetail('incomeMonth')} title={t('ddClickHint')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100 hover:ring-2 hover:ring-emerald-200 transition-all">
                         <TrendingUp size={14} className="text-emerald-600" />
                         <span className="text-xs font-bold text-emerald-700">{t('incomeForMonth').replace('{m}', monthLabel)}: {data.incomeThisMonth.toLocaleString()}</span>
-                    </div>
-                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border ${netMonth >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-rose-50 border-rose-100'}`}>
+                        <ChevronRight size={12} className="text-emerald-400" />
+                    </button>
+                    <button onClick={() => setDetail('profitMonth')} title={t('ddClickHint')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border hover:ring-2 transition-all ${netMonth >= 0 ? 'bg-teal-50 border-teal-100 hover:ring-teal-200' : 'bg-rose-50 border-rose-100 hover:ring-rose-200'}`}>
                         <Wallet size={14} className={netMonth >= 0 ? 'text-teal-600' : 'text-rose-600'} />
                         <span className={`text-xs font-bold ${netMonth >= 0 ? 'text-teal-700' : 'text-rose-700'}`}>{t('monthProfit')}: {netMonth.toLocaleString()}</span>
-                    </div>
+                        <ChevronRight size={12} className={netMonth >= 0 ? 'text-teal-400' : 'text-rose-400'} />
+                    </button>
                 </div>
             </div>
 
             {/* KPI strip */}
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-                {kpis.map((k, i) => <StatCard key={i} {...k} />)}
+                {kpis.map(({ detail: kind, ...k }, i) => <StatCard key={i} {...k} onClick={kind ? () => setDetail(kind) : undefined} />)}
             </div>
+
+            {detail && (
+                <DashboardDetailModal kind={detail} onClose={() => setDetail(null)} t={t} data={data} expired={expired}
+                    users={users || []} guests={guests} todayStr={todayStr} monthPrefix={todayStr.slice(0, 7)} dayOf={ymd}
+                    onOpenGuest={onOpenGuest} />
+            )}
 
             {/* Tabs */}
             <div className="flex gap-1 bg-white border border-slate-200 rounded-2xl p-1.5 shadow-sm overflow-x-auto">

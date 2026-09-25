@@ -1,7 +1,7 @@
 {
   "name": "hostella-desktop",
   "private": true,
-  "version": "0.15.30",
+  "version": "0.15.31",
   "description": "Hostella Management System",
   "author": "Fazliddin Gulomov",
   "main": "electron/main.js",
