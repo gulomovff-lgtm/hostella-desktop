@@ -1,7 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { LogOut, Copy, X, DollarSign, CreditCard, Smartphone, Lock, CheckCircle, AlertTriangle, RotateCcw, ArrowRightLeft, ChevronLeft } from 'lucide-react';
+import { LogOut, Copy, X, DollarSign, CreditCard, Smartphone, Lock, CheckCircle, AlertTriangle, RotateCcw, ArrowRightLeft, ChevronLeft, List } from 'lucide-react';
+import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
 import { computeShiftReport, buildShiftTelegramMsg, buildShiftReportText } from '../../utils/shiftReport';
+import { buildTimeline, summarizeTimeline, staffKeysOf } from '../../utils/cashierTimeline';
+import TimelineList from '../UI/TimelineList';
 
 const MODAL_STYLE = `
     @keyframes scm-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -26,12 +30,16 @@ const useIsPhone = () => {
 };
 
 const ShiftClosingModal = ({
-    user, payments = [], expenses = [], onClose, onLogout, notify, onEndShift, lang, sendTelegramMessage,
+    user, payments = [], expenses = [], guests = [], onClose, onLogout, notify, onEndShift, lang, sendTelegramMessage,
     myShift = null, cashiersForTransfer = [], onTransferShift,
     opening = null, openingFrom = null,
 }) => {
     const t = useCallback((k) => TRANSLATIONS[lang]?.[k] || k, [lang]);
     const [confirming, setConfirming] = useState(false);
+    // «Подробно»: лента смены (как во вкладке «Лента кассира») вместо сводки
+    const [details, setDetails] = useState(false);
+    const [ownAudit, setOwnAudit] = useState(null);   // null — не грузили; [] — пусто
+    const [auditFailed, setAuditFailed] = useState(false);
     // Защита от двойной отправки: пока идёт закрытие/передача смены — кнопки заблокированы,
     // иначе повторные клики шлют Telegram несколько раз и запускают гонку закрытия.
     const [submitting, setSubmitting] = useState(false);
@@ -52,6 +60,37 @@ const ShiftClosingModal = ({
         [user, payments, expenses, opening]);
     const { income, totalRefunds, cashboxExpenses, totalRevenue, cashInHand } = report;
     const otherExpenses = cashboxExpenses - totalRefunds;
+
+    // Начало ленты — как у сверки кассы: с прошлого закрытия смены; если его
+    // нет — с начала текущей смены, в крайнем случае последние сутки.
+    const shiftFrom = useMemo(() => {
+        if (user?.lastShiftEnd && user.lastShiftEnd > '1971') return user.lastShiftEnd;
+        return myShift?.startTime || new Date(Date.now() - 86400000).toISOString();
+    }, [user?.lastShiftEnd, myShift?.startTime]);
+
+    // Свои записи журнала за смену (кассиру правила отдают только его записи)
+    useEffect(() => {
+        if (!details || ownAudit !== null) return;
+        let alive = true;
+        const me = String(user?.id || user?.login || '');
+        getDocs(query(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
+            where('userId', '==', me), where('timestamp', '>=', shiftFrom), orderBy('timestamp', 'asc')))
+            .then(snap => { if (alive) setOwnAudit(snap.docs.map(d => ({ id: d.id, ...d.data() }))); })
+            .catch(e => { console.warn('[shift details] audit:', e.message); if (alive) { setOwnAudit([]); setAuditFailed(true); } });
+        return () => { alive = false; };
+    }, [details, ownAudit, user?.id, user?.login, shiftFrom]);
+
+    const guestsById = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests]);
+    const shiftEvents = useMemo(() => {
+        if (!details) return [];
+        return buildTimeline({
+            audit: ownAudit || [], payments,
+            expenses: expenses.filter(e => e.source !== 'cadastre'),
+            shifts: myShift ? [myShift] : [], keys: staffKeysOf(user),
+            from: shiftFrom, to: null, guestsById,
+        });
+    }, [details, ownAudit, payments, expenses, myShift, user, shiftFrom, guestsById]);
+    const shiftSum = useMemo(() => summarizeTimeline(shiftEvents), [shiftEvents]);
 
     const handleEndShiftWithNotify = useCallback(async () => {
         if (submitting) return;                       // защита от повторного клика
@@ -176,6 +215,25 @@ const ShiftClosingModal = ({
         </>
     );
 
+    const detailList = (
+        <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 6px' }}>
+                <button onClick={() => setDetails(false)} aria-label={t('back')}
+                    style={{ background: 'transparent', border: 'none', padding: 2, cursor: 'pointer', color: '#0f9688', display: 'flex' }}><ChevronLeft size={16}/></button>
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('scmDetailsTitle')}</div>
+            </div>
+            <div style={{ fontSize: 12, color: isDark ? '#9ecdd0' : '#475569', marginBottom: 6 }}>
+                {t('ctlSumCheckins')}: <b>{shiftSum.checkins}</b> · {t('ctlSumExtends')}: <b>{shiftSum.extends}</b>{shiftSum.extendDays ? ` (${t('ptPlusDays').replace('{n}', shiftSum.extendDays)})` : ''} · {t('ctlSumCheckouts')}: <b>{shiftSum.checkouts}</b>
+            </div>
+            {ownAudit === null && <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>{t('scmDetailsLoading')}</div>}
+            {auditFailed && <div style={{ fontSize: 11, color: '#d97706', marginBottom: 6 }}>{t('scmDetailsNoAudit')}</div>}
+            {opening && <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>{t('scmDetailsOpening')}</div>}
+            {shiftEvents.length === 0
+                ? <div style={{ fontSize: 13, color: '#94a3b8', padding: '20px 0', textAlign: 'center' }}>{t('ctlEmpty')}</div>
+                : <div style={{ margin: '0 -12px' }}><TimelineList events={shiftEvents} guestsById={guestsById} t={t} /></div>}
+        </>
+    );
+
     // ── Кнопки ──────────────────────────────────────────────────────────────
     const ghostBtn = {
         background: isDark ? '#1e3a3e' : '#f8fafc',
@@ -266,6 +324,10 @@ const ShiftClosingModal = ({
             display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0,
         }}>
             <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setDetails(d => !d)} style={{ ...ghostBtn, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: isPhone ? '12px' : '10px',
+                    background: details ? (isDark ? 'rgba(15,150,136,0.2)' : '#f0fdfa') : ghostBtn.background, color: isDark ? '#5eead4' : '#0f766e', border: `1px solid ${isDark ? 'rgba(94,234,212,0.3)' : '#99f6e4'}` }}>
+                    <List size={14}/> {details ? t('scmSummary') : t('scmDetails')}
+                </button>
                 <button onClick={copyReport} style={{ ...ghostBtn, flex: 1, color: isDark ? '#9ecdd0' : '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: isPhone ? '12px' : '10px' }}>
                     <Copy size={14}/> {t('reportSingular')}
                 </button>
@@ -333,7 +395,7 @@ const ShiftClosingModal = ({
 
                         {/* Сверка — единственная прокручиваемая область */}
                         <div style={{ padding: '14px 16px', overflowY: 'auto', flex: 1, minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
-                            {summary}
+                            {details ? detailList : summary}
                         </div>
 
                         {footer}
@@ -349,7 +411,7 @@ const ShiftClosingModal = ({
             <style>{MODAL_STYLE}</style>
             <div className="scm-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4" style={{ background: 'rgba(15,30,32,0.7)' }}>
                 <div className="scm-card" role="dialog" aria-modal="true" aria-label={t('shiftClose')}
-                    style={{ background: isDark ? '#162a2e' : '#fff', borderRadius: 24, width: '100%', maxWidth: 560, display: 'flex', overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', minHeight: 380, maxHeight: '92dvh' }}>
+                    style={{ background: isDark ? '#162a2e' : '#fff', borderRadius: 24, width: '100%', maxWidth: details ? 780 : 560, display: 'flex', overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', minHeight: 380, maxHeight: '92dvh' }}>
 
                     {/* == Left dark column == */}
                     <div style={{ width: 190, background: '#1a3c40', display: 'flex', flexDirection: 'column', padding: '30px 22px', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
@@ -377,7 +439,7 @@ const ShiftClosingModal = ({
                         </div>
 
                         <div style={{ padding: '16px 24px', flex: 1, overflowY: 'auto', minHeight: 0 }}>
-                            {summary}
+                            {details ? detailList : summary}
                         </div>
 
                         {footer}

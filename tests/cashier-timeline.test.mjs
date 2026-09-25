@@ -123,3 +123,17 @@ test('открытые смены: только текущая смена каж
     assert.deepEqual(one.events.filter(e => e.source === 'payment').map(e => e.payments[0].id), ['p2']);
     assert.equal(openShiftTimeline({ payments, shifts: [shifts[0]], users }).events.length, 0);
 });
+
+test('итоги без журнала: заселения и продления считаются по назначению оплат, нал+карта одной операции — один раз', () => {
+    const d = new Date(2026, 8, 25, 10).toISOString();
+    const payments = [
+        { id: 'a', staffId: 'u1', amount: 100, method: 'cash', purpose: 'extend', extendDays: 2, guestId: 'g', date: d },
+        { id: 'b', staffId: 'u1', amount: 50, method: 'card', purpose: 'extend', extendDays: 2, guestId: 'g', date: d },
+        { id: 'c', staffId: 'u1', amount: 70, category: 'accommodation', purpose: 'checkin', guestId: 'h', date: d },
+    ];
+    const s = summarizeTimeline(buildTimeline({ payments, keys: new Set(['u1']), from: 0, to: null }));
+    assert.equal(s.extends, 1);
+    assert.equal(s.extendDays, 2);
+    assert.equal(s.checkins, 1);
+    assert.equal(s._seen, undefined);
+});

@@ -2656,6 +2656,7 @@ return (
                 user={activeUserDoc} 
                 payments={payments} 
                 expenses={filteredExpenses} 
+                guests={guests}
                 onClose={() => setShiftModal(false)}
                 onEndShift={handleEndShift}
                 onLogout={handleLogout}

@@ -180,7 +180,7 @@ export function buildTimeline({ audit = [], payments = [], expenses = [], shifts
 /** Итоги ленты: заселения, продления (+сутки), приход по способам, расходы. */
 export function summarizeTimeline(events = []) {
   const s = { checkins: 0, extends: 0, extendDays: 0, checkouts: 0, sales: 0, moneyIn: 0, moneyOut: 0,
-    byMethod: { cash: 0, card: 0, qr: 0, transfer: 0, balance: 0 } };
+    byMethod: { cash: 0, card: 0, qr: 0, transfer: 0, balance: 0 }, _seen: new Set() };
   for (const e of events) {
     const d = e.entry?.details || {};
     if (e.action === 'checkin') s.checkins++;
@@ -188,6 +188,18 @@ export function summarizeTimeline(events = []) {
     if (e.action === 'shop_sale') s.sales++;
     if (e.action === 'extend') { s.extends++; s.extendDays += num(d.days); }
     if (e.action === 'extend_bulk') { s.extends += num(d.count); s.extendDays += num(d.days) * num(d.count); }
+    // Оплата без записи журнала (журнал не загрузился/выключен): считаем по её
+    // назначению. Одна операция может дать несколько оплат (нал + карта) —
+    // склеиваем по гостю и времени.
+    if (e.action === 'payment_row' && e.payments[0]?.purpose) {
+      const p = e.payments[0];
+      const k = `${p.purpose}|${p.guestId}|${p.date}`;
+      if (!s._seen.has(k)) {
+        s._seen.add(k);
+        if (p.purpose === 'checkin') s.checkins++;
+        if (p.purpose === 'extend') { s.extends++; s.extendDays += num(p.extendDays); }
+      }
+    }
     for (const p of e.payments) {
       if (p.type === 'cash_to_terminal') continue;
       const m = paymentMethods(p);
@@ -196,6 +208,7 @@ export function summarizeTimeline(events = []) {
     s.moneyIn += e.moneyIn;
     s.moneyOut += e.moneyOut;
   }
+  delete s._seen;
   return s;
 }
 
