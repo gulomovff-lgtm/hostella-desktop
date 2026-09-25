@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { ShoppingBag, Package, ListChecks, Plus, X, Pencil, RotateCcw, Check } from 'lucide-react';
+import { ShoppingBag, Package, ListChecks, Plus, X, Pencil, RotateCcw, Check, ImagePlus, Trash2 } from 'lucide-react';
+import { resizeImage } from '../../utils/imageResize';
 import TRANSLATIONS from '../../constants/translations';
 import { fmtSum, parseSum } from '../../utils/helpers';
 import { salesSummary, canCancelSale, stockOf, KINDS } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 const money = (n) => (Number(n) || 0).toLocaleString('ru-RU');
 const pad = (n) => String(n).padStart(2, '0');
@@ -48,7 +50,21 @@ const ShopView = ({
             : await onStockAdjust?.({ item: f.item, hostelId: f.hostelId, actual: parseInt(f.actual) });
         if (ok) setStockForm(null);
     };
-    const saveItem = async () => { if (await onSaveItem?.(editItem)) setEditItem(null); };
+    const closeItem = () => { if (editItem?.photoPreview) URL.revokeObjectURL(editItem.photoPreview); setEditItem(null); };
+    const saveItem = async () => {
+        const { photoPreview, ...item } = editItem;
+        if (await onSaveItem?.(item)) { if (photoPreview) URL.revokeObjectURL(photoPreview); setEditItem(null); }
+    };
+    const pickPhoto = async (file) => {
+        if (!file) return;
+        try {
+            const blob = await resizeImage(file);
+            setEditItem(x => { if (x?.photoPreview) URL.revokeObjectURL(x.photoPreview); return { ...x, photoFile: blob, photoPreview: URL.createObjectURL(blob), removePhoto: false }; });
+        } catch { window.alert(t('shPhotoBad')); }
+    };
+    const Thumb = ({ item, size = 'w-8 h-8' }) => item.photoUrl
+        ? <img src={item.photoUrl} alt="" loading="lazy" className={`${size} rounded-lg object-cover border border-slate-200 shrink-0`} />
+        : <span className={`${size} rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-base shrink-0`}>{item.emoji || (item.kind === 'product' ? '🥤' : '🧺')}</span>;
 
     return (
         <div className="space-y-4">
@@ -139,7 +155,7 @@ const ShopView = ({
                                     <tr><td colSpan={3 + shownHostels.length} className="p-8 text-center text-slate-400">{t('shNoProducts')}</td></tr>
                                 ) : products.map(p => (
                                     <tr key={p.id} className={p.active === false ? 'opacity-50' : ''}>
-                                        <td className="px-4 py-2.5 font-bold text-slate-800">{p.emoji ? `${p.emoji} ` : ''}{p.name}</td>
+                                        <td className="px-4 py-2.5 font-bold text-slate-800"><span className="flex items-center gap-2"><Thumb item={p} />{p.name}</span></td>
                                         <td className="px-4 py-2.5 text-right tabular-nums">{money(p.price)}</td>
                                         {shownHostels.map(h => {
                                             const n = stockOf(p, h.id);
@@ -187,7 +203,7 @@ const ShopView = ({
                             <div className="p-8 text-center text-slate-400 text-sm">{t('shCatalogEmpty')}</div>
                         ) : [...catalog].sort((a, b) => (a.kind === b.kind ? String(a.name).localeCompare(String(b.name)) : a.kind === 'service' ? -1 : 1)).map(i => (
                             <div key={i.id} className={`flex items-center gap-3 px-4 py-2.5 ${i.active === false ? 'opacity-50' : ''}`}>
-                                <span className="text-lg w-6 text-center">{i.emoji || (i.kind === 'product' ? '🥤' : '🧺')}</span>
+                                <Thumb item={i} size="w-10 h-10" />
                                 <div className="flex-1 min-w-0">
                                     <div className="text-sm font-bold text-slate-800 truncate">{i.name}</div>
                                     <div className="text-[11px] text-slate-400">{t('shKind_' + i.kind)}{i.active === false ? ` · ${t('shHidden')}` : ''}</div>
@@ -203,11 +219,31 @@ const ShopView = ({
             {/* Правка позиции справочника */}
             {editItem && (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(8,18,20,0.55)' }}
-                    onMouseDown={e => { if (e.target === e.currentTarget) setEditItem(null); }}>
+                    onMouseDown={e => { if (e.target === e.currentTarget) closeItem(); }}>
                     <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-3">
                         <div className="flex items-center justify-between">
                             <h2 className="text-lg font-black text-slate-800">{editItem.id ? t('shEditItem') : t('shAddItem')}</h2>
-                            <button onClick={() => setEditItem(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+                            <button onClick={closeItem} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+                        </div>
+                        {/* Фото позиции: видно на плитке продажи, в справочнике и на складе */}
+                        <div className="flex items-center gap-3">
+                            {(() => {
+                                const src = editItem.photoPreview || (!editItem.removePhoto && editItem.photoUrl) || '';
+                                return src
+                                    ? <img src={src} alt="" className="w-20 h-20 rounded-xl object-cover border border-slate-200" />
+                                    : <div className="w-20 h-20 rounded-xl bg-slate-50 border border-dashed border-slate-300 flex items-center justify-center text-slate-300"><ImagePlus size={22} /></div>;
+                            })()}
+                            <div className="flex flex-col gap-1.5">
+                                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 cursor-pointer">
+                                    <ImagePlus size={14} /> {(editItem.photoPreview || (!editItem.removePhoto && editItem.photoUrl)) ? t('shPhotoChange') : t('shPhotoAdd')}
+                                    <input type="file" accept="image/*" className="hidden" onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+                                </label>
+                                {(editItem.photoPreview || (!editItem.removePhoto && editItem.photoUrl)) && (
+                                    <button onClick={() => setEditItem(x => { if (x.photoPreview) URL.revokeObjectURL(x.photoPreview); return { ...x, photoFile: null, photoPreview: '', removePhoto: !!x.photoUrl }; })}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-50"><Trash2 size={13} /> {t('shPhotoRemove')}</button>
+                                )}
+                                <span className="text-[11px] text-slate-400">{t('shPhotoHint')}</span>
+                            </div>
                         </div>
                         <div className="grid grid-cols-[64px_1fr] gap-2">
                             <div><label className={labelCls}>{t('shEmoji')}</label><input className={inputCls + ' text-center'} value={editItem.emoji || ''} onChange={e => setEditItem(x => ({ ...x, emoji: e.target.value }))} placeholder="☕" /></div>
@@ -270,4 +306,5 @@ const ShopView = ({
     );
 };
 
-export default ShopView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(ShopView);

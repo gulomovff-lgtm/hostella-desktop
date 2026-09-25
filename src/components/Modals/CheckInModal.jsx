@@ -15,6 +15,7 @@ import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // --- Helpers ---
 /**
@@ -1846,5 +1847,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     );
 };
 
-export default CheckInModal;
+// Окно не пересчитывается от чужих перерисовок App (уведомления, снимки базы),
+// пока кассир вводит данные — только когда поменялись его данные (UI/stableView).
+export default stableView(CheckInModal);
 

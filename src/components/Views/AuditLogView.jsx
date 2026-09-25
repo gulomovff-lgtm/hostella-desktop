@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ClipboardList, Search, Download, ChevronDown, X, Filter, Pencil, Trash2, Check } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { hiddenFromAdmin } from '../../utils/auditScope';
+import { stableView } from '../UI/stableView';
 
 // ── Action metadata — только те, что реально логируются в коде ───────────────
 // label/group хранят КЛЮЧИ словаря; человекочитаемый текст резолвится через t() при рендере
@@ -422,4 +423,5 @@ const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru', onEditE
     );
 };
 
-export default AuditLogView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(AuditLogView);

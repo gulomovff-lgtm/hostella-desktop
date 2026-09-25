@@ -13,6 +13,7 @@ import TRANSLATIONS from '../../constants/translations';
 import { summarizeSources } from '../../utils/guestSource';
 import { getConfig } from '../../utils/appConfig';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 // Категории постоянных расходов (C_fixed): не зависят от числа гостей
@@ -940,4 +941,5 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     );
 };
 
-export default AnalyticsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(AnalyticsView);

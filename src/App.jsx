@@ -1341,6 +1341,15 @@ const filterByHostel = (items) => {
   }, [currentUser, selectedHostelFilter]);
 
   // Оптимизация для вкладки Номера (группировка гостей)
+  // Данные экранов считаются здесь один раз, а не в JSX: экраны кэшируются
+  // (UI/stableView) и новое множество/массив на каждой перерисовке ломал кэш.
+  const activePassports = useMemo(
+      () => new Set(filteredGuests.filter(g => g.status === 'active' && g.passport).map(g => g.passport)),
+      [filteredGuests]);
+  const visibleRecurringExpenses = useMemo(
+      () => (recurringExpenses || []).filter(t => !t.hostelId || t.hostelId === 'all' || t.hostelId === selectedHostelFilter),
+      [recurringExpenses, selectedHostelFilter]);
+
   const guestsByRoom = useMemo(() => {
       const map = {};
       filteredGuests.forEach(g => {
@@ -2117,7 +2126,7 @@ return (
                         lang={lang} 
                         currentUser={currentUser} 
                         onOpenClientHistory={handleOpenClientHistory}
-                        activePassports={new Set(filteredGuests.filter(g => g.status === 'active' && g.passport).map(g => g.passport))}
+                        activePassports={activePassports}
                         onAdjustBalance={handleAdjustBalance}
                     />
                 )}
@@ -2220,10 +2229,8 @@ return (
                         onAddExpense={(cat) => { setExpenseModalCategory(cat || ''); setExpenseModal(true); }}
                         onEditExpenseCategory={handleEditExpenseCategory}
                         onDeleteExpense={(id, rec) => handleDeletePayment(id, 'expense', rec)}
-                        recurringExpenses={recurringExpenses.filter(t =>
-                            !t.hostelId || t.hostelId === 'all' ||
-                            t.hostelId === selectedHostelFilter
-                        )}
+                        recurringExpenses={visibleRecurringExpenses}
+                        themeKey={appTheme}
                         currentUser={currentUser}
                         onAddRecurring={addRecurring}
                         onUpdateRecurring={updateRecurring}
@@ -2321,6 +2328,7 @@ return (
                         users={usersList}
                         currentUser={currentUser}
                         lang={lang}
+                        themeKey={appTheme}
                     />
                 )}
 

@@ -9,6 +9,7 @@ import TRANSLATIONS from '../../constants/translations';
 import { computeContractFinancials } from '../../utils/contractFinancials';
 import { getKppDayNumber, getRegistrationWindow } from '../../utils/helpers';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -1126,4 +1127,5 @@ const RoomsView = ({
     );
 };
 
-export default RoomsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(RoomsView);

@@ -117,7 +117,8 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
                                     return (
                                         <button key={it.id} type="button" disabled={off} onClick={() => addItem(it)}
                                             className={`text-left p-2.5 rounded-xl border transition-colors ${off ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed' : 'border-slate-200 hover:border-teal-300 hover:bg-teal-50'}`}>
-                                            <div className="text-sm font-bold text-slate-800 leading-tight">{it.emoji ? `${it.emoji} ` : ''}{it.name}</div>
+                                            {it.photoUrl && <img src={it.photoUrl} alt="" loading="lazy" className="w-full h-20 object-cover rounded-lg mb-1.5 border border-slate-100" />}
+                                            <div className="text-sm font-bold text-slate-800 leading-tight">{!it.photoUrl && it.emoji ? `${it.emoji} ` : ''}{it.name}</div>
                                             <div className="mt-1 flex items-center justify-between gap-1">
                                                 <span className="text-xs font-black text-teal-700 tabular-nums">{money(it.price)}</span>
                                                 {it.kind === 'product' && (

@@ -8,6 +8,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { parseIcal } from '../../utils/ical';
 import TRANSLATIONS from '../../constants/translations';
+import { stableView } from '../UI/stableView';
 
 const HOSTELS = {
     hostel1: 'Хостел №1',
@@ -463,4 +464,5 @@ const BookingComCard = ({ res, matchedRoom, lang = 'ru' }) => {
     );
 };
 
-export default BookingsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(BookingsView);

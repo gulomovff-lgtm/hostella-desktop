@@ -1916,6 +1916,11 @@ const TRANSLATIONS = {
     exaClawback: "С баланса клиента снята переплата {sum} сум",
     exaRecordDeleted: "Запись удалена",
     // Услуги и товары
+    shPhotoAdd: "Добавить фото",
+    shPhotoChange: "Сменить фото",
+    shPhotoRemove: "Убрать фото",
+    shPhotoHint: "Фото уменьшится автоматически",
+    shPhotoBad: "Это не изображение — выберите фото",
     spM_mix: "Микс",
     shSplitRest: "остаток",
     shSplitRemain: "Осталось распределить: {sum}",
@@ -4563,6 +4568,11 @@ const TRANSLATIONS = {
     exaClawback: "Mijoz balansidan ortiqcha to'lov yechildi: {sum} so'm",
     exaRecordDeleted: "Yozuv o'chirildi",
     // Xizmatlar va tovarlar
+    shPhotoAdd: "Rasm qo‘shish",
+    shPhotoChange: "Rasmni almashtirish",
+    shPhotoRemove: "Rasmni olib tashlash",
+    shPhotoHint: "Rasm avtomatik kichraytiriladi",
+    shPhotoBad: "Bu rasm emas — rasm tanlang",
     spM_mix: "Aralash",
     shSplitRest: "qoldiq",
     shSplitRemain: "Taqsimlash kerak: {sum}",

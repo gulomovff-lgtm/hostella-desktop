@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1137,4 +1138,5 @@ ${styles}${sheet1}${sheet2}
     );
 };
 
-export default GuestHistoryView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(GuestHistoryView);

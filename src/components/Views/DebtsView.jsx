@@ -5,6 +5,7 @@ import Button from '../UI/Button';
 import CreateDebtModal from '../Modals/CreateDebtModal';
 import DatePicker from '../UI/DatePicker';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // Фирменный зелёный приложения
 const BRAND = '#0f9688';
@@ -580,4 +581,5 @@ const DebtsView = ({ guests, users, lang = 'ru', onPayDebt, currentUser, onAdmin
     );
 };
 
-export default DebtsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(DebtsView);

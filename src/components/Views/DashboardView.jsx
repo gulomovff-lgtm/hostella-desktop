@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { printGroupReceipt } from '../../utils/groupReceipt';
 import GroupReceiptModal from '../Modals/GroupReceiptModal';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // -- Export helpers ----------------------------------------------------------
 const exportGuestsToExcel = (guests) => {
@@ -1088,4 +1089,5 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
     );
 };
 
-export default DashboardView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(DashboardView);

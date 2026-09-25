@@ -4,6 +4,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
 import { effShiftRange, shiftDays, isShared, fmtDays } from '../../utils/shiftMath';
+import { stableView } from '../UI/stableView';
 
 // --- Constants ---
 const DAILY_SALARY = 266666; // дефолт; реальная ставка берётся из settings/salaryConfig
@@ -1049,4 +1050,5 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
     );
 };
 
-export default ShiftsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(ShiftsView);

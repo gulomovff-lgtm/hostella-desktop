@@ -3,6 +3,7 @@ import { Users, Search, Globe, FileSpreadsheet, Merge, Trash2, History, Edit, Ch
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import ClientEditModal from '../Modals/ClientEditModal';
+import { stableView } from '../UI/stableView';
 
 // --- Utilities ---
 const COUNTRY_MAP = {
@@ -450,4 +451,5 @@ const ClientsView = ({ clients, onUpdateClient, onAddClient, onImportClients, on
     );
 };
 
-export default ClientsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(ClientsView);

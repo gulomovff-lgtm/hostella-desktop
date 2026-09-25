@@ -9,6 +9,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { computeContractFinancials } from '../../utils/contractFinancials';
 import { chargeOf } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 // --- Utilities ---
 const getTotalPaid = (g) => {
@@ -882,4 +883,5 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     );
 };
 
-export default CalendarView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(CalendarView);

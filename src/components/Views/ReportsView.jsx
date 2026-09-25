@@ -8,6 +8,7 @@ import DatePicker from '../UI/DatePicker';
 import DebtReportModal from './Reports/DebtReportModal';
 import { addDebtSheets } from './Reports/debtExcel';
 import { buildDebtReport, expectedProfit } from '../../utils/debtReport';
+import { stableView } from '../UI/stableView';
 
 // --- Styles ---
 
@@ -819,4 +820,5 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     );
 };
 
-export default ReportsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(ReportsView);

@@ -16,6 +16,7 @@ import PeriodMiniCalendar from './ManualStay/PeriodMiniCalendar';
 import PeriodEditModal from './ManualStay/PeriodEditModal';
 import OverallReportModal from './ManualStay/OverallReportModal';
 import BrigadeReportModal from './ManualStay/BrigadeReportModal';
+import { stableView } from '../UI/stableView';
 
 const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], hostelFilter = 'all', lang = 'ru' }) => {
     const t = k => TRANSLATIONS[lang]?.[k] || k;
@@ -1214,4 +1215,5 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     );
 };
 
-export default ManualStayView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(ManualStayView);

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 import TRANSLATIONS from '../../constants/translations';
+import { stableView } from '../UI/stableView';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1079,4 +1080,5 @@ const RegistrationsView = ({
     );
 };
 
-export default RegistrationsView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(RegistrationsView);

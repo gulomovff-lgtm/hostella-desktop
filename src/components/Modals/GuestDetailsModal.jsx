@@ -15,6 +15,7 @@ import { getConfig } from '../../utils/appConfig';
 import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, getRegistrationWindow } from '../../utils/helpers';
 import ConfirmDialog from '../UI/ConfirmDialog';
 import { chargeOf, guestSales, canCancelSale } from '../../utils/shop';
+import { stableView } from '../UI/stableView';
 
 const getStayDetails = (checkInDateTime, days) => {
     const start = new Date(checkInDateTime);
@@ -1968,4 +1969,6 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 // поэтому здесь достаточно не отрисовывать ничего.
 const GuestDetailsModal = (props) => (props.guest ? <GuestDetailsModalInner {...props} /> : null);
 
-export default GuestDetailsModal;
+// Окно не пересчитывается от чужих перерисовок App (уведомления, снимки базы),
+// пока кассир вводит данные — только когда поменялись его данные (UI/stableView).
+export default stableView(GuestDetailsModal);

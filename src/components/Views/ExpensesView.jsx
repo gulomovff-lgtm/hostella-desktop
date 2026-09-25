@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { getConfig } from '../../utils/appConfig';
+import { stableView } from '../UI/stableView';
 
 // ─── Category metadata ────────────────────────────────────────────────────────
 const CAT_META = [
@@ -203,7 +204,7 @@ const ExpenseEditForm = ({ expense, onSave, onCancel, saving, t }) => {
     );
 };
 
-export default function ExpensesView({
+function ExpensesView({
     filteredExpenses = [],
     expenseCatFilter,
     setExpenseCatFilter,
@@ -1611,3 +1612,6 @@ export default function ExpensesView({
         </div>
     );
 }
+
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(ExpensesView);

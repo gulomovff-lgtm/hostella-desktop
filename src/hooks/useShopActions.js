@@ -1,5 +1,6 @@
-import { collection, doc, runTransaction, increment, addDoc, updateDoc } from 'firebase/firestore';
-import { db, PUBLIC_DATA_PATH } from '../firebase';
+import { collection, doc, runTransaction, increment, addDoc, updateDoc, deleteField } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { buildLines, linesTotal, linesComment, validateSale, validateItem, canCancelSale, salePaymentFields } from '../utils/shop';
@@ -131,9 +132,22 @@ export function useShopActions({ currentUser, lang, showNotification }) {
       emoji: String(item.emoji || '').slice(0, 4), active: item.active !== false,
     };
     try {
-      if (item.id) await updateDoc(ref('catalog', item.id), fields);
-      else await addDoc(col('catalog'), { ...fields, stock: {}, createdAt: new Date().toISOString(), createdBy: staffId() });
-      logAction(currentUser, item.id ? 'shop_item_edit' : 'shop_item_add', { itemId: item.id || null, ...fields });
+      let id = item.id;
+      if (id) await updateDoc(ref('catalog', id), fields);
+      else id = (await addDoc(col('catalog'), { ...fields, stock: {}, createdAt: new Date().toISOString(), createdBy: staffId() })).id;
+      // Фото: уже уменьшенный JPEG (utils/imageResize.js) → хранилище → ссылка
+      // в позиции. Новое имя файла на каждую загрузку — чтобы кассы не
+      // показывали старую картинку из кэша.
+      if (item.photoFile) {
+        const path = `catalog/${id}_${Date.now()}.jpg`;
+        const sref = storageRef(storage, path);
+        await uploadBytes(sref, item.photoFile, { contentType: 'image/jpeg' });
+        const url = await getDownloadURL(sref);
+        await updateDoc(ref('catalog', id), { photoUrl: url, photoPath: path });
+      } else if (item.removePhoto) {
+        await updateDoc(ref('catalog', id), { photoUrl: deleteField(), photoPath: deleteField() });
+      }
+      logAction(currentUser, item.id ? 'shop_item_edit' : 'shop_item_add', { itemId: id, ...fields, photo: item.photoFile ? 'new' : item.removePhoto ? 'removed' : undefined });
       showNotification(t('shItemSaved'), 'success');
       return true;
     } catch (e) {
