@@ -59,7 +59,7 @@ const MORE_GROUPS_ADMIN = (t) => [
             { id: 'telegram',     icon: BellRing,      label: t('telegram2'),      adminOnly: true },
             { id: 'promos',       icon: Tag,            label: t('promos2'),        adminOnly: true },
             { id: 'hostelconfig', icon: Settings,       label: t('hostelSettings'), adminOnly: true },
-            { id: 'auditlog',     icon: ClipboardList,  label: t('auditHistory'),   superOnly: true },
+            { id: 'auditlog',     icon: ClipboardList,  label: t('auditHistory'),   adminOnly: true },
         ],
     },
 ];

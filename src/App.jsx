@@ -931,7 +931,7 @@ function App() {
     setUndoStack,
   });
 
-  const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense } = useExpenseActions({
+  const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense, handleSuperSavePayment } = useExpenseActions({
     currentUser, selectedHostelFilter,
     expenses, usersList, lang,
     clients,
@@ -2016,6 +2016,7 @@ return (
                         guests={filteredGuests}
                         currentUser={currentUser}
                         onDeletePayment={handleDeletePayment}
+                        onSuperSavePayment={currentUser.role === 'super' ? handleSuperSavePayment : null}
                         onCashToTerminal={handleCashToTerminal}
                         selectedHostelFilter={selectedHostelFilter}
                         hostels={HOSTELS}
@@ -2233,7 +2234,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'auditlog' && currentUser.role === 'super' && (
+                {activeTab === 'auditlog' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
                     <AuditLogView auditLog={auditLog} currentUser={currentUser} lang={lang} />
                 )}
 

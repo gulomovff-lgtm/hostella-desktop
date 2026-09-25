@@ -10,6 +10,8 @@ import { enqueueTelegram } from '../utils/offlineQueue';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
+import { paymentSplit, buildPaymentFields, guestDeltas, editableReason, validatePaymentInput } from '../utils/paymentEdit';
+import { collection as fsCollection } from 'firebase/firestore';
 
 /**
  * Генерирует автоописание расхода для отчётов.
@@ -182,10 +184,10 @@ export function useExpenseActions({
         const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', p.guestId);
         const gSnap = await tx.get(guestRef);
 
-        const cash     = Number(p.cash)     || 0;
-        const card     = Number(p.card)     || 0;
-        const qr       = Number(p.qr)       || 0;
-        const transfer = Number(p.transfer) || 0;
+        // Разложение по способам: у оплаты из карточки полей cash/card нет — только
+        // amount + method. Раньше такое удаление снимало amountPaid, но не paidCash
+        // /paidCard, и сумма по способам у гостя расходилась с итогом.
+        const { cash, card, qr, transfer } = paymentSplit(p);
         const total = Number(p.amount) || (cash + card + qr + transfer);
 
         let clawback = 0;
@@ -393,6 +395,77 @@ export function useExpenseActions({
     showNotification(t('exaUpdatedOf').replace('{n}', updated).replace('{total}', toUpdate.length), 'success');
   };
 
+  /**
+   * Ручная оплата от имени супера: добавить или исправить запись кассы за любой
+   * день, любому кассиру и проживающему. Запись — в формате обычной оплаты из
+   * карточки гостя (решение владельца: «как обычный платёж», без пометок),
+   * поэтому отчёт и смена кассира видят её как принятую на кассе.
+   * Одна транзакция: запись кассы и деньги гостя (старому снять, новому
+   * положить) меняются вместе или никак.
+   */
+  const handleSuperSavePayment = async (input = {}) => {
+    if (currentUser?.role !== 'super') { showNotification(t('spOnlySuper'), 'error'); return false; }
+    const bad = validatePaymentInput(input);
+    if (bad) { showNotification(t('spErr_' + bad), 'error'); return false; }
+    const { id, guestId, staffId, amount, method, date, hostelId } = input;
+    const ref = id ? doc(db, ...PUBLIC_DATA_PATH, 'payments', id) : doc(fsCollection(db, ...PUBLIC_DATA_PATH, 'payments'));
+    try {
+      await runTransaction(db, async (tx) => {
+        // 1) чтения — все до записей
+        let old = null;
+        if (id) {
+          const s = await tx.get(ref);
+          if (!s.exists()) throw new Error(t('spGone'));
+          old = s.data();
+          const why = editableReason(old);
+          if (why) throw new Error(t('spBlocked_' + why));
+        }
+        const fields = buildPaymentFields({ guestId, staffId, amount, method, date, hostelId }, old);
+        const next = old ? { ...old, ...fields } : fields;
+        const deltas = guestDeltas(old, next);
+        const ids = [...new Set([...Object.keys(deltas), guestId])];
+        const snaps = {};
+        for (const gid of ids) snaps[gid] = await tx.get(doc(db, ...PUBLIC_DATA_PATH, 'guests', gid));
+        if (!snaps[guestId]?.exists()) throw new Error(t('spErr_guest'));
+        const newGuest = snaps[guestId].data();
+
+        // Гостя сменили — подписи записи (у оплат заселения) переводим на нового.
+        if (old && old.guestId !== guestId) {
+          const oldName = (old.guestId && snaps[old.guestId]?.exists()) ? snaps[old.guestId].data().fullName : '';
+          if (old.guestName !== undefined) fields.guestName = newGuest.fullName || '';
+          if (old.comment !== undefined && (old.comment === old.guestName || (oldName && old.comment === oldName))) fields.comment = newGuest.fullName || '';
+          if (old.roomId !== undefined) fields.roomId = newGuest.roomId || '';
+          if (old.roomNumber !== undefined) fields.roomNumber = newGuest.roomNumber || '';
+        }
+
+        // 2) записи
+        if (id) tx.update(ref, fields); else tx.set(ref, fields);
+        for (const [gid, d] of Object.entries(deltas)) {
+          if (!snaps[gid]?.exists()) continue;
+          const patch = {};
+          for (const [k, v] of Object.entries(d)) patch[k] = increment(v);
+          // Как обычная оплата: отметка последней оплаты (авто-выселение смотрит на неё),
+          // но задним числом её не отматываем назад.
+          if (gid === guestId) {
+            const last = snaps[gid].data().lastPaymentAt || '';
+            if (!last || String(date) > String(last)) patch.lastPaymentAt = date;
+          }
+          tx.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', gid), patch);
+        }
+      });
+      // След — только в журнале действий, который читает супер (кассирам и
+      // админам не виден); в самой записи кассы пометок нет.
+      logAction(currentUser, id ? 'super_payment_edit' : 'super_payment_add', {
+        paymentId: ref.id, guestId, staffId, amount: parseInt(amount) || 0, method, date, hostelId,
+      });
+      showNotification(t(id ? 'spUpdated' : 'spAdded'), 'success');
+      return true;
+    } catch (e) {
+      showNotification(t('spSaveFailed') + (e?.message || e), 'error');
+      return false;
+    }
+  };
+
   /** Редактирует поля расхода (для админа) */
   const handleUpdateExpense = async (expenseId, patch) => {
     try {
@@ -403,5 +476,5 @@ export function useExpenseActions({
     }
   };
 
-  return { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense };
+  return { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense, handleSuperSavePayment };
 }

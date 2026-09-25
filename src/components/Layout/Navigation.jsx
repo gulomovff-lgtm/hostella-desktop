@@ -36,7 +36,7 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'promos',         icon: Tag,               label: t('promos2'),        adminOnly: true                        },
     { id: 'referrals',      icon: Users2,            label: t('bonuses'),        permKey: 'viewReferrals'                },
     { id: 'hostelconfig',   icon: Settings,          label: t('hostelSettings'), adminOnly: true                        },
-    { id: 'auditlog',       icon: ClipboardList,     label: t('auditHistory'),   superOnly: true                        },
+    { id: 'auditlog',       icon: ClipboardList,     label: t('auditHistory'),   adminOnly: true                        },
     { id: 'sessions',       icon: Monitor,           label: t('sessions2'),      superOnly: true                        },
     { id: 'versions',       icon: ClipboardCheck,    label: t('navClientVersions'),adminOnly: true                      },
 ];

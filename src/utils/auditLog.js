@@ -4,6 +4,7 @@ import { sendTelegramMessage } from './telegram';
 import { APP_VERSION } from '../constants/config';
 import { getDeviceId } from './clientTelemetry';
 import { getConfig } from './appConfig';
+import { auditCollectionFor } from './auditScope';
 
 /**
  * Write an audit log entry to Firestore.
@@ -16,7 +17,9 @@ export const logAction = async (user, action, details = {}) => {
     try {
         // Журнал можно выключить в Настройках → Безопасность
         if (getConfig().auditEnabled === false) return;
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'), {
+        // Зачёты и ручные оплаты супера — в журнал, который читает только супер
+        // (админ видит «Историю изменений» без них; см. utils/auditScope.js).
+        await addDoc(collection(db, ...PUBLIC_DATA_PATH, auditCollectionFor(action)), {
             action,
             details,
             userId:   user?.id    || user?.login || 'unknown',

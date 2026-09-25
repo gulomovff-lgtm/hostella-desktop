@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Coins } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Check, Printer, Download, Trash2, Coins, Pencil, Plus } from 'lucide-react';
+import SuperPaymentModal from '../Modals/SuperPaymentModal';
+import { editableReason } from '../../utils/paymentEdit';
 import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import DatePicker from '../UI/DatePicker';
@@ -194,7 +196,7 @@ const printReport = (t, data, totalIncome, totalExpense, totalRefund, filters, u
 };
 
 // --- ReportsView ---
-const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onCashToTerminal, selectedHostelFilter, hostels, lang, rooms = [], contractGroups = [] }) => {
+const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeletePayment, onSuperSavePayment = null, onCashToTerminal, selectedHostelFilter, hostels, lang, rooms = [], contractGroups = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
     const HOSTEL_LIST = [
         { id: 'hostel1', name: hostels?.hostel1?.name || t('expHostel1') },
@@ -252,6 +254,10 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
     const [cttDragOver, setCttDragOver] = useState(false);
     const [receiptViewer, setReceiptViewer] = useState(null); // lightbox
     const [deletingId, setDeletingId] = useState(null);   // удаление в процессе — блокируем кнопку
+    // Ручная оплата супера: null — закрыто, {} — новая, запись кассы — исправление
+    const [superPay, setSuperPay] = useState(null);
+    const canSuperPay = currentUser.role === 'super' && !!onSuperSavePayment;
+    const canEditRow = (item) => canSuperPay && item.type === 'income' && !editableReason(item);
 
     // Удаление записи кассы: подтверждение + защита от повторных кликов.
     // Раньше по «залипшей» кнопке кликали несколько раз и оплата гостя откатывалась
@@ -519,6 +525,11 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-bold transition-colors disabled:opacity-60">
                         <Download size={15}/> {exporting ? t('generating') : 'Excel'}
                     </button>
+                    {canSuperPay && (
+                        <button onClick={() => setSuperPay({})} className="flex items-center gap-1.5 px-3.5 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
+                            <Plus size={15}/> {t('spAddBtn')}
+                        </button>
+                    )}
                     <button onClick={() => setDebtReportOpen(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors active:scale-95">
                         <Coins size={15}/> {t('debts')}
                     </button>
@@ -590,8 +601,11 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                     {isIncome ? t('incomeUpper') : item.category === 'Возврат' ? t('refundUpper') : t('expenseUpper')}
                                 </span>
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{methodLabel(item.method, t)}</span>
+                                {canEditRow(item) && (
+                                    <button onClick={()=>setSuperPay(item)} title={t('spEdit')} className="ml-auto p-1 text-slate-400 hover:bg-slate-100 rounded-lg"><Pencil size={13}/></button>
+                                )}
                                 {currentUser.role==='super' && (
-                                    <button onClick={()=>askDelete(item.id,item.type,item)} disabled={deletingId===item.id} className="ml-auto p-1 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={13}/></button>
+                                    <button onClick={()=>askDelete(item.id,item.type,item)} disabled={deletingId===item.id} className={`${canEditRow(item) ? '' : 'ml-auto '}p-1 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait`}><Trash2 size={13}/></button>
                                 )}
                             </div>
                         </div>
@@ -669,7 +683,10 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                         </td>
                                         <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{detail}</td>
                                         {currentUser.role==='super' && (
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                {canEditRow(item) && (
+                                                    <button onClick={()=>setSuperPay(item)} title={t('spEdit')} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"><Pencil size={14}/></button>
+                                                )}
                                                 <button onClick={()=>askDelete(item.id,item.type,item)} disabled={deletingId===item.id} className="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg disabled:opacity-40 disabled:cursor-wait"><Trash2 size={14}/></button>
                                             </td>
                                         )}
@@ -681,6 +698,19 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                 </div>
             </div>
         </div>
+
+        {superPay && canSuperPay && (
+            <SuperPaymentModal
+                payment={superPay.id ? superPay : null}
+                users={users}
+                guests={guests}
+                hostels={HOSTEL_LIST}
+                defaultHostelId={filters.hostelId || (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : '')}
+                lang={lang}
+                onSave={onSuperSavePayment}
+                onClose={() => setSuperPay(null)}
+            />
+        )}
 
         {cashToTerminalOpen && (
             <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { ClipboardList, Search, Download, ChevronDown, X, Filter } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { isSuperOnlyAction } from '../../utils/auditScope';
 
 // ── Action metadata — только те, что реально логируются в коде ───────────────
 // label/group хранят КЛЮЧИ словаря; человекочитаемый текст резолвится через t() при рендере
@@ -22,6 +23,8 @@ const ACTION_META = {
     debt_add:             { icon: '💸', label: 'alDebtAdd',               color: 'rose',    group: 'alGrpFinance' },
     debt_paid:            { icon: '💰', label: 'alDebtPaid',              color: 'emerald', group: 'alGrpFinance' },
     super_payment:        { icon: '🛡️', label: 'alSuperPayment',          color: 'purple',  group: 'alGrpFinance' },
+    super_payment_add:    { icon: '➕', label: 'alSuperPaymentAdd',       color: 'purple',  group: 'alGrpFinance' },
+    super_payment_edit:   { icon: '✏️', label: 'alSuperPaymentEdit',      color: 'purple',  group: 'alGrpFinance' },
     guest_paid_fix:       { icon: '🩹', label: 'alGuestPaidFix',           color: 'indigo',  group: 'alGrpFinance' },
     contract_writeoff:    { icon: '✂️', label: 'alContractWriteoff',       color: 'purple',  group: 'alGrpFinance' },
     contract_writeoff_undo:{ icon: '↩️', label: 'alContractWriteoffUndo',   color: 'slate',   group: 'alGrpFinance' },
@@ -73,7 +76,12 @@ const ACTION_GROUPS = Object.entries(ACTION_META).reduce((acc, [k, v]) => {
 }, {});
 
 // ── Component ────────────────────────────────────────────────────────────────
-const AuditLogView = ({ auditLog = [], currentUser, lang = 'ru' }) => {
+const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru' }) => {
+    // Админу — без зачётов сумм (решение владельца); данные уже отфильтрованы
+    // в useAppData, здесь — страховка на случай другого источника.
+    const auditLog = React.useMemo(
+        () => (currentUser?.role === 'super' ? rawLog : rawLog.filter(e => !isSuperOnlyAction(e?.action))),
+        [rawLog, currentUser?.role]);
     const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [search,        setSearch       ] = useState('');
     const [filterAction,  setFilterAction ] = useState('');
