@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { X, Plus, Minus, Trash2, Check, ShoppingBag } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { fmtSum, parseSum } from '../../utils/helpers';
-import { buildLines, linesTotal, stockOf, stockShortages, PAY_METHODS } from '../../utils/shop';
+import { buildLines, linesTotal, stockOf, stockShortages, PAY_METHODS, SPLIT_KEYS, splitError } from '../../utils/shop';
 
 const labelCls = 'block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5';
 const inputCls = 'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:border-orange-400 outline-none';
@@ -13,15 +13,18 @@ const money = (n) => (Number(n) || 0).toLocaleString('ru-RU');
  * сразу). Цены позиций справочника — из справочника; разовую услугу кассир
  * вводит сам. Товар без остатка в филиале не продаётся.
  */
-const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId = '', lang = 'ru', onSubmit, onClose }) => {
+const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId = '', lockedHostelId = '', lang = 'ru', onSubmit, onClose }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
-    const fixedHostel = guest?.hostelId || '';
+    // Хостел: у гостя — его; у кассира — где он работает (смена), выбора нет;
+    // выбирать может только админ/супер.
+    const fixedHostel = guest?.hostelId || lockedHostelId || '';
     const [hostelId, setHostelId] = useState(fixedHostel || (defaultHostelId && defaultHostelId !== 'all' ? defaultHostelId : '') || hostels[0]?.id || 'hostel1');
     const [filter, setFilter] = useState('all');
     const [cart, setCart] = useState([]);                  // [{ key, itemId?, name?, price?, qty }]
     const [manual, setManual] = useState({ name: '', price: '' });
     const [mode, setMode] = useState(guest ? 'account' : 'paid');
     const [method, setMethod] = useState('cash');
+    const [split, setSplit] = useState({ cash: '', card: '', qr: '' });
     const [busy, setBusy] = useState(false);
 
     const items = useMemo(() => (catalog || []).filter(i => i.active !== false)
@@ -30,6 +33,8 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
     const lines = useMemo(() => buildLines(cart, catalog), [cart, catalog]);
     const total = linesTotal(lines);
     const shortages = useMemo(() => stockShortages(lines, catalog, hostelId), [lines, catalog, hostelId]);
+    const splitSum = SPLIT_KEYS.reduce((s, k) => s + (parseInt(split[k]) || 0), 0);
+    const splitErr = mode === 'paid' && method === 'mix' ? splitError(split, total) : '';
     const inCart = (itemId) => cart.filter(c => c.itemId === itemId).reduce((s, c) => s + c.qty, 0);
 
     useEffect(() => {
@@ -65,10 +70,10 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
     const remove = (key) => setCart(c => c.filter(x => x.key !== key));
 
     const submit = async () => {
-        if (busy || !lines.length || shortages.length) return;
+        if (busy || !lines.length || shortages.length || splitErr) return;
         setBusy(true);
         try {
-            const ok = await onSubmit?.({ guest, hostelId, cart: cart.map(({ key, ...rest }) => rest), mode, method });
+            const ok = await onSubmit?.({ guest, hostelId, cart: cart.map(({ key, ...rest }) => rest), mode, method, split });
             if (ok !== false) onClose?.();
         } finally { setBusy(false); }
     };
@@ -190,6 +195,26 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
                                         </button>
                                     ))}
                                 </div>
+                                {method === 'mix' && (
+                                    <div className="mt-2 space-y-1.5">
+                                        {SPLIT_KEYS.map(k => (
+                                            <div key={k} className="flex items-center gap-2">
+                                                <span className="w-20 text-xs font-bold text-slate-500">{t('spM_' + k)}</span>
+                                                <input className={inputCls + ' tabular-nums'} inputMode="numeric" value={fmtSum(split[k])}
+                                                    onChange={e => setSplit(s => ({ ...s, [k]: String(parseSum(e.target.value) || '') }))} placeholder="0" />
+                                                {total - splitSum > 0 && !split[k] && (
+                                                    <button onClick={() => setSplit(s => ({ ...s, [k]: String(total - splitSum) }))}
+                                                        className="shrink-0 px-2 py-1.5 rounded-lg border border-slate-200 text-[11px] font-bold text-slate-500 hover:bg-slate-50">{t('shSplitRest')}</button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        <div className={`text-[11px] font-bold ${splitErr ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                            {splitErr === 'split_parts' ? t('shErr_split_parts')
+                                                : total - splitSum !== 0 ? t('shSplitRemain').replace('{sum}', money(total - splitSum))
+                                                : t('shSplitOk')}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -197,7 +222,7 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
                             <span className="text-sm font-bold text-slate-500">{t('shTotal')}</span>
                             <span className="text-xl font-black text-slate-800 tabular-nums">{money(total)} <span className="text-xs font-bold text-slate-400">{t('sum')}</span></span>
                         </div>
-                        <button onClick={submit} disabled={busy || !lines.length || shortages.length > 0}
+                        <button onClick={submit} disabled={busy || !lines.length || shortages.length > 0 || !!splitErr}
                             className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-50">
                             <Check size={16} /> {mode === 'account' ? t('shSubmitAccount') : t('shSubmitPaid')}
                         </button>

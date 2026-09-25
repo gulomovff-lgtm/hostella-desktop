@@ -4,17 +4,7 @@ import {
   signInAnonymously,
   onAuthStateChanged
 } from 'firebase/auth';
-import {
-  collection,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  setDoc,
-  increment,
-  deleteField,
-  arrayUnion
-} from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, deleteDoc, setDoc, increment, deleteField, arrayUnion } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions, PUBLIC_DATA_PATH } from './firebase';
 import { useAppData } from './hooks/useAppData';
@@ -940,6 +930,14 @@ function App() {
   const { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust } =
     useShopActions({ currentUser, lang, showNotification });
   const HOSTEL_OPTIONS = useMemo(() => Object.entries(HOSTELS).map(([id, h]) => ({ id, name: h.name })), []);
+  // Хостел кассира для продаж: где открыта его смена, иначе его привязка.
+  // Админ и супер выбирают сами (null).
+  const cashierHostelId = useMemo(() => {
+      if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
+      const sh = shifts.find(s => !s.endTime && (s.staffId === currentUser.id || (s.staffLogin && s.staffLogin === currentUser.login)));
+      if (sh?.hostelId) return sh.hostelId;
+      return (currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : null;
+  }, [currentUser, shifts]);
 
   const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense, handleSuperSavePayment } = useExpenseActions({
     currentUser, selectedHostelFilter,
@@ -2022,7 +2020,7 @@ return (
                         users={usersList}
                         currentUser={currentUser}
                         hostels={HOSTEL_OPTIONS}
-                        selectedHostelFilter={(currentUser.role === 'admin' || currentUser.role === 'super') ? selectedHostelFilter : (currentUser.hostelId || selectedHostelFilter)}
+                        selectedHostelFilter={cashierHostelId || selectedHostelFilter}
                         lang={lang}
                         onNewSale={() => setSaleModal({ open: true, guest: null })}
                         onCancelSale={handleCancelSale}
@@ -2263,7 +2261,15 @@ return (
                 )}
 
                 {activeTab === 'auditlog' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
-                    <AuditLogView auditLog={auditLog} currentUser={currentUser} lang={lang} />
+                    <AuditLogView auditLog={auditLog} currentUser={currentUser} lang={lang}
+                        onEditEntry={currentUser.role === 'super' ? async (entry, patch) => {
+                            try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, entry._col || 'auditLog', entry.id), patch); showNotification((TRANSLATIONS[lang]?.alEntrySaved || ''), 'success'); return true; }
+                            catch (e) { showNotification((TRANSLATIONS[lang]?.alEntryFailed || '') + e.message, 'error'); return false; }
+                        } : null}
+                        onDeleteEntry={currentUser.role === 'super' ? async (entry) => {
+                            try { await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, entry._col || 'auditLog', entry.id)); showNotification((TRANSLATIONS[lang]?.alEntryDeleted || ''), 'success'); return true; }
+                            catch (e) { showNotification((TRANSLATIONS[lang]?.alEntryFailed || '') + e.message, 'error'); return false; }
+                        } : null} />
                 )}
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (
@@ -2741,6 +2747,7 @@ return (
                     catalog={catalog}
                     hostels={HOSTEL_OPTIONS}
                     defaultHostelId={(currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : selectedHostelFilter}
+                    lockedHostelId={cashierHostelId || ''}
                     lang={lang}
                     onSubmit={(p) => handleSale({ ...p, catalog })}
                     onClose={() => setSaleModal({ open: false, guest: null })}

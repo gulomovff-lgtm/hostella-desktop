@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { ClipboardList, Search, Download, ChevronDown, X, Filter } from 'lucide-react';
+import { ClipboardList, Search, Download, ChevronDown, X, Filter, Pencil, Trash2, Check } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
-import { isSuperOnlyAction } from '../../utils/auditScope';
+import { hiddenFromAdmin } from '../../utils/auditScope';
 
 // ── Action metadata — только те, что реально логируются в коде ───────────────
 // label/group хранят КЛЮЧИ словаря; человекочитаемый текст резолвится через t() при рендере
@@ -76,12 +76,28 @@ const ACTION_GROUPS = Object.entries(ACTION_META).reduce((acc, [k, v]) => {
 }, {});
 
 // ── Component ────────────────────────────────────────────────────────────────
-const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru' }) => {
+const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru', onEditEntry, onDeleteEntry }) => {
     // Админу — без зачётов сумм (решение владельца); данные уже отфильтрованы
     // в useAppData, здесь — страховка на случай другого источника.
     const auditLog = React.useMemo(
-        () => (currentUser?.role === 'super' ? rawLog : rawLog.filter(e => !isSuperOnlyAction(e?.action))),
+        () => (currentUser?.role === 'super' ? rawLog : rawLog.filter(e => !hiddenFromAdmin(e))),
         [rawLog, currentUser?.role]);
+    const canEdit = currentUser?.role === 'super' && !!onEditEntry;
+    const [editing, setEditing] = React.useState(null); // { entry, userName, when, fields: [[k, v]] }
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const toLocal = (iso) => { const d = new Date(iso || ''); return Number.isFinite(d.getTime()) ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}` : ''; };
+    const openEdit = (entry) => setEditing({
+        entry, userName: entry.userName || '', when: toLocal(entry.timestamp),
+        fields: Object.entries(entry.details || {}).filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v)).map(([k, v]) => [k, v == null ? '' : String(v)]),
+    });
+    const saveEdit = async () => {
+        const e = editing; if (!e) return;
+        const orig = e.entry.details || {};
+        const details = { ...orig };
+        for (const [k, v] of e.fields) details[k] = typeof orig[k] === 'number' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : typeof orig[k] === 'boolean' ? v === 'true' : v;
+        const ts = e.when ? new Date(e.when).toISOString() : e.entry.timestamp;
+        if (await onEditEntry(e.entry, { details, userName: e.userName, timestamp: ts })) setEditing(null);
+    };
     const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [search,        setSearch       ] = useState('');
     const [filterAction,  setFilterAction ] = useState('');
@@ -346,6 +362,9 @@ const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru' }) => {
                                             <div className="font-medium whitespace-nowrap">{date}</div>
                                             <div className="font-black text-slate-500">{time}</div>
                                         </div>
+                                        {canEdit && (
+                                            <button onClick={() => openEdit(entry)} title={t('alEditEntry')} className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 shrink-0"><Pencil size={13}/></button>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -361,6 +380,44 @@ const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru' }) => {
                     </>
                 )}
             </div>
+        {editing && (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(8,18,20,0.55)' }}
+                onMouseDown={ev => { if (ev.target === ev.currentTarget) setEditing(null); }}>
+                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <h2 className="text-lg font-black text-slate-800">{t('alEditEntry')} · {(ACTION_META[editing.entry.action]?.label ? t(ACTION_META[editing.entry.action].label) : editing.entry.action)}</h2>
+                        <button onClick={() => setEditing(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18}/></button>
+                    </div>
+                    <div className="p-5 space-y-3 overflow-y-auto">
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">{t('alEditWho')}</label>
+                                <input className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold" value={editing.userName} onChange={ev => setEditing(x => ({ ...x, userName: ev.target.value }))}/>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">{t('alEditWhen')}</label>
+                                <input type="datetime-local" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold" value={editing.when} onChange={ev => setEditing(x => ({ ...x, when: ev.target.value }))}/>
+                            </div>
+                        </div>
+                        {editing.fields.map(([k, v], i) => (
+                            <div key={k} className="grid grid-cols-[140px_1fr] gap-2 items-center">
+                                <span className="text-xs font-bold text-slate-500 truncate" title={k}>{k}</span>
+                                <input className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm" value={v}
+                                    onChange={ev => setEditing(x => ({ ...x, fields: x.fields.map((f, j) => j === i ? [f[0], ev.target.value] : f) }))}/>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="px-5 py-4 border-t border-slate-100 flex items-center gap-2">
+                        {onDeleteEntry && (
+                            <button onClick={async () => { if (window.confirm(t('alDeleteConfirm')) && await onDeleteEntry(editing.entry)) setEditing(null); }}
+                                className="px-3 py-2 rounded-lg border border-rose-200 text-rose-600 text-sm font-bold hover:bg-rose-50 flex items-center gap-1.5"><Trash2 size={14}/> {t('delete')}</button>
+                        )}
+                        <button onClick={() => setEditing(null)} className="ml-auto px-4 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50">{t('spCancel')}</button>
+                        <button onClick={saveEdit} className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold flex items-center gap-1.5"><Check size={14}/> {t('spSave')}</button>
+                    </div>
+                </div>
+            </div>
+        )}
         </div>
     );
 };

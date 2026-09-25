@@ -2,7 +2,7 @@ import { collection, doc, runTransaction, increment, addDoc, updateDoc } from 'f
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
-import { buildLines, linesTotal, linesComment, validateSale, validateItem, canCancelSale } from '../utils/shop';
+import { buildLines, linesTotal, linesComment, validateSale, validateItem, canCancelSale, salePaymentFields } from '../utils/shop';
 
 /**
  * useShopActions — услуги и товары (стирка, глажка, завтрак, напитки…).
@@ -23,9 +23,9 @@ export function useShopActions({ currentUser, lang, showNotification }) {
    * Продажа. guest — проживающий или null («с улицы»).
    * mode: 'account' — в счёт гостя; 'paid' — оплачено сейчас (method).
    */
-  const handleSale = async ({ guest = null, hostelId, cart = [], mode = 'paid', method = 'cash', catalog = [] }) => {
+  const handleSale = async ({ guest = null, hostelId, cart = [], mode = 'paid', method = 'cash', split = {}, catalog = [] }) => {
     const lines = buildLines(cart, catalog);
-    const err = validateSale({ lines, hostelId, guestId: guest?.id || '', mode, method, catalog });
+    const err = validateSale({ lines, hostelId, guestId: guest?.id || '', mode, method, split, catalog });
     if (err) { showNotification(t('shErr_' + err), 'error'); return false; }
     const total = linesTotal(lines);
     const now = new Date().toISOString();
@@ -49,6 +49,7 @@ export function useShopActions({ currentUser, lang, showNotification }) {
           hostelId, staffId: staffId(), staffName: currentUser?.name || currentUser?.login || '',
           date: now, guestId: guest?.id || null, guestName: guest?.fullName || '', roomNumber: guest?.roomNumber || '',
           items: lines, total, mode, method: mode === 'paid' ? method : null,
+          ...(mode === 'paid' && method === 'mix' ? { split: salePaymentFields(total, method, split) } : {}),
           paymentId: payRef ? payRef.id : null, status: 'active',
         });
         if (payRef) {
@@ -56,7 +57,7 @@ export function useShopActions({ currentUser, lang, showNotification }) {
           // не трогает — удаление и отчёт знают категорию service.
           tx.set(payRef, {
             guestId: guest?.id || '', guestName: guest?.fullName || '', staffId: staffId(),
-            amount: total, method, date: now, hostelId,
+            ...salePaymentFields(total, method, split), date: now, hostelId,
             type: 'income', category: 'service', comment: linesComment(lines), saleId: saleRef.id,
           });
         }

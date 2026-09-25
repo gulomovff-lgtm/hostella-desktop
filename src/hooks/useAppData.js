@@ -163,7 +163,7 @@ export const useAppData = (firebaseUser, currentUser) => {
         limit(AUDIT_LOG_LIMIT)
       );
       u10 = onSnapshot(auditCol,
-        (snap) => setAuditLogCommon(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+        (snap) => setAuditLogCommon(snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLog' }))),
         () => setAuditLogCommon([])
       );
     }
@@ -174,7 +174,7 @@ export const useAppData = (firebaseUser, currentUser) => {
         limit(AUDIT_LOG_LIMIT)
       );
       u10s = onSnapshot(superCol,
-        (snap) => setAuditLogSuper(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+        (snap) => setAuditLogSuper(snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLogSuper' }))),
         () => setAuditLogSuper([])
       );
     }

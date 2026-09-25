@@ -13,7 +13,7 @@ import { buildDebtReport, expectedProfit } from '../../utils/debtReport';
 
 // --- Utilities ---
 const methodLabel = (m, t) => {
-    const labels = { cash: t('cash'), card: t('card'), qr: t('qr'), transfer: t('transferMethod') };
+    const labels = { cash: t('cash'), card: t('card'), qr: t('qr'), transfer: t('transferMethod'), split: t('spM_mix') };
     return labels[m] || m || '—';
 };
 

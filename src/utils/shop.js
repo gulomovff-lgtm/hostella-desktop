@@ -23,7 +23,10 @@
  */
 
 export const KINDS = ['service', 'product'];
-export const PAY_METHODS = ['cash', 'card', 'qr', 'transfer'];
+// Перевода нет (решение владельца 2026-09-25); «микс» — гость платит частями
+// наличными, картой и QR.
+export const PAY_METHODS = ['cash', 'card', 'qr', 'mix'];
+export const SPLIT_KEYS = ['cash', 'card', 'qr'];
 /** Кассир может отменить свою продажу в течение этого времени (ошибся — исправил). */
 export const CASHIER_CANCEL_MS = 2 * 60 * 60 * 1000;
 
@@ -83,16 +86,36 @@ export function stockShortages(lines = [], catalog = [], hostelId) {
 export const linesComment = (lines = []) =>
   lines.map(l => `${l.name}${num(l.qty) > 1 ? ` ×${l.qty}` : ''}`).join(', ').slice(0, 200);
 
+/** Проверка разбивки «микс»: сумма частей = итог, частей хотя бы две. */
+export function splitError(split = {}, total = 0) {
+  const parts = SPLIT_KEYS.map(k => Math.round(num(split?.[k])));
+  if (parts.some(v => v < 0)) return 'split_sum';
+  if (parts.filter(v => v > 0).length < 2) return 'split_parts';
+  if (parts.reduce((a, b) => a + b, 0) !== Math.round(num(total))) return 'split_sum';
+  return '';
+}
+
+/** Поля оплаты для кассы: разложение по способам + method (как у оплат заселения). */
+export function salePaymentFields(total, method, split = {}) {
+  const t = Math.round(num(total));
+  const parts = method === 'mix'
+    ? Object.fromEntries(SPLIT_KEYS.map(k => [k, Math.round(num(split?.[k]))]))
+    : Object.fromEntries(SPLIT_KEYS.map(k => [k, k === method ? t : 0]));
+  const used = SPLIT_KEYS.filter(k => parts[k] > 0);
+  return { amount: t, ...parts, method: used.length > 1 ? 'split' : (used[0] || 'cash') };
+}
+
 /**
  * Проверка продажи перед записью. Вернёт ключ ошибки или ''.
  *   empty — пустая корзина; hostel — не выбран филиал; walkin_account — «в счёт»
  *   без гостя; method — нет способа оплаты; stock — не хватает товара.
  */
-export function validateSale({ lines = [], hostelId, guestId, mode, method, catalog = [] } = {}) {
+export function validateSale({ lines = [], hostelId, guestId, mode, method, split = {}, catalog = [] } = {}) {
   if (!lines.length || linesTotal(lines) <= 0) return 'empty';
   if (!hostelId || hostelId === 'all') return 'hostel';
   if (mode === 'account' && !guestId) return 'walkin_account';
   if (mode !== 'account' && !PAY_METHODS.includes(method)) return 'method';
+  if (mode !== 'account' && method === 'mix') { const se = splitError(split, linesTotal(lines)); if (se) return se; }
   if (stockShortages(lines, catalog, hostelId).length) return 'stock';
   return '';
 }

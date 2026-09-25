@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     chargeOf, stockOf, buildLines, linesTotal, stockShortages, linesComment,
     validateSale, canCancelSale, guestSales, accountTotal, validateItem, salesSummary, CASHIER_CANCEL_MS,
+    PAY_METHODS, splitError, salePaymentFields,
 } from '../src/utils/shop.js';
 
 const catalog = [
@@ -81,6 +82,25 @@ test('guestSales / accountTotal / salesSummary: отменённые не счи
     const sum = salesSummary(sales);
     assert.deepEqual([sum.paid, sum.account, sum.total, sum.count], [24000, 20000, 44000, 3]);
     assert.deepEqual(sum.items.map(i => [i.name, i.qty, i.sum]), [['Кола', 3, 24000], ['Стирка', 1, 20000]]);
+});
+
+test('способы оплаты продажи: без перевода, с миксом', () => {
+    assert.deepEqual(PAY_METHODS, ['cash', 'card', 'qr', 'mix']);
+});
+
+test('микс: части должны сойтись с итогом, частей — не меньше двух', () => {
+    assert.equal(splitError({ cash: 30000, card: 20000 }, 50000), '');
+    assert.equal(splitError({ cash: 30000, card: 10000 }, 50000), 'split_sum');
+    assert.equal(splitError({ cash: 50000 }, 50000), 'split_parts');
+    assert.equal(splitError({ cash: -1, card: 50001 }, 50000), 'split_sum');
+    const lines = buildLines([{ itemId: 'wash', qty: 1 }], catalog);
+    assert.equal(validateSale({ lines, hostelId: 'hostel1', mode: 'paid', method: 'mix', split: { cash: 10000, qr: 5000 }, catalog }), 'split_sum');
+    assert.equal(validateSale({ lines, hostelId: 'hostel1', mode: 'paid', method: 'mix', split: { cash: 10000, qr: 10000 }, catalog }), '');
+});
+
+test('salePaymentFields: касса получает разложение как у оплат заселения', () => {
+    assert.deepEqual(salePaymentFields(50000, 'mix', { cash: 30000, card: 20000 }), { amount: 50000, cash: 30000, card: 20000, qr: 0, method: 'split' });
+    assert.deepEqual(salePaymentFields(8000, 'qr'), { amount: 8000, cash: 0, card: 0, qr: 8000, method: 'qr' });
 });
 
 test('validateItem: название, вид, цена', () => {

@@ -19,7 +19,7 @@ export const logAction = async (user, action, details = {}) => {
         if (getConfig().auditEnabled === false) return;
         // Зачёты и ручные оплаты супера — в журнал, который читает только супер
         // (админ видит «Историю изменений» без них; см. utils/auditScope.js).
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, auditCollectionFor(action)), {
+        await addDoc(collection(db, ...PUBLIC_DATA_PATH, auditCollectionFor(action, user)), {
             action,
             details,
             userId:   user?.id    || user?.login || 'unknown',

@@ -172,7 +172,8 @@ service cloud.firestore {
       match /auditLog/{doc} {
         allow read:   if isAdmin();
         allow create: if isStaff();
-        allow update, delete: if false;
+        // Править и удалять записи может только супер (решение владельца 2026-09-25).
+        allow update, delete: if isSuper();
       }
       // Зачёты сумм и ручные оплаты супера — отдельный журнал только для супера:
       // админ смотрит историю без них. Пишет тот, кто зачитывает (супер или
@@ -180,7 +181,7 @@ service cloud.firestore {
       match /auditLogSuper/{doc} {
         allow read:   if isSuper();
         allow create: if isStaff();
-        allow update, delete: if false;
+        allow update, delete: if isSuper();
       }
 
       // Закрытые коллекции — только Admin SDK (функции).
