@@ -3,71 +3,10 @@ import { ClipboardList, Search, Download, ChevronDown, X, Filter, Pencil, Trash2
 import TRANSLATIONS from '../../constants/translations';
 import { hiddenFromAdmin } from '../../utils/auditScope';
 import { stableView } from '../UI/stableView';
-
-// ── Action metadata — только те, что реально логируются в коде ───────────────
-// label/group хранят КЛЮЧИ словаря; человекочитаемый текст резолвится через t() при рендере
-const ACTION_META = {
-    // Гости
-    checkin:              { icon: '🏨', label: 'alCheckin',              color: 'emerald', group: 'alGrpGuests' },
-    checkout:             { icon: '🚪', label: 'alCheckoutManual',        color: 'blue',    group: 'alGrpGuests' },
-    auto_checkout:        { icon: '🏁', label: 'alAutoCheckout',          color: 'amber',   group: 'alGrpGuests' },
-    undo:                 { icon: '↩️', label: 'alUndo',                  color: 'indigo',  group: 'alGrpGuests' },
-    trim_days:            { icon: '✂️', label: 'alTrimDays',              color: 'orange',  group: 'alGrpGuests' },
-    price_change:         { icon: '💱', label: 'alPriceChange',           color: 'amber',   group: 'alGrpGuests' },
-    // Брони
-    booking_add:          { icon: '📋', label: 'alBookingAdd',            color: 'purple',  group: 'alGrpBookings' },
-    booking_accept:       { icon: '✅', label: 'alBookingAccept',          color: 'emerald', group: 'alGrpBookings' },
-    booking_reject:       { icon: '❌', label: 'alBookingReject',          color: 'rose',    group: 'alGrpBookings' },
-    // Финансы
-    expense_add:          { icon: '💳', label: 'alExpenseAdd',            color: 'amber',   group: 'alGrpFinance' },
-    payment_add:          { icon: '💵', label: 'alPaymentAdd',            color: 'green',   group: 'alGrpFinance' },
-    debt_add:             { icon: '💸', label: 'alDebtAdd',               color: 'rose',    group: 'alGrpFinance' },
-    debt_paid:            { icon: '💰', label: 'alDebtPaid',              color: 'emerald', group: 'alGrpFinance' },
-    super_payment:        { icon: '🛡️', label: 'alSuperPayment',          color: 'purple',  group: 'alGrpFinance' },
-    super_payment_add:    { icon: '➕', label: 'alSuperPaymentAdd',       color: 'purple',  group: 'alGrpFinance' },
-    super_payment_edit:   { icon: '✏️', label: 'alSuperPaymentEdit',      color: 'purple',  group: 'alGrpFinance' },
-    guest_paid_fix:       { icon: '🩹', label: 'alGuestPaidFix',           color: 'indigo',  group: 'alGrpFinance' },
-    contract_writeoff:    { icon: '✂️', label: 'alContractWriteoff',       color: 'purple',  group: 'alGrpFinance' },
-    contract_writeoff_undo:{ icon: '↩️', label: 'alContractWriteoffUndo',   color: 'slate',   group: 'alGrpFinance' },
-    // Промокоды
-    promo_create:         { icon: '🏷️', label: 'alPromoCreate',          color: 'orange',  group: 'alGrpPromo' },
-    promo_delete:         { icon: '🗑️', label: 'alPromoDelete',          color: 'rose',    group: 'alGrpPromo' },
-    promo_used:           { icon: '✂️', label: 'alPromoUsed',             color: 'purple',  group: 'alGrpPromo' },
-    // Сессии / Вход
-    login:                { icon: '🔑', label: 'alLogin',                color: 'blue',    group: 'alGrpSessions' },
-    logout:               { icon: '👋', label: 'alLogout',               color: 'slate',   group: 'alGrpSessions' },
-    force_logout:         { icon: '🔒', label: 'alForceLogout',          color: 'rose',    group: 'alGrpSessions' },
-    session_revoked:      { icon: '🚫', label: 'alSessionRevoked',       color: 'orange',  group: 'alGrpSessions' },
-    // E-mehmon
-    registration_add:     { icon: '🪪', label: 'alRegistrationAdd',      color: 'purple',  group: 'alGrpEmehmon' },
-    registration_extend:  { icon: '🔄', label: 'alRegistrationExtend',   color: 'indigo',  group: 'alGrpEmehmon' },
-    registration_remove:  { icon: '🔴', label: 'alRegistrationRemove',   color: 'slate',   group: 'alGrpEmehmon' },
-    // Клиенты
-    sync_clients:         { icon: '🔄', label: 'alSyncClients',          color: 'blue',    group: 'alGrpClients' },
-    // Система
-    auto_shift_start:     { icon: '🟢', label: 'alAutoShiftStart',        color: 'emerald', group: 'alGrpSystem' },
-    shift_transfer:       { icon: '🤝', label: 'alShiftTransfer',         color: 'indigo',  group: 'alGrpShifts' },
-    shift_split:          { icon: '½',  label: 'alShiftSplit',            color: 'indigo',  group: 'alGrpShifts' },
-    shift_unsplit:        { icon: '↩️', label: 'alShiftUnsplit',          color: 'slate',   group: 'alGrpShifts' },
-    error:                { icon: '⚠️', label: 'alError',                color: 'rose',    group: 'alGrpSystem' },
-    system_error:         { icon: '🚨', label: 'alSystemError',          color: 'rose',    group: 'alGrpSystem' },
-    version_check:        { icon: '🔄', label: 'alVersionCheck',          color: 'blue',    group: 'alGrpSystem' },
-};
+import { ACTION_META, COLOR_MAP } from '../../utils/auditActions';
 
 // Значения — КЛЮЧИ словаря, резолвятся через t() при рендере (коды hostel1/hostel2/all как есть)
 const HOSTELS = { hostel1: 'alHostel1', hostel2: 'alHostel2', all: 'alBoth' };
-
-const COLOR_MAP = {
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    blue:    'bg-blue-50 text-blue-700 border-blue-200',
-    indigo:  'bg-indigo-50 text-indigo-700 border-indigo-200',
-    purple:  'bg-purple-50 text-purple-700 border-purple-200',
-    rose:    'bg-rose-50 text-rose-700 border-rose-200',
-    amber:   'bg-amber-50 text-amber-700 border-amber-200',
-    orange:  'bg-orange-50 text-orange-700 border-orange-200',
-    green:   'bg-green-50 text-green-700 border-green-200',
-    slate:   'bg-slate-100 text-slate-600 border-slate-200',
-};
 
 // Группы для select с optgroup
 const ACTION_GROUPS = Object.entries(ACTION_META).reduce((acc, [k, v]) => {
@@ -316,6 +255,10 @@ const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru', onEditE
                                     det.count  && `×${det.count}`,
                                     det.daysToRemove && t('alDaysMinus').replace('{n}', det.daysToRemove),
                                     det.newEndDate && `→ ${new Date(det.newEndDate).toLocaleDateString('ru')}`,
+                                    (entry.action === 'extend' || entry.action === 'extend_bulk') && det.days && t('ptPlusDays').replace('{n}', det.days),
+                                    entry.action === 'extend' && det.toDate && t('ptUntil').replace('{date}', new Date(det.toDate).toLocaleDateString('ru')),
+                                    entry.action === 'move' && `${t('alRoomShort').replace('{n}', det.fromRoom || '—')} → ${det.toRoom || '—'}`,
+                                    det.guestNames,
                                 ].filter(Boolean);
                                 return (
                                     <div key={entry.id || i}

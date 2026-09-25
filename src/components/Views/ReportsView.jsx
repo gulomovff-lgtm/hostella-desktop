@@ -9,6 +9,7 @@ import DebtReportModal from './Reports/DebtReportModal';
 import { addDebtSheets } from './Reports/debtExcel';
 import { buildDebtReport, expectedProfit } from '../../utils/debtReport';
 import { stableView } from '../UI/stableView';
+import { describePayment, purposeText, paymentMethods } from '../../utils/cashierTimeline';
 
 // --- Styles ---
 
@@ -188,7 +189,7 @@ const printReport = (t, data, totalIncome, totalExpense, totalRefund, filters, u
         const typeClass = row.type === 'income' ? 'income' : 'expense';
         html += `<tr><td>${new Date(row.date).toLocaleString()}</td><td class="${typeClass}">${typeLabel}</td>
             <td>${parseInt(row.amount).toLocaleString()}</td><td>${esc(row.method || '-')}</td>
-            <td>${esc(staffName)}</td><td>${esc(row.comment || '-')}</td></tr>`;
+            <td>${esc(staffName)}</td><td>${esc(row._detail || row.comment || '-')}</td></tr>`;
     });
     html += `</tbody></table></body></html>`;
     w.document.write(html);
@@ -293,6 +294,18 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
         closeCTT();
     };
 
+    // «За что оплата»: заселение N сут. до …, продление +N сут. до …, доплата,
+    // погашение долга, услуги… + гость и комната; смешанная — по способам.
+    const guestsById = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests]);
+    const incomeDetail = React.useCallback((p) => {
+        const text = purposeText(describePayment(p, guestsById.get(p.guestId) || null), t);
+        if (p.method !== 'split') return text;
+        const m = paymentMethods(p);
+        const parts = [['cash', t('cash')], ['card', t('card')], ['qr', t('qr')], ['transfer', t('transferMethod')], ['balance', t('ctlBalanceMethod')]]
+            .filter(([k]) => m[k] > 0).map(([k, l]) => `${l} ${m[k].toLocaleString('ru-RU')}`);
+        return parts.length > 1 ? `${text} (${parts.join(' + ')})` : text;
+    }, [guestsById, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const allTransactions = useMemo(() => {
         const incomes = payments.map(p => {
             let hId = p.hostelId;
@@ -302,7 +315,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             }
             // cash_to_terminal: keep original type so it renders separately
             if (p.type === 'cash_to_terminal') return { ...p, id: p.id, hostelId: hId };
-            return { ...p, type: 'income', id: p.id, hostelId: hId };
+            return { ...p, type: 'income', id: p.id, hostelId: hId, _detail: incomeDetail(p) };
         });
         const outcomes = expenses.map(e => {
             let hId = e.hostelId;
@@ -313,7 +326,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             return { ...e, type: 'expense', method: 'cash', id: e.id, hostelId: hId };
         });
         return [...incomes, ...outcomes].sort((a,b) => new Date(b.date) - new Date(a.date));
-    }, [payments, expenses, users]);
+    }, [payments, expenses, users, incomeDetail]);
 
     const filteredData = useMemo(() => allTransactions.filter(t => {
         const tTime = new Date(t.date).getTime();
@@ -370,7 +383,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             hostel: HOSTEL_LIST.find(h => h.id === item.hostelId)?.name || item.hostelId || '—',
             amount: parseInt(item.amount) || 0,
             method: item.method || '-',
-            comment: item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : null) || '—',
+            comment: item._detail || item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : null) || '—',
         }));
         const dateFrom = new Date(filters.start).toLocaleDateString('ru').replace(/\./g, '-');
         const dateTo   = new Date(filters.end).toLocaleDateString('ru').replace(/\./g, '-');
@@ -548,7 +561,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-400">{t('noData')}</div>
                 ) : filteredData.map((item, i) => {
                     const staffName = users.find(u=>u.id===item.staffId||u.login===item.staffId)?.name||'—';
-                    const detail = item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
+                    const detail = item._detail||item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
                     const hostelName = HOSTEL_LIST.find(h=>h.id===item.hostelId)?.name||item.hostelId||'—';
                     const isIncome = item.type==='income';
                     const isCTT = item.type === 'cash_to_terminal';
@@ -635,7 +648,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 <tr><td colSpan={8} className="p-8 text-center text-slate-400">{t('noData')}</td></tr>
                             ) : filteredData.map((item,i) => {
                                 const staffName = users.find(u=>u.id===item.staffId||u.login===item.staffId)?.name||'—';
-                                const detail = item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
+                                const detail = item._detail||item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
                                 const hostelName = HOSTEL_LIST.find(h=>h.id===item.hostelId)?.name||'—';
                                 const isIncome = item.type==='income';
                                 const isCTT = item.type === 'cash_to_terminal';
@@ -682,7 +695,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                                 <span className="text-sm text-slate-700">{staffName}</span>
                                             </div>
                                         </td>
-                                        <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{detail}</td>
+                                        <td className="px-4 py-3 text-xs text-slate-600 max-w-[360px] leading-snug">{detail}</td>
                                         {currentUser.role==='super' && (
                                             <td className="px-4 py-3 whitespace-nowrap">
                                                 {canEditRow(item) && (

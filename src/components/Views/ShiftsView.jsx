@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Power, LogOut, LayoutDashboard, FileText, Plus, Edit, FileSpreadsheet, X, Calendar, Magnet, Trash2, Wallet } from 'lucide-react';
+import { Power, LogOut, LayoutDashboard, FileText, Plus, Edit, FileSpreadsheet, X, Calendar, Magnet, Trash2, Wallet, Activity } from 'lucide-react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
@@ -34,7 +34,7 @@ const FillButton = ({ onClick, disabled }) => (
 );
 
 // --- ShiftsView ---
-const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, onAdminSplitShift, onAdminUnsplitShift, payments = [], expenses = [], onPaySalary }) => {
+const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndShift, lang, hostelId, onAdminAddShift, onAdminUpdateShift, onAdminDeleteShift, onAdminSplitShift, onAdminUnsplitShift, payments = [], expenses = [], onPaySalary, onOpenTimeline = null }) => {
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super';
     const t = useCallback(k => TRANSLATIONS[lang]?.[k] || k, [lang]);
 
@@ -756,6 +756,10 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                 </div>
                                                 {isAdmin && (
                                                     <div className="flex items-center gap-0.5 shrink-0">
+                                                        {onOpenTimeline && (
+                                                            <button onClick={() => onOpenTimeline(s)} title={t('ctlOpenTimeline')}
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"><Activity size={15}/></button>
+                                                        )}
                                                         {active && (
                                                             <button onClick={() => onAdminUpdateShift(s.id, { endTime: new Date().toISOString() })} title={t('closeShiftTitle')}
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-rose-500 hover:bg-rose-50 transition-all"><Power size={15}/></button>

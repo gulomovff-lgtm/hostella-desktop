@@ -48,15 +48,18 @@ export function useGuestActions(ctx) {
 
   // ─── Internal helpers ────────────────────────────────────────────────────
 
-  const logTransaction = async (guestId, amounts, staffId) => {
+  // meta — «за что оплата» для кассы и ленты кассира (utils/cashierTimeline.js):
+  // { purpose: 'payment'|'extend'|'debt', guestName, roomNumber, extendDays, untilDate }.
+  const logTransaction = async (guestId, amounts, staffId, meta = {}) => {
     const { cash = 0, card = 0, qr = 0, transfer = 0 } = amounts;
     const date = new Date().toISOString();
     const items = [];
     const ids = [];
-    if (cash     > 0) items.push({ guestId, staffId, amount: cash,     method: 'cash',     date, hostelId: currentUser.hostelId });
-    if (card     > 0) items.push({ guestId, staffId, amount: card,     method: 'card',     date, hostelId: currentUser.hostelId });
-    if (qr       > 0) items.push({ guestId, staffId, amount: qr,       method: 'qr',       date, hostelId: currentUser.hostelId });
-    if (transfer > 0) items.push({ guestId, staffId, amount: transfer, method: 'transfer', date, hostelId: currentUser.hostelId });
+    const extra = Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+    if (cash     > 0) items.push({ guestId, staffId, amount: cash,     method: 'cash',     date, hostelId: currentUser.hostelId, ...extra });
+    if (card     > 0) items.push({ guestId, staffId, amount: card,     method: 'card',     date, hostelId: currentUser.hostelId, ...extra });
+    if (qr       > 0) items.push({ guestId, staffId, amount: qr,       method: 'qr',       date, hostelId: currentUser.hostelId, ...extra });
+    if (transfer > 0) items.push({ guestId, staffId, amount: transfer, method: 'transfer', date, hostelId: currentUser.hostelId, ...extra });
     for (const item of items) {
       const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), item);
       ids.push(ref.id);
@@ -284,6 +287,8 @@ export function useGuestActions(ctx) {
           balance: paidBalance,
           date: new Date().toISOString(),
           type: 'income', category: 'accommodation', comment: formData.fullName,
+          purpose: newGuest.status === 'booking' ? 'booking' : 'checkin',
+          days: Number(newGuest.days) || 0, untilDate: newGuest.checkOutDate || '',
           hostelId: targetHostelId, admin: currentUser.login || 'admin',
           method: methodParts > 1 ? 'split' : Number(formData.paidCash)>0 ? 'cash' : Number(formData.paidCard)>0 ? 'card' : Number(formData.paidQR)>0 ? 'qr' : paidTransfer>0 ? 'transfer' : 'balance',
         });
@@ -339,7 +344,10 @@ export function useGuestActions(ctx) {
 
       showNotification(t('gaCheckinSuccess'), 'success');
       logAction(currentUser, newGuest.status === 'active' ? 'checkin' : 'booking_add', {
-        guestName: newGuest.fullName, roomNumber: newGuest.roomNumber, bedId: newGuest.bedId, amount: totalPaid,
+        guestId, guestName: newGuest.fullName, roomNumber: newGuest.roomNumber, bedId: newGuest.bedId, amount: totalPaid,
+        days: Number(newGuest.days) || 0, checkInDate: newGuest.checkInDate || '', checkOutDate: newGuest.checkOutDate || '',
+        pricePerNight: Number(newGuest.pricePerNight) || 0, totalPrice: Number(newGuest.totalPrice) || 0,
+        paymentIds: checkinPaymentIds,
       });
 
       if (newGuest.status === 'active') {
@@ -566,7 +574,16 @@ export function useGuestActions(ctx) {
         })())
       ) || null : null;
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), guestUpdate);
-      const paymentIds = await logTransaction(guestId, amounts, safeStaffId);
+      // Оплата после выезда — погашение долга, во время проживания — доплата
+      const purpose = g && g.status === 'checked_out' ? 'debt' : 'payment';
+      const paymentIds = await logTransaction(guestId, amounts, safeStaffId,
+        { purpose, guestName: g?.fullName, roomNumber: g?.roomNumber });
+      if (total > 0) {
+        logAction(currentUser, purpose === 'debt' ? 'debt_pay' : 'payment', {
+          guestId, guestName: g?.fullName || '', roomNumber: g?.roomNumber || '',
+          amount: total, cash, card, qr, transfer, balance: balanceUsed, paymentIds,
+        });
+      }
       if (balanceUsed > 0 && clientRec) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
       }
@@ -645,9 +662,17 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
           paidCash: increment(payCash), paidCard: increment(payCard), paidQR: increment(payQR), amountPaid: increment(payTotal),
         });
-        paymentIds = await logTransaction(guestId, { cash: payCash, card: payCard, qr: payQR }, safeStaffId);
+        const eg = guests.find(x => x.id === guestId);
+        paymentIds = await logTransaction(guestId, { cash: payCash, card: payCard, qr: payQR }, safeStaffId,
+          { purpose: 'extend', guestName: eg?.fullName, roomNumber: eg?.roomNumber, extendDays: Number(extendDays) || 0, untilDate: newCheckOut });
       }
       const g = guests.find(x => x.id === guestId);
+      logAction(currentUser, 'extend', {
+        guestId, guestName: g?.fullName || '', roomNumber: g?.roomNumber || '',
+        days: Number(extendDays) || 0, fromDate: prevCheckOut || '', toDate: newCheckOut || '',
+        newDays: Number(newDays) || 0, addedPrice: extensionAddedPrice, totalPrice: newTotalPrice,
+        amount: payTotal, cash: payCash, card: payCard, qr: payQR, paymentIds,
+      });
       pushUndo({ type: 'extend', label: `+${extendDays} дн. — ${g?.fullName || guestId}`, guestId, prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut, prevStatus, paymentIds, payCash, payCard, payQR });
       if (g) {
         const extMsg = `📅 <b>${t('gaTgExtendTitle')}</b>\n👤 ${escapeTg(g.fullName)}\n➕ +${extendDays} ${t('gaDaysShort')} → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 ${t('gaSurcharged')}: ${payTotal.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
@@ -709,6 +734,9 @@ export function useGuestActions(ctx) {
       });
       count++;
     }
+    if (count > 0) logAction(currentUser, 'extend_bulk', {
+      days, count, guestNames: guestIds.map(id => guests.find(g => g.id === id)?.fullName).filter(Boolean).slice(0, 30).join(', '),
+    });
     if (count > 0) showNotification(t('gaExtendedForGuests').replace('{n}', days).replace('{count}', count), 'success');
     } catch (e) {
       showNotification(t('gaExtendErrorPrefix') + e.message, 'error');
@@ -763,6 +791,7 @@ export function useGuestActions(ctx) {
     }
     await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { status: 'active' });
     const r = rooms.find(i => i.id === guest.roomId);
+    logAction(currentUser, 'booking_activate', { guestId: guest.id, guestName: guest.fullName || '', roomNumber: guest.roomNumber || '', bedId: guest.bedId || '', days: Number(guest.days) || 0, checkOutDate: guest.checkOutDate || '' });
     if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(1) });
     await upsertClient(guest);
     // Отмена действия: вернуть статус «бронь» и счётчик занятости комнаты
@@ -861,6 +890,7 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
         setMoveGuestModal({ open: false, guest: null });
         setGuestDetailsModal({ open: false, guest: null });
+        logAction(currentUser, 'move', { guestId: g.id, guestName: g.fullName || '', fromRoom: g.roomNumber || '', fromBed: g.bedId || '', toRoom: rnum || '', toBed: bid || '' });
         showNotification(t('gaMoved'));
         return;
       }
@@ -873,6 +903,7 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
         setMoveGuestModal({ open: false, guest: null });
         setGuestDetailsModal({ open: false, guest: null });
+        logAction(currentUser, 'move', { guestId: g.id, guestName: g.fullName || '', fromRoom: g.roomNumber || '', fromBed: g.bedId || '', toRoom: rnum || '', toBed: bid || '' });
         showNotification(t('gaMoved'));
         return;
       }
@@ -980,6 +1011,7 @@ export function useGuestActions(ctx) {
 
       setMoveGuestModal({ open: false, guest: null });
       setGuestDetailsModal({ open: false, guest: null });
+      logAction(currentUser, 'move', { guestId: g.id, guestName: g.fullName || '', fromRoom: g.roomNumber || '', fromBed: g.bedId || '', toRoom: rnum || '', toBed: bid || '', daysPassed, remainingDays });
       showNotification(t('gaMovedDetail').replace('{passed}', daysPassed).replace('{oldRoom}', g.roomNumber).replace('{remaining}', remainingDays).replace('{newRoom}', rnum));
     } catch (e) {
       showNotification(t('gaErrorPrefix') + e.message, 'error');
@@ -1135,7 +1167,9 @@ export function useGuestActions(ctx) {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), {
           paidCash: increment(cashPay), paidCard: increment(cardPay), paidQR: increment(qrPay), amountPaid: increment(pay),
         });
-        const payIds = await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId);
+        const tg = guests.find(x => x.id === target.id);
+        const payIds = await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId,
+          { purpose: 'debt', guestName: tg?.fullName, roomNumber: tg?.roomNumber });
         allPaymentIds.push(...payIds);
         allTargetsWithPay.push({ id: target.id, cashPay, cardPay, qrPay });
         remaining -= pay;
@@ -1143,6 +1177,12 @@ export function useGuestActions(ctx) {
       // Имя первого должника для метки
       const firstTarget = targets[0];
       const g = guests.find(x => x.id === firstTarget?.id);
+      logAction(currentUser, 'debt_pay', {
+        guestId: firstTarget?.id || null, guestName: g?.fullName || '',
+        guestNames: allTargetsWithPay.map(x => guests.find(y => y.id === x.id)?.fullName).filter(Boolean).join(', '),
+        amount: allTargetsWithPay.reduce((s, x) => s + x.cashPay + x.cardPay + x.qrPay, 0),
+        cash: methods.cash || 0, card: methods.card || 0, qr: methods.qr || 0, paymentIds: allPaymentIds,
+      });
       pushUndo({
         type: 'debtPayment',
         label: `Погашение долга — ${g?.fullName || firstTarget?.id || '?'} (${amount.toLocaleString()})`,

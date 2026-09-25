@@ -124,6 +124,7 @@ import ClientsView from './components/Views/ClientsView';
 import ShiftsView from './components/Views/ShiftsView';
 import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
+import CashierTimelineView from './components/Views/CashierTimelineView';
 import SessionsView from './components/Views/SessionsView';
 import ClientVersionsView from './components/Views/ClientVersionsView';
 import ClientDuplicatesView from './components/Views/ClientDuplicatesView';
@@ -388,6 +389,8 @@ function App() {
     return () => clearInterval(id);
   }, []);
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
+  // Лента кассира: переход из «Смен» — кассир и границы смены
+  const [timelinePreset, setTimelinePreset] = useState(null);
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenseModalCategory, setExpenseModalCategory] = useState('');
@@ -1206,6 +1209,7 @@ const filterByHostel = (items) => {
   const filteredGuests = useMemo(() => filterByHostel(guests), [guests, currentUser, selectedHostelFilter]);
 
   const filteredExpenses = useMemo(() => filterByHostel(expenses), [expenses, currentUser, selectedHostelFilter]);
+  const filteredShifts = useMemo(() => filterByHostel(shifts), [shifts, currentUser, selectedHostelFilter]);
   const filteredTasks = useMemo(() => filterByHostel(tasks), [tasks, currentUser, selectedHostelFilter]);
   const filteredRegistrations = useMemo(() => filterByHostel(registrations || []), [registrations, currentUser, selectedHostelFilter]);
   const filteredCadastres     = useMemo(() => filterByHostel(cadastres || []),     [cadastres,     currentUser, selectedHostelFilter]);
@@ -2110,6 +2114,26 @@ return (
                         payments={filteredPayments}
                         expenses={filteredExpenses}
                         onPaySalary={(d) => handleAddExpense({ category: 'Зарплата', amount: d.amount, targetStaffId: d.staffId, comment: d.comment })}
+                        onOpenTimeline={(currentUser.role === 'admin' || currentUser.role === 'super') ? (s) => {
+                            setTimelinePreset({ staffKey: String(s.staffId || ''), from: s.startTime, to: s.endTime || null });
+                            setActiveTab('timeline');
+                        } : null}
+                    />
+                )}
+
+                {activeTab === 'timeline' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
+                    <CashierTimelineView
+                        auditLog={auditLog}
+                        payments={filteredPayments}
+                        expenses={filteredExpenses}
+                        shifts={filteredShifts}
+                        users={usersList}
+                        guests={guests}
+                        currentUser={currentUser}
+                        lang={lang}
+                        preset={timelinePreset}
+                        onClearPreset={() => setTimelinePreset(null)}
+                        onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                     />
                 )}
 

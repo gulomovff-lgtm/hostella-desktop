@@ -18,7 +18,7 @@ export const DEFAULT_FOLDERS = [
         id: 'finance',
         label: 'Финансы',
         emoji: '💰',
-        items: ['expenses', 'reports', 'analytics'],
+        items: ['expenses', 'reports', 'timeline', 'analytics'],
         open: false,
     },
     {

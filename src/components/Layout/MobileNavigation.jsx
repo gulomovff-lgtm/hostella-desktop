@@ -3,7 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge, ShoppingBag } from 'lucide-react';
+    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge, ShoppingBag, Activity } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Primary tabs always shown in the bottom bar ─────────────────────────────
@@ -39,6 +39,7 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('finance'),
         items: [
             { id: 'reports',   icon: FileText,  label: t('reports'),   adminOnly: true },
+            { id: 'timeline',  icon: Activity,  label: t('ctlNav'),    adminOnly: true },
             { id: 'expenses',  icon: Wallet,    label: t('expenses'),  adminOnly: true },
             { id: 'analytics', icon: BarChart3, label: t('analytics'), adminOnly: true },
         ],

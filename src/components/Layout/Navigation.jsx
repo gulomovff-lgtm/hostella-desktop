@@ -7,7 +7,7 @@ import {
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
     Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
     SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
-    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon, Merge, ShoppingBag } from 'lucide-react';
+    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon, Merge, ShoppingBag, Activity } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
 
@@ -25,6 +25,7 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'tasks',          icon: CheckSquare,       label: t('tasks'),          badge: pendingTasksCount, permKey: 'viewTasks' },
     { id: 'shop',           icon: ShoppingBag,       label: t('shNav'),          permKey: 'viewShop'                     },
     { id: 'reports',        icon: FileText,          label: t('reports'),        adminOnly: true, permKey: 'viewReports' },
+    { id: 'timeline',       icon: Activity,          label: t('ctlNav'),         adminOnly: true                        },
     { id: 'expenses',       icon: Wallet,            label: t('expenses'),       adminOnly: true, permKey: 'viewExpenses'},
     { id: 'analytics',      icon: BarChart3,         label: t('analytics'),      adminOnly: true                        },
     { id: 'guesthistory',   icon: History,           label: t('navGuestHistory'),adminOnly: true                        },
