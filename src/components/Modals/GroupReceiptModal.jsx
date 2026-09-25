@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, Trash2, Printer, FileText, Users, Search, GripVertical, Coffee, Sparkles } from 'lucide-react';
 import { printGroupReceipt, RECEIPT_TITLES } from '../../utils/groupReceipt';
 import DatePicker from '../UI/DatePicker';
@@ -188,7 +189,9 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
     const lbl = 'text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1 block';
     const sectionTitle = 'text-xs font-black text-slate-500 uppercase tracking-wide';
 
-    return (
+    // В <body>: окно открывается и из дашборда, где на телефоне прокручиваемая
+    // область запирала его под нижним меню.
+    return createPortal(
         <div className="fixed inset-0 z-[200] flex items-stretch sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4">
             <div className="relative bg-white w-full sm:max-w-3xl sm:rounded-2xl shadow-2xl flex flex-col max-h-screen sm:max-h-[94vh]">
                 {/* Header */}
@@ -435,7 +438,8 @@ const GroupReceiptModal = ({ open, onClose, defaultHostelId = 'hostel1', activeG
                     </div>
                 )}
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 };
 

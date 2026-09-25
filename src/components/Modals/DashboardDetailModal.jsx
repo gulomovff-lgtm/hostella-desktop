@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { describePayment, purposeText } from '../../utils/cashierTimeline';
 import { groupByMethod, byStaff, byDay, expensesByCategory, freeBedsOf, METHOD_ORDER } from '../../utils/dashboardDetails';
@@ -8,6 +9,10 @@ import { chargeOf } from '../../utils/shop';
  * Окно «подробно» у плиток дашборда. kind:
  *   guests | occupancy | incomeToday | debts | overdue | free | incomeMonth | profitMonth
  * Гость в списке открывает карточку (она поверх — z-200, окно — z-150).
+ *
+ * Окно рисуется в <body> (портал): дашборд живёт внутри прокручиваемой
+ * области, и на телефоне (iPhone/Telegram) окно оставалось заперто в ней —
+ * нижнее меню ложилось поверх деталей (жалоба владельца 2026-09-26).
  */
 
 const fmt = (n) => (Number(n) || 0).toLocaleString('ru-RU');
@@ -277,7 +282,7 @@ const DashboardDetailModal = ({ kind, onClose, t, data, expired = [], users = []
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [kind, data, expired, q, openKey, users, guestsById, todayStr, monthPrefix, t]);
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/50 p-3" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden" role="dialog" aria-modal="true" aria-label={view.title}>
                 <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100">
@@ -295,7 +300,8 @@ const DashboardDetailModal = ({ kind, onClose, t, data, expired = [], users = []
                 </div>
                 <div className="overflow-y-auto px-5 py-3">{view.body}</div>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 };
 
