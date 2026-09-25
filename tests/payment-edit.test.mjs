@@ -12,9 +12,12 @@ test('paymentSplit: запись из карточки раскладывает�
     assert.equal(splitTotal(paymentSplit({ amount: 100000, cash: 60000, qr: 40000 })), 100000);
 });
 
-test('buildPaymentFields: ровно формат обычной оплаты — без служебных пометок', () => {
+test('buildPaymentFields: формат обычной оплаты; видимых пометок нет, только скрытый reportOnly у новой записи', () => {
     const f = buildPaymentFields({ guestId: 'g1', staffId: 'u1', amount: '70000', method: 'qr', date: '2026-09-20T10:00:00.000Z', hostelId: 'hostel1' });
-    assert.deepEqual(Object.keys(f).sort(), ['amount', 'date', 'guestId', 'hostelId', 'method', 'staffId']);
+    assert.deepEqual(Object.keys(f).sort(), ['amount', 'date', 'guestId', 'hostelId', 'method', 'reportOnly', 'staffId']);
+    assert.equal(f.reportOnly, true);
+    assert.equal(buildPaymentFields({ guestId: 'g1', staffId: 'u1', amount: 1, method: 'cash', date: 'x', hostelId: 'h' }, { amount: 1 }).reportOnly, undefined,
+        'исправление записи кассы не превращает её в поправку отчёта');
     assert.equal(f.amount, 70000);
     for (const k of Object.keys(f)) assert.ok(!/super|manual|edited|admin|mark/i.test(k), `поле-пометка ${k}`);
 });
@@ -25,13 +28,25 @@ test('buildPaymentFields: у записи заселения разложени�
     assert.deepEqual([f.cash, f.card, f.qr, f.transfer, f.balance], [0, 90000, 0, 0, 0]);
 });
 
-test('guestDeltas: добавление, исправление суммы и способа, перенос на другого гостя', () => {
+test('guestDeltas: добавленная супером запись (reportOnly) деньги гостя не двигает — ни при добавлении, ни при правке', () => {
+    const added = buildPaymentFields({ guestId: 'g1', staffId: 'u1', amount: 70000, method: 'cash', date: 'x', hostelId: 'h' });
+    assert.deepEqual(guestDeltas(null, added), {});
+    assert.deepEqual(guestDeltas(added, { ...added, amount: 90000, guestId: 'g2' }), {});
+});
+
+test('guestDeltas: исправление обычной оплаты кассы — сумма и способ, перенос на другого гостя', () => {
     assert.deepEqual(guestDeltas(null, { guestId: 'g1', amount: 70000, method: 'cash' }), { g1: { paidCash: 70000, amountPaid: 70000 } });
     assert.deepEqual(guestDeltas({ guestId: 'g1', amount: 70000, method: 'cash' }, { guestId: 'g1', amount: 50000, method: 'card' }),
         { g1: { paidCash: -70000, paidCard: 50000, amountPaid: -20000 } });
     assert.deepEqual(guestDeltas({ guestId: 'g1', amount: 70000, method: 'cash' }, { guestId: 'g2', amount: 70000, method: 'cash' }),
         { g1: { paidCash: -70000, amountPaid: -70000 }, g2: { paidCash: 70000, amountPaid: 70000 } });
     assert.deepEqual(guestDeltas({ guestId: 'g1', amount: 70000, method: 'cash' }, { guestId: 'g1', amount: 70000, method: 'cash' }), {}, 'без изменений — гостя не трогаем');
+});
+
+test('удаление записи-поправки (reportOnly) не снимает деньги с гостя', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../src/hooks/useExpenseActions.js', import.meta.url), 'utf8');
+    assert.ok(src.includes("p.category !== 'registration' && !p.reportOnly"), 'удаление должно пропускать гостя у reportOnly');
 });
 
 test('editableReason: инкассация, регистрация и оплата с баланса этим окном не правятся', () => {

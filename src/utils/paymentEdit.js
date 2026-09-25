@@ -8,10 +8,12 @@
  * здесь нет ни одного служебного поля: отчёт, смена кассира и долг гостя
  * видят её ровно как оплату, принятую этим кассиром в этот момент.
  *
- * Деньги гостя (paidCash / paidCard / paidQR / paidTransfer / amountPaid)
- * двигаются вместе с записью: добавили — прибавили, исправили — сняли старое
- * и положили новое (в т.ч. если сменился гость). Без этого отчёт и долг
- * гостя разошлись бы.
+ * Добавленная запись деньги гостя НЕ меняет (решение владельца 2026-09-25):
+ * это поправка отчёта и смены кассира, а оплаченное у гостя уже стоит как
+ * есть. Такая запись несёт невидимое в интерфейсе поле reportOnly — по нему
+ * удаление и исправление тоже не трогают гостя. У обычной оплаты кассы
+ * (без reportOnly) исправление по-прежнему двигает деньги гостя: старое
+ * снять, новое положить, в т.ч. если сменился гость.
  *
  * Без React и Firestore — покрыто тестами.
  */
@@ -58,6 +60,8 @@ export function buildPaymentFields({ guestId, staffId, amount, method, date, hos
   const m = METHODS.includes(method) ? method : 'cash';
   const a = Math.round(num(amount));
   const fields = { guestId: guestId || '', staffId: staffId || '', amount: a, method: m, date, hostelId: hostelId || '' };
+  // Новая запись — только в отчёт: деньги гостя не трогает ни она, ни её удаление.
+  if (!existing) fields.reportOnly = true;
   if (existing) {
     const hadParts = ['cash', 'card', 'qr', 'transfer'].some(k => existing[k] !== undefined);
     if (hadParts) {
@@ -72,7 +76,7 @@ export function buildPaymentFields({ guestId, staffId, amount, method, date, hos
 export function guestDeltas(oldP = null, newP = null) {
   const acc = {};
   const add = (p, sign) => {
-    if (!p || !p.guestId) return;
+    if (!p || !p.guestId || p.reportOnly) return;   // поправка отчёта — деньги гостя не двигает
     const s = paymentSplit(p);
     const d = acc[p.guestId] || (acc[p.guestId] = { paidCash: 0, paidCard: 0, paidQR: 0, paidTransfer: 0, amountPaid: 0 });
     d.paidCash += sign * s.cash;

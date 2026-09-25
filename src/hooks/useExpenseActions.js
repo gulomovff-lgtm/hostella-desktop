@@ -178,7 +178,9 @@ export function useExpenseActions({
         if (!snap.exists()) return { already: true };
         const p = { ...record, ...snap.data() };
 
-        const touchesGuest = type === 'income' && p.guestId && p.category !== 'registration';
+        // reportOnly — поправка отчёта от супера: при добавлении деньги гостя не
+        // менялись, значит и при удалении их не трогаем.
+        const touchesGuest = type === 'income' && p.guestId && p.category !== 'registration' && !p.reportOnly;
         if (!touchesGuest) { tx.delete(ref); return {}; }
 
         const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', p.guestId);
@@ -400,8 +402,8 @@ export function useExpenseActions({
    * день, любому кассиру и проживающему. Запись — в формате обычной оплаты из
    * карточки гостя (решение владельца: «как обычный платёж», без пометок),
    * поэтому отчёт и смена кассира видят её как принятую на кассе.
-   * Одна транзакция: запись кассы и деньги гостя (старому снять, новому
-   * положить) меняются вместе или никак.
+   * Добавленная запись деньги гостя не меняет (reportOnly, см. utils/paymentEdit.js);
+   * исправление обычной оплаты кассы — меняет, одной транзакцией с записью.
    */
   const handleSuperSavePayment = async (input = {}) => {
     if (currentUser?.role !== 'super') { showNotification(t('spOnlySuper'), 'error'); return false; }
