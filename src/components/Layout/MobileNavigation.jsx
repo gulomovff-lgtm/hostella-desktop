@@ -179,7 +179,7 @@ const MobileNavigation = ({
                     boxShadow: '0 -8px 48px rgba(0,0,0,0.55)',
                     overflowY: 'auto',
                     overscrollBehavior: 'contain',
-                    paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${showHostelBar ? 92 : 68}px)`,
+                    paddingBottom: `calc(max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px)) + ${showHostelBar ? 104 : 68}px)`,
                 }}
             >
                 {/* Handle bar */}
@@ -360,7 +360,9 @@ const MobileNavigation = ({
                     ref={checkinRef}
                     className="fixed z-[90] md:hidden"
                     style={{
-                        bottom: `calc(env(safe-area-inset-bottom, 0px) + ${showHostelBar ? 92 : 68}px)`,
+                        // Высота меню: 57px, с переключателем хостелов — 95px (+ отступ снизу).
+                        // При 92 кнопка налезала на меню на 3px (смоук-тест 2026-09-26).
+                        bottom: `calc(max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px)) + ${showHostelBar ? 104 : 68}px)`,
                         left: '50%',
                         transform: 'translateX(-50%)',
                     }}

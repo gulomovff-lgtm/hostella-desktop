@@ -382,18 +382,36 @@ input[type="number"]::-webkit-inner-spin-button {
   .app-content-scroll {
     padding-top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
   }
+  /* --tg-top — сколько сверху занимает шапка Telegram; по умолчанию запас 56px,
+     точное значение ставит main.jsx из Telegram.WebApp (безопасные зоны).
+     --tg-bottom — низ (полоска «домой» в полноэкранном режиме). */
+  html.tg {
+    --tg-top: calc(env(safe-area-inset-top, 0px) + 56px);
+    --tg-bottom: 0px;
+  }
   html.tg .app-content-scroll {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+    padding-top: var(--tg-top) !important;
+  }
+  html.tg .fixed.bottom-0.left-0.right-0.z-50 {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-bottom)) !important;
   }
 
-  /* В Telegram плавающая шапка (Закрыть / ⌄ / …) перекрывает верх центрированных
-     окон — сдвигаем их ниже и ограничиваем высоту, чтобы шапка окна и кнопки были видны. */
-  html.tg .modal-centered.fixed.inset-0 {
-    align-items: flex-start !important;
-    padding-top: calc(env(safe-area-inset-top, 0px) + 56px) !important;
+  /* В Telegram плавающая шапка (Закрыть / ⌄ / …) перекрывает верх окон —
+     сдвигаем их ниже и ограничиваем высоту, чтобы шапка окна и кнопки были
+     видны. Раньше правило было только у «центрированных» окон, и продажа,
+     касса, окна дашборда и др. заходили под шапку (смоук-тест 2026-09-26);
+     высота урезалась на 148px — в свёрнутом Telegram карточке гостя
+     оставалась щель. Теперь — все полноэкранные окна, запас снизу 12px.
+     :root поднимает вес селектора над правилом «шторок» (max-width: 640px). */
+  html.tg:root .fixed.inset-0 {
+    padding-top: var(--tg-top) !important;
+    padding-bottom: max(12px, var(--tg-bottom)) !important;
   }
-  html.tg .modal-centered.fixed.inset-0 > div {
-    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 148px) !important;
+  html.tg:root .modal-centered.fixed.inset-0 {
+    align-items: flex-start !important;
+  }
+  html.tg:root .fixed.inset-0 > div {
+    max-height: calc(100dvh - var(--tg-top) - max(12px, var(--tg-bottom))) !important;
   }
 }
 

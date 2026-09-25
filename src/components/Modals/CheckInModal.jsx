@@ -942,7 +942,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 и увеличенный системный шрифт окно пережить обязано. */}
             <div className="ci-card w-full max-w-7xl overflow-hidden flex flex-col relative"
                  style={{ borderRadius: 14, boxShadow: '0 32px 80px rgba(0,0,0,0.35)',
-                          height: 'min(900px, 93dvh)' }}>
+                          height: 'min(900px, 93dvh)', maxHeight: '100%' }}>
 
                 {/* ── ШАПКА ── */}
                 <div className="ci-head shrink-0 flex items-end gap-4 px-6 pt-3 pb-3">
