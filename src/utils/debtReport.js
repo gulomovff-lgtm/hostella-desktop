@@ -15,6 +15,8 @@
  * «как будут платить» в базе нет, а история — единственный честный признак.
  */
 
+import { chargeOf } from './shop.js';
+
 import { computeContractFinancials } from './contractFinancials.js'; // .js — чтобы модуль грузился и в node --test
 import TRANSLATIONS from '../constants/translations.js'; // .js — чтобы модуль грузился и в node --test
 
@@ -75,7 +77,7 @@ export const buildDebtReport = ({
   const byDebtor = new Map();
   guests.forEach(g => {
     if (g.status === 'booking') return;
-    const debt = num(g.totalPrice) - guestPaid(g);
+    const debt = chargeOf(g) - guestPaid(g);
     if (debt <= 0) return;
     const h = hostelOf(g);
     if (!inScope(h)) return;
@@ -88,7 +90,7 @@ export const buildDebtReport = ({
       });
     }
     const row = byDebtor.get(key);
-    row.charged += num(g.totalPrice);
+    row.charged += chargeOf(g);
     row.paid += guestPaid(g);
     row.debt += debt;
     row.records += 1;

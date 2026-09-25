@@ -7,6 +7,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { getConfig } from '../../utils/appConfig';
 import TRANSLATIONS from '../../constants/translations';
+import { chargeOf } from '../../utils/shop';
 
 // ─── Default templates ────────────────────────────────────────────────────────
 const DEFAULT_RECEIPT = `<!DOCTYPE html>
@@ -151,7 +152,7 @@ export const applyGuestVars = (html, guest, room, staff, hostelSettings) => {
     const money = (n) => `${(Number(n) || 0).toLocaleString()} ${cur}`;
     const hostelCfg = hostelSettings?.[room?.hostelId || 'hostel1'] || {};
     const totalPaid = (parseInt(guest.paidCash) || 0) + (parseInt(guest.paidCard) || 0) + (parseInt(guest.paidQR) || 0) + (parseInt(guest.amountPaid) || 0);
-    const debt      = Math.max(0, (guest.totalPrice || 0) - totalPaid);
+    const debt      = Math.max(0, chargeOf(guest) - totalPaid);
     const logoSrc   = safeLogoUrl(hostelCfg.logoUrl);
     const logoHtml  = logoSrc ? `<img src="${logoSrc}" alt="logo"/>` : '';
     const footer    = (cfg.receiptFooter || 'Спасибо за визит!');

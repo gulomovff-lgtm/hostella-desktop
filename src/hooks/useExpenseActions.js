@@ -180,7 +180,9 @@ export function useExpenseActions({
 
         // reportOnly — поправка отчёта от супера: при добавлении деньги гостя не
         // менялись, значит и при удалении их не трогаем.
-        const touchesGuest = type === 'income' && p.guestId && p.category !== 'registration' && !p.reportOnly;
+        // service — продажа услуги/товара «сразу»: деньги гостя за проживание она не
+        // трогала (utils/shop.js), значит и удаление их не трогает.
+        const touchesGuest = type === 'income' && p.guestId && p.category !== 'registration' && p.category !== 'service' && !p.reportOnly;
         if (!touchesGuest) { tx.delete(ref); return {}; }
 
         const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', p.guestId);
@@ -207,7 +209,7 @@ export function useExpenseActions({
           const credited = Number(g.balanceCredited) || 0;
           if (credited > 0) {
             const paidNow = (Number(g.amountPaid) || 0) - total;
-            const overAfter = Math.max(0, paidNow - (Number(g.totalPrice) || 0));
+            const overAfter = Math.max(0, paidNow - (Number(g.totalPrice) || 0) - (Number(g.servicesTotal) || 0));
             clawback = Math.min(credited, Math.max(0, credited - overAfter));
             if (clawback > 0) {
               const norm = s2 => (s2 || '').replace(/\s/g, '').toUpperCase();

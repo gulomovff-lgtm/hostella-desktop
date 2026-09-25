@@ -30,6 +30,9 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [shifts,         setShifts        ] = useState([]);
   const [tgSettings,    setTgSettings   ] = useState(null);
   const [auditLogCommon, setAuditLogCommon] = useState([]);
+  const [catalog,        setCatalog       ] = useState([]);
+  const [sales,          setSales         ] = useState([]);
+  const [stockMoves,     setStockMoves    ] = useState([]);
   const [auditLogSuper,  setAuditLogSuper ] = useState([]);
   const [promos,        setPromos       ] = useState([]);
   const [registrations, setRegistrations] = useState([]);
@@ -176,6 +179,17 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
+    // Услуги и товары: справочник, продажи (последние), движения склада (админу)
+    const uShop1 = onSnapshot(collection(db, ...PUBLIC_DATA_PATH, 'catalog'),
+      (snap) => setCatalog(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setCatalog([]));
+    const uShop2 = onSnapshot(query(collection(db, ...PUBLIC_DATA_PATH, 'sales'), orderBy('date', 'desc'), limit(2000)),
+      (snap) => setSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setSales([]));
+    let uShop3 = () => {};
+    if (currentUser.role === 'super' || currentUser.role === 'admin') {
+      uShop3 = onSnapshot(query(collection(db, ...PUBLIC_DATA_PATH, 'stockMoves'), orderBy('date', 'desc'), limit(300)),
+        (snap) => setStockMoves(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setStockMoves([]));
+    }
+
     // Registrations (E-mehmon)
     const registrationsCol = collection(db, ...PUBLIC_DATA_PATH, 'registrations');
     const u11 = onSnapshot(
@@ -261,7 +275,7 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u10s(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uPwl(); uVer(); };
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u10s(); uShop1(); uShop2(); uShop3(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uPwl(); uVer(); };
   }, [firebaseUser, currentUser]);
 
   // Журнал для роли: супер — оба по времени, админ — общий без зачётов.
@@ -280,6 +294,9 @@ export const useAppData = (firebaseUser, currentUser) => {
     shifts,
     tgSettings,
     auditLog,
+    catalog,
+    sales,
+    stockMoves,
     promos,
     registrations,
     recurringExpenses,

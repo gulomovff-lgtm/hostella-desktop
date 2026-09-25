@@ -405,7 +405,8 @@ export function useGuestActions(ctx) {
     try {
       setGuestDetailsModal({ open: false, guest: null });
       const paidTotal = getTotalPaid(guest);
-      const rawOverpay = Math.max(0, paidTotal - (final.totalPrice || 0));
+      // Услуги «в счёт» (servicesTotal) — тоже долг гостя: переплата считается после них.
+      const rawOverpay = Math.max(0, paidTotal - (final.totalPrice || 0) - (Number(guest.servicesTotal) || 0));
       // Уже урегулировано: возвраты при прошлых выселениях (refundSettledAmount)
       // И переплата, зачисленная на баланс во время проживания (balanceCredited).
       // Без второго слагаемого одна и та же переплата уходила на баланс дважды.
@@ -546,7 +547,7 @@ export function useGuestActions(ctx) {
       // продлении/урезании/повторной доплате зачислялись снова и снова.
       // На баланс переплата уходит только осознанно при выселении, где кассир
       // выбирает «вернуть / оставить на балансе / смешанно».
-      const totalOverpay = Math.max(0, currentPaid + total - (g?.totalPrice || 0));
+      const totalOverpay = Math.max(0, currentPaid + total - (g?.totalPrice || 0) - (Number(g?.servicesTotal) || 0));
       const overpay = 0;
       const guestUpdate = {
         paidCash: increment(cash), paidCard: increment(card), paidQR: increment(qr),

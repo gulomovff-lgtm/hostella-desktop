@@ -3,8 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge,
-} from 'lucide-react';
+    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge, ShoppingBag } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Primary tabs always shown in the bottom bar ─────────────────────────────
@@ -55,6 +54,7 @@ const MORE_GROUPS_ADMIN = (t) => [
     {
         label: t('other2'),
         items: [
+            { id: 'shop',         icon: ShoppingBag,   label: t('shNav'), permKey: 'viewShop' },
             { id: 'referrals',    icon: Users2,        label: t('bonuses'), permKey: 'viewReferrals' },
             { id: 'telegram',     icon: BellRing,      label: t('telegram2'),      adminOnly: true },
             { id: 'promos',       icon: Tag,            label: t('promos2'),        adminOnly: true },
@@ -80,6 +80,7 @@ const MORE_GROUPS_CASHIER = (t) => [
             { id: 'cadastre',      icon: MapPin,         label: t('navCadastre'), permKey: 'viewCadastre' },
             { id: 'manualstay',    icon: Users,          label: t('navManualStay'), permKey: 'viewManualStay' },
             { id: 'referrals',     icon: Users2,         label: t('bonuses'), permKey: 'viewReferrals' },
+            { id: 'shop',          icon: ShoppingBag,    label: t('shNav'), permKey: 'viewShop' },
         ],
     },
 ];

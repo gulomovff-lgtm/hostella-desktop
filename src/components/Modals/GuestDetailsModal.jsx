@@ -14,6 +14,7 @@ import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
 import { getConfig } from '../../utils/appConfig';
 import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, getRegistrationWindow } from '../../utils/helpers';
 import ConfirmDialog from '../UI/ConfirmDialog';
+import { chargeOf, guestSales, canCancelSale } from '../../utils/shop';
 
 const getStayDetails = (checkInDateTime, days) => {
     const start = new Date(checkInDateTime);
@@ -53,7 +54,7 @@ const printDocument = (type, guest, hostel, lang = 'ru') => {
         @media print { body { padding: 10px; } }
     </style></head><body>`;
     if (type === 'check') {
-        const total = guest.totalPrice || 0;
+        const total = chargeOf(guest);
         const paid = totalPaid;
         html += `<div class="header"><h2>${hostel.name}</h2>
             <p style="margin: 2px 0; font-size: 12px;">${hostel.address}</p>
@@ -66,6 +67,7 @@ const printDocument = (type, guest, hostel, lang = 'ru') => {
             <div class="info-row"><span class="label">${t('days')}:</span><span>${guest.days}</span></div>
             <div class="info-row"><span class="label">${t('price')}:</span><span>${guest.pricePerNight.toLocaleString()} ${t('sum')}</span></div>
             <div class="total">
+                ${Number(guest.servicesTotal) > 0 ? `<div class="info-row"><span>${t('shServicesOnAccount')}:</span><span>${Number(guest.servicesTotal).toLocaleString()} ${t('sum')}</span></div>` : ''}
                 <div class="info-row"><span>${t('total')}:</span><span>${total.toLocaleString()} ${t('sum')}</span></div>
                 <div class="info-row"><span>${t('paid')}:</span><span>${paid.toLocaleString()} ${t('sum')}</span></div>
                 <div class="info-row"><span>${t('debt')}:</span><span style="color: ${(total - paid) > 0 ? '#d63031' : '#00b894'};">${Math.max(0, total - paid).toLocaleString()} ${t('sum')}</span></div>
@@ -363,11 +365,14 @@ const EmehmonSheetRow = ({ guest, notify, t, onFetch }) => {
     );
 };
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [] }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
-    const debt = (guest.totalPrice || 0) - totalPaid;
+    // Долг = проживание + услуги «в счёт» (utils/shop.js) − оплачено
+    const servicesOnAccount = Number(guest.servicesTotal) || 0;
+    const debt = chargeOf(guest) - totalPaid;
+    const mySales = guestSales(sales, guest.id);
     
     const [currentView, setCurrentView] = useState(initialView); 
     const [payCash, setPayCash] = useState('');
@@ -452,7 +457,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const checkIn  = new Date(guest.checkInDate);
     const daysStayed = Math.min(Math.max(1, Math.ceil((today - checkIn)/(1000*60*60*24))), parseInt(guest.days));
     const actualCost = daysStayed * parseInt(guest.pricePerNight);
-    const balance    = totalPaid - actualCost;
+    // Услуги «в счёт» гасятся из оплаченного так же, как проживание —
+    // иначе при выселении их вернули бы гостю как переплату.
+    const balance    = totalPaid - actualCost - servicesOnAccount;
     // Тарифные правила: цена ниже минимума комнаты = пакет/скидка → продление
     // только пакетом. Минимум и мин.дни — по комнате/филиалу/дате заезда (utils/pricing).
     const _priceDate = guest.checkInDate ? new Date(guest.checkInDate) : new Date();
@@ -862,8 +869,27 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                             : <div className="text-xl font-black text-emerald-600">{t('paidFull')}</div>}
                                     </div>
                                     <div className="text-right text-xs text-slate-400 space-y-0.5">
-                                        <div>{t('total')}: <span className="font-bold text-slate-600">{(guest.totalPrice||0).toLocaleString()}</span></div>
+                                        <div>{t('total')}: <span className="font-bold text-slate-600">{chargeOf(guest).toLocaleString()}</span></div>
+                                        {servicesOnAccount > 0 && <div>{t('shServicesShort')}: <span className="font-bold text-indigo-600">{servicesOnAccount.toLocaleString()}</span></div>}
                                         <div>{t('paid')}: <span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {mySales.length > 0 && (
+                                <div className="rounded-xl p-3 border border-slate-200 bg-white">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">{t('shGuestServices')}</div>
+                                    <div className="space-y-1.5">
+                                        {mySales.map(sl => (
+                                            <div key={sl.id} className="flex items-center gap-2 text-xs">
+                                                <span className="flex-1 min-w-0 truncate text-slate-700">{(sl.items || []).map(l => `${l.name}${l.qty > 1 ? ` ×${l.qty}` : ''}`).join(', ')}</span>
+                                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${sl.mode === 'account' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>{sl.mode === 'account' ? t('shMode_account') : t('shPaidPill')}</span>
+                                                <span className="font-black tabular-nums text-slate-800">{Number(sl.total || 0).toLocaleString()}</span>
+                                                {onCancelSale && canCancelSale(sl, currentUser) && (
+                                                    <button onClick={() => { if (window.confirm(t('shCancelConfirm'))) onCancelSale(sl); }} title={t('shCancel')} className="p-0.5 text-rose-400 hover:bg-rose-50 rounded"><X size={12}/></button>
+                                                )}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
@@ -1217,6 +1243,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     <button onClick={()=>setCurrentView('split')}    className="py-3 rounded-xl bg-amber-400  text-white font-bold text-sm hover:bg-amber-500  flex items-center justify-center gap-1.5"><Split size={15}/> {t('pauseBtn')}</button>
                                     <button onClick={()=>setCurrentView('checkout')} className="py-3 rounded-xl bg-rose-500   text-white font-bold text-sm hover:bg-rose-600   flex items-center justify-center gap-1.5"><LogOut size={15}/> {t('evict')}</button>
                                 </div>
+                                {onOpenSale && (
+                                    <button onClick={() => onOpenSale(guest)} className="w-full mt-2 py-2.5 rounded-xl border border-teal-200 bg-teal-50 text-teal-700 font-bold text-sm hover:bg-teal-100 flex items-center justify-center gap-1.5">
+                                        🛍️ {t('shAddToGuest')}
+                                    </button>
+                                )}
                                 {isBelowMinRate && onUpgradeTariff && (
                                     <button onClick={handleUpgrade} className="w-full mt-2 py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 flex items-center justify-center gap-1.5">
                                         ⬆️ {t('switchToTariff')} {MIN_NIGHT_PRICE.toLocaleString()}
@@ -1399,6 +1430,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
                                 <div className="flex justify-between"><span className="text-slate-500">{t('stayed')}</span><span className="font-bold">{daysStayed} {t('daysShort')}</span></div>
                                 <div className="flex justify-between"><span className="text-slate-500">{t('cost')}</span><span className="font-bold">{actualCost.toLocaleString()}</span></div>
+                                {servicesOnAccount > 0 && <div className="flex justify-between"><span className="text-slate-500">{t('shServicesOnAccount')}</span><span className="font-bold">{servicesOnAccount.toLocaleString()}</span></div>}
                                 <div className="h-px bg-slate-200"/>
                                 <div className="flex justify-between"><span className="text-slate-500">{t('paid')}</span><span className="font-bold text-emerald-600">{totalPaid.toLocaleString()}</span></div>
                             </div>

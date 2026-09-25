@@ -4,6 +4,7 @@ import TRANSLATIONS from '../../constants/translations';
 import Button from '../UI/Button';
 import CreateDebtModal from '../Modals/CreateDebtModal';
 import DatePicker from '../UI/DatePicker';
+import { chargeOf } from '../../utils/shop';
 
 // Фирменный зелёный приложения
 const BRAND = '#0f9688';
@@ -93,7 +94,7 @@ const DebtsView = ({ guests, users, lang = 'ru', onPayDebt, currentUser, onAdmin
         visibleGuests.forEach(g => {
             if (g.status === 'booking') return;
             const totalPaid = getTotalPaid(g);
-            const debt = (g.totalPrice || 0) - totalPaid;
+            const debt = chargeOf(g) - totalPaid;
             const dateMatch =
                 (!startDate || g.checkInDate >= startDate) &&
                 (!endDate   || g.checkInDate <= endDate + 'T23:59:59');

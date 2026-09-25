@@ -6,6 +6,7 @@ import {
     Eye, EyeOff, Plus,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { chargeOf } from '../../utils/shop';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -158,7 +159,7 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
             )].sort((a, b) => a - b);
             const hasPriceVariation = validPrices.length > 1;
             const totalPaid    = grp.stays.reduce((s, g) => s + g.totalPaid, 0);
-            const totalAmount  = grp.stays.reduce((s, g) => s + (g.totalPrice || 0), 0);
+            const totalAmount  = grp.stays.reduce((s, g) => s + chargeOf(g), 0);
             const isActive     = grp.stays.some(s => s.status === 'active');
             const hostels      = [...new Set(grp.stays.map(s => s.hostelId).filter(Boolean))];
             const lastDate     = grp.stays[0]?.checkInDate || '';
@@ -1047,7 +1048,7 @@ ${styles}${sheet1}${sheet2}
                                                 {grp.stays.map((stay) => {
                                                     const stayExpanded = expandedStays.has(stay.id);
                                                     const stayActive   = stay.status === 'active';
-                                                    const stayDebt     = (stay.totalPrice || 0) - stay.totalPaid;
+                                                    const stayDebt     = chargeOf(stay) - stay.totalPaid;
                                                     return (
                                                         <div key={stay.id}>
                                                             {/* Stay row */}

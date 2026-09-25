@@ -12,6 +12,7 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 import { summarizeSources } from '../../utils/guestSource';
 import { getConfig } from '../../utils/appConfig';
+import { chargeOf } from '../../utils/shop';
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 // Категории постоянных расходов (C_fixed): не зависят от числа гостей
@@ -391,7 +392,7 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
             .filter(g => g.status === 'active' || g.status === 'checked_out')
             .map(g => {
                 const paid = (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash||0) + (g.paidCard||0) + (g.paidQR||0)));
-                const debt = (g.totalPrice || 0) - paid;
+                const debt = chargeOf(g) - paid;
                 return { name: (g.fullName?.split(' ')[0] || '—') + (g.roomNumber ? ` ${t('anRoomLetterAbbr')}${g.roomNumber}` : ''), debt };
             })
             .filter(x => x.debt > 0)

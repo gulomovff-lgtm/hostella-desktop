@@ -39,7 +39,7 @@ export const DEFAULT_CASHIER_FOLDERS = [
         open: false,
     },
 ];
-export const DEFAULT_CASHIER_ORDER = ['item:rooms', 'item:calendar', 'item:debts', 'folder:misc'];
+export const DEFAULT_CASHIER_ORDER = ['item:rooms', 'item:calendar', 'item:debts', 'item:shop', 'folder:misc'];
 
 const DEFAULTS = { position: 'left', hidden: [], order: [], folders: null, navOrder: null, openFolders: {}, navStyle: 'compact' };
 

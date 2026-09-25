@@ -47,6 +47,7 @@ export const splitTotal = (s) => num(s.cash) + num(s.card) + num(s.qr) + num(s.t
 export function editableReason(p = {}) {
   if (p.type === 'cash_to_terminal') return 'ctt';
   if (p.category === 'registration' || p.registrationId) return 'registration';
+  if (p.category === 'service' || p.saleId) return 'service';            // продажа — отменяется в «Услугах и товарах»
   if (num(p.balance) > 0 || p.method === 'balance') return 'balance';   // оплата с баланса клиента — удалить и внести заново
   return '';
 }

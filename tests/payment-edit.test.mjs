@@ -46,7 +46,9 @@ test('guestDeltas: исправление обычной оплаты кассы
 test('удаление записи-поправки (reportOnly) не снимает деньги с гостя', async () => {
     const fs = await import('node:fs');
     const src = fs.readFileSync(new URL('../src/hooks/useExpenseActions.js', import.meta.url), 'utf8');
-    assert.ok(src.includes("p.category !== 'registration' && !p.reportOnly"), 'удаление должно пропускать гостя у reportOnly');
+    const line = src.split(/\r?\n/).find(l => l.includes('const touchesGuest ='));
+    assert.ok(line && line.includes('!p.reportOnly'), 'удаление должно пропускать гостя у reportOnly');
+    assert.ok(line.includes("p.category !== 'service'"), 'продажа «сразу» тоже не трогает деньги гостя за проживание');
 });
 
 test('editableReason: инкассация, регистрация и оплата с баланса этим окном не правятся', () => {

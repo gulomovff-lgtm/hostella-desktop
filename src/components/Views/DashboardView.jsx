@@ -8,12 +8,13 @@ import TRANSLATIONS from '../../constants/translations';
 import * as XLSX from 'xlsx';
 import { printGroupReceipt } from '../../utils/groupReceipt';
 import GroupReceiptModal from '../Modals/GroupReceiptModal';
+import { chargeOf } from '../../utils/shop';
 
 // -- Export helpers ----------------------------------------------------------
 const exportGuestsToExcel = (guests) => {
     const rows = guests.map((g, i) => {
         const paid = (parseInt(g.paidCash)||0) + (parseInt(g.paidCard)||0) + (parseInt(g.paidQR)||0) + (parseInt(g.paidTransfer)||0) + (parseInt(g.amountPaid)||0);
-        const debt = Math.max(0, (parseInt(g.totalPrice)||0) - paid);
+        const debt = Math.max(0, chargeOf(g) - paid);
         return {
             '№':        i + 1,
             'ФИО':      g.fullName || '',
@@ -172,7 +173,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
         const guestsWithDebt = relGuests
             .filter(g => g.status !== 'booking')
-            .map(g => ({ ...g, debt: (g.totalPrice || 0) - getTotalPaid(g) }))
+            .map(g => ({ ...g, debt: chargeOf(g) - getTotalPaid(g) }))
             .filter(g => g.debt > 0)
             .sort((a, b) => b.debt - a.debt);
         const guestDebtTotal = guestsWithDebt.reduce((s, g) => s + g.debt, 0);
@@ -524,7 +525,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                 {data.activeGuests.length === 0 ? (
                                     <div className="p-6 text-center text-slate-400 text-sm">{t('noActiveGuests')}</div>
                                 ) : data.activeGuests.map(g => {
-                                    const debt = (g.totalPrice || 0) - getTotalPaid(g);
+                                    const debt = chargeOf(g) - getTotalPaid(g);
                                     const co = parseDate(g.checkOutDate);
                                     const lbl = co ? getTimeLeftLabel(g.checkOutDate, nowMs, t) : null;
                                     const client = onGuestClick ? clients.find(c => c.passport && c.passport === g.passport) : null;
@@ -836,7 +837,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                         {[
                             { label: t('activeCount'), value: data.activeGuests.length, icon: Users, color: 'indigo' },
                             { label: t('bookingsCount'), value: data.relGuests.filter(g=>g.status==='booking').length, icon: Clock, color: 'amber' },
-                            { label: t('evictedWithDebt'), value: data.relGuests.filter(g=>g.status==='checked_out'&&((g.totalPrice||0)-getTotalPaid(g))>0).length, icon: AlertCircle, color: 'rose' },
+                            { label: t('evictedWithDebt'), value: data.relGuests.filter(g=>g.status==='checked_out'&&(chargeOf(g)-getTotalPaid(g))>0).length, icon: AlertCircle, color: 'rose' },
                             { label: t('avgNights'), value: data.avgStay, suffix: ` ${t('daysShort')}`, icon: CalendarDays, color: 'slate' },
                         ].map((s, i) => <TabStat key={i} {...s} />)}
                     </div>
@@ -893,7 +894,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             </div>
                             <div className="overflow-y-auto" style={{ maxHeight: 350 }}>
                                 {data.activeGuests.map(g => {
-                                    const debt = (g.totalPrice || 0) - getTotalPaid(g);
+                                    const debt = chargeOf(g) - getTotalPaid(g);
                                     const lbl = g.checkOutDate ? getTimeLeftLabel(g.checkOutDate, nowMs, t) : null;
                                     const isSelected = selectedIds.includes(g.id);
                                     return (
@@ -1064,8 +1065,8 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                                 <div className="text-[10px] text-slate-400">{t('ofLabel')} {formatMoney(g.totalPrice||0)}</div>
                                             </div>
                                             <div className="w-20 shrink-0">
-                                                <MiniBar value={(g.totalPrice||0) - g.debt} max={g.totalPrice||1} color="emerald"/>
-                                                <div className="text-[9px] text-slate-400 mt-0.5 text-center">{Math.round(((g.totalPrice||0)-g.debt)/(g.totalPrice||1)*100)}% {t('paidShort')}</div>
+                                                <MiniBar value={chargeOf(g) - g.debt} max={chargeOf(g)||1} color="emerald"/>
+                                                <div className="text-[9px] text-slate-400 mt-0.5 text-center">{Math.round((chargeOf(g)-g.debt)/(chargeOf(g)||1)*100)}% {t('paidShort')}</div>
                                             </div>
                                         </div>
                                     );

@@ -8,6 +8,7 @@ import TRANSLATIONS from '../../constants/translations';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { computeContractFinancials } from '../../utils/contractFinancials';
+import { chargeOf } from '../../utils/shop';
 
 // --- Utilities ---
 const getTotalPaid = (g) => {
@@ -215,7 +216,7 @@ const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], p
 const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const totalPaid = getTotalPaid(guest);
-    const debt = (guest.totalPrice || 0) - totalPaid;
+    const debt = chargeOf(guest) - totalPaid;
     const now = new Date();
     const checkIn = new Date(guest.checkInDate);
     let checkOut = new Date(guest.checkOutDate);
@@ -514,7 +515,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
     const getBarStyle = useCallback((g, barData) => {
         const { bonusColorPct, bonusPct1, bonusPct2, startPxRaw, endPx, width: visWidth } = barData || {};
         const paid  = getTotalPaid(g);
-        const debt  = (g.totalPrice || 0) - paid;
+        const debt  = chargeOf(g) - paid;
         const isOut = g.status === 'checked_out';
         const isBk  = g.status === 'booking';
         const co    = parseDate(g.checkOutDate);
@@ -523,7 +524,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         const isExp = effectiveCo && new Date() > effectiveCo && !isOut;
 
         // Позиция перехода green→red: процент от ВИДИМОЙ части полоски с учётом обрезки слева
-        const rawPct = g.totalPrice > 0 ? Math.min(1, paid / g.totalPrice) : 1;
+        const rawPct = chargeOf(g) > 0 ? Math.min(1, paid / chargeOf(g)) : 1;
         let gradPct = Math.round(rawPct * 100);
         if (startPxRaw != null && endPx != null && visWidth > 0) {
             const fullBarWidth = endPx - startPxRaw;
@@ -795,7 +796,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                                                     if (!bar) return null;
                                                     const style = getBarStyle(g, bar);
                                                     const paid = getTotalPaid(g);
-                                                    const debt = (g.totalPrice || 0) - paid;
+                                                    const debt = chargeOf(g) - paid;
                                                     const isOut = g.status === 'checked_out';
                                                     const isBk  = g.status === 'booking';
                                                     const co    = parseDate(g.checkOutDate);

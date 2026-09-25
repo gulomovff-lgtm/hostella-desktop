@@ -14,6 +14,7 @@ import { getConfig } from '../../utils/appConfig';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
+import { chargeOf } from '../../utils/shop';
 
 // --- Helpers ---
 /**
@@ -581,7 +582,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         // Гость со статусом active, заехавший сегодня (даже если расчётный час 14:00 ещё
         // не настал при раннем заезде), уже занимает кровать.
         const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
-        const debtOf = (g) => Math.max(0, (parseInt(g.totalPrice) || 0) -
+        const debtOf = (g) => Math.max(0, chargeOf(g) -
             (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0))));
         const arrived = otherGuests.filter(g =>
             g.roomId === formData.roomId && g.status === 'active' && new Date(g.checkInDate) <= endOfToday);

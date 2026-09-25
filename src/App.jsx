@@ -156,6 +156,7 @@ import { useRegistrationActions } from './hooks/useRegistrationActions';
 import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { useExpenseActions }      from './hooks/useExpenseActions';
+import { useShopActions }         from './hooks/useShopActions';
 import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
 import { useNavPrefs }            from './hooks/useNavPrefs';
 import CheckInModal from './components/Modals/CheckInModal';
@@ -179,6 +180,8 @@ import RentalExtendModal from './components/Modals/RentalExtendModal';
 import RentalPayModal from './components/Modals/RentalPayModal';
 import TemplateEditorModal from './components/Modals/TemplateEditorModal';
 import GroupReceiptModal from './components/Modals/GroupReceiptModal';
+import SaleModal from './components/Modals/SaleModal';
+import ShopView from './components/Views/ShopView';
 import HostelSettingsView from './components/Views/HostelSettingsView';
 import OnboardingTour, { LS_KEY as ONBOARDING_KEY } from './components/UI/OnboardingTour';
 import UndoHistoryModal from './components/Modals/UndoHistoryModal';
@@ -347,6 +350,7 @@ function App() {
   const {
     rooms, guests, expenses, clients, payments,
     usersList, tasks, shifts, tgSettings, auditLog, promos, registrations,
+    catalog, sales, stockMoves,
     recurringExpenses, hostelConfig, sessions, cadastres, cadastreRegs,
     manualStayGroups,
     priceWhitelist,
@@ -362,6 +366,8 @@ function App() {
   const [rentalPayModal,     setRentalPayModal    ] = useState(null); // room object or null
   const [templateEditorModal, setTemplateEditorModal] = useState(false);
   const [groupReceiptOpen, setGroupReceiptOpen] = useState(false);
+  // Продажа услуги/товара: гостю (guest) или «с улицы» (guest: null)
+  const [saleModal, setSaleModal] = useState({ open: false, guest: null });
   const [registrationModal,  setRegistrationModal ] = useState(false);
   const [showOnboarding,     setShowOnboarding    ] = useState(() => localStorage.getItem(ONBOARDING_KEY) !== 'done');
   const [undoStack,         setUndoStack         ] = useState(() => {
@@ -930,6 +936,10 @@ function App() {
     currentUser, selectedHostelFilter, lang, showNotification, tgSettings, isOnline,
     setUndoStack,
   });
+
+  const { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust } =
+    useShopActions({ currentUser, lang, showNotification });
+  const HOSTEL_OPTIONS = useMemo(() => Object.entries(HOSTELS).map(([id, h]) => ({ id, name: h.name })), []);
 
   const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense, handleSuperSavePayment } = useExpenseActions({
     currentUser, selectedHostelFilter,
@@ -2004,6 +2014,24 @@ return (
                     />
                 )}
 
+                {activeTab === 'shop' && currentUser.permissions?.viewShop !== false && (
+                    <ShopView
+                        catalog={catalog}
+                        sales={sales}
+                        stockMoves={stockMoves}
+                        users={usersList}
+                        currentUser={currentUser}
+                        hostels={HOSTEL_OPTIONS}
+                        selectedHostelFilter={(currentUser.role === 'admin' || currentUser.role === 'super') ? selectedHostelFilter : (currentUser.hostelId || selectedHostelFilter)}
+                        lang={lang}
+                        onNewSale={() => setSaleModal({ open: true, guest: null })}
+                        onCancelSale={handleCancelSale}
+                        onSaveItem={handleSaveItem}
+                        onStockIn={handleStockIn}
+                        onStockAdjust={handleStockAdjust}
+                    />
+                )}
+
                 {activeTab === 'reports' && (
                     (currentUser.role === 'admin' || currentUser.role === 'super')
                         ? currentUser.permissions?.viewReports !== false
@@ -2517,6 +2545,9 @@ return (
                 onKppConfirm={handleKppConfirm}
                 onKppReset={handleKppReset}
                 onKppRecheck={handleKppRecheck}
+                sales={sales}
+                onOpenSale={(g) => setSaleModal({ open: true, guest: g })}
+                onCancelSale={handleCancelSale}
                 onRegisterAuto={handleRegisterAuto}
                 onPriceRequest={handleRequestPriceReduction}
                 onUpgradeTariff={handleUpgradeToStandardTariff}
@@ -2702,6 +2733,18 @@ return (
                         </div>
                     </div>
                 </div>
+            )}
+
+            {saleModal.open && (
+                <SaleModal
+                    guest={saleModal.guest ? (guests.find(g => g.id === saleModal.guest.id) || saleModal.guest) : null}
+                    catalog={catalog}
+                    hostels={HOSTEL_OPTIONS}
+                    defaultHostelId={(currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : selectedHostelFilter}
+                    lang={lang}
+                    onSubmit={(p) => handleSale({ ...p, catalog })}
+                    onClose={() => setSaleModal({ open: false, guest: null })}
+                />
             )}
 
             {/* Лист в бухгалтерию (доступен всем, включая кассиров) */}

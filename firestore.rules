@@ -115,6 +115,26 @@ service cloud.firestore {
       match /bookingCom/{doc}        { allow read, write: if isStaff(); }
       match /userPrefs/{doc}         { allow read, write: if isStaff(); }
 
+      // ── Услуги и товары ───────────────────────────────────────────────────
+      // Справочник ведёт админ; кассир при продаже меняет ТОЛЬКО остаток (stock).
+      // Продажи создаёт и отменяет персонал (отмена — смена статуса), удалять
+      // нельзя. Движения склада — только добавление.
+      match /catalog/{doc} {
+        allow read:   if isStaff();
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() ||
+                      (isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']));
+      }
+      match /sales/{doc} {
+        allow read, create, update: if isStaff();
+        allow delete: if false;
+      }
+      match /stockMoves/{doc} {
+        allow read:   if isStaff();
+        allow create: if isStaff();
+        allow update, delete: if false;
+      }
+
       // ── Промокоды ─────────────────────────────────────────────────────────
       // Читают сотрудники (виджет берёт активные промо через функцию). Пишет
       // только админ — закрывает форж/сброс счётчиков/100%-скидки анонимом.

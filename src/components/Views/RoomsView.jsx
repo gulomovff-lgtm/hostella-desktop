@@ -8,6 +8,7 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 import { computeContractFinancials } from '../../utils/contractFinancials';
 import { getKppDayNumber, getRegistrationWindow } from '../../utils/helpers';
+import { chargeOf } from '../../utils/shop';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -429,7 +430,7 @@ const buildBedsData = (room, guests) => {
                 status = 'free';
             } else {
                 displayGuest = activeGuest;
-                debt = Math.max(0, (activeGuest.totalPrice || 0) - getTotalPaid(activeGuest));
+                debt = Math.max(0, chargeOf(activeGuest) - getTotalPaid(activeGuest));
                 isTimeout = !!expired;
                 status = isTimeout ? 'timeout' : 'occupied';
                 // Входящее бронирование даже при занятой ячейке
@@ -471,7 +472,7 @@ const buildBedsData = (room, guests) => {
             const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : (co || bonusCo);
             const expired = effectiveCo && now > effectiveCo;
             isBonus = !!(bonusCo && co && now > co && now <= bonusCo);
-            debt = Math.max(0, (activeGuest.totalPrice || 0) - getTotalPaid(activeGuest));
+            debt = Math.max(0, chargeOf(activeGuest) - getTotalPaid(activeGuest));
             isTimeout = !!expired;
             status = isTimeout ? 'timeout' : 'occupied';
         }

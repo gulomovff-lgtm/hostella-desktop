@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import ClientEditModal from './ClientEditModal';
+import { chargeOf } from '../../utils/shop';
 
 const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
 
@@ -139,7 +140,7 @@ const ClientHistoryModalInner = ({ client, guests, users, rooms, currentUser, on
     const stats = useMemo(() => history.reduce((acc, s) => {
         const paid = getTotalPaid(s);
         acc.totalSpent += paid;
-        acc.totalDebt  += Math.max(0, (s.totalPrice||0) - paid);
+        acc.totalDebt  += Math.max(0, chargeOf(s) - paid);
         acc.nights     += parseInt(s.days) || 0;
         acc.stays      += 1;
         return acc;
@@ -262,7 +263,7 @@ const ClientHistoryModalInner = ({ client, guests, users, rooms, currentUser, on
                             <div className="text-center text-slate-400 py-16 text-sm">{t('chmNoStays')}</div>
                         ) : history.map((stay, i) => {
                             const paid   = getTotalPaid(stay);
-                            const debt   = (stay.totalPrice||0) - paid;
+                            const debt   = chargeOf(stay) - paid;
                             const active = stay.status === 'active';
                             const booking= stay.status === 'booking';
                             const isDebt = stay.status === 'debt';
