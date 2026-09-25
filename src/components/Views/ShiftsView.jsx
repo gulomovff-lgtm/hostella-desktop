@@ -756,7 +756,7 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                                 </div>
                                                 {isAdmin && (
                                                     <div className="flex items-center gap-0.5 shrink-0">
-                                                        {onOpenTimeline && (
+                                                        {onOpenTimeline && active && (
                                                             <button onClick={() => onOpenTimeline(s)} title={t('ctlOpenTimeline')}
                                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"><Activity size={15}/></button>
                                                         )}

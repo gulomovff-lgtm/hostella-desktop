@@ -389,7 +389,7 @@ function App() {
     return () => clearInterval(id);
   }, []);
   const [guestDetailsModal, setGuestDetailsModal] = useState({ open: false, guest: null });
-  // Лента кассира: переход из «Смен» — кассир и границы смены
+  // Лента кассира: переход из «Смен» (открытая смена) — сразу этот кассир
   const [timelinePreset, setTimelinePreset] = useState(null);
   const [moveGuestModal, setMoveGuestModal] = useState({ open: false, guest: null });
   const [expenseModal, setExpenseModal] = useState(false);
@@ -2115,7 +2115,7 @@ return (
                         expenses={filteredExpenses}
                         onPaySalary={(d) => handleAddExpense({ category: 'Зарплата', amount: d.amount, targetStaffId: d.staffId, comment: d.comment })}
                         onOpenTimeline={(currentUser.role === 'admin' || currentUser.role === 'super') ? (s) => {
-                            setTimelinePreset({ staffKey: String(s.staffId || ''), from: s.startTime, to: s.endTime || null });
+                            setTimelinePreset({ staffKey: String(s.staffId || '') });
                             setActiveTab('timeline');
                         } : null}
                     />
@@ -2132,7 +2132,6 @@ return (
                         currentUser={currentUser}
                         lang={lang}
                         preset={timelinePreset}
-                        onClearPreset={() => setTimelinePreset(null)}
                         onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                     />
                 )}

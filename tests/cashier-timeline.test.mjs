@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    describePayment, purposeText, paymentMethods, buildTimeline, summarizeTimeline, staffKeysOf, dayRange,
+    describePayment, purposeText, paymentMethods, buildTimeline, summarizeTimeline, staffKeysOf,
 } from '../src/utils/cashierTimeline.js';
 
 const RU = {
@@ -59,7 +59,7 @@ test('paymentMethods: запись по способам и одиночная',
 });
 
 test('лента: оплаты прикрепляются к действию, без дублей; фильтр по кассиру и дню', () => {
-    const { from, to } = dayRange('2026-09-25');
+    const from = new Date(2026, 8, 25).getTime(), to = new Date(2026, 8, 26).getTime();
     const at = (h, m = 0) => new Date(2026, 8, 25, h, m).toISOString();
     const audit = [
         { id: 'a1', action: 'extend', userId: 'u1', userName: 'Кассир', timestamp: at(10), details: { guestName: 'X', days: 3, paymentIds: ['p1', 'p2'] } },
@@ -99,4 +99,27 @@ test('лента смены: границы from/to по времени смен
     const payments = [{ id: 'p', staffId: 'u1', amount: 10, date: at(7) }, { id: 'q', staffId: 'u1', amount: 20, date: at(9) }];
     const ev = buildTimeline({ payments, keys: new Set(['u1']), from: at(8), to: at(20) });
     assert.deepEqual(ev.map(e => e.payments[0].id), ['q']);
+});
+
+test('открытые смены: только текущая смена каждого кассира, закрытые не видны', async () => {
+    const { openShiftTimeline } = await import('../src/utils/cashierTimeline.js');
+    const at = (d, h) => new Date(2026, 8, d, h).toISOString();
+    const shifts = [
+        { id: 'old', staffId: 'u1', startTime: at(24, 8), endTime: at(24, 20) },  // вчерашняя закрытая
+        { id: 'cur', staffId: 'u1', startTime: at(25, 8), endTime: null },
+        { id: 'b', staffId: 'u2', startTime: at(25, 9), endTime: null },
+    ];
+    const payments = [
+        { id: 'p0', staffId: 'u1', amount: 10, date: at(24, 10) },   // прошлая смена — не видно
+        { id: 'p1', staffId: 'u1', amount: 20, date: at(25, 10) },
+        { id: 'p2', staffId: 'login2', amount: 30, date: at(25, 11) },
+    ];
+    const users = [{ id: 'u1', login: 'l1' }, { id: 'u2', login: 'login2' }];
+    const all = openShiftTimeline({ payments, shifts, users });
+    assert.deepEqual(all.open.map(s => s.id), ['cur', 'b']);
+    assert.deepEqual(all.events.filter(e => e.source === 'payment').map(e => e.payments[0].id), ['p1', 'p2']);
+    assert.ok(!all.events.some(e => e.id === 's_old' || e.id === 'se_old'));
+    const one = openShiftTimeline({ payments, shifts, users, staffKey: 'u2' });
+    assert.deepEqual(one.events.filter(e => e.source === 'payment').map(e => e.payments[0].id), ['p2']);
+    assert.equal(openShiftTimeline({ payments, shifts: [shifts[0]], users }).events.length, 0);
 });

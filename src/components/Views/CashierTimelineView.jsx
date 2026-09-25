@@ -1,24 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Activity, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db, PUBLIC_DATA_PATH } from '../../firebase';
+import { Activity } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { ACTION_META } from '../../utils/auditActions';
-import { hiddenFromAdmin } from '../../utils/auditScope';
 import {
-    buildTimeline, summarizeTimeline, describePayment, purposeText, paymentMethods, staffKeysOf, dayRange,
+    openShiftTimeline, summarizeTimeline, describePayment, purposeText, paymentMethods,
 } from '../../utils/cashierTimeline';
 import { stableView } from '../UI/stableView';
 
 /**
- * Лента кассира — все действия по времени за день (или за смену):
+ * Лента кассира — все действия по времени за ТЕКУЩУЮ открытую смену
+ * (владелец: прошлые смены здесь не показывать, только незакрытые):
  * заселения, продления «на сколько суток», оплаты «за что», расходы, смены, входы.
  * Источники: журнал действий (auditLog), касса (payments), расходы, смены.
  * Сборка — utils/cashierTimeline.js.
  */
 
 const pad2 = (n) => String(n).padStart(2, '0');
-const ymdOf = (d) => { const x = new Date(d); return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`; };
 const hm = (ms) => { const d = new Date(ms); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
 const dm = (iso) => { const d = new Date(iso || 0); return Number.isFinite(d.getTime()) && d.getTime() ? `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}` : ''; };
 const fmt = (n) => (Number(n) || 0).toLocaleString('ru-RU');
@@ -28,66 +25,13 @@ const SESSION_ACTIONS = new Set(['login', 'logout', 'force_logout', 'shift_start
 
 const METHOD_KEYS = { cash: 'cash', card: 'card', qr: 'qr', transfer: 'transferMethod', balance: 'ctlBalanceMethod' };
 
-const CashierTimelineView = ({ auditLog = [], payments = [], expenses = [], shifts = [], users = [], guests = [], currentUser, lang = 'ru', preset = null, onClearPreset, onOpenGuest }) => {
+const CashierTimelineView = ({ auditLog = [], payments = [], expenses = [], shifts = [], users = [], guests = [], lang = 'ru', preset = null, onOpenGuest }) => {
     const t = k => TRANSLATIONS[lang]?.[k] || k;
-    const [day, setDay] = useState(() => ymdOf(Date.now()));
     const [staffKey, setStaffKey] = useState('');
     const [show, setShow] = useState('all');
-    const [olderAudit, setOlderAudit] = useState(null); // { key, rows } — журнал за день старше загруженного
-    const [loadingOld, setLoadingOld] = useState(false);
 
-    // Переход из «Смен»: кассир и границы смены
-    useEffect(() => {
-        if (!preset) return;
-        if (preset.staffKey) setStaffKey(preset.staffKey);
-        if (preset.from) setDay(ymdOf(preset.from));
-    }, [preset]);
-
-    const range = useMemo(() => {
-        if (preset?.from) return { from: new Date(preset.from).getTime(), to: preset.to ? new Date(preset.to).getTime() : Date.now() + 60000 };
-        return dayRange(day);
-    }, [preset, day]);
-
-    // Загруженный журнал — последние 5000 записей. Если выбран день старше —
-    // дочитываем журнал именно за этот день (один запрос).
-    const oldestLoaded = useMemo(() => {
-        const last = auditLog[auditLog.length - 1]?.timestamp;
-        return last ? new Date(last).getTime() : 0;
-    }, [auditLog]);
-    const needOlder = auditLog.length >= 5000 && oldestLoaded > range.from;
-    const olderKey = needOlder ? `${range.from}_${range.to}` : '';
-    useEffect(() => {
-        if (!olderKey || olderAudit?.key === olderKey) return;
-        let alive = true;
-        setLoadingOld(true);
-        const q = query(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
-            where('timestamp', '>=', new Date(range.from).toISOString()),
-            where('timestamp', '<', new Date(range.to).toISOString()),
-            orderBy('timestamp', 'asc'));
-        getDocs(q).then(snap => {
-            if (!alive) return;
-            const rows = snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLog' }))
-                .filter(e => currentUser?.role === 'super' || !hiddenFromAdmin(e));
-            setOlderAudit({ key: olderKey, rows });
-        }).catch(() => { if (alive) setOlderAudit({ key: olderKey, rows: [] }); })
-          .finally(() => { if (alive) setLoadingOld(false); });
-        return () => { alive = false; };
-    }, [olderKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    const auditSource = useMemo(() => {
-        if (!needOlder || olderAudit?.key !== olderKey) return auditLog;
-        const seen = new Set(auditLog.map(e => e.id));
-        return [...auditLog, ...olderAudit.rows.filter(e => !seen.has(e.id))];
-    }, [auditLog, needOlder, olderAudit, olderKey]);
-
-    // Сотрудники в списке (супера админу не показываем — как и в «Истории»)
-    const staffOptions = useMemo(() => {
-        const list = users.filter(u => u && (currentUser?.role === 'super' || u.role !== 'super'));
-        return list.map(u => ({ key: String(u.id || u.login), name: u.name || u.login || '—', user: u }))
-            .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-    }, [users, currentUser?.role]);
-    const selectedUser = staffOptions.find(o => o.key === staffKey)?.user || null;
-    const keys = useMemo(() => (selectedUser ? staffKeysOf(selectedUser) : null), [selectedUser]);
+    // Переход из «Смен» (кнопка у открытой смены): сразу этот кассир
+    useEffect(() => { if (preset?.staffKey) setStaffKey(preset.staffKey); }, [preset]);
 
     const guestsById = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests]);
     const nameOf = useMemo(() => {
@@ -96,9 +40,21 @@ const CashierTimelineView = ({ auditLog = [], payments = [], expenses = [], shif
         return (k) => m.get(String(k)) || '';
     }, [users]);
 
-    const events = useMemo(() => buildTimeline({
-        audit: auditSource, payments, expenses, shifts, keys, from: range.from, to: range.to, guestsById,
-    }), [auditSource, payments, expenses, shifts, keys, range, guestsById]);
+    // Кассиры с открытой сменой — для выбора
+    const openAll = useMemo(() => shifts.filter(s => s && !s.endTime && s.startTime), [shifts]);
+    const staffOptions = useMemo(() => {
+        const m = new Map();
+        for (const s of openAll) {
+            const k = String(s.staffId || s.staffLogin || '');
+            if (k && !m.has(k)) m.set(k, { key: k, name: s.staffName || nameOf(k) || k, since: s.startTime });
+        }
+        return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    }, [openAll, nameOf]);
+    const effKey = staffOptions.some(o => o.key === staffKey) ? staffKey : '';
+
+    const { events, open } = useMemo(() => openShiftTimeline({
+        audit: auditLog, payments, expenses, shifts: openAll, users, staffKey: effKey, guestsById,
+    }), [auditLog, payments, expenses, openAll, users, effKey, guestsById]);
     const summary = useMemo(() => summarizeTimeline(events), [events]);
 
     const visible = useMemo(() => events.filter(e => {
@@ -107,9 +63,6 @@ const CashierTimelineView = ({ auditLog = [], payments = [], expenses = [], shif
         if (show === 'sessions') return SESSION_ACTIONS.has(e.action);
         return true;
     }), [events, show]);
-
-    const shiftDay = (delta) => { const d = new Date(dayRange(day).from); d.setDate(d.getDate() + delta); setDay(ymdOf(d)); onClearPreset?.(); };
-    const isToday = day === ymdOf(Date.now());
 
     const guestLink = (id, name) => {
         const g = id ? guestsById.get(id) : null;
@@ -197,22 +150,14 @@ const CashierTimelineView = ({ auditLog = [], payments = [], expenses = [], shif
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm flex flex-wrap items-center gap-2">
-                <select value={staffKey} onChange={e => setStaffKey(e.target.value)} className={INP + ' min-w-[180px]'}>
-                    <option value="">{t('ctlAllCashiers')}</option>
+                <select value={effKey} onChange={e => setStaffKey(e.target.value)} className={INP + ' min-w-[180px]'}>
+                    <option value="">{t('ctlAllOpenShifts')}</option>
                     {staffOptions.map(o => <option key={o.key} value={o.key}>{o.name}</option>)}
                 </select>
-                {preset?.from ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 text-sm font-bold">
-                        {t('ctlShiftChip').replace('{date}', dm(preset.from)).replace('{from}', hm(new Date(preset.from).getTime())).replace('{to}', preset.to ? hm(new Date(preset.to).getTime()) : '…')}
-                        <button onClick={() => onClearPreset?.()} className="p-0.5 rounded hover:bg-indigo-100"><X size={14} /></button>
+                {open.length > 0 && (
+                    <span className="text-xs font-semibold text-slate-500">
+                        {open.map(o => t('ctlShiftSince').replace('{name}', o.staffName || nameOf(o.staffId) || '—').replace('{from}', hm(new Date(o.startTime).getTime())).replace('{date}', dm(o.startTime))).join(' · ')}
                     </span>
-                ) : (
-                    <div className="flex items-center gap-1">
-                        <button onClick={() => shiftDay(-1)} className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50"><ChevronLeft size={16} /></button>
-                        <input type="date" value={day} onChange={e => e.target.value && setDay(e.target.value)} className={INP} />
-                        <button onClick={() => shiftDay(1)} disabled={isToday} className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30"><ChevronRight size={16} /></button>
-                        {!isToday && <button onClick={() => setDay(ymdOf(Date.now()))} className="px-3 py-2 rounded-xl text-sm font-bold text-indigo-600 hover:bg-indigo-50">{t('ctlToday')}</button>}
-                    </div>
                 )}
                 <div className="flex items-center gap-1 ml-auto bg-slate-100 rounded-xl p-1">
                     {[['all', 'ctlShowAll'], ['money', 'ctlShowMoney'], ['guests', 'ctlShowGuests'], ['sessions', 'ctlShowSessions']].map(([k, lbl]) => (
@@ -233,14 +178,13 @@ const CashierTimelineView = ({ auditLog = [], payments = [], expenses = [], shif
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-                {loadingOld && <div className="px-4 py-2 text-xs text-slate-400 border-b border-slate-100">{t('ctlLoadingOld')}</div>}
                 {visible.length === 0 ? (
-                    <div className="py-14 text-center text-slate-400 text-sm">{t('ctlEmpty')}</div>
+                    <div className="py-14 text-center text-slate-400 text-sm">{open.length ? t('ctlEmpty') : t('ctlNoOpenShift')}</div>
                 ) : (
                     <ol className="relative py-2">
                         {visible.map((e, i) => {
                             const { icon, label } = titleOf(e);
-                            const who = !keys ? (e.staffName || nameOf(e.staffId)) : '';
+                            const who = !effKey ? (e.staffName || nameOf(e.staffId)) : '';
                             const money = e.moneyIn ? `+${fmt(e.moneyIn)}` : e.moneyOut ? `−${fmt(e.moneyOut)}` : '';
                             return (
                                 <li key={e.id} className="flex gap-3 px-4 py-2.5 hover:bg-slate-50/70">

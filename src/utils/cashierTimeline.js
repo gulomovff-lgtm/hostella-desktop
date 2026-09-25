@@ -199,9 +199,25 @@ export function summarizeTimeline(events = []) {
   return s;
 }
 
-/** Границы суток по местному времени для «YYYY-MM-DD». */
-export function dayRange(ymd) {
-  const [y, m, d] = String(ymd || '').split('-').map(Number);
-  if (!y || !m || !d) return { from: 0, to: 0 };
-  return { from: new Date(y, m - 1, d, 0, 0, 0, 0).getTime(), to: new Date(y, m - 1, d + 1, 0, 0, 0, 0).getTime() };
+/**
+ * Лента только по ОТКРЫТЫМ сейчас сменам (решение владельца 2026-09-25:
+ * «видно только за текущую смену, предыдущие — нет»). Каждый кассир — со
+ * своего начала смены до сейчас. staffKey — один кассир или '' (все открытые).
+ * Возвращает { events, open } — open: открытые смены (с учётом фильтра).
+ */
+export function openShiftTimeline({ audit = [], payments = [], expenses = [], shifts = [], users = [], staffKey = '', guestsById = null } = {}) {
+  const open = shifts.filter(s => s && !s.endTime && s.startTime)
+    .filter(s => !staffKey || String(s.staffId) === String(staffKey) || String(s.staffLogin || '') === String(staffKey));
+  const seen = new Set();
+  const events = [];
+  for (const s of open) {
+    const u = users.find(x => String(x.id) === String(s.staffId) || (s.staffLogin && x.login === s.staffLogin));
+    const keys = new Set([...staffKeysOf(u), s.staffId, s.staffLogin].filter(Boolean).map(String));
+    for (const e of buildTimeline({ audit, payments, expenses, shifts: [s], keys, from: s.startTime, to: null, guestsById })) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      events.push(e);
+    }
+  }
+  return { events: events.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)), open };
 }
