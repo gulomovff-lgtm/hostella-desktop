@@ -2,6 +2,7 @@ import React, { useState, useRef, useMemo, useCallback } from 'react';
 import { X, Camera, Trash2, ChevronLeft, CalendarClock, Plus, Banknote } from 'lucide-react';
 import CategoryIcon from '../../utils/categoryIcon';
 import { fmtSum } from '../../utils/helpers';
+import { evalExpr, hasOperator } from '../../utils/expenseCalc';
 import { getConfig } from '../../utils/appConfig';
 import TRANSLATIONS from '../../constants/translations';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -103,22 +104,6 @@ const MODAL_STYLE = `
     .exp-chip:hover { transform: translateY(-1px); }
     .exp-chip:active { transform: scale(.94); }
 `;
-
-// ── Калькулятор поля суммы: "73000+33000" → 106000 ──
-// Разрешены только цифры и операторы + - * / ( ) . — безопасно вычисляем.
-const evalExpr = (raw) => {
-    if (raw == null) return NaN;
-    const s = String(raw).replace(/\s+/g, '').replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '.');
-    if (!s || !/[0-9]/.test(s)) return NaN;
-    if (!/^[0-9+\-*/().]+$/.test(s)) return NaN;
-    try {
-         
-        const val = Function(`"use strict"; return (${s});`)();
-        return (typeof val === 'number' && isFinite(val)) ? val : NaN;
-    } catch { return NaN; }
-};
-// есть ли в строке арифметический оператор (игнорируем ведущий минус)
-const hasOperator = (s) => /[+\-*/×÷]/.test(String(s || '').slice(1));
 
 const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCategory = '', usersList = [], selectedHostelFilter = '' }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
@@ -408,9 +393,9 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
                                             <input
                                                 ref={amountRef}
                                                 type="text" inputMode="text" autoCapitalize="off" autoCorrect="off" spellCheck={false} className="exp-input"
-                                                value={hasOperator(amount) ? amount : fmtSum(amount)}
-                                                onChange={e => setAmount(e.target.value.replace(/[^0-9+\-*/.×÷]/g, ''))}
-                                                onKeyDown={e => { if (e.key === 'Enter' && hasOperator(amount)) { e.preventDefault(); evaluateAmount(); } }}
+                                                value={hasOperator(amount) || /[.,]/.test(amount) ? amount : fmtSum(String(amount).replace(/^0+(?=\d)/, ''))}
+                                                onChange={e => setAmount(e.target.value.replace(/[^0-9+\-*/.,×÷]/g, ''))}
+                                                onKeyDown={e => { if (e.key === 'Enter' && (hasOperator(amount) || /[.,]/.test(amount))) { e.preventDefault(); evaluateAmount(); } }}
                                                 placeholder="0" required autoFocus={!!initialCategory}
                                                 style={{ width: '100%', padding: '16px 64px 16px 18px', border: `2px solid ${fieldBrd}`, borderRadius: 16, outline: 'none',
                                                     fontSize: 28, fontWeight: 900, letterSpacing: '0.02em', color: txtMain, background: isDark ? '#1e3a3e' : '#fff',
@@ -418,7 +403,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
                                             />
                                             <span style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 800, color: txtMuted, pointerEvents: 'none' }}>{t('sum')}</span>
                                         </div>
-                                        {hasOperator(amount) && isFinite(evalExpr(amount)) && evalExpr(amount) > 0 && (
+                                        {(hasOperator(amount) || /[.,]/.test(amount)) && isFinite(evalExpr(amount)) && evalExpr(amount) > 0 && (
                                             <div style={{ marginTop: 6, textAlign: 'center', fontSize: 13, fontWeight: 800, color: '#0f9688', fontVariantNumeric: 'tabular-nums' }}>
                                                 = {fmtSum(String(Math.round(evalExpr(amount))))} {t('sum')} · Enter
                                             </div>

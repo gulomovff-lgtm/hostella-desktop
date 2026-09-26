@@ -180,7 +180,9 @@ export function useShopActions({ currentUser, lang, showNotification }) {
         });
         if (expRef) {
           tx.set(expRef, {
-            category: t('shExpenseCategory'), amount: total,
+            // Статья — постоянное русское имя, как у остальных расходов: из словаря
+            // у админа на узбекском получалась отдельная статья «Tovar xaridi».
+            category: 'Закупка товаров', amount: total,
             comment: `${s.data().name || ''} ×${n}`, hostelId, staffId: staffId(), date: now,
             skipCashbox: false, source: 'shop',
           });
