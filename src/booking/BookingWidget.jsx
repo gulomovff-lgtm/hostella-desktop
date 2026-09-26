@@ -1,29 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, collection, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
-import { getAuth, signInAnonymously } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, Check, X, Loader2, CalendarDays, Phone, User, Globe, BedDouble } from 'lucide-react';
 
-// ─── Firebase (shared config) ────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: 'AIzaSyAoVj92dmnl5gBB7zYul0iG2Ekp5cbmkp0',
-  authDomain: 'hostella-app-a1e07.firebaseapp.com',
-  projectId: 'hostella-app-a1e07',
-  storageBucket: 'hostella-app-a1e07.firebasestorage.app',
-  messagingSenderId: '826787873496',
-  appId: '1:826787873496:web:51a0c6e42631a28919cdad',
-};
-const app  = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const db   = getFirestore(app, 'hostella'); // named database — same as main app
-const auth = getAuth(app);
-const PATH = ['artifacts', 'hostella-multi-v4', 'public', 'data'];
+// Виджет больше НЕ использует Firebase SDK и анонимный вход: занятость берётся из
+// публичной функции getPublicAvailability (без PII), бронь создаётся функцией
+// createWebBooking (серверная валидация). Прямого доступа к Firestore нет.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+// address strings are real postal addresses → data, not translated.
 const HOSTELS = {
-  hostel1: { name: 'Хостел №1', address: 'ул. Ниёзбек Йули, 43' },
-  hostel2: { name: 'Хостел №2', address: '6-й пр. Ниёзбек Йули, 39' },
+  hostel1: { address: 'ул. Ниёзбек Йули, 43' },
+  hostel2: { address: '6-й пр. Ниёзбек Йули, 39' },
 };
 
+// Canonical country VALUES — submitted/stored as-is (backend createWebBooking
+// expects these exact strings). Never translate these.
 const COUNTRIES = [
   'Узбекистан','Россия','Казахстан','Кыргызстан','Таджикистан','Туркменистан',
   'Беларусь','Украина','Германия','Франция','США','Великобритания','Китай',
@@ -31,9 +21,132 @@ const COUNTRIES = [
   'Азербайджан','Армения','Грузия','Израиль','Пакистан','Афганистан', 'Другая',
 ];
 
-const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
-                   'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-const WDAYS_RU  = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+// Display-only labels aligned by index with COUNTRIES. The <option> VALUE stays
+// canonical; only the visible TEXT switches language.
+const COUNTRY_LABELS = {
+  ru: [
+    'Узбекистан','Россия','Казахстан','Кыргызстан','Таджикистан','Туркменистан',
+    'Беларусь','Украина','Германия','Франция','США','Великобритания','Китай',
+    'Индия','Турция','ОАЭ','Южная Корея','Япония','Италия','Испания','Польша',
+    'Азербайджан','Армения','Грузия','Израиль','Пакистан','Афганистан','Другая',
+  ],
+  uz: [
+    'Oʻzbekiston','Rossiya','Qozogʻiston','Qirgʻiziston','Tojikiston','Turkmaniston',
+    'Belarus','Ukraina','Germaniya','Fransiya','AQSH','Buyuk Britaniya','Xitoy',
+    'Hindiston','Turkiya','BAA','Janubiy Koreya','Yaponiya','Italiya','Ispaniya','Polsha',
+    'Ozarbayjon','Armaniston','Gruziya','Isroil','Pokiston','Afgʻoniston','Boshqa',
+  ],
+};
+
+const MONTHS = {
+  ru: ['Январь','Февраль','Март','Апрель','Май','Июнь',
+       'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'],
+  uz: ['Yanvar','Fevral','Mart','Aprel','May','Iyun',
+       'Iyul','Avgust','Sentyabr','Oktyabr','Noyabr','Dekabr'],
+};
+const WDAYS = {
+  ru: ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'],
+  uz: ['Du','Se','Ch','Pa','Ju','Sh','Ya'],
+};
+
+// ─── Self-contained string map (widget-local; do NOT import shared TRANSLATIONS,
+//     it would bloat this public booking chunk). Identical key sets in ru/uz. ──
+const STR = {
+  ru: {
+    onlineBooking:    'Онлайн бронирование',
+    hostel1:          'Хостел №1',
+    hostel2:          'Хостел №2',
+    loading:          'Загружаем данные...',
+    loadErr1:         'Не удалось загрузить данные.',
+    loadErr2:         'Проверьте соединение и обновите страницу.',
+    refresh:          'Обновить',
+    successTitle:     'Заявка принята!',
+    successText:      'Мы свяжемся с вами для подтверждения бронирования. Приготовьте документы при заезде.',
+    hostelLabel:      'Хостел',
+    checkInDateLabel: 'Дата заезда',
+    daysCountLabel:   'Количество дней',
+    daysShort:        '{n} дн.',
+    newBooking:       'Новая заявка',
+    bookingFormTitle: 'Оформление брони',
+    checkInShort:     'Заезд',
+    fullNameLabel:    'ФИО',
+    fullNamePlaceholder: 'Иванов Иван Иванович',
+    phoneLabel:       'Телефон',
+    countryLabel:     'Страна',
+    checkOutLabel:    'Выезд',
+    promoLabel:       'Промокод (необязательно)',
+    discountLabel:    'скидка',
+    currency:         'сум',
+    enterPromo:       'Введите промокод',
+    apply:            'Применить',
+    promoNotFound:    'Промокод не найден или недействителен',
+    promoExpired:     'Этот промокод истёк',
+    promoLimit:       'Лимит использования исчерпан',
+    errFullName:      'Введите ФИО',
+    errPhone:         'Введите телефон',
+    errDays:          'Укажите количество дней',
+    errTimeout:       'Сервер не отвечает (тайм-аут). Позвоните: +998 33 710 88 80',
+    errNoInternet:    'Нет интернет-соединения. Проверьте сеть и попробуйте ещё раз.',
+    err429:           'Слишком много заявок подряд. Попробуйте через несколько минут.',
+    errServer:        'Ошибка сервера ({status}). Позвоните: +998 33 710 88 80',
+    errUnexpected:    'Неожиданная ошибка: {msg}',
+    submitting:       'Отправляем...',
+    submitConfirm:    'Подтвердить бронь',
+    legFree:          'Много мест',
+    legModerate:      'Есть места',
+    legTight:         'Мало мест',
+    legFull:          'Занято',
+    chooseDate:       'Выберите дату заезда',
+    bedsShort:        'м',
+  },
+  uz: {
+    onlineBooking:    'Onlayn bron qilish',
+    hostel1:          'Xostel №1',
+    hostel2:          'Xostel №2',
+    loading:          'Maʼlumotlar yuklanmoqda...',
+    loadErr1:         'Maʼlumotlarni yuklab boʻlmadi.',
+    loadErr2:         'Ulanishni tekshiring va sahifani yangilang.',
+    refresh:          'Yangilash',
+    successTitle:     'Ariza qabul qilindi!',
+    successText:      'Bronni tasdiqlash uchun siz bilan bogʻlanamiz. Kelganda hujjatlarni tayyorlab qoʻying.',
+    hostelLabel:      'Xostel',
+    checkInDateLabel: 'Kelish sanasi',
+    daysCountLabel:   'Kunlar soni',
+    daysShort:        '{n} kun',
+    newBooking:       'Yangi ariza',
+    bookingFormTitle: 'Bronni rasmiylashtirish',
+    checkInShort:     'Kelish',
+    fullNameLabel:    'F.I.Sh.',
+    fullNamePlaceholder: 'Aliyev Ali Alievich',
+    phoneLabel:       'Telefon',
+    countryLabel:     'Davlat',
+    checkOutLabel:    'Chiqish',
+    promoLabel:       'Promokod (majburiy emas)',
+    discountLabel:    'chegirma',
+    currency:         'soʻm',
+    enterPromo:       'Promokodni kiriting',
+    apply:            'Qoʻllash',
+    promoNotFound:    'Promokod topilmadi yoki yaroqsiz',
+    promoExpired:     'Bu promokod muddati tugagan',
+    promoLimit:       'Foydalanish limiti tugagan',
+    errFullName:      'F.I.Sh. ni kiriting',
+    errPhone:         'Telefon raqamini kiriting',
+    errDays:          'Kunlar sonini kiriting',
+    errTimeout:       'Server javob bermayapti (taym-aut). Qoʻngʻiroq qiling: +998 33 710 88 80',
+    errNoInternet:    'Internet ulanishi yoʻq. Tarmoqni tekshiring va qayta urinib koʻring.',
+    err429:           'Juda koʻp ariza yuborildi. Bir necha daqiqadan soʻng urinib koʻring.',
+    errServer:        'Server xatosi ({status}). Qoʻngʻiroq qiling: +998 33 710 88 80',
+    errUnexpected:    'Kutilmagan xato: {msg}',
+    submitting:       'Yuborilmoqda...',
+    submitConfirm:    'Bronni tasdiqlash',
+    legFree:          'Koʻp joy',
+    legModerate:      'Joy bor',
+    legTight:         'Kam joy',
+    legFull:          'Band',
+    chooseDate:       'Kelish sanasini tanlang',
+    bedsShort:        'j',
+  },
+};
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const toISO = (d) => {
@@ -59,6 +172,22 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); r
 
 // ─── BookingWidget ────────────────────────────────────────────────────────────
 export default function BookingWidget({ hostelParam }) {
+  // Guest-facing language (RU default). localStorage can throw → guard it.
+  const [lang, setLang] = useState(() => {
+    try { return localStorage.getItem('hostella_booking_lang') || 'ru'; } catch { return 'ru'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('hostella_booking_lang', lang); } catch {}
+  }, [lang]);
+  const t = k => (STR[lang]?.[k] ?? k);
+  // Localized date: numeric day/year kept, month name from MONTHS[lang].
+  const fmtDate = (dateObj, withYear = false) => {
+    if (!dateObj || isNaN(dateObj.getTime())) return '';
+    const day = dateObj.getDate();
+    const mon = MONTHS[lang][dateObj.getMonth()];
+    return withYear ? `${day} ${mon} ${dateObj.getFullYear()}` : `${day} ${mon}`;
+  };
+
   const [hostelId, setHostelId]       = useState(hostelParam || 'hostel1');
   const [rooms, setRooms]             = useState([]);
   const [guests, setGuests]           = useState([]);
@@ -84,22 +213,20 @@ export default function BookingWidget({ hostelParam }) {
   useEffect(() => {
     setLoading(true);
     setLoadError(false);
-    // Sign in anonymously first (Firestore rules require auth)
-    signInAnonymously(auth)
-      .then(() => Promise.all([
-        getDocs(collection(db, ...PATH, 'rooms')),
-        getDocs(collection(db, ...PATH, 'guests')),
-        getDocs(collection(db, ...PATH, 'promos')),
-      ]))
-      .then(([rSnap, gSnap, pSnap]) => {
-        setRooms(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setGuests(gSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(g => g.status !== 'checked_out')
-        );
-        setPromos(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // Данные календаря берём из публичной функции getPublicAvailability БЕЗ PII.
+    // Раньше виджет читал всю коллекцию guests напрямую (паспорта/имена/телефоны
+    // уходили в браузер любого посетителя, C6). Анонимный вход тут больше не нужен —
+    // он остаётся только для отправки брони.
+    const FN_URL = 'https://us-central1-hostella-app-a1e07.cloudfunctions.net/getPublicAvailability';
+    fetch(FN_URL)
+      .then(r => r.json())
+      .then(d => {
+        if (!d || !d.ok) throw new Error('load-failed');
+        setRooms(d.rooms || []);
+        setGuests(d.stays || []);     // только интервалы проживания (roomId + даты), без PII
+        setPromos(d.promos || []);
       }).catch((err) => {
-        console.error('[Hostella widget] Firebase error:', err);
+        console.error('[Hostella widget] availability error:', err);
         setLoadError(true);
       }).finally(() => setLoading(false));
   }, []); // load once
@@ -182,11 +309,11 @@ export default function BookingWidget({ hostelParam }) {
 
   const applyPromo = () => {
     const code = promoCode.trim().toUpperCase();
-    if (!code) { setPromoError('Введите промокод'); return; }
+    if (!code) { setPromoError(t('enterPromo')); return; }
     const p = promos.find(pr => pr.code === code && pr.active !== false);
-    if (!p) { setPromoError('Промокод не найден или недействителен'); return; }
-    if (p.expiresAt && new Date(p.expiresAt) < new Date()) { setPromoError('Этот промокод истёк'); return; }
-    if (p.maxUses && (p.usedCount || 0) >= p.maxUses) { setPromoError('Лимит использования исчерпан'); return; }
+    if (!p) { setPromoError(t('promoNotFound')); return; }
+    if (p.expiresAt && new Date(p.expiresAt) < new Date()) { setPromoError(t('promoExpired')); return; }
+    if (p.maxUses && (p.usedCount || 0) >= p.maxUses) { setPromoError(t('promoLimit')); return; }
     setPromoApplied(p);
     setPromoError('');
   };
@@ -201,10 +328,10 @@ export default function BookingWidget({ hostelParam }) {
   // ── Submit booking ─────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.fullName.trim()) { setError('Введите ФИО'); return; }
-    if (!form.phone.trim())    { setError('Введите телефон'); return; }
+    if (!form.fullName.trim()) { setError(t('errFullName')); return; }
+    if (!form.phone.trim())    { setError(t('errPhone')); return; }
     const days = parseInt(form.days);
-    if (!days || days < 1 || days > 365) { setError('Укажите количество дней'); return; }
+    if (!days || days < 1 || days > 365) { setError(t('errDays')); return; }
 
     setSubmitting(true); setError('');
 
@@ -236,76 +363,39 @@ export default function BookingWidget({ hostelParam }) {
       createdAt:    new Date().toISOString(),
     };
 
-    // Helper: convert JS object → Firestore REST "fields" format
-    const toRestFields = (obj) => {
-      const fields = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (v === null || v === undefined) fields[k] = { nullValue: null };
-        else if (typeof v === 'boolean')   fields[k] = { booleanValue: v };
-        else if (typeof v === 'number')    fields[k] = { integerValue: String(v) };
-        else                              fields[k] = { stringValue: String(v) };
-      }
-      return fields;
-    };
-
-    const PROJECT    = 'hostella-app-a1e07';
-    const DB_NAME    = 'hostella'; // named database — not (default)
-    const COL_PATH   = PATH.join('/') + '/guests';
-    const REST_URL   = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/${DB_NAME}/documents/${COL_PATH}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
 
     try {
-      // ── Step 1: anonymous auth ───────────────────────────────────────────
-      if (!auth.currentUser) {
-        try {
-          await Promise.race([
-            signInAnonymously(auth),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('auth-timeout')), 10000)),
-          ]);
-        } catch (authErr) {
-          console.error('[widget] auth:', authErr.code, authErr.message);
-          if (authErr.message === 'auth-timeout') {
-            setError('Сервер авторизации не отвечает. Попробуйте позже.');
-          } else if (authErr.code === 'auth/admin-restricted-operation') {
-            setError('Анонимный вход отключён на сервере. Позвоните: +998 33 710 88 80');
-          } else {
-            setError(`Ошибка входа (${authErr.code ?? authErr.message})`);
-          }
-          setSubmitting(false);
-          return;
-        }
-      }
-
-      // ── Step 2: get ID token ─────────────────────────────────────────────
-      let idToken;
-      try {
-        idToken = await auth.currentUser.getIdToken();
-      } catch (tokErr) {
-        console.error('[widget] getIdToken:', tokErr);
-        setError('Не удалось получить токен авторизации. Попробуйте позже.');
-        setSubmitting(false);
-        return;
-      }
-
-      // ── Step 3: write via REST API (immediate HTTP response, no hanging) ──
+      // Бронь создаёт ВАЛИДИРУЮЩАЯ серверная функция createWebBooking (rate-limit,
+      // клампинг полей, экранирование, уведомление кассиру). Клиент больше НЕ пишет
+      // guests напрямую и не требует анонимного входа — это убирает форж брони,
+      // поле-инъекцию и отравление доступности через прямую запись.
+      const FN_URL = 'https://us-central1-hostella-app-a1e07.cloudfunctions.net/createWebBooking';
       let resp;
       try {
-        resp = await fetch(REST_URL, {
+        resp = await fetch(FN_URL, {
           method:  'POST',
           signal:  controller.signal,
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({ fields: toRestFields(bookingData) }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: bookingData.fullName,
+            phone:    bookingData.phone,
+            hostelId: bookingData.hostelId,
+            checkIn:  bookingData.checkInDate,
+            checkOut: bookingData.checkOutDate,
+            nights:   bookingData.days,
+            comment:  [form.country ? `Страна: ${form.country}` : '',
+                       promoApplied?.code ? `Промокод: ${promoApplied.code}` : '']
+                      .filter(Boolean).join(' · '),
+          }),
         });
       } catch (fetchErr) {
         console.error('[widget] fetch:', fetchErr);
         if (fetchErr.name === 'AbortError') {
-          setError('Сервер не отвечает (тайм-аут). Позвоните: +998 33 710 88 80');
+          setError(t('errTimeout'));
         } else {
-          setError('Нет интернет-соединения. Проверьте сеть и попробуйте ещё раз.');
+          setError(t('errNoInternet'));
         }
         setSubmitting(false);
         return;
@@ -313,34 +403,23 @@ export default function BookingWidget({ hostelParam }) {
         clearTimeout(timer);
       }
 
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        console.error('[widget] REST error:', resp.status, body);
-        if (resp.status === 403) {
-          setError('Доступ запрещён правилами базы. Позвоните: +998 33 710 88 80');
-        } else if (resp.status === 404) {
-          setError('База данных не найдена (404). Позвоните: +998 33 710 88 80');
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || !result.ok) {
+        console.error('[widget] createWebBooking error:', resp.status, result);
+        if (resp.status === 429) {
+          setError(t('err429'));
         } else {
-          setError(`Ошибка сервера (${resp.status}). Позвоните: +998 33 710 88 80`);
+          setError(t('errServer').replace('{status}', resp.status));
         }
         setSubmitting(false);
         return;
-      }
-
-      // Increment promo usedCount if promo was applied
-      if (promoApplied?.id) {
-        try {
-          await updateDoc(doc(db, ...PATH, 'promos', promoApplied.id), {
-            usedCount: increment(1),
-          });
-        } catch (_) { /* silent */ }
       }
 
       setStep('success');
     } catch (err) {
       clearTimeout(timer);
       console.error('[widget] unexpected:', err);
-      setError(`Неожиданная ошибка: ${err.message}`);
+      setError(t('errUnexpected').replace('{msg}', err.message));
     } finally {
       setSubmitting(false);
     }
@@ -364,13 +443,26 @@ export default function BookingWidget({ hostelParam }) {
       <div className="w-full max-w-lg">
 
         {/* Logo / Header */}
-        <div className="flex items-center justify-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl overflow-hidden">
             <img src="https://hostella.uz/logo.png" alt="H" className="w-full h-full object-cover" />
           </div>
           <div>
             <div className="text-white font-black text-xl tracking-tight">Hostella</div>
-            <div className="text-[#9ecdd0] text-xs font-medium">Онлайн бронирование</div>
+            <div className="text-[#9ecdd0] text-xs font-medium">{t('onlineBooking')}</div>
+          </div>
+          {/* Guest-facing RU/UZ language toggle */}
+          <div className="ml-auto flex items-center gap-1 bg-white/10 rounded-lg p-0.5">
+            {['ru', 'uz'].map(lng => (
+              <button key={lng} type="button" onClick={() => setLang(lng)}
+                className={`px-2.5 py-1 rounded-md text-xs font-black uppercase transition-all ${
+                  lang === lng
+                    ? 'bg-white text-[#1a3c40]'
+                    : 'text-white/60 hover:text-white'
+                }`}>
+                {lng}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -379,14 +471,14 @@ export default function BookingWidget({ hostelParam }) {
 
           {/* Hostel tabs */}
           <div className="flex border-b border-slate-100">
-            {Object.entries(HOSTELS).map(([id, h]) => (
+            {Object.keys(HOSTELS).map((id) => (
               <button key={id} onClick={() => { setHostelId(id); reset(); }}
                 className={`flex-1 py-3 text-sm font-bold transition-all ${
                   hostelId === id
                     ? 'text-[#1a3c40] border-b-2 border-[#e88c40] bg-orange-50/50'
                     : 'text-slate-400 hover:text-slate-600'
                 }`}>
-                {h.name}
+                {t(id)}
               </button>
             ))}
           </div>
@@ -394,17 +486,17 @@ export default function BookingWidget({ hostelParam }) {
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <Loader2 className="animate-spin text-[#1a3c40]" size={32} />
-              <span className="text-sm text-slate-400 font-medium">Загружаем данные...</span>
+              <span className="text-sm text-slate-400 font-medium">{t('loading')}</span>
             </div>
           ) : loadError ? (
             <div className="flex flex-col items-center justify-center py-16 px-8 gap-4 text-center">
               <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center">
                 <X size={28} className="text-rose-400" />
               </div>
-              <p className="text-sm text-slate-500 font-medium">Не удалось загрузить данные.<br/>Проверьте соединение и обновите страницу.</p>
+              <p className="text-sm text-slate-500 font-medium">{t('loadErr1')}<br/>{t('loadErr2')}</p>
               <button onClick={() => window.location.reload()}
                 className="px-5 py-2 rounded-xl bg-[#1a3c40] text-white text-sm font-bold hover:bg-[#2a5c60] transition-colors">
-                Обновить
+                {t('refresh')}
               </button>
             </div>
           ) : step === 'success' ? (
@@ -413,19 +505,18 @@ export default function BookingWidget({ hostelParam }) {
               <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center">
                 <Check size={32} className="text-emerald-600" strokeWidth={3} />
               </div>
-              <h2 className="text-xl font-black text-slate-800">Заявка принята!</h2>
+              <h2 className="text-xl font-black text-slate-800">{t('successTitle')}</h2>
               <p className="text-sm text-slate-500 max-w-xs">
-                Мы свяжемся с вами для подтверждения бронирования.
-                Приготовьте документы при заезде.
+                {t('successText')}
               </p>
               <div className="bg-slate-50 rounded-2xl w-full p-4 text-left space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-slate-400">Хостел</span><span className="font-bold text-slate-700">{HOSTELS[hostelId].name}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Дата заезда</span><span className="font-bold text-slate-700">{new Date(selectedDate).toLocaleDateString('ru', { day:'numeric', month:'long' })}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Количество дней</span><span className="font-bold text-slate-700">{form.days} дн.</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">{t('hostelLabel')}</span><span className="font-bold text-slate-700">{t(hostelId)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">{t('checkInDateLabel')}</span><span className="font-bold text-slate-700">{fmtDate(new Date(selectedDate))}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">{t('daysCountLabel')}</span><span className="font-bold text-slate-700">{t('daysShort').replace('{n}', form.days)}</span></div>
               </div>
               <button onClick={reset}
                 className="mt-2 px-6 py-2.5 rounded-xl bg-[#1a3c40] text-white text-sm font-bold hover:bg-[#2a5c60] transition-colors">
-                Новая заявка
+                {t('newBooking')}
               </button>
             </div>
           ) : step === 'form' ? (
@@ -437,11 +528,11 @@ export default function BookingWidget({ hostelParam }) {
                   <ChevronLeft size={18} />
                 </button>
                 <div>
-                  <div className="font-black text-slate-800 text-base">Оформление брони</div>
+                  <div className="font-black text-slate-800 text-base">{t('bookingFormTitle')}</div>
                   <div className="text-xs text-slate-400 font-medium flex items-center gap-1">
                     <CalendarDays size={11} />
-                    Заезд {new Date(selectedDate).toLocaleDateString('ru', { day:'numeric', month:'long', year:'numeric' })}
-                    · {HOSTELS[hostelId].name}
+                    {t('checkInShort')} {fmtDate(new Date(selectedDate), true)}
+                    · {t(hostelId)}
                   </div>
                 </div>
               </div>
@@ -449,18 +540,18 @@ export default function BookingWidget({ hostelParam }) {
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* ФИО */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">ФИО <span className="text-rose-400">*</span></label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('fullNameLabel')} <span className="text-rose-400">*</span></label>
                   <div className="relative">
                     <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input type="text" value={form.fullName} onChange={e => setForm(f => ({...f, fullName: e.target.value}))}
-                      placeholder="Иванов Иван Иванович"
+                      placeholder={t('fullNamePlaceholder')}
                       className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#1a3c40] focus:border-transparent transition-all" />
                   </div>
                 </div>
 
                 {/* Телефон */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Телефон <span className="text-rose-400">*</span></label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('phoneLabel')} <span className="text-rose-400">*</span></label>
                   <div className="relative">
                     <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input type="tel" value={form.phone} onChange={e => setForm(f => ({...f, phone: e.target.value}))}
@@ -471,19 +562,20 @@ export default function BookingWidget({ hostelParam }) {
 
                 {/* Страна */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Страна</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('countryLabel')}</label>
                   <div className="relative">
                     <Globe size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <select value={form.country} onChange={e => setForm(f => ({...f, country: e.target.value}))}
                       className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3c40] focus:border-transparent transition-all appearance-none">
-                      {COUNTRIES.map(c => <option key={c}>{c}</option>)}
+                      {/* value stays canonical; only the visible label switches language */}
+                      {COUNTRIES.map((c, i) => <option key={c} value={c}>{(COUNTRY_LABELS[lang] || COUNTRY_LABELS.ru)[i]}</option>)}
                     </select>
                   </div>
                 </div>
 
                 {/* Дней */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Количество дней <span className="text-rose-400">*</span></label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('daysCountLabel')} <span className="text-rose-400">*</span></label>
                   <div className="relative">
                     <BedDouble size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input type="number" min="1" max="365" value={form.days} onChange={e => setForm(f => ({...f, days: e.target.value}))}
@@ -491,7 +583,7 @@ export default function BookingWidget({ hostelParam }) {
                   </div>
                   {form.days >= 1 && selectedDate && (
                     <div className="mt-1.5 text-xs text-slate-400 font-medium pl-1">
-                      Выезд: {addDays(parseLocal(selectedDate), parseInt(form.days)||1).toLocaleDateString('ru', { day:'numeric', month:'long' })}
+                      {t('checkOutLabel')}: {fmtDate(addDays(parseLocal(selectedDate), parseInt(form.days)||1))}
                     </div>
                   )}
                 </div>
@@ -499,12 +591,12 @@ export default function BookingWidget({ hostelParam }) {
                 {/* Промокод */}
                 {promos.length > 0 && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Промокод (необязательно)</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('promoLabel')}</label>
                     {promoApplied ? (
                       <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
                         <Check size={14} className="text-emerald-600 shrink-0"/>
                         <span className="text-sm font-bold text-emerald-700">
-                          {promoApplied.code} — скидка {promoApplied.type === 'percent' ? `${promoApplied.discount}%` : `${promoApplied.discount?.toLocaleString()} сум`}
+                          {promoApplied.code} — {t('discountLabel')} {promoApplied.type === 'percent' ? `${promoApplied.discount}%` : `${promoApplied.discount?.toLocaleString()} ${t('currency')}`}
                         </span>
                         <button type="button" onClick={() => { setPromoApplied(null); setPromoCode(''); }}
                           className="ml-auto text-emerald-500 hover:text-emerald-700">
@@ -516,11 +608,11 @@ export default function BookingWidget({ hostelParam }) {
                         <input
                           type="text" value={promoCode}
                           onChange={e => { setPromoCode(e.target.value.toUpperCase()); setPromoError(''); }}
-                          placeholder="Введите промокод"
+                          placeholder={t('enterPromo')}
                           className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-black tracking-wider uppercase focus:outline-none focus:ring-2 focus:ring-[#1a3c40] focus:border-transparent transition-all"/>
                         <button type="button" onClick={applyPromo}
                           className="px-4 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-bold hover:bg-slate-700 transition-colors">
-                          Применить
+                          {t('apply')}
                         </button>
                       </div>
                     )}
@@ -539,7 +631,7 @@ export default function BookingWidget({ hostelParam }) {
                              text-white font-black text-sm tracking-wide transition-all active:scale-[0.98]
                              shadow-[0_6px_20px_-4px_rgba(232,140,64,0.6)] flex items-center justify-center gap-2">
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                  {submitting ? 'Отправляем...' : 'Подтвердить бронь'}
+                  {submitting ? t('submitting') : t('submitConfirm')}
                 </button>
               </form>
             </div>
@@ -553,7 +645,7 @@ export default function BookingWidget({ hostelParam }) {
                   <ChevronLeft size={18} />
                 </button>
                 <div className="font-black text-slate-800 text-base capitalize">
-                  {MONTHS_RU[viewMonth]} {viewYear}
+                  {MONTHS[lang][viewMonth]} {viewYear}
                 </div>
                 <button onClick={nextMonth}
                   className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors">
@@ -563,8 +655,8 @@ export default function BookingWidget({ hostelParam }) {
 
               {/* Weekday labels */}
               <div className="grid grid-cols-7 mb-2">
-                {WDAYS_RU.map(d => (
-                  <div key={d} className="text-center text-[10px] font-black text-slate-400 uppercase py-1">{d}</div>
+                {WDAYS[lang].map((d, i) => (
+                  <div key={i} className="text-center text-[10px] font-black text-slate-400 uppercase py-1">{d}</div>
                 ))}
               </div>
 
@@ -585,7 +677,7 @@ export default function BookingWidget({ hostelParam }) {
                       <span className="text-sm leading-none font-black">{date.getDate()}</span>
                       {!info.past && info.status !== 'full' && info.total > 0 && (
                         <span className={`text-[8px] font-bold leading-none mt-0.5 ${isSelected ? 'text-white/70' : 'opacity-60'}`}>
-                          {info.free}м
+                          {info.free}{t('bedsShort')}
                         </span>
                       )}
                     </button>
@@ -596,10 +688,10 @@ export default function BookingWidget({ hostelParam }) {
               {/* Legend */}
               <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
                 {[
-                  { cls: 'bg-emerald-100', label: 'Много мест' },
-                  { cls: 'bg-teal-100',   label: 'Есть места' },
-                  { cls: 'bg-amber-100',  label: 'Мало мест' },
-                  { cls: 'bg-rose-100',   label: 'Занято' },
+                  { cls: 'bg-emerald-100', label: t('legFree') },
+                  { cls: 'bg-teal-100',   label: t('legModerate') },
+                  { cls: 'bg-amber-100',  label: t('legTight') },
+                  { cls: 'bg-rose-100',   label: t('legFull') },
                 ].map(({ cls, label }) => (
                   <div key={label} className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
                     <span className={`w-3 h-3 rounded ${cls} inline-block`} />
@@ -610,12 +702,12 @@ export default function BookingWidget({ hostelParam }) {
 
               {/* Hostel info */}
               <div className="mt-5 bg-slate-50 rounded-2xl p-4 text-sm text-slate-500">
-                <div className="font-bold text-slate-700 mb-0.5">{HOSTELS[hostelId].name}</div>
+                <div className="font-bold text-slate-700 mb-0.5">{t(hostelId)}</div>
                 <div className="text-xs">{HOSTELS[hostelId].address}</div>
               </div>
 
               <p className="text-center text-[11px] text-slate-400 mt-3 font-medium">
-                Выберите дату заезда
+                {t('chooseDate')}
               </p>
             </div>
           )}

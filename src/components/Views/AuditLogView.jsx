@@ -1,60 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { ClipboardList, Search, Download, ChevronDown, X, Filter } from 'lucide-react';
+import { ClipboardList, Search, Download, ChevronDown, X, Filter, Pencil, Trash2, Check } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
+import { hiddenFromAdmin } from '../../utils/auditScope';
+import { stableView } from '../UI/stableView';
+import { ACTION_META, COLOR_MAP } from '../../utils/auditActions';
 
-// ── Action metadata — только те, что реально логируются в коде ───────────────
-const ACTION_META = {
-    // Гости
-    checkin:              { icon: '🏨', label: 'Заселение',              color: 'emerald', group: 'Гости' },
-    checkout:             { icon: '🚪', label: 'Выселение (ручное)',      color: 'blue',    group: 'Гости' },
-    auto_checkout:        { icon: '🏁', label: 'Авто-выселение',          color: 'amber',   group: 'Гости' },
-    undo:                 { icon: '↩️', label: 'Отмена действия',         color: 'indigo',  group: 'Гости' },
-    trim_days:            { icon: '✂️', label: 'Срез дней',               color: 'orange',  group: 'Гости' },
-    price_change:         { icon: '💱', label: 'Изменение цены',          color: 'amber',   group: 'Гости' },
-    // Брони
-    booking_add:          { icon: '📋', label: 'Бронь добавлена',         color: 'purple',  group: 'Брони' },
-    booking_accept:       { icon: '✅', label: 'Бронь принята',            color: 'emerald', group: 'Брони' },
-    booking_reject:       { icon: '❌', label: 'Бронь отклонена',          color: 'rose',    group: 'Брони' },
-    // Финансы
-    expense_add:          { icon: '💳', label: 'Расход добавлен',          color: 'amber',   group: 'Финансы' },
-    payment_add:          { icon: '💵', label: 'Оплата',                   color: 'green',   group: 'Финансы' },
-    debt_add:             { icon: '💸', label: 'Долг добавлен',            color: 'rose',    group: 'Финансы' },
-    debt_paid:            { icon: '💰', label: 'Долг погашен',             color: 'emerald', group: 'Финансы' },
-    super_payment:        { icon: '🛡️', label: 'Зачёт суммы (не выручка)', color: 'purple',  group: 'Финансы' },
-    // Промокоды
-    promo_create:         { icon: '🏷️', label: 'Промокод создан',         color: 'orange',  group: 'Промокоды' },
-    promo_delete:         { icon: '🗑️', label: 'Промокод удалён',         color: 'rose',    group: 'Промокоды' },
-    promo_used:           { icon: '✂️', label: 'Промокод применён',        color: 'purple',  group: 'Промокоды' },
-    // Сессии / Вход
-    login:                { icon: '🔑', label: 'Вход в систему',           color: 'blue',    group: 'Сессии' },
-    logout:               { icon: '👋', label: 'Выход из системы',         color: 'slate',   group: 'Сессии' },
-    force_logout:         { icon: '🔒', label: 'Принудительный выход',     color: 'rose',    group: 'Сессии' },
-    session_revoked:      { icon: '🚫', label: 'Сессия завершена (адм.)',  color: 'orange',  group: 'Сессии' },
-    // E-mehmon
-    registration_add:     { icon: '🪪', label: 'Регистрация E-mehmon',    color: 'purple',  group: 'E-mehmon' },
-    registration_extend:  { icon: '🔄', label: 'Продление E-mehmon',      color: 'indigo',  group: 'E-mehmon' },
-    registration_remove:  { icon: '🔴', label: 'Вывод из E-mehmon',       color: 'slate',   group: 'E-mehmon' },
-    // Клиенты
-    sync_clients:         { icon: '🔄', label: 'Синхронизация клиентов',  color: 'blue',    group: 'Клиенты' },
-    // Система
-    auto_shift_start:     { icon: '🟢', label: 'Смена начата (авто)',      color: 'emerald', group: 'Система' },
-    error:                { icon: '⚠️', label: 'Ошибка системы',           color: 'rose',    group: 'Система' },
-    system_error:         { icon: '🚨', label: 'Системная ошибка JS',      color: 'rose',    group: 'Система' },
-    version_check:        { icon: '🔄', label: 'Проверка версии',          color: 'blue',    group: 'Система' },
-};
-
-const HOSTELS = { hostel1: 'Хостел №1', hostel2: 'Хостел №2', all: 'Оба' };
-
-const COLOR_MAP = {
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    blue:    'bg-blue-50 text-blue-700 border-blue-200',
-    indigo:  'bg-indigo-50 text-indigo-700 border-indigo-200',
-    purple:  'bg-purple-50 text-purple-700 border-purple-200',
-    rose:    'bg-rose-50 text-rose-700 border-rose-200',
-    amber:   'bg-amber-50 text-amber-700 border-amber-200',
-    orange:  'bg-orange-50 text-orange-700 border-orange-200',
-    green:   'bg-green-50 text-green-700 border-green-200',
-    slate:   'bg-slate-100 text-slate-600 border-slate-200',
-};
+// Значения — КЛЮЧИ словаря, резолвятся через t() при рендере (коды hostel1/hostel2/all как есть)
+const HOSTELS = { hostel1: 'alHostel1', hostel2: 'alHostel2', all: 'alBoth' };
 
 // Группы для select с optgroup
 const ACTION_GROUPS = Object.entries(ACTION_META).reduce((acc, [k, v]) => {
@@ -64,7 +16,29 @@ const ACTION_GROUPS = Object.entries(ACTION_META).reduce((acc, [k, v]) => {
 }, {});
 
 // ── Component ────────────────────────────────────────────────────────────────
-const AuditLogView = ({ auditLog = [], currentUser }) => {
+const AuditLogView = ({ auditLog: rawLog = [], currentUser, lang = 'ru', onEditEntry, onDeleteEntry }) => {
+    // Админу — без зачётов сумм (решение владельца); данные уже отфильтрованы
+    // в useAppData, здесь — страховка на случай другого источника.
+    const auditLog = React.useMemo(
+        () => (currentUser?.role === 'super' ? rawLog : rawLog.filter(e => !hiddenFromAdmin(e))),
+        [rawLog, currentUser?.role]);
+    const canEdit = currentUser?.role === 'super' && !!onEditEntry;
+    const [editing, setEditing] = React.useState(null); // { entry, userName, when, fields: [[k, v]] }
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const toLocal = (iso) => { const d = new Date(iso || ''); return Number.isFinite(d.getTime()) ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}` : ''; };
+    const openEdit = (entry) => setEditing({
+        entry, userName: entry.userName || '', when: toLocal(entry.timestamp),
+        fields: Object.entries(entry.details || {}).filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v)).map(([k, v]) => [k, v == null ? '' : String(v)]),
+    });
+    const saveEdit = async () => {
+        const e = editing; if (!e) return;
+        const orig = e.entry.details || {};
+        const details = { ...orig };
+        for (const [k, v] of e.fields) details[k] = typeof orig[k] === 'number' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : typeof orig[k] === 'boolean' ? v === 'true' : v;
+        const ts = e.when ? new Date(e.when).toISOString() : e.entry.timestamp;
+        if (await onEditEntry(e.entry, { details, userName: e.userName, timestamp: ts })) setEditing(null);
+    };
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [search,        setSearch       ] = useState('');
     const [filterAction,  setFilterAction ] = useState('');
     const [filterUser,    setFilterUser   ] = useState('');
@@ -104,7 +78,7 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
             if (s) {
                 return (
                     (e.userName || '').toLowerCase().includes(s) ||
-                    (ACTION_META[e.action]?.label || e.action || '').toLowerCase().includes(s) ||
+                    (t(ACTION_META[e.action]?.label) || e.action || '').toLowerCase().includes(s) ||
                     (e.details?.guestName  || '').toLowerCase().includes(s) ||
                     (e.details?.fullName   || '').toLowerCase().includes(s) ||
                     (e.details?.comment    || '').toLowerCase().includes(s) ||
@@ -124,18 +98,18 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
     };
 
     const handleExport = () => {
-        const rows = [['Дата/Время', 'Пользователь', 'Роль', 'Хостел', 'Действие', 'Гость/Детали', 'Сумма', 'Доп. инфо']];
+        const rows = [[t('alColDateTime'), t('alColUser'), t('alColRole'), t('alColHostel'), t('alColAction'), t('alColGuestDetails'), t('alColAmount'), t('alColExtra')]];
         filtered.forEach(e => {
             const det = e.details || {};
             rows.push([
                 new Date(e.timestamp).toLocaleString('ru'),
                 e.userName || '',
                 e.userRole || '',
-                HOSTELS[e.hostelId] || e.hostelId || '',
-                ACTION_META[e.action]?.label || e.action || '',
+                (HOSTELS[e.hostelId] ? t(HOSTELS[e.hostelId]) : '') || e.hostelId || '',
+                t(ACTION_META[e.action]?.label) || e.action || '',
                 det.guestName || det.fullName || det.comment || '',
                 det.amount || '',
-                [det.roomNumber && `Комн.${det.roomNumber}`, det.bedId && `Место ${det.bedId}`, det.category, det.code].filter(Boolean).join(' | '),
+                [det.roomNumber && t('alRoomShort').replace('{n}', det.roomNumber), det.bedId && t('alBedShort').replace('{n}', det.bedId), det.category, det.code].filter(Boolean).join(' | '),
             ]);
         });
         const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -164,43 +138,43 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                     <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                        <ClipboardList size={20} className="text-indigo-500"/> История изменений
+                        <ClipboardList size={20} className="text-indigo-500"/> {t('alTitle')}
                     </h1>
                     <p className="text-sm text-slate-500 mt-0.5">
-                        {filtered.length.toLocaleString()} из {auditLog.length.toLocaleString()} записей
+                        {t('alRecordsOf').replace('{n}', filtered.length.toLocaleString()).replace('{total}', auditLog.length.toLocaleString())}
                         {auditLog.length > 0 && (() => {
                             const oldest = auditLog[auditLog.length - 1]?.timestamp;
                             if (!oldest) return null;
-                            return <span className="text-slate-400"> · с {new Date(oldest).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })}</span>;
+                            return <span className="text-slate-400"> · {t('alSince').replace('{date}', new Date(oldest).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' }))}</span>;
                         })()}
                     </p>
                 </div>
                 <button onClick={handleExport}
                     className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-700 transition-colors shadow-sm">
-                    <Download size={14}/> Экспорт CSV
+                    <Download size={14}/> {t('alExportCsv')}
                 </button>
             </div>
 
             {/* Filters */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase">
-                    <Filter size={12}/> Фильтры
+                    <Filter size={12}/> {t('alFilters')}
                 </div>
                 {/* Row 1: Search + Hostel + Action */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="relative">
                         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
                         <input value={search} onChange={e => setSearch(e.target.value)}
-                            placeholder="Поиск по имени, гостю, сумме…"
+                            placeholder={t('alSearchPlaceholder')}
                             className={INP + ' w-full pl-8'}/>
                     </div>
                     <select value={filterHostel} onChange={e => setFilterHostel(e.target.value)} className={INP + ' w-full'}>
-                        <option value="">Все хостелы</option>
-                        <option value="hostel1">Хостел №1</option>
-                        <option value="hostel2">Хостел №2</option>
+                        <option value="">{t('alAllHostels')}</option>
+                        <option value="hostel1">{t('alHostel1')}</option>
+                        <option value="hostel2">{t('alHostel2')}</option>
                     </select>
                     <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className={INP + ' w-full'}>
-                        <option value="">Все пользователи</option>
+                        <option value="">{t('alAllUsers')}</option>
                         {uniqueUsers.map(u => (
                             <option key={u.id} value={u.id}>{u.name}</option>
                         ))}
@@ -209,13 +183,13 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                 {/* Row 2: Action + Date from/to */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className={INP + ' w-full'}>
-                        <option value="">Все действия</option>
+                        <option value="">{t('alAllActions')}</option>
                         {Object.entries(ACTION_GROUPS).map(([group, items]) => (
-                            <optgroup key={group} label={group}>
+                            <optgroup key={group} label={t(group)}>
                                 {items
                                     .filter(item => presentActions.has(item.key))
                                     .map(item => (
-                                        <option key={item.key} value={item.key}>{item.icon} {item.label}</option>
+                                        <option key={item.key} value={item.key}>{item.icon} {t(item.label)}</option>
                                     ))
                                 }
                             </optgroup>
@@ -223,13 +197,13 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                     </select>
                     <div className="flex items-center gap-2">
                         <div className="relative flex-1">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">От</label>
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">{t('alDateFrom')}</label>
                             <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
                                 className={INP + ' w-full'}/>
                         </div>
                         <span className="text-slate-300 font-bold shrink-0">—</span>
                         <div className="relative flex-1">
-                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">До</label>
+                            <label className="absolute -top-2 left-2 text-[10px] font-bold text-slate-400 bg-white px-1">{t('alDateTo')}</label>
                             <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
                                 className={INP + ' w-full'}/>
                         </div>
@@ -238,7 +212,7 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                         {hasFilter && (
                             <button onClick={resetFilters}
                                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors">
-                                <X size={12}/> Сбросить фильтры
+                                <X size={12}/> {t('resetFilters')}
                             </button>
                         )}
                     </div>
@@ -250,13 +224,13 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                 {filtered.length === 0 ? (
                     <div className="py-16 text-center">
                         <div className="text-4xl mb-3">📋</div>
-                        <div className="text-slate-500 font-bold text-base">Нет записей</div>
+                        <div className="text-slate-500 font-bold text-base">{t('alNoRecords')}</div>
                         <div className="text-slate-300 text-xs mt-1">
-                            {hasFilter ? 'Попробуйте изменить фильтры' : 'История действий появится после первых операций'}
+                            {hasFilter ? t('tryFiltersHint') : t('alEmptyHint')}
                         </div>
                         {hasFilter && (
                             <button onClick={resetFilters} className="mt-3 text-xs font-bold text-indigo-600 hover:text-indigo-700">
-                                Сбросить фильтры
+                                {t('resetFilters')}
                             </button>
                         )}
                     </div>
@@ -264,22 +238,27 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                     <>
                         <div className="divide-y divide-slate-50">
                             {filtered.slice(0, pageSize).map((entry, i) => {
-                                const meta = ACTION_META[entry.action] || { icon: '📝', label: entry.action || '—', color: 'slate' };
+                                const meta = ACTION_META[entry.action] || { icon: '📝', label: null, color: 'slate' };
+                                const metaLabel = meta.label ? t(meta.label) : (entry.action || '—');
                                 const badge = COLOR_MAP[meta.color] || COLOR_MAP.slate;
                                 const det = entry.details || {};
                                 const { date, time } = fmtDate(entry.timestamp);
                                 const guestLabel = det.guestName || det.fullName || null;
                                 const extraParts = [
-                                    det.roomNumber && `Комн. ${det.roomNumber}`,
-                                    det.bedId      && `Место ${det.bedId}`,
+                                    det.roomNumber && t('alRoomShort').replace('{n}', det.roomNumber),
+                                    det.bedId      && t('alBedShort').replace('{n}', det.bedId),
                                     det.category,
                                     det.comment && det.comment.length > 40 ? det.comment.slice(0, 40) + '…' : det.comment,
                                     det.code,
                                     det.label,
-                                    det.reason && `Причина: ${det.reason}`,
+                                    det.reason && t('alReason').replace('{reason}', det.reason),
                                     det.count  && `×${det.count}`,
-                                    det.daysToRemove && `-${det.daysToRemove} дн.`,
+                                    det.daysToRemove && t('alDaysMinus').replace('{n}', det.daysToRemove),
                                     det.newEndDate && `→ ${new Date(det.newEndDate).toLocaleDateString('ru')}`,
+                                    (entry.action === 'extend' || entry.action === 'extend_bulk') && det.days && t('ptPlusDays').replace('{n}', det.days),
+                                    entry.action === 'extend' && det.toDate && t('ptUntil').replace('{date}', new Date(det.toDate).toLocaleDateString('ru')),
+                                    entry.action === 'move' && `${t('alRoomShort').replace('{n}', det.fromRoom || '—')} → ${det.toRoom || '—'}`,
+                                    det.guestNames,
                                 ].filter(Boolean);
                                 return (
                                     <div key={entry.id || i}
@@ -290,7 +269,7 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${badge}`}>
-                                                    {meta.label}
+                                                    {metaLabel}
                                                 </span>
                                                 {guestLabel && (
                                                     <span className="text-sm font-semibold text-slate-700 truncate">{guestLabel}</span>
@@ -300,11 +279,11 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                                                         <span className="text-rose-500">{parseInt(det.oldPrice).toLocaleString()}</span>
                                                         <span className="text-slate-300">→</span>
                                                         <span className="text-emerald-600">{parseInt(det.newPrice).toLocaleString()}</span>
-                                                        <span className="text-slate-400 font-normal text-xs">сум/ночь</span>
+                                                        <span className="text-slate-400 font-normal text-xs">{t('alSumPerNight')}</span>
                                                     </span>
                                                 )}
                                                 {entry.action !== 'price_change' && det.amount && parseInt(det.amount) > 0 && (
-                                                    <span className="text-sm font-bold text-emerald-600">{parseInt(det.amount).toLocaleString()} сум</span>
+                                                    <span className="text-sm font-bold text-emerald-600">{parseInt(det.amount).toLocaleString()} {t('alSum')}</span>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 flex-wrap">
@@ -313,7 +292,7 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                                                     <span className="text-slate-300">·</span>
                                                 )}
                                                 {entry.hostelId && HOSTELS[entry.hostelId] && (
-                                                    <span className="text-slate-400">{HOSTELS[entry.hostelId]}</span>
+                                                    <span className="text-slate-400">{t(HOSTELS[entry.hostelId])}</span>
                                                 )}
                                                 {extraParts.length > 0 && (
                                                     <>
@@ -327,6 +306,9 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                                             <div className="font-medium whitespace-nowrap">{date}</div>
                                             <div className="font-black text-slate-500">{time}</div>
                                         </div>
+                                        {canEdit && (
+                                            <button onClick={() => openEdit(entry)} title={t('alEditEntry')} className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 shrink-0"><Pencil size={13}/></button>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -335,15 +317,54 @@ const AuditLogView = ({ auditLog = [], currentUser }) => {
                             <div className="py-4 text-center border-t border-slate-100">
                                 <button onClick={() => setPageSize(p => p + 200)}
                                     className="flex items-center gap-2 mx-auto px-5 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                                    <ChevronDown size={15}/> Показать ещё ({(filtered.length - pageSize).toLocaleString()} записей)
+                                    <ChevronDown size={15}/> {t('alShowMore').replace('{n}', (filtered.length - pageSize).toLocaleString())}
                                 </button>
                             </div>
                         )}
                     </>
                 )}
             </div>
+        {editing && (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(8,18,20,0.55)' }}
+                onMouseDown={ev => { if (ev.target === ev.currentTarget) setEditing(null); }}>
+                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <h2 className="text-lg font-black text-slate-800">{t('alEditEntry')} · {(ACTION_META[editing.entry.action]?.label ? t(ACTION_META[editing.entry.action].label) : editing.entry.action)}</h2>
+                        <button onClick={() => setEditing(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18}/></button>
+                    </div>
+                    <div className="p-5 space-y-3 overflow-y-auto">
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">{t('alEditWho')}</label>
+                                <input className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold" value={editing.userName} onChange={ev => setEditing(x => ({ ...x, userName: ev.target.value }))}/>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">{t('alEditWhen')}</label>
+                                <input type="datetime-local" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold" value={editing.when} onChange={ev => setEditing(x => ({ ...x, when: ev.target.value }))}/>
+                            </div>
+                        </div>
+                        {editing.fields.map(([k, v], i) => (
+                            <div key={k} className="grid grid-cols-[140px_1fr] gap-2 items-center">
+                                <span className="text-xs font-bold text-slate-500 truncate" title={k}>{k}</span>
+                                <input className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm" value={v}
+                                    onChange={ev => setEditing(x => ({ ...x, fields: x.fields.map((f, j) => j === i ? [f[0], ev.target.value] : f) }))}/>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="px-5 py-4 border-t border-slate-100 flex items-center gap-2">
+                        {onDeleteEntry && (
+                            <button onClick={async () => { if (window.confirm(t('alDeleteConfirm')) && await onDeleteEntry(editing.entry)) setEditing(null); }}
+                                className="px-3 py-2 rounded-lg border border-rose-200 text-rose-600 text-sm font-bold hover:bg-rose-50 flex items-center gap-1.5"><Trash2 size={14}/> {t('delete')}</button>
+                        )}
+                        <button onClick={() => setEditing(null)} className="ml-auto px-4 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50">{t('spCancel')}</button>
+                        <button onClick={saveEdit} className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold flex items-center gap-1.5"><Check size={14}/> {t('spSave')}</button>
+                    </div>
+                </div>
+            </div>
+        )}
         </div>
     );
 };
 
-export default AuditLogView;
+// Перерисовка — только когда поменялись данные экрана (см. UI/stableView.jsx)
+export default stableView(AuditLogView);

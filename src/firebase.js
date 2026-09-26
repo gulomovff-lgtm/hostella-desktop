@@ -31,7 +31,7 @@ try {
       tabManager: persistentMultipleTabManager()
     })
   }, "hostella");
-} catch (error) {
+} catch {
   console.log('Firestore already initialized, using existing instance');
   db = getFirestore(app, "hostella");
 }

@@ -1,15 +1,17 @@
 /**
  * useExpenseActions — расходы, удаление платежей, экспорт.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, increment, runTransaction } from 'firebase/firestore';
 
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { enqueueTelegram } from '../utils/offlineQueue';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
+import { paymentSplit, buildPaymentFields, guestDeltas, editableReason, validatePaymentInput } from '../utils/paymentEdit';
+import { collection as fsCollection } from 'firebase/firestore';
 
 /**
  * Генерирует автоописание расхода для отчётов.
@@ -31,9 +33,12 @@ export function buildExpenseComment(expense) {
 export function useExpenseActions({
   currentUser, selectedHostelFilter,
   expenses, usersList, lang,
+  clients = [],
   setExpenseModal, setUndoStack,
   showNotification, isOnline = true,
 }) {
+
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   const pushUndo = (item) => {
     setUndoStack(prev => [
@@ -67,17 +72,17 @@ export function useExpenseActions({
 
       pushUndo({
         type: 'expense',
-        label: `${d.category}: ${(+d.amount).toLocaleString()} сум${skipCashbox ? ' (без вычета с кассы)' : ''}${d.comment ? ' — ' + d.comment : ''}`,
+        label: `${d.category}: ${(+d.amount).toLocaleString()} ${t('sum')}${skipCashbox ? ` (${t('exaNoCashbox')})` : ''}${d.comment ? ' — ' + d.comment : ''}`,
         expenseId: expRef.id,
       });
 
       setExpenseModal(false);
-      showNotification('Расход добавлен', 'success');
+      showNotification(t('alExpenseAdd'), 'success');
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
 
       if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
-        const hostelLabel = hostelId === 'hostel1' ? 'Хостел №1' : hostelId === 'hostel2' ? 'Хостел №2' : hostelId || '—';
-        const tgMsg = `💳 <b>Расход</b>\n🏨 ${hostelLabel}\n📂 ${d.category}\n💰 ${(+d.amount).toLocaleString()} сум${d.comment ? '\n💬 ' + d.comment : ''}\n👤 Кассир: ${currentUser.name || currentUser.login}`;
+        const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
+        const tgMsg = `💳 <b>${t('expense')}</b>\n🏨 ${hostelLabel}\n📂 ${escapeTg(d.category)}\n💰 ${(+d.amount).toLocaleString()} ${t('sum')}${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
         if (isOnline) {
           await sendTelegramMessage(tgMsg, 'expenseAdded');
         } else {
@@ -86,44 +91,151 @@ export function useExpenseActions({
       }
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
-      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaSaveFailed')), 'error');
     }
   };
 
-  const handleDeletePayment = async (id, type, record = {}) => {
-    // Сначала корректируем баланс гостя, потом удаляем запись —
-    // чтобы при сбое платёж остался и его можно было попробовать снова
-    if (type === 'income' && record.guestId && record.category !== 'registration') {
+  /**
+   * Массовое добавление расходов одним числом (одной датой).
+   * items: [{ category, amount, comment }] — создаются одной пачкой:
+   * одно уведомление, одна запись в отмене, один свод в Telegram.
+   */
+  const handleAddExpensesBulk = async (items = [], dateIso) => {
+    const list = (items || [])
+      .map(i => ({ ...i, amount: Number(i.amount) || 0 }))
+      .filter(i => i.category && i.amount > 0);
+    if (!list.length) return { ok: 0 };
+
+    const isFazliddin = currentUser.login === 'fazliddin';
+    const hostelId = (currentUser.role === 'admin' || currentUser.role === 'super')
+      ? selectedHostelFilter
+      : isFazliddin
+        ? ((selectedHostelFilter && selectedHostelFilter !== 'all') ? selectedHostelFilter : currentUser.hostelId)
+        : currentUser.hostelId;
+    const date = dateIso || new Date().toISOString();
+    const ids = [];
+    let failed = 0;
+
+    for (const d of list) {
       try {
-        const cash  = Number(record.cash)   || 0;
-        const card  = Number(record.card)   || 0;
-        const qr    = Number(record.qr)     || 0;
-        const total = Number(record.amount) || (cash + card + qr);
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', record.guestId), {
-          paidCash: increment(-cash), paidCard: increment(-card),
-          paidQR: increment(-qr), amountPaid: increment(-total),
+        const skipCashbox = !!d.skipCashbox || (isFazliddin && hostelId === 'hostel1');
+        const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
+          category: d.category,
+          amount: d.amount,
+          comment: buildExpenseComment(d),
+          hostelId,
+          staffId: currentUser.id || currentUser.login,
+          date,
+          skipCashbox,
         });
+        ids.push(ref.id);
+        logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment, bulk: true });
       } catch (e) {
-        console.warn('Не удалось обновить баланс гостя:', e.message);
+        failed++;
+        console.error('Ошибка массового расхода:', e);
       }
     }
 
-    await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, type === 'income' ? 'payments' : 'expenses', id));
-
-    let msg = `🗑 <b>Удалена запись</b>\nТип: ${type === 'income' ? 'Платёж' : record.category === 'Возврат' ? 'Возврат' : 'Расход'}`;
-    if (type === 'income') {
-      if (record.guestName || record.guest) msg += `\n👤 Гость: ${record.guestName || record.guest}`;
-      if (record.amount) msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
-      if (record.method) msg += `\n💳 Метод: ${record.method}`;
-      if (record.date)   msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
-    } else {
-      if (record.category) msg += `\n📂 Категория: ${record.category}`;
-      if (record.amount)   msg += `\n💵 Сумма: ${Number(record.amount).toLocaleString()} сум`;
-      if (record.comment)  msg += `\n💬 ${record.comment}`;
-      if (record.date)     msg += `\n📅 Дата: ${new Date(record.date).toLocaleString('ru')}`;
+    const total = list.reduce((s, i) => s + i.amount, 0);
+    if (ids.length) {
+      pushUndo({
+        type: 'expense_bulk',
+        label: t('exaBulkUndo').replace('{n}', ids.length).replace('{total}', total.toLocaleString()),
+        expenseIds: ids,
+      });
+      // Сводка в Telegram — одним сообщением вместо десятка
+      if (currentUser.role !== 'admin' && currentUser.role !== 'super') {
+        const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
+        const lines = list.map(i => `• ${escapeTg(i.category)}: ${i.amount.toLocaleString()} ${t('sum')}${i.comment ? ' — ' + escapeTg(i.comment) : ''}`).join('\n');
+        const tgMsg = `💳 <b>${t('exaExpensesTitle')} (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>${t('exaTotal')}: ${total.toLocaleString()} ${t('sum')}</b>\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
+        if (isOnline) await sendTelegramMessage(tgMsg, 'expenseAdded');
+        else enqueueTelegram(tgMsg, 'expenseAdded');
+      }
     }
-    msg += `\n👤 Удалил: ${currentUser?.name || currentUser?.login || '—'}`;
-    showNotification('Запись удалена');
+    showNotification(
+      failed ? t('exaBulkFailed').replace('{ok}', ids.length).replace('{failed}', failed)
+             : t('exaBulkOk').replace('{n}', ids.length).replace('{total}', total.toLocaleString()),
+      failed ? 'warning' : 'success');
+    return { ok: ids.length, failed, total };
+  };
+
+  /**
+   * Удаление записи кассы (приход/расход).
+   *
+   * Всё делается одной транзакцией: сначала читаем сам документ — если его уже нет
+   * (второй клик по той же кнопке, пока первый запрос ещё летел), выходим не тронув
+   * деньги. Иначе однократное удаление и однократный откат оплат гостя/баланса
+   * клиента. Без этого повторные клики по «тормозящей» кнопке списывали оплату
+   * столько раз, сколько было кликов, и гость уходил в минус.
+   */
+  const handleDeletePayment = async (id, type, record = {}) => {
+    const col = type === 'income' ? 'payments' : 'expenses';
+    const ref = doc(db, ...PUBLIC_DATA_PATH, col, id);
+
+    try {
+      const res = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return { already: true };
+        const p = { ...record, ...snap.data() };
+
+        // reportOnly — поправка отчёта от супера: при добавлении деньги гостя не
+        // менялись, значит и при удалении их не трогаем.
+        // service — продажа услуги/товара «сразу»: деньги гостя за проживание она не
+        // трогала (utils/shop.js), значит и удаление их не трогает.
+        const touchesGuest = type === 'income' && p.guestId && p.category !== 'registration' && p.category !== 'service' && !p.reportOnly;
+        if (!touchesGuest) { tx.delete(ref); return {}; }
+
+        const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', p.guestId);
+        const gSnap = await tx.get(guestRef);
+
+        // Разложение по способам: у оплаты из карточки полей cash/card нет — только
+        // amount + method. Раньше такое удаление снимало amountPaid, но не paidCash
+        // /paidCard, и сумма по способам у гостя расходилась с итогом.
+        const { cash, card, qr, transfer } = paymentSplit(p);
+        const total = Number(p.amount) || (cash + card + qr + transfer);
+
+        let clawback = 0;
+        if (gSnap.exists()) {
+          const g = gSnap.data();
+          const patch = {
+            paidCash: increment(-cash), paidCard: increment(-card),
+            paidQR: increment(-qr), amountPaid: increment(-total),
+            ...(transfer > 0 ? { paidTransfer: increment(-transfer) } : {}),
+          };
+
+          // Откат переплаты: если с этого гостя часть денег ушла на баланс клиента,
+          // после удаления платежа переплата уменьшилась — снимаем лишнее с баланса,
+          // иначе удалённый платёж «оставался» деньгами на балансе.
+          const credited = Number(g.balanceCredited) || 0;
+          if (credited > 0) {
+            const paidNow = (Number(g.amountPaid) || 0) - total;
+            const overAfter = Math.max(0, paidNow - (Number(g.totalPrice) || 0) - (Number(g.servicesTotal) || 0));
+            clawback = Math.min(credited, Math.max(0, credited - overAfter));
+            if (clawback > 0) {
+              const norm = s2 => (s2 || '').replace(/\s/g, '').toUpperCase();
+              const cli = (g.passport && clients.find(c => c.passport && norm(c.passport) === norm(g.passport))) || null;
+              if (cli) {
+                tx.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', cli.id), { balance: increment(-clawback) });
+                patch.balanceCredited = increment(-clawback);
+              } else {
+                clawback = 0;
+              }
+            }
+          }
+          tx.update(guestRef, patch);
+        }
+
+        tx.delete(ref);
+        return { clawback };
+      });
+
+      if (res.already) { showNotification(t('exaAlreadyDeleted'), 'info'); return; }
+      if (res.clawback > 0)
+        showNotification(t('exaClawback').replace('{sum}', res.clawback.toLocaleString()), 'info');
+      showNotification(t('exaRecordDeleted'));
+    } catch (e) {
+      showNotification(t('exaDeleteFailed') + e.message, 'error');
+    }
   };
 
   const downloadExpensesCSV = () => {
@@ -131,7 +243,6 @@ export function useExpenseActions({
       ? expenses
       : expenses.filter(e => e.hostelId === (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId));
 
-    const today = new Date().toLocaleDateString('ru-RU');
     const reportDate = new Date().toISOString().split('T')[0];
     const hostelKey = currentUser?.role === 'super' ? 'all' : (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId);
     const hostelSlug = hostelKey === 'hostel1' ? 'Хостел1' : hostelKey === 'hostel2' ? 'Хостел2' : 'Все';
@@ -244,19 +355,19 @@ export function useExpenseActions({
         date: dateOverride || new Date().toISOString(),
         ...(receipt ? { receipt } : {}),
       });
-      showNotification(`✅ Инкассация записана: ${Number(amount).toLocaleString()} сум`, 'success');
+      showNotification(`✅ ${t('exaCashCollected').replace('{sum}', Number(amount).toLocaleString())}`, 'success');
       logAction(currentUser, 'cash_to_terminal', { amount, hostelId, comment });
     } catch (err) {
-      showNotification('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaSaveFailed')), 'error');
     }
   };
 
   const handleEditExpenseCategory = async (expenseId, newCategory) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), { category: newCategory });
-      showNotification('Категория обновлена', 'success');
+      showNotification(t('exaCategoryUpdated'), 'success');
     } catch (err) {
-      showNotification('Ошибка: ' + (err.message || 'не удалось обновить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaUpdateFailed')), 'error');
     }
   };
 
@@ -271,7 +382,7 @@ export function useExpenseActions({
     );
 
     if (toUpdate.length === 0) {
-      showNotification('Нет записей для обновления', 'info');
+      showNotification(t('exaNoRecordsToUpdate'), 'info');
       return;
     }
 
@@ -285,18 +396,89 @@ export function useExpenseActions({
         } catch (_) { /* skip */ }
       }
     }
-    showNotification(`Обновлено ${updated} из ${toUpdate.length} записей`, 'success');
+    showNotification(t('exaUpdatedOf').replace('{n}', updated).replace('{total}', toUpdate.length), 'success');
+  };
+
+  /**
+   * Ручная оплата от имени супера: добавить или исправить запись кассы за любой
+   * день, любому кассиру и проживающему. Запись — в формате обычной оплаты из
+   * карточки гостя (решение владельца: «как обычный платёж», без пометок),
+   * поэтому отчёт и смена кассира видят её как принятую на кассе.
+   * Добавленная запись деньги гостя не меняет (reportOnly, см. utils/paymentEdit.js);
+   * исправление обычной оплаты кассы — меняет, одной транзакцией с записью.
+   */
+  const handleSuperSavePayment = async (input = {}) => {
+    if (currentUser?.role !== 'super') { showNotification(t('spOnlySuper'), 'error'); return false; }
+    const bad = validatePaymentInput(input);
+    if (bad) { showNotification(t('spErr_' + bad), 'error'); return false; }
+    const { id, guestId, staffId, amount, method, date, hostelId } = input;
+    const ref = id ? doc(db, ...PUBLIC_DATA_PATH, 'payments', id) : doc(fsCollection(db, ...PUBLIC_DATA_PATH, 'payments'));
+    try {
+      await runTransaction(db, async (tx) => {
+        // 1) чтения — все до записей
+        let old = null;
+        if (id) {
+          const s = await tx.get(ref);
+          if (!s.exists()) throw new Error(t('spGone'));
+          old = s.data();
+          const why = editableReason(old);
+          if (why) throw new Error(t('spBlocked_' + why));
+        }
+        const fields = buildPaymentFields({ guestId, staffId, amount, method, date, hostelId }, old);
+        const next = old ? { ...old, ...fields } : fields;
+        const deltas = guestDeltas(old, next);
+        const ids = [...new Set([...Object.keys(deltas), guestId])];
+        const snaps = {};
+        for (const gid of ids) snaps[gid] = await tx.get(doc(db, ...PUBLIC_DATA_PATH, 'guests', gid));
+        if (!snaps[guestId]?.exists()) throw new Error(t('spErr_guest'));
+        const newGuest = snaps[guestId].data();
+
+        // Гостя сменили — подписи записи (у оплат заселения) переводим на нового.
+        if (old && old.guestId !== guestId) {
+          const oldName = (old.guestId && snaps[old.guestId]?.exists()) ? snaps[old.guestId].data().fullName : '';
+          if (old.guestName !== undefined) fields.guestName = newGuest.fullName || '';
+          if (old.comment !== undefined && (old.comment === old.guestName || (oldName && old.comment === oldName))) fields.comment = newGuest.fullName || '';
+          if (old.roomId !== undefined) fields.roomId = newGuest.roomId || '';
+          if (old.roomNumber !== undefined) fields.roomNumber = newGuest.roomNumber || '';
+        }
+
+        // 2) записи
+        if (id) tx.update(ref, fields); else tx.set(ref, fields);
+        for (const [gid, d] of Object.entries(deltas)) {
+          if (!snaps[gid]?.exists()) continue;
+          const patch = {};
+          for (const [k, v] of Object.entries(d)) patch[k] = increment(v);
+          // Как обычная оплата: отметка последней оплаты (авто-выселение смотрит на неё),
+          // но задним числом её не отматываем назад.
+          if (gid === guestId) {
+            const last = snaps[gid].data().lastPaymentAt || '';
+            if (!last || String(date) > String(last)) patch.lastPaymentAt = date;
+          }
+          tx.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', gid), patch);
+        }
+      });
+      // След — только в журнале действий, который читает супер (кассирам и
+      // админам не виден); в самой записи кассы пометок нет.
+      logAction(currentUser, id ? 'super_payment_edit' : 'super_payment_add', {
+        paymentId: ref.id, guestId, staffId, amount: parseInt(amount) || 0, method, date, hostelId,
+      });
+      showNotification(t(id ? 'spUpdated' : 'spAdded'), 'success');
+      return true;
+    } catch (e) {
+      showNotification(t('spSaveFailed') + (e?.message || e), 'error');
+      return false;
+    }
   };
 
   /** Редактирует поля расхода (для админа) */
   const handleUpdateExpense = async (expenseId, patch) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), patch);
-      showNotification('Расход обновлён', 'success');
+      showNotification(t('exaExpenseUpdated'), 'success');
     } catch (err) {
-      showNotification('Ошибка: ' + (err.message || 'не удалось обновить'), 'error');
+      showNotification(`${t('exaError')}: ` + (err.message || t('exaUpdateFailed')), 'error');
     }
   };
 
-  return { handleAddExpense, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense };
+  return { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleBackfillComments, handleUpdateExpense, handleSuperSavePayment };
 }

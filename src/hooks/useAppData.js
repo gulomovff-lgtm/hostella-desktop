@@ -1,7 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { visibleAuditFor } from '../utils/auditScope';
 import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_USERS } from '../constants/config';
+
+// Сколько последних записей журнала держим в памяти (только супер).
+// Журнал растёт бесконечно, поэтому грузим окно, а не всю историю.
+const AUDIT_LOG_LIMIT = 5000;
 
 /**
  * Custom hook that subscribes to all Firestore collections and returns live data.
@@ -24,7 +29,11 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [tasks,       setTasks      ] = useState([]);
   const [shifts,         setShifts        ] = useState([]);
   const [tgSettings,    setTgSettings   ] = useState(null);
-  const [auditLog,      setAuditLog     ] = useState([]);
+  const [auditLogCommon, setAuditLogCommon] = useState([]);
+  const [catalog,        setCatalog       ] = useState([]);
+  const [sales,          setSales         ] = useState([]);
+  const [stockMoves,     setStockMoves    ] = useState([]);
+  const [auditLogSuper,  setAuditLogSuper ] = useState([]);
   const [promos,        setPromos       ] = useState([]);
   const [registrations, setRegistrations] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
@@ -138,17 +147,47 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    // Audit log — ВСЕ записи с начала базы (без limit), super only
+    // Audit log — последние записи, super only.
+    // Раньше тянулись ВСЕ записи с начала базы: журнал пишется на каждый вход,
+    // заселение, оплату, смену и ошибку, поэтому он рос бесконечно и держался
+    // в памяти целиком — приложение «подъедало» RAM и подвисало на долгих сессиях.
+    // Более старые записи остаются в Firestore, просто не грузятся в клиент.
+    // Общий журнал читают админ и супер; зачёты и ручные оплаты супера лежат
+    // в auditLogSuper — его правила отдают только суперу (utils/auditScope.js).
     let u10 = () => {};
-    if (currentUser.role === 'super') {
+    let u10s = () => {};
+    if (currentUser.role === 'super' || currentUser.role === 'admin') {
       const auditCol = query(
         collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
-        orderBy('timestamp', 'desc')
+        orderBy('timestamp', 'desc'),
+        limit(AUDIT_LOG_LIMIT)
       );
       u10 = onSnapshot(auditCol,
-        (snap) => setAuditLog(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-        () => setAuditLog([])
+        (snap) => setAuditLogCommon(snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLog' }))),
+        () => setAuditLogCommon([])
       );
+    }
+    if (currentUser.role === 'super') {
+      const superCol = query(
+        collection(db, ...PUBLIC_DATA_PATH, 'auditLogSuper'),
+        orderBy('timestamp', 'desc'),
+        limit(AUDIT_LOG_LIMIT)
+      );
+      u10s = onSnapshot(superCol,
+        (snap) => setAuditLogSuper(snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLogSuper' }))),
+        () => setAuditLogSuper([])
+      );
+    }
+
+    // Услуги и товары: справочник, продажи (последние), движения склада (админу)
+    const uShop1 = onSnapshot(collection(db, ...PUBLIC_DATA_PATH, 'catalog'),
+      (snap) => setCatalog(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setCatalog([]));
+    const uShop2 = onSnapshot(query(collection(db, ...PUBLIC_DATA_PATH, 'sales'), orderBy('date', 'desc'), limit(2000)),
+      (snap) => setSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setSales([]));
+    let uShop3 = () => {};
+    if (currentUser.role === 'super' || currentUser.role === 'admin') {
+      uShop3 = onSnapshot(query(collection(db, ...PUBLIC_DATA_PATH, 'stockMoves'), orderBy('date', 'desc'), limit(300)),
+        (snap) => setStockMoves(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setStockMoves([]));
     }
 
     // Registrations (E-mehmon)
@@ -236,8 +275,13 @@ export const useAppData = (firebaseUser, currentUser) => {
       );
     }
 
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uPwl(); uVer(); };
+    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u10s(); uShop1(); uShop2(); uShop3(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uPwl(); uVer(); };
   }, [firebaseUser, currentUser]);
+
+  // Журнал для роли: супер — оба по времени, админ — общий без зачётов.
+  const auditLog = useMemo(
+    () => visibleAuditFor(currentUser?.role, auditLogCommon, auditLogSuper),
+    [currentUser?.role, auditLogCommon, auditLogSuper]);
 
   return {
     rooms,
@@ -250,6 +294,9 @@ export const useAppData = (firebaseUser, currentUser) => {
     shifts,
     tgSettings,
     auditLog,
+    catalog,
+    sales,
+    stockMoves,
     promos,
     registrations,
     recurringExpenses,

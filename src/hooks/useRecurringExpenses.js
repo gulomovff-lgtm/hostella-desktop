@@ -18,8 +18,9 @@
  * в lastFiredMonth → добавляем расход в коллекцию expenses.
  */
 import { useEffect, useCallback, useRef } from 'react';
-import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, addDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
+import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
 
 const recurringCol = () => collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
@@ -34,7 +35,10 @@ export const useRecurringExpenses = ({
   recurringExpenses = [],
   expenses = [],
   showNotification,
+  lang,
 }) => {
+
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   /** Сумма уже выданных авансов по шаблону за конкретный месяц ('YYYY-MM') */
   const getAdvancesSum = useCallback((tmplId, monthKey) => {
@@ -109,12 +113,16 @@ export const useRecurringExpenses = ({
         const advSum = tmpl.category === 'Зарплата'
           ? getAdvancesSum(tmpl.id, curMonthKey)
           : 0;
-        const netAmount = Math.max(0, Number(tmpl.amount) - advSum);
+        const rawAmt = Number(tmpl.amount);
+        const netAmount = Number.isFinite(rawAmt) ? Math.max(0, rawAmt - advSum) : 0;
 
         let fired = false;
         for (const hid of targetHostels) {
           try {
-            await addDoc(expensesCol(), {
+            // Детерминированный id (шаблон + месяц + филиал): две кассы, стартовавшие
+            // одновременно, пишут ОДИН документ, а не два → нет двойной зарплаты/аренды.
+            const expId = `rec_${tmpl.id}_${curMonthKey}_${hid}`;
+            await setDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expId), {
               category:    tmpl.category,
               amount:      netAmount,
               comment:     `[Авто] ${tmpl.name}${advSum > 0 ? ` (аванс −${advSum.toLocaleString()})` : ''}${tmpl.comment ? ' — ' + tmpl.comment : ''}`,
@@ -167,10 +175,10 @@ export const useRecurringExpenses = ({
         lastFiredMonth: null,
         createdAt:     new Date().toISOString(),
       });
-      showNotification?.('Шаблон добавлен', 'success');
+      showNotification?.(t('rexTemplateAdded'), 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('rexError'), 'error');
     }
   }, [showNotification]);
 
@@ -178,14 +186,14 @@ export const useRecurringExpenses = ({
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'recurringExpenses', id), patch);
     } catch (e) {
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('rexError'), 'error');
     }
   }, [showNotification]);
 
   const deleteRecurring = useCallback(async (id) => {
-    if (!window.confirm('Удалить шаблон повторяющегося расхода?')) return;
+    if (!window.confirm(t('rexDeleteConfirm'))) return;
     await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'recurringExpenses', id));
-    showNotification?.('Шаблон удалён', 'success');
+    showNotification?.(t('rexTemplateDeleted'), 'success');
   }, [showNotification]);
 
   const toggleActive = useCallback(async (id, current) => {
@@ -215,10 +223,10 @@ export const useRecurringExpenses = ({
         staffId:     currentUser?.id || currentUser?.login || 'manual',
         recurringId: tmpl.id,
       });
-      showNotification?.(`Расход "${tmpl.name}" внесён${advSum > 0 ? ` (−${advSum.toLocaleString()} аванс)` : ''}`, 'success');
+      showNotification?.(`${t('rexExpenseFired').replace('{name}', tmpl.name)}${advSum > 0 ? t('rexAdvanceSuffix').replace('{sum}', advSum.toLocaleString()) : ''}`, 'success');
     } catch (e) {
       console.error(e);
-      showNotification?.('Ошибка', 'error');
+      showNotification?.(t('rexError'), 'error');
     }
   }, [currentUser, selectedHostelFilter, showNotification, getAdvancesSum]);
 
