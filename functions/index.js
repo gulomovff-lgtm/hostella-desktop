@@ -1184,10 +1184,12 @@ exports.scheduledFirestoreBackup = functions
     const projectId  = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
     const databaseId = "hostella";
 
-    // Бакет проекта по умолчанию (Firebase Storage) — гарантированно существует.
-    let bucketName;
-    try { bucketName = admin.storage().bucket().name; }
-    catch { bucketName = `${projectId}.appspot.com`; }
+    // Отдельный бакет в ЕВРОПЕ. База `hostella` живёт в eur3, а бакет Storage
+    // по умолчанию — в us-east1: Google не выгружает базу в бакет другого
+    // региона, и бэкап падал каждый день минимум с 12.09.2026 (PERMISSION_DENIED /
+    // «bucket is in location us-east1»). Бакет создан 26.09.2026: EU, Nearline,
+    // копии старше 30 дней удаляются правилом жизненного цикла.
+    const bucketName = `${projectId}-backups`;
 
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const outputUriPrefix = `gs://${bucketName}/firestore-backups/${ts}`;
