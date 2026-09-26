@@ -160,35 +160,52 @@ export function useShopActions({ currentUser, lang, showNotification }) {
    * Приход товара (только админ): остаток растёт; при payFromCash закупка
    * пишется расходом кассы филиала — одной транзакцией.
    */
-  const handleStockIn = async ({ item, hostelId, qty, unitCost = 0, payFromCash = false }) => {
+  /**
+   * payFrom — откуда деньги за закупку (выбор админа, решение владельца 2026-09-26):
+   *   'shift' — из кассы открытой смены: расход на кассира этой смены, уменьшает
+   *             его «В кассе» при закрытии (shiftId проверяется в транзакции);
+   *   'admin' — расход админа, кассу смены не трогает (skipCashbox);
+   *   'none'  — расход не записывать.
+   */
+  const handleStockIn = async ({ item, hostelId, qty, unitCost = 0, payFrom = 'none', shiftId = null }) => {
     if (!isAdmin()) { showNotification(t('shOnlyAdmin'), 'error'); return false; }
     const n = Math.round(Number(qty) || 0);
     const cost = Math.max(0, Math.round(Number(unitCost) || 0));
     if (!item?.id || n <= 0) { showNotification(t('shErr_qty'), 'error'); return false; }
     if (!hostelId || hostelId === 'all') { showNotification(t('shErr_hostel'), 'error'); return false; }
+    if (payFrom === 'shift' && !shiftId) { showNotification(t('shErr_noShift'), 'error'); return false; }
     const now = new Date().toISOString();
     const total = n * cost;
     try {
       await runTransaction(db, async (tx) => {
         const s = await tx.get(ref('catalog', item.id));
         if (!s.exists()) throw new Error(t('shErr_item_gone'));
-        const expRef = (payFromCash && total > 0) ? doc(col('expenses')) : null;
+        let shift = null;
+        if (payFrom === 'shift' && total > 0) {
+          const ss = await tx.get(ref('shifts', shiftId));
+          if (!ss.exists() || ss.data().endTime || ss.data().hostelId !== hostelId) throw new Error(t('shErr_noShift'));
+          shift = ss.data();
+        }
+        const expRef = ((payFrom === 'shift' || payFrom === 'admin') && total > 0) ? doc(col('expenses')) : null;
         tx.update(ref('catalog', item.id), { [`stock.${hostelId}`]: increment(n), ...(cost > 0 ? { costPrice: cost } : {}) });
         tx.set(doc(col('stockMoves')), {
           itemId: item.id, itemName: s.data().name || '', hostelId, qty: n, reason: 'purchase',
-          unitCost: cost, total, expenseId: expRef ? expRef.id : null, date: now, staffId: staffId(),
+          unitCost: cost, total, expenseId: expRef ? expRef.id : null, payFrom, date: now, staffId: staffId(),
         });
         if (expRef) {
           tx.set(expRef, {
             // Статья — постоянное русское имя, как у остальных расходов: из словаря
             // у админа на узбекском получалась отдельная статья «Tovar xaridi».
             category: 'Закупка товаров', amount: total,
-            comment: `${s.data().name || ''} ×${n}`, hostelId, staffId: staffId(), date: now,
-            skipCashbox: false, source: 'shop',
+            comment: `${s.data().name || ''} ×${n}` + (shift ? ` · ${t('shBoughtByAdmin').replace('{name}', currentUser?.name || currentUser?.login || '')}` : ''),
+            hostelId, date: now, source: 'shop', createdBy: staffId(),
+            // из кассы смены — расход кассира этой смены; иначе — админа, мимо кассы
+            staffId: shift ? (shift.staffId || shift.staffLogin) : staffId(),
+            skipCashbox: !shift,
           });
         }
       });
-      logAction(currentUser, 'shop_stock_in', { itemId: item.id, hostelId, qty: n, unitCost: cost, payFromCash: !!payFromCash });
+      logAction(currentUser, 'shop_stock_in', { itemId: item.id, hostelId, qty: n, unitCost: cost, total, payFrom, shiftId: payFrom === 'shift' ? shiftId : null });
       showNotification(t('shStockAdded').replace('{n}', n), 'success');
       return true;
     } catch (e) {

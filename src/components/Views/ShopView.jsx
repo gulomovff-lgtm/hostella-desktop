@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ShoppingBag, Package, ListChecks, Plus, X, Pencil, RotateCcw, Check, ImagePlus, Trash2 } from 'lucide-react';
 import { resizeImage } from '../../utils/imageResize';
 import TRANSLATIONS from '../../constants/translations';
-import { fmtSum, parseSum } from '../../utils/helpers';
+import { fmtSum } from '../../utils/helpers';
 import { salesSummary, canCancelSale, stockOf, KINDS } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
 
@@ -17,7 +17,7 @@ const inputCls = 'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl t
  * Продавать может любой сотрудник; склад и справочник правит админ.
  */
 const ShopView = ({
-    catalog = [], sales = [], stockMoves = [], users = [], currentUser, hostels = [], selectedHostelFilter = 'all', lang = 'ru',
+    catalog = [], sales = [], stockMoves = [], users = [], shifts = [], currentUser, hostels = [], selectedHostelFilter = 'all', lang = 'ru',
     onNewSale, onCancelSale, onSaveItem, onStockIn, onStockAdjust,
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
@@ -29,6 +29,9 @@ const ShopView = ({
     const hostelOk = (h) => !selectedHostelFilter || selectedHostelFilter === 'all' || h === selectedHostelFilter;
     const shownHostels = hostels.filter(h => hostelOk(h.id));
     const staffName = (id) => users.find(u => u.id === id || u.login === id)?.name || '—';
+    // Открытая смена хостела — для «оплачено из кассы смены»
+    const openShiftOf = (hid) => (shifts || []).find(sh => sh && !sh.endTime && sh.hostelId === hid) || null;
+    const defaultPayFrom = (hid) => (openShiftOf(hid) ? 'shift' : 'admin');
 
     const daySales = useMemo(() => (sales || [])
         .filter(s => s && hostelOk(s.hostelId) && s.date && dayKey(new Date(s.date)) === day)
@@ -46,13 +49,14 @@ const ShopView = ({
     const saveStock = async () => {
         const f = stockForm;
         const ok = f.mode === 'in'
-            ? await onStockIn?.({ item: f.item, hostelId: f.hostelId, qty: parseInt(f.qty) || 0, unitCost: parseInt(f.unitCost) || 0, payFromCash: f.payFromCash })
+            ? await onStockIn?.({ item: f.item, hostelId: f.hostelId, qty: parseInt(f.qty) || 0, unitCost: parseInt(f.unitCost) || 0,
+                payFrom: f.payFrom, shiftId: f.payFrom === 'shift' ? openShiftOf(f.hostelId)?.id : null })
             : await onStockAdjust?.({ item: f.item, hostelId: f.hostelId, actual: parseInt(f.actual) });
         if (ok) setStockForm(null);
     };
     const closeItem = () => { if (editItem?.photoPreview) URL.revokeObjectURL(editItem.photoPreview); setEditItem(null); };
     const saveItem = async () => {
-        const { photoPreview, ...item } = editItem;
+        const { photoPreview, priceFocused, ...item } = editItem; // eslint-disable-line no-unused-vars
         if (await onSaveItem?.(item)) { if (photoPreview) URL.revokeObjectURL(photoPreview); setEditItem(null); }
     };
     const pickPhoto = async (file) => {
@@ -163,7 +167,7 @@ const ShopView = ({
                                         })}
                                         {isAdmin && (
                                             <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                                                <button onClick={() => setStockForm({ item: p, mode: 'in', hostelId: shownHostels[0]?.id || 'hostel1', qty: '', unitCost: p.costPrice ? String(p.costPrice) : '', payFromCash: true })}
+                                                <button onClick={() => setStockForm({ item: p, mode: 'in', hostelId: shownHostels[0]?.id || 'hostel1', qty: '', unitCost: p.costPrice ? String(p.costPrice) : '', payFrom: defaultPayFrom(shownHostels[0]?.id || 'hostel1') })}
                                                     className="px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold">{t('shStockIn')}</button>
                                                 <button onClick={() => setStockForm({ item: p, mode: 'adjust', hostelId: shownHostels[0]?.id || 'hostel1', actual: String(stockOf(p, shownHostels[0]?.id || 'hostel1')) })}
                                                     className="ml-1.5 px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50">{t('shStockAdjust')}</button>
@@ -256,7 +260,9 @@ const ShopView = ({
                                     {KINDS.map(k => <option key={k} value={k}>{t('shKind_' + k)}</option>)}
                                 </select>
                             </div>
-                            <div><label className={labelCls}>{t('shPrice')}</label><input className={inputCls + ' tabular-nums'} inputMode="numeric" value={fmtSum(editItem.price)} onChange={e => setEditItem(x => ({ ...x, price: String(parseSum(e.target.value) || '') }))} /></div>
+                            <div><label className={labelCls}>{t('shPrice')}</label><input className={inputCls + ' tabular-nums'} inputMode="numeric" value={editItem.priceFocused ? String(editItem.price ?? '') : fmtSum(editItem.price)}
+                                onFocus={() => setEditItem(x => ({ ...x, priceFocused: true }))} onBlur={() => setEditItem(x => ({ ...x, priceFocused: false }))}
+                                onChange={e => setEditItem(x => ({ ...x, price: e.target.value.replace(/\D/g, '') }))} /></div>
                         </div>
                         <p className="text-[11px] text-slate-400">{t('shKindHint')}</p>
                         {editItem.id && (
@@ -280,7 +286,7 @@ const ShopView = ({
                         </div>
                         <div>
                             <label className={labelCls}>{t('spHostel')}</label>
-                            <select className={inputCls} value={stockForm.hostelId} onChange={e => setStockForm(f => ({ ...f, hostelId: e.target.value, ...(f.mode === 'adjust' ? { actual: String(stockOf(f.item, e.target.value)) } : {}) }))}>
+                            <select className={inputCls} value={stockForm.hostelId} onChange={e => setStockForm(f => ({ ...f, hostelId: e.target.value, ...(f.mode === 'adjust' ? { actual: String(stockOf(f.item, e.target.value)) } : { payFrom: f.payFrom === 'none' ? 'none' : defaultPayFrom(e.target.value) }) }))}>
                                 {shownHostels.map(h => <option key={h.id} value={h.id}>{h.name} · {t('shLeft').replace('{n}', stockOf(stockForm.item, h.id))}</option>)}
                             </select>
                         </div>
@@ -288,12 +294,30 @@ const ShopView = ({
                             <>
                                 <div className="grid grid-cols-2 gap-2">
                                     <div><label className={labelCls}>{t('shQty')}</label><input className={inputCls + ' tabular-nums'} inputMode="numeric" value={stockForm.qty} onChange={e => setStockForm(f => ({ ...f, qty: e.target.value.replace(/\D/g, '') }))} autoFocus /></div>
-                                    <div><label className={labelCls}>{t('shUnitCost')}</label><input className={inputCls + ' tabular-nums'} inputMode="numeric" value={fmtSum(stockForm.unitCost)} onChange={e => setStockForm(f => ({ ...f, unitCost: String(parseSum(e.target.value) || '') }))} /></div>
+                                    <div><label className={labelCls}>{t('shUnitCost')}</label><input className={inputCls + ' tabular-nums'} inputMode="numeric" value={stockForm.costFocused ? stockForm.unitCost : fmtSum(stockForm.unitCost)}
+                                        onFocus={() => setStockForm(f => ({ ...f, costFocused: true }))} onBlur={() => setStockForm(f => ({ ...f, costFocused: false }))}
+                                        onChange={e => setStockForm(f => ({ ...f, unitCost: e.target.value.replace(/\D/g, '') }))} /></div>
                                 </div>
                                 <div className="text-sm text-slate-500">{t('shPurchaseTotal')}: <b className="tabular-nums text-slate-800">{money((parseInt(stockForm.qty) || 0) * (parseInt(stockForm.unitCost) || 0))}</b></div>
-                                <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                                    <input type="checkbox" checked={!!stockForm.payFromCash} onChange={e => setStockForm(f => ({ ...f, payFromCash: e.target.checked }))} /> {t('shPayFromCash')}
-                                </label>
+                                {/* Откуда деньги за закупку — выбирает админ */}
+                                <div>
+                                    <label className={labelCls}>{t('shPayFromTitle')}</label>
+                                    <div className="space-y-1.5">
+                                        {(() => {
+                                            const sh = openShiftOf(stockForm.hostelId);
+                                            return [
+                                                { v: 'shift', label: sh ? t('shPayFromShift').replace('{name}', sh.staffName || staffName(sh.staffId)) : t('shPayFromShiftNone'), hint: t('shPayFromShiftHint'), off: !sh },
+                                                { v: 'admin', label: t('shPayFromAdmin'), hint: t('shPayFromAdminHint') },
+                                                { v: 'none', label: t('shPayFromNone'), hint: '' },
+                                            ].map(o => (
+                                                <label key={o.v} className={`flex items-start gap-2 px-3 py-2 rounded-xl border text-sm ${o.off ? 'opacity-50 cursor-not-allowed border-slate-100' : stockForm.payFrom === o.v ? 'border-orange-300 bg-orange-50 cursor-pointer' : 'border-slate-200 cursor-pointer'}`}>
+                                                    <input type="radio" name="payFrom" className="mt-0.5" disabled={o.off} checked={stockForm.payFrom === o.v} onChange={() => setStockForm(f => ({ ...f, payFrom: o.v }))} />
+                                                    <span><span className="font-bold text-slate-700">{o.label}</span>{o.hint && <span className="block text-[11px] text-slate-400">{o.hint}</span>}</span>
+                                                </label>
+                                            ));
+                                        })()}
+                                    </div>
+                                </div>
                             </>
                         ) : (
                             <div><label className={labelCls}>{t('shActualQty')}</label><input className={inputCls + ' tabular-nums'} inputMode="numeric" value={stockForm.actual} onChange={e => setStockForm(f => ({ ...f, actual: e.target.value.replace(/\D/g, '') }))} autoFocus /></div>

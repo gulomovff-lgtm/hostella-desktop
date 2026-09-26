@@ -2039,6 +2039,7 @@ return (
                         onCancelSale={handleCancelSale}
                         onSaveItem={handleSaveItem}
                         onStockIn={handleStockIn}
+                        shifts={shifts}
                         onStockAdjust={handleStockAdjust}
                     />
                 )}

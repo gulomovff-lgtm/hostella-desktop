@@ -161,6 +161,10 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
     const [photoPreview, setPhotoPreview] = useState(null);
     const [photoUploading, setPhotoUploading] = useState(false);
     const [showDate, setShowDate] = useState(false);
+    // Пока курсор в поле суммы — показываем набранное как есть. Разряды на лету
+    // («50000» → «50 000») сдвигали курсор на телефоне, и следующий «+» вставал
+    // в середину числа: «50000+3000+3000» превращалось в «50+50003+3000».
+    const [amountFocused, setAmountFocused] = useState(false);
     const fileRef = useRef();
     const amountRef = useRef();
     const isDark = useMemo(() => document.documentElement.dataset.theme === 'dark', []);
@@ -393,7 +397,9 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
                                             <input
                                                 ref={amountRef}
                                                 type="text" inputMode="text" autoCapitalize="off" autoCorrect="off" spellCheck={false} className="exp-input"
-                                                value={hasOperator(amount) || /[.,]/.test(amount) ? amount : fmtSum(String(amount).replace(/^0+(?=\d)/, ''))}
+                                                value={amountFocused || hasOperator(amount) || /[.,]/.test(amount) ? amount : fmtSum(String(amount).replace(/^0+(?=\d)/, ''))}
+                                                onFocus={() => setAmountFocused(true)}
+                                                onBlur={() => setAmountFocused(false)}
                                                 onChange={e => setAmount(e.target.value.replace(/[^0-9+\-*/.,×÷]/g, ''))}
                                                 onKeyDown={e => { if (e.key === 'Enter' && (hasOperator(amount) || /[.,]/.test(amount))) { e.preventDefault(); evaluateAmount(); } }}
                                                 placeholder="0" required autoFocus={!!initialCategory}
@@ -403,9 +409,9 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
                                             />
                                             <span style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)', fontSize: 13, fontWeight: 800, color: txtMuted, pointerEvents: 'none' }}>{t('sum')}</span>
                                         </div>
-                                        {(hasOperator(amount) || /[.,]/.test(amount)) && isFinite(evalExpr(amount)) && evalExpr(amount) > 0 && (
+                                        {(amountFocused || hasOperator(amount) || /[.,]/.test(amount)) && isFinite(evalExpr(amount)) && evalExpr(amount) > 0 && (
                                             <div style={{ marginTop: 6, textAlign: 'center', fontSize: 13, fontWeight: 800, color: '#0f9688', fontVariantNumeric: 'tabular-nums' }}>
-                                                = {fmtSum(String(Math.round(evalExpr(amount))))} {t('sum')} · Enter
+                                                = {fmtSum(String(Math.round(evalExpr(amount))))} {t('sum')}{hasOperator(amount) ? ' · Enter' : ''}
                                             </div>
                                         )}
                                         {/* Быстрые суммы */}
