@@ -109,3 +109,29 @@ test('validateItem: название, вид, цена', () => {
     assert.equal(validateItem({ name: 'X', kind: 'other', price: 1 }), 'kind');
     assert.equal(validateItem({ name: 'X', kind: 'product', price: 0 }), 'price');
 });
+
+test('оплата по счёту: сначала неоплаченные услуги, позиции — по порядку', async () => {
+    const { unpaidServices, splitServiceShare } = await import('../src/utils/shop.js');
+    const g = { id: 'g1', servicesTotal: 54000 };
+    const sales = [
+        { id: 's2', guestId: 'g1', mode: 'account', total: 30000, date: '2026-09-26T10:00', items: [{ name: 'Стирка', qty: 1, sum: 30000 }] },
+        { id: 's1', guestId: 'g1', mode: 'account', total: 24000, date: '2026-09-25T10:00', items: [{ name: 'Кофе', qty: 2, sum: 24000 }] },
+        { id: 'sx', guestId: 'g1', mode: 'account', total: 9999, date: '2026-09-25T11:00', status: 'cancelled', items: [{ name: 'Отменено', qty: 1 }] },
+        { id: 'sp', guestId: 'g1', mode: 'paid', total: 5000, date: '2026-09-25T12:00', items: [{ name: 'Вода', qty: 1 }] },
+    ];
+    let r = unpaidServices(g, [], sales);
+    assert.equal(r.due, 54000);
+    assert.match(r.items, /Кофе ×2.*Стирка/);
+    // кофе уже оплачен отдельной оплатой «услуги»
+    r = unpaidServices(g, [{ guestId: 'g1', purpose: 'service', amount: 24000 }, { guestId: 'g1', purpose: 'payment', amount: 99999 }], sales);
+    assert.equal(r.due, 30000);
+    assert.equal(r.items, 'Стирка');
+    assert.equal(unpaidServices({ id: 'g1', servicesTotal: 0 }, [], sales).due, 0);
+    // деление по способам: услуги из наличных, потом карта
+    const sp = splitServiceShare({ cash: 20000, card: 100000 }, 30000);
+    assert.deepEqual(sp.svc, { cash: 20000, card: 10000, qr: 0, transfer: 0 });
+    assert.deepEqual(sp.stay, { cash: 0, card: 90000, qr: 0, transfer: 0 });
+    assert.equal(sp.svcTotal, 30000);
+    assert.equal(splitServiceShare({ cash: 5000 }, 30000).svcTotal, 5000, 'оплата меньше долга по услугам');
+    assert.equal(splitServiceShare({ cash: 5000 }, 0).svcTotal, 0);
+});

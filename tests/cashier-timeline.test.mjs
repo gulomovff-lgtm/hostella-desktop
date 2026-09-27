@@ -137,3 +137,9 @@ test('итоги без журнала: заселения и продления
     assert.equal(s.checkins, 1);
     assert.equal(s._seen, undefined);
 });
+
+test('оплата услуг по счёту гостя: «Услуги: …» в отчёте', () => {
+    const d = describePayment({ purpose: 'service', comment: 'Кофе ×2, Стирка', guestName: 'IVANOV', roomNumber: '12', amount: 54000, method: 'cash' });
+    assert.equal(d.kind, 'service');
+    assert.equal(purposeText(d, t), 'Услуги: Кофе ×2, Стирка · IVANOV · комн. 12');
+});

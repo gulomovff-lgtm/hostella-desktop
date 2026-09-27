@@ -28,6 +28,7 @@ import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
 import { notifySiteBooking } from '../utils/siteCallback';
 import TRANSLATIONS from '../constants/translations';
 import { assessKpp } from '../utils/kppRules';
+import { unpaidServices, splitServiceShare } from '../utils/shop';
 
 export function useGuestActions(ctx) {
   const {
@@ -42,6 +43,7 @@ export function useGuestActions(ctx) {
     onEmehmonDepart,
     onEmehmonAutoArrival,
     onForeignArrival,
+    payments = [], sales = [],
   } = ctx;
 
   const t = k => TRANSLATIONS[lang]?.[k] || k;
@@ -49,25 +51,51 @@ export function useGuestActions(ctx) {
   // ─── Internal helpers ────────────────────────────────────────────────────
 
   // meta — «за что оплата» для кассы и ленты кассира (utils/cashierTimeline.js):
-  // { purpose: 'payment'|'extend'|'debt', guestName, roomNumber, extendDays, untilDate }.
-  const logTransaction = async (guestId, amounts, staffId, meta = {}) => {
-    const { cash = 0, card = 0, qr = 0, transfer = 0 } = amounts;
-    const date = new Date().toISOString();
-    const items = [];
-    const ids = [];
+  // { purpose: 'payment'|'extend'|'debt'|'service', guestName, roomNumber, extendDays, untilDate, comment }.
+  //
+  // Все записи одной операции (гость + оплаты + клиент) кладём в ОДИН пакет
+  // (writeBatch): одно обращение к серверу вместо 4–6 по очереди. База в
+  // Европе, каждое ожидание ~0,2 с, на телефоне дольше — оплаты и продления
+  // сохранялись по 1–2 с и дольше (жалоба владельца 2026-09-26).
+  const addPaymentDocs = (batch, guestId, amounts, staffId, meta = {}, date = new Date().toISOString()) => {
     const extra = Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined && v !== null && v !== ''));
-    if (cash     > 0) items.push({ guestId, staffId, amount: cash,     method: 'cash',     date, hostelId: currentUser.hostelId, ...extra });
-    if (card     > 0) items.push({ guestId, staffId, amount: card,     method: 'card',     date, hostelId: currentUser.hostelId, ...extra });
-    if (qr       > 0) items.push({ guestId, staffId, amount: qr,       method: 'qr',       date, hostelId: currentUser.hostelId, ...extra });
-    if (transfer > 0) items.push({ guestId, staffId, amount: transfer, method: 'transfer', date, hostelId: currentUser.hostelId, ...extra });
-    for (const item of items) {
-      const ref = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'payments'), item);
+    const ids = [];
+    for (const method of ['cash', 'card', 'qr', 'transfer']) {
+      const amount = Math.round(Number(amounts?.[method]) || 0);
+      if (amount <= 0) continue;
+      const ref = doc(collection(db, ...PUBLIC_DATA_PATH, 'payments'));
+      batch.set(ref, { guestId, staffId, amount, method, date, hostelId: currentUser.hostelId, ...extra });
       ids.push(ref.id);
     }
+    return ids;
+  };
+
+  // Оплата гостя с делением «услуги по счёту / проживание»: сначала гасим
+  // неоплаченные услуги (отдельная запись кассы «Услуги: …»), остаток — meta.
+  const addGuestPaymentDocs = (batch, g, amounts, staffId, meta = {}, date) => {
+    const { due, items } = unpaidServices(g, payments, sales);
+    const { svc, stay, svcTotal } = splitServiceShare(amounts, due);
+    const ids = [];
+    if (svcTotal > 0) ids.push(...addPaymentDocs(batch, g.id, svc, staffId,
+      { purpose: 'service', comment: items, guestName: meta.guestName, roomNumber: meta.roomNumber }, date));
+    ids.push(...addPaymentDocs(batch, g.id, stay, staffId, meta, date));
+    return { ids, svcTotal, svcItems: items };
+  };
+
+  // Запись пакета без ожидания сервера: Firestore сразу применяет её на экране
+  // (и в офлайне), а на сервер досылает сам. Ошибку (правила, права) — тостом;
+  // локальная правка при этом откатывается сама.
+  const commitInBackground = (batch, errKey = 'gaErrorPrefix') => {
+    batch.commit().catch(e => { console.error('[batch]', e); showNotification(t(errKey) + (e?.message || e), 'error'); });
+  };
+
+  const logTransaction = async (guestId, amounts, staffId, meta = {}) => {
+    const date = new Date().toISOString();
+    const batch = writeBatch(db);
+    const ids = addPaymentDocs(batch, guestId, amounts, staffId, meta, date);
     // Fix 16: храним lastPaymentAt на госте — используется в Gate 4 авто-выселения
-    if (items.length > 0) {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { lastPaymentAt: date });
-    }
+    if (ids.length) batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { lastPaymentAt: date });
+    commitInBackground(batch);
     return ids;
   };
 
@@ -573,19 +601,23 @@ export function useGuestActions(ctx) {
           return sameName.length === 1 ? sameName[0] : null;
         })())
       ) || null : null;
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), guestUpdate);
       // Оплата после выезда — погашение долга, во время проживания — доплата
       const purpose = g && g.status === 'checked_out' ? 'debt' : 'payment';
-      const paymentIds = await logTransaction(guestId, amounts, safeStaffId,
-        { purpose, guestName: g?.fullName, roomNumber: g?.roomNumber });
+      const payDate = new Date().toISOString();
+      const batch = writeBatch(db);
+      const { ids: paymentIds, svcTotal, svcItems } = addGuestPaymentDocs(batch, g || { id: guestId }, { cash, card, qr, transfer }, safeStaffId,
+        { purpose, guestName: g?.fullName, roomNumber: g?.roomNumber }, payDate);
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...guestUpdate, ...(paymentIds.length ? { lastPaymentAt: payDate } : {}) });
+      if (balanceUsed > 0 && clientRec) {
+        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
+      }
+      commitInBackground(batch);
       if (total > 0) {
         logAction(currentUser, purpose === 'debt' ? 'debt_pay' : 'payment', {
           guestId, guestName: g?.fullName || '', roomNumber: g?.roomNumber || '',
           amount: total, cash, card, qr, transfer, balance: balanceUsed, paymentIds,
+          ...(svcTotal > 0 ? { services: svcTotal, servicesItems: svcItems } : {}),
         });
-      }
-      if (balanceUsed > 0 && clientRec) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
       }
       if (totalOverpay > 0) {
         showNotification(t('gaOverpayNote').replace('{sum}', totalOverpay.toLocaleString()), 'info');
@@ -649,24 +681,29 @@ export function useGuestActions(ctx) {
         bonusUpdate = { bonusCheckOutDate: deleteField() };
       }
       const extensionAddedPrice = newTotalPrice - prevTotalPrice;
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      const nowIso = new Date().toISOString();
+      const payTotal = payCash + payCard + payQR;
+      const eg = guests.find(x => x.id === guestId);
+      const batch = writeBatch(db);
+      let paymentIds = [];
+      if (payTotal > 0) {
+        // оплата при продлении тоже сначала гасит неоплаченные услуги по счёту
+        paymentIds = addGuestPaymentDocs(batch, eg || { id: guestId }, { cash: payCash, card: payCard, qr: payQR }, safeStaffId,
+          { purpose: 'extend', guestName: eg?.fullName, roomNumber: eg?.roomNumber, extendDays: Number(extendDays) || 0, untilDate: newCheckOut }, nowIso).ids;
+      }
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
         days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, status: 'active',
         lastExtendedBy: safeStaffId,
-        lastExtendedAt: new Date().toISOString(),
+        lastExtendedAt: nowIso,
         lastExtensionPrice: extensionAddedPrice,
         ...bonusUpdate,
-      });
-      let paymentIds = [];
-      const payTotal = payCash + payCard + payQR;
-      if (payTotal > 0) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+        ...(payTotal > 0 ? {
           paidCash: increment(payCash), paidCard: increment(payCard), paidQR: increment(payQR), amountPaid: increment(payTotal),
-        });
-        const eg = guests.find(x => x.id === guestId);
-        paymentIds = await logTransaction(guestId, { cash: payCash, card: payCard, qr: payQR }, safeStaffId,
-          { purpose: 'extend', guestName: eg?.fullName, roomNumber: eg?.roomNumber, extendDays: Number(extendDays) || 0, untilDate: newCheckOut });
-      }
-      const g = guests.find(x => x.id === guestId);
+          lastPaymentAt: nowIso,
+        } : {}),
+      });
+      commitInBackground(batch, 'gaExtendErrorPrefix');
+      const g = eg;
       logAction(currentUser, 'extend', {
         guestId, guestName: g?.fullName || '', roomNumber: g?.roomNumber || '',
         days: Number(extendDays) || 0, fromDate: prevCheckOut || '', toDate: newCheckOut || '',
@@ -1157,6 +1194,8 @@ export function useGuestActions(ctx) {
       const totalMethods = (methods.cash || 0) + (methods.card || 0) + (methods.qr || 0);
       const allPaymentIds = [];
       const allTargetsWithPay = [];
+      const batch = writeBatch(db);
+      const payDate = new Date().toISOString();
       for (const target of targets) {
         if (remaining <= 0) break;
         const pay = Math.min(remaining, target.currentDebt);
@@ -1164,16 +1203,18 @@ export function useGuestActions(ctx) {
         const cashPay = totalMethods > 0 ? Math.floor((methods.cash || 0) / totalMethods * pay) : pay;
         const cardPay = totalMethods > 0 ? Math.floor((methods.card || 0) / totalMethods * pay) : 0;
         const qrPay   = pay - cashPay - cardPay; // остаток обеспечивает целочисленность
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), {
+        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), {
           paidCash: increment(cashPay), paidCard: increment(cardPay), paidQR: increment(qrPay), amountPaid: increment(pay),
+          lastPaymentAt: payDate,
         });
         const tg = guests.find(x => x.id === target.id);
-        const payIds = await logTransaction(target.id, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId,
-          { purpose: 'debt', guestName: tg?.fullName, roomNumber: tg?.roomNumber });
+        const payIds = addGuestPaymentDocs(batch, tg || { id: target.id }, { cash: cashPay, card: cardPay, qr: qrPay }, safeStaffId,
+          { purpose: 'debt', guestName: tg?.fullName, roomNumber: tg?.roomNumber }, payDate).ids;
         allPaymentIds.push(...payIds);
         allTargetsWithPay.push({ id: target.id, cashPay, cardPay, qrPay });
         remaining -= pay;
       }
+      commitInBackground(batch);
       // Имя первого должника для метки
       const firstTarget = targets[0];
       const g = guests.find(x => x.id === firstTarget?.id);

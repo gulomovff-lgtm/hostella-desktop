@@ -50,7 +50,7 @@ export function describePayment(p, guest = null) {
   if (p.reportOnly) return { kind: 'report', ...base, note: p.comment || '' };
   if (p.category === 'service') return { kind: 'service', ...base, note: p.comment || '' };
   if (p.category === 'registration') return { kind: 'registration', ...base };
-  if (p.purpose) return { kind: p.purpose, ...base };
+  if (p.purpose) return { kind: p.purpose, ...base, note: p.purpose === 'service' ? (p.comment || '') : '' };
   if (p.category === 'accommodation') return { kind: 'checkin', ...base, days: base.days || num(guest?.days) || 0, approx: !base.days };
   if (p.category && p.category !== 'accommodation') return { kind: 'other', ...base, note: p.comment || p.category };
   // Старая запись без назначения: продление угадываем по следу у гостя.

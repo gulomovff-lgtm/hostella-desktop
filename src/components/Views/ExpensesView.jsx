@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { saveExpenseCats } from '../../utils/expenseCats';
 import {
     Download, Plus, Search, Trash2, ToggleLeft, ToggleRight, Play,
     ChevronDown, ChevronUp, Pencil, X, Check, LayoutGrid, List,
@@ -268,6 +269,19 @@ function ExpensesView({
     const [showCatBreakdown, setShowCatBreakdown] = useState(false);
     const [confirmArchiveCat, setConfirmArchiveCat] = useState(null);
 
+    // Статьи пришли из базы (другое устройство) — перечитываем свой хостел.
+    useEffect(() => {
+        const onSync = (e) => {
+            if (e.detail !== hostelKey) return;
+            setCustomCategories(readLS('exp_custom_cats', []));
+            setCustomCatIcons(readLS('exp_custom_icons', {}));
+            setArchivedCategories(readLS('exp_archived_cats', []));
+        };
+        window.addEventListener('hostella:expense-cats', onSync);
+        return () => window.removeEventListener('hostella:expense-cats', onSync);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hostelKey]);
+
     // При переключении хостела перечитываем его настройки категорий.
     useEffect(() => {
         setCustomCategories(readLS('exp_custom_cats', []));
@@ -376,17 +390,16 @@ function ExpensesView({
         const icon = guessIcon(name);
         const updated = [...new Set([...customCategories, name])];
         setCustomCategories(updated);
-        localStorage.setItem(lsKey('exp_custom_cats'), JSON.stringify(updated));
         const updatedIcons = { ...customCatIcons, [name]: icon };
         setCustomCatIcons(updatedIcons);
-        localStorage.setItem(lsKey('exp_custom_icons'), JSON.stringify(updatedIcons));
+        saveExpenseCats(hostelKey, { custom: updated, icons: updatedIcons });
         setNewCatName(''); setAddingCat(false); setExpandedCard(name);
     }, [newCatName, customCategories, customCatIcons, hostelKey]);
 
     const handleRemoveCustomCat = useCallback((cat) => {
         const updated = customCategories.filter(c => c !== cat);
         setCustomCategories(updated);
-        localStorage.setItem(lsKey('exp_custom_cats'), JSON.stringify(updated));
+        saveExpenseCats(hostelKey, { custom: updated });
         if (expandedCard === cat) setExpandedCard(null);
     }, [customCategories, expandedCard, hostelKey]);
 
@@ -394,14 +407,14 @@ function ExpensesView({
     const handleArchiveCat = useCallback((cat) => {
         const updated = [...new Set([...archivedCategories, cat])];
         setArchivedCategories(updated);
-        localStorage.setItem(lsKey('exp_archived_cats'), JSON.stringify(updated));
+        saveExpenseCats(hostelKey, { archived: updated });
         if (expandedCard === cat) setExpandedCard(null);
     }, [archivedCategories, expandedCard, hostelKey]);
 
     const handleUnarchiveCat = useCallback((cat) => {
         const updated = archivedCategories.filter(c => c !== cat);
         setArchivedCategories(updated);
-        localStorage.setItem(lsKey('exp_archived_cats'), JSON.stringify(updated));
+        saveExpenseCats(hostelKey, { archived: updated });
     }, [archivedCategories, hostelKey]);
 
     // Редактирование подгруппы (кастомной категории): переименование + значок + перетег расходов
@@ -411,12 +424,11 @@ function ExpensesView({
         let cats = customCategories;
         if (renamed) cats = [...new Set(customCategories.map(c => c === oldName ? newName : c))];
         setCustomCategories(cats);
-        localStorage.setItem(lsKey('exp_custom_cats'), JSON.stringify(cats));
         const icons = { ...customCatIcons };
         if (renamed) delete icons[oldName];
         icons[newName] = newIcon || guessIcon(newName);
         setCustomCatIcons(icons);
-        localStorage.setItem(lsKey('exp_custom_icons'), JSON.stringify(icons));
+        saveExpenseCats(hostelKey, { custom: cats, icons });
         if (renamed && onEditExpenseCategory) {
             const toRetag = filteredExpenses.filter(e => e.category === oldName);
             for (const e of toRetag) { try { await onEditExpenseCategory(e.id, newName); } catch { /* skip */ } }

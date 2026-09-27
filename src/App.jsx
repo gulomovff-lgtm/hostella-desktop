@@ -125,6 +125,7 @@ import ShiftsView from './components/Views/ShiftsView';
 import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
 import CashierTimelineView from './components/Views/CashierTimelineView';
+import { startExpenseCatsSync } from './utils/expenseCats';
 import SessionsView from './components/Views/SessionsView';
 import ClientVersionsView from './components/Views/ClientVersionsView';
 import ClientDuplicatesView from './components/Views/ClientDuplicatesView';
@@ -508,6 +509,15 @@ function App() {
     return () => offs.forEach(off => { if (typeof off === 'function') off(); });
   }, []);
 
+  // Свои статьи расходов — общие для всех устройств (settings/expenseCats →
+  // тот же кэш localStorage, что читают «Расходы» и окно расхода).
+  useEffect(() => {
+    if (!currentUser?.id && !currentUser?.login) return;
+    return startExpenseCatsSync((hostelKey) => {
+      try { window.dispatchEvent(new CustomEvent('hostella:expense-cats', { detail: hostelKey })); } catch { /* no-op */ }
+    });
+  }, [currentUser?.id, currentUser?.login]);
+
   // Загружаем глобальный конфиг приложения (настройки без кода)
   useEffect(() => {
     loadAppConfig().then(cfg => {
@@ -886,6 +896,8 @@ function App() {
     onEmehmonDepart: handleEmehmonDepart,
     onEmehmonAutoArrival: handleEmehmonAutoArrival,
     onForeignArrival: handleForeignArrival,
+    // оплата гостя сначала гасит неоплаченные услуги по счёту (utils/shop.js)
+    payments, sales,
   });
 
   const {

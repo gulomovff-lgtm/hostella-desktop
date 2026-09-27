@@ -163,3 +163,52 @@ export function salesSummary(sales = []) {
   }
   return { paid, account, total: paid + account, count, items: [...byItem.values()].sort((a, b) => b.sum - a.sum) };
 }
+
+// ── Оплата по счёту гостя: сначала услуги, потом проживание ──────────────
+// Владелец (2026-09-27): услуга «в счёт» гостя, оплаченная позже, шла в
+// отчёт как «доплата за проживание». Теперь оплата гостя сначала гасит
+// неоплаченные услуги — это отдельная запись кассы «Услуги: …» (purpose
+// 'service'), остаток — проживание. Сколько по услугам уже оплачено, берём
+// из самих оплат (purpose 'service'), а не из поля: удаление/отмена оплаты
+// сами «возвращают» долг по услугам.
+
+/** Неоплаченные услуги гостя: { due, items } — сумма и «Кофе ×2, Стирка». */
+export function unpaidServices(guest, payments = [], sales = []) {
+  if (!guest) return { due: 0, items: '' };
+  const charged = num(guest.servicesTotal);
+  const paid = (payments || [])
+    .filter(p => p && p.guestId === guest.id && p.purpose === 'service' && !p.reportOnly)
+    .reduce((s, p) => s + num(p.amount), 0);
+  const due = Math.max(0, charged - paid);
+  if (!due) return { due: 0, items: '' };
+  // позиции: продажи «в счёт» по порядку, уже оплаченное пропускаем
+  const acc = (sales || [])
+    .filter(s => s && s.guestId === guest.id && s.status !== 'cancelled' && s.mode === 'account')
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+  let skip = paid;
+  const lines = [];
+  for (const s of acc) {
+    const t = num(s.total);
+    if (skip >= t) { skip -= t; continue; }
+    skip = 0;
+    lines.push(...(s.items || []));
+  }
+  return { due, items: linesComment(lines) };
+}
+
+const MONEY_KEYS = ['cash', 'card', 'qr', 'transfer'];
+
+/**
+ * Разложить оплату по способам на «услуги» (не больше due) и «проживание».
+ * Услуги берутся из наличных, потом карта, QR, перевод.
+ */
+export function splitServiceShare(amounts = {}, due = 0) {
+  let left = Math.max(0, Math.round(num(due)));
+  const svc = {}, stay = {};
+  for (const k of MONEY_KEYS) {
+    const v = Math.max(0, Math.round(num(amounts[k])));
+    const take = Math.min(v, left);
+    svc[k] = take; stay[k] = v - take; left -= take;
+  }
+  return { svc, stay, svcTotal: MONEY_KEYS.reduce((s, k) => s + svc[k], 0) };
+}
