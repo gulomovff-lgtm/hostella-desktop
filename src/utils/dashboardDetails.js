@@ -74,15 +74,3 @@ export function expensesByCategory(expenses = []) {
   for (const r of out) r.items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   return out;
 }
-
-/** Свободные места комнаты: номера коек 1..capacity, не занятые активными гостями. */
-export function freeBedsOf(room, activeGuests = []) {
-  const cap = parseInt(room?.capacity) || 0;
-  if (!cap || room?.rental?.active) return [];
-  const taken = new Set(activeGuests.filter(g => g.roomId === room.id).map(g => String(g.bedId)));
-  const out = [];
-  for (let i = 1; i <= cap; i++) if (!taken.has(String(i))) out.push(i);
-  // Гостей больше, чем коек, или места названы не числами — считаем по количеству
-  const occupied = activeGuests.filter(g => g.roomId === room.id).length;
-  return out.slice(0, Math.max(0, cap - occupied));
-}

@@ -1916,6 +1916,9 @@ const TRANSLATIONS = {
     exaClawback: "С баланса клиента снята переплата {sum} сум",
     exaRecordDeleted: "Запись удалена",
     // Дашборд: окна «подробно» у плиток
+    ddBookedToday: "бронь сегодня {n}",
+    ddFreeUntilBooking: "Место {bed}: свободно {n} дн. — бронь {name} с {date}",
+    ddBookedBed: "Место {bed} — бронь на сегодня:",
     ddClickHint: "Нажмите — подробно",
     ddGuest: "Гость",
     ddRoomBed: "Комната / место",
@@ -4673,6 +4676,9 @@ const TRANSLATIONS = {
     exaClawback: "Mijoz balansidan ortiqcha to'lov yechildi: {sum} so'm",
     exaRecordDeleted: "Yozuv o'chirildi",
     // Boshqaruv: plitkalar «batafsil» oynalari
+    ddBookedToday: "bugun bron {n}",
+    ddFreeUntilBooking: "{bed}-joy: {n} kun bo‘sh — {date} dan {name} broni",
+    ddBookedBed: "{bed}-joy — bugungi bron:",
     ddClickHint: "Bosing — batafsil",
     ddGuest: "Mehmon",
     ddRoomBed: "Xona / joy",

@@ -644,7 +644,7 @@ const LoginScreen = ({ users, onLogin, onSeed, lang = 'ru', setLang, themeId, se
         `}</style>
 
         {/* ROOT */}
-        <div className="fixed inset-0 w-screen h-screen z-[100] overflow-hidden flex flex-col">
+        <div className="tg-fullscreen fixed inset-0 w-screen h-screen z-[100] overflow-hidden flex flex-col">
 
             {/* == ZOOMING BG LAYER == */}
             {/* Слой БЕЗ key: пересоздание рвало картинку. Смену темы делает

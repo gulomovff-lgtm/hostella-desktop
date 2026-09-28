@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { describePayment, purposeText } from '../../utils/cashierTimeline';
-import { groupByMethod, byStaff, byDay, expensesByCategory, freeBedsOf, METHOD_ORDER } from '../../utils/dashboardDetails';
+import { groupByMethod, byStaff, byDay, expensesByCategory, METHOD_ORDER } from '../../utils/dashboardDetails';
 import { chargeOf } from '../../utils/shop';
 
 /**
@@ -107,15 +107,25 @@ const DashboardDetailModal = ({ kind, onClose, t, data, expired = [], users = []
             }
             case 'occupancy': case 'free': {
                 const free = kind === 'free';
+                // места — тем же расчётом, что экран «Номера» (utils/roomBeds.js)
                 const rooms = [...data.roomOccupancy].sort(roomSort)
-                    .map(r => ({ r, beds: freeBedsOf(r, data.activeGuests), people: data.activeGuests.filter(g => g.roomId === r.id).sort(roomSort) }))
-                    .filter(x => !free || x.beds.length > 0);
+                    .map(r => {
+                        const bb = r.beds || [];
+                        return {
+                            r,
+                            beds: bb.filter(b => b.status === 'free').map(b => b.id),
+                            limited: bb.filter(b => b.status === 'free_limited'),
+                            booked: bb.filter(b => b.status === 'booking'),
+                            people: bb.filter(b => b.status === 'occupied' || b.status === 'timeout').map(b => ({ ...b.guest, bedId: b.id, timeout: b.isTimeout })),
+                        };
+                    })
+                    .filter(x => !free || x.beds.length > 0 || x.limited.length > 0);
                 return {
                     title: free ? t('freeBedsLabel') : t('occupancy'),
-                    sub: free ? `${data.freeBeds} ${t('ofLabel')} ${data.totalBeds}` : `${data.occupiedBeds}/${data.totalBeds} · ${data.occupancyRaw}%`,
+                    sub: free ? `${data.freeBeds} ${t('ofLabel')} ${data.totalBeds}${data.bookedToday ? ` · ${t('ddBookedToday').replace('{n}', data.bookedToday)}` : ''}` : `${data.occupiedBeds}/${data.totalBeds} · ${data.occupancyRaw}%`,
                     body: (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {rooms.map(({ r, beds, people }) => (
+                            {rooms.map(({ r, beds, limited, booked, people }) => (
                                 <div key={r.id} className="border border-slate-200 rounded-xl p-3">
                                     <div className="flex items-center justify-between">
                                         <span className="font-black text-slate-800">{t('ddRoom').replace('{n}', r.number || '—')}</span>
@@ -126,9 +136,15 @@ const DashboardDetailModal = ({ kind, onClose, t, data, expired = [], users = []
                                     <div className="h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden"><div className={`h-full rounded-full ${r.pct >= 100 ? 'bg-rose-400' : 'bg-indigo-400'}`} style={{ width: `${Math.min(100, r.pct)}%` }} /></div>
                                     {r.rented && <div className="text-xs text-purple-600 mt-1.5">{r.rental?.tenantName || ''}{r.rental?.endDate ? ` · ${t('ptUntil').replace('{date}', dmy(r.rental.endDate))}` : ''}</div>}
                                     {beds.length > 0 && <div className="text-xs text-emerald-700 mt-1.5 font-semibold">{t('ddFreeBeds').replace('{list}', beds.join(', '))}</div>}
+                                    {limited.map(b => (
+                                        <div key={'l' + b.id} className="text-xs text-sky-700 mt-1">{t('ddFreeUntilBooking').replace('{bed}', b.id).replace('{n}', b.freeForDays).replace('{name}', b.guest?.fullName || '—').replace('{date}', dmy(b.guest?.checkInDate))}</div>
+                                    ))}
+                                    {booked.map(b => (
+                                        <div key={'b' + b.id} className="text-xs text-amber-700 mt-1">{t('ddBookedBed').replace('{bed}', b.id)} <GuestName g={b.guest || {}} /></div>
+                                    ))}
                                     {!free && people.length > 0 && (
                                         <div className="mt-1.5 flex flex-col gap-0.5">
-                                            {people.map(g => <div key={g.id} className="text-xs text-slate-600"><span className="text-slate-400 mr-1">{g.bedId || '—'}.</span><GuestName g={g} /> <span className="text-slate-400">{t('ptUntil').replace('{date}', dmy(g.checkOutDate))}</span></div>)}
+                                            {people.map(g => <div key={g.id} className="text-xs text-slate-600"><span className="text-slate-400 mr-1">{String(g.bedId).startsWith('extra') ? '+' : g.bedId}.</span><GuestName g={g} /> <span className={g.timeout ? 'text-amber-600 font-bold' : 'text-slate-400'}>{t('ptUntil').replace('{date}', dmy(g.checkOutDate))}</span></div>)}
                                         </div>
                                     )}
                                 </div>

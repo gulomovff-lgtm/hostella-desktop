@@ -392,6 +392,11 @@ input[type="number"]::-webkit-inner-spin-button {
   html.tg .app-content-scroll {
     padding-top: var(--tg-top) !important;
   }
+  /* --tg-top уже включает системную строку — у каркаса свой отступ под неё
+     убираем, иначе он считался дважды (большой пробел сверху, 2026-09-28). */
+  html.tg .app-root {
+    padding-top: 0 !important;
+  }
   html.tg .fixed.bottom-0.left-0.right-0.z-50 {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-bottom)) !important;
   }
@@ -403,14 +408,16 @@ input[type="number"]::-webkit-inner-spin-button {
      высота урезалась на 148px — в свёрнутом Telegram карточке гостя
      оставалась щель. Теперь — все полноэкранные окна, запас снизу 12px.
      :root поднимает вес селектора над правилом «шторок» (max-width: 640px). */
-  html.tg:root .fixed.inset-0 {
+  /* .tg-fullscreen — экраны на весь экран (вход, выбор хостела): фон должен
+     доходить до краёв, отступы и ограничение высоты им не нужны. */
+  html.tg:root .fixed.inset-0:not(.tg-fullscreen) {
     padding-top: var(--tg-top) !important;
     padding-bottom: max(12px, var(--tg-bottom)) !important;
   }
-  html.tg:root .modal-centered.fixed.inset-0 {
+  html.tg:root .modal-centered.fixed.inset-0:not(.tg-fullscreen) {
     align-items: flex-start !important;
   }
-  html.tg:root .fixed.inset-0 > div {
+  html.tg:root .fixed.inset-0:not(.tg-fullscreen) > div {
     max-height: calc(100dvh - var(--tg-top) - max(12px, var(--tg-bottom))) !important;
   }
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupByMethod, byStaff, byDay, expensesByCategory, freeBedsOf } from '../src/utils/dashboardDetails.js';
+import { groupByMethod, byStaff, byDay, expensesByCategory } from '../src/utils/dashboardDetails.js';
 
 const pays = [
     { id: 'a', staffId: 'u1', amount: 300, cash: 100, card: 200, method: 'split', date: '2026-09-25T09:00:00' },
@@ -31,11 +31,4 @@ test('expensesByCategory', () => {
     const r = expensesByCategory([{ id: 1, category: 'Зарплата', amount: 100, date: '2026-09-01' }, { id: 2, category: 'Хоз', amount: 30, date: '2026-09-02' }, { id: 3, category: 'Хоз', amount: 90, date: '2026-09-03' }]);
     assert.deepEqual(r.map(c => [c.category, c.total, c.items.length]), [['Хоз', 120, 2], ['Зарплата', 100, 1]]);
     assert.equal(r[0].items[0].id, 3, 'свежие сверху');
-});
-
-test('freeBedsOf: свободные номера коек; аренда — нет свободных; перебор гостей не даёт лишних мест', () => {
-    const room = { id: 'r', capacity: 4 };
-    assert.deepEqual(freeBedsOf(room, [{ roomId: 'r', bedId: '2' }, { roomId: 'x', bedId: '1' }]), [1, 3, 4]);
-    assert.deepEqual(freeBedsOf({ ...room, rental: { active: true } }, []), []);
-    assert.deepEqual(freeBedsOf({ id: 'r', capacity: 2 }, [{ roomId: 'r', bedId: 'A' }, { roomId: 'r', bedId: 'B' }]), []);
 });

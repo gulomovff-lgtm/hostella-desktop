@@ -11,6 +11,7 @@ import GroupReceiptModal from '../Modals/GroupReceiptModal';
 import { chargeOf } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
 import DashboardDetailModal from '../Modals/DashboardDetailModal';
+import { buildBedsData, bedStats } from '../../utils/roomBeds';
 
 // -- Export helpers ----------------------------------------------------------
 const exportGuestsToExcel = (guests) => {
@@ -140,12 +141,25 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
         const totalBeds = relRooms.reduce((s, r) => s + parseInt(r.capacity || 0), 0);
         const activeGuests = relGuests.filter(g => g.status === 'active');
-        const relRoomIds = new Set(relRooms.map(r => r.id));
-        const occupancyGuests = activeGuests.filter(g => relRoomIds.has(g.roomId));
-        // Арендованные комнаты целиком считаем занятыми
-        const rentedBeds = relRooms.filter(r => r.rental?.active).reduce((s, r) => s + parseInt(r.capacity || 0), 0);
-        const occupiedBeds = occupancyGuests.length + rentedBeds;
-        const freeBeds = Math.max(0, totalBeds - occupiedBeds);
+        // Места — тем же расчётом, что экран «Номера» (utils/roomBeds.js): бронь
+        // на сегодня место занимает, бронь на будущие дни — «свободно N дн.»,
+        // просрочивший выезд (< 28 ч) ещё занимает, аренда — вся комната.
+        // Раньше свободные = места − живущие: брони не учитывались вовсе.
+        const guestsByRoom = {};
+        relGuests.forEach(g => { if (g.roomId) (guestsByRoom[g.roomId] ||= []).push(g); });
+        const bedsByRoom = {};
+        const bs = { occ: 0, free: 0, freeLimited: 0, booking: 0, rented: 0, timeout: 0 };
+        for (const r of relRooms) {
+            const beds = buildBedsData(r, guestsByRoom[r.id] || [], now);
+            bedsByRoom[r.id] = beds;
+            const st = bedStats(beds);
+            for (const k of Object.keys(bs)) bs[k] += st[k];
+        }
+        const rentedBeds = bs.rented;
+        const occupiedBeds = bs.occ;
+        const bookedToday = bs.booking;
+        const freeBeds = bs.free;
+        const freeLimited = bs.freeLimited;
         const occupancyRaw = totalBeds ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
         const occupancyPct = Math.min(100, occupancyRaw);
         const isOverCapacity = occupancyRaw > 100;
@@ -216,13 +230,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             });
 
         const roomOccupancy = relRooms.map(r => {
-            const rGuests = relGuests.filter(g => g.roomId === r.id && g.status === 'active');
             const cap = parseInt(r.capacity) || 0;
             const rented = !!r.rental?.active;
-            // Арендованная комната занята целиком
-            const occupied = rented ? cap : rGuests.length;
+            const st = bedStats(bedsByRoom[r.id] || []);
+            const occupied = st.occ;
             const pct = cap ? Math.round((occupied / cap) * 100) : (rented ? 100 : 0);
-            return { ...r, occupied, pct, rented };
+            return { ...r, occupied, pct, rented, booked: st.booking, free: st.free, beds: bedsByRoom[r.id] || [] };
         }).sort((a, b) => b.pct - a.pct);
 
         const checkedOut = relGuests.filter(g => g.status === 'checked_out' && g.days);
@@ -266,8 +279,8 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
         return {
             relPayments, relExpenses,
-            relRooms, relGuests, totalBeds, activeGuests, occupancyGuests, occupancyPct, occupancyRaw, isOverCapacity,
-            rentedBeds, occupiedBeds, freeBeds,
+            relRooms, relGuests, totalBeds, activeGuests, occupancyPct, occupancyRaw, isOverCapacity,
+            rentedBeds, occupiedBeds, freeBeds, freeLimited, bookedToday,
             pay30, last7, totalIncome, totalExpense, incomeToday, incomeWeek, incomeMonth, incomeThisMonth, expenseThisMonth,
             byCash, byCard, byQR, byTransfer,
             guestsWithDebt, totalDebt, rentalDebts, totalRentalDebt, guestDebtTotal, debtors,
@@ -407,11 +420,11 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
 
     const kpis = [
         { detail: 'guests', label: t('guestsNow'), value: data.activeGuests.length, suffix: '', icon: Users, color: 'indigo', sub: `+${data.arrivalsToday.length} ${t('todayShort')}` },
-        { detail: 'occupancy', label: t('occupancy'), value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: `${data.occupancyGuests.length}/${data.totalBeds}${data.isOverCapacity ? ' ⚠' : ''}` },
+        { detail: 'occupancy', label: t('occupancy'), value: data.isOverCapacity ? `${data.occupancyRaw}` : data.occupancyPct, suffix: '%', icon: BedDouble, color: data.isOverCapacity ? 'rose' : data.occupancyPct >= 80 ? 'emerald' : data.occupancyPct >= 50 ? 'amber' : 'rose', sub: `${data.occupiedBeds}/${data.totalBeds}${data.isOverCapacity ? ' ⚠' : ''}` },
         { detail: 'incomeToday', label: t('incomeToday'), value: data.incomeToday.toLocaleString(), suffix: '', icon: TrendingUp, color: 'emerald', sub: 'UZS' },
         { detail: 'debts', label: t('debts'), value: data.totalDebt.toLocaleString(), suffix: '', icon: Wallet, color: data.totalDebt > 0 ? 'rose' : 'slate', sub: data.totalRentalDebt > 0 ? `${data.debtors.length} (${t('rentLower')} ${data.totalRentalDebt.toLocaleString()})` : `${data.debtors.length} ${t('debtorsShort')}` },
         { detail: 'overdue', label: t('overdueCount'), value: expired.length, suffix: '', icon: AlertCircle, color: expired.length > 0 ? 'amber' : 'slate', sub: t('notEvicted') },
-        { detail: 'free', label: t('freeBedsLabel'), value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `${t('ofLabel')} ${data.totalBeds}${data.rentedBeds ? ` · ${t('rentLower')} ${data.rentedBeds}` : ''}` },
+        { detail: 'free', label: t('freeBedsLabel'), value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `${t('ofLabel')} ${data.totalBeds}${data.bookedToday ? ` · ${t('ddBookedToday').replace('{n}', data.bookedToday)}` : ''}${data.rentedBeds ? ` · ${t('rentLower')} ${data.rentedBeds}` : ''}` },
     ];
 
     const scopeLabel = currentHostelId === 'all' ? t('expAllHostels') : currentHostelId === 'hostel1' ? t('expHostel1') : currentHostelId === 'hostel2' ? t('expHostel2') : t('expHostel');

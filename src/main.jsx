@@ -46,8 +46,16 @@ try {
       const apply = () => {
         const sa = w.safeAreaInset || {}, ca = w.contentSafeAreaInset || {}
         const top = (sa.top || 0) + (ca.top || 0)
-        // 0 — шапка Telegram своя, над веб-вью: оставляем запас по умолчанию из CSS
-        if (top > 0) root.style.setProperty('--tg-top', `${top + 8}px`)
+        const known = w.platform && w.platform !== 'unknown'
+        if (top > 0) {
+          // полноэкранный режим: системная строка + кнопки Telegram поверх страницы
+          root.style.setProperty('--tg-top', `${top + 4}px`)
+        } else if (known) {
+          // мини-приложение в обычном режиме: шапка Telegram своя, над страницей —
+          // запас не нужен (раньше оставались лишние 56px пустоты сверху)
+          root.style.setProperty('--tg-top', 'calc(env(safe-area-inset-top, 0px) + 6px)')
+        }
+        // иначе (встроенный браузер, данных нет) — запас по умолчанию из CSS
         root.style.setProperty('--tg-bottom', `${(sa.bottom || 0) + (ca.bottom || 0)}px`)
       }
       apply()
@@ -55,6 +63,7 @@ try {
         w.onEvent('safeAreaChanged', apply)
         w.onEvent('contentSafeAreaChanged', apply)
         w.onEvent('fullscreenChanged', apply)
+        w.onEvent('viewportChanged', apply)
       } catch { /* no-op */ }
     }
     document.head.appendChild(s)

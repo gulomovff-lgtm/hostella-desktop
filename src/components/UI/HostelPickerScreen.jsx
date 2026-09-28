@@ -76,7 +76,7 @@ const HostelPickerScreen = ({ user, onPick, onLogout, lang = 'ru', themeId = 'au
             .hp-card:active { transform: scale(.97); }
         `}</style>
 
-        <div className="fixed inset-0 w-screen h-screen z-[100] flex flex-col overflow-hidden"
+        <div className="tg-fullscreen fixed inset-0 w-screen h-screen z-[100] flex flex-col overflow-hidden"
              style={{ background: theme.bg, animation:'hpBgFade .9s ease both' }}>
 
             {/* Облака */}
