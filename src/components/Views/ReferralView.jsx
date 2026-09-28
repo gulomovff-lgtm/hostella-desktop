@@ -20,6 +20,57 @@ const fmt = (n) => (Number(n) || 0).toLocaleString('ru-RU');
 const dm = (d) => { const x = new Date(d || 0); return x.getTime() ? x.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'; };
 const norm = (s) => String(s || '').toLowerCase();
 
+const INP = 'px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-indigo-400';
+
+/**
+ * Выбор клиента по имени, паспорту, телефону или коду.
+ * Отдельный компонент на уровне модуля: объявленный внутри раздела, он
+ * пересоздавался на каждое нажатие клавиши — поле теряло курсор и заново
+ * перебирало всех клиентов («зависает при вводе», 2026-09-28). Поиск — от 2
+ * символов, с задержкой ввода (useDeferredValue) и не больше 8 строк.
+ */
+const ClientPicker = React.memo(function ClientPicker({ clients, value, text, onText, onPick, placeholder }) {
+    const deferred = React.useDeferredValue(text);
+    const picked = value ? clients.find(c => c.id === value) : null;
+    const list = useMemo(() => {
+        if (picked) return [];
+        const s = norm(deferred).trim();
+        if (s.length < 2) return [];
+        const ph = normPhone9(deferred);
+        const sp = s.replace(/\s/g, '');
+        const out = [];
+        for (const c of clients) {
+            if (norm(c.fullName).includes(s) || norm(c.passport).replace(/\s/g, '').includes(sp)
+                || (ph && normPhone9(c.phone) === ph) || norm(c.refCode) === s) {
+                out.push(c);
+                if (out.length >= 8) break;
+            }
+        }
+        return out;
+    }, [clients, deferred, picked]);
+    return (
+        <div className="relative">
+            {picked ? (
+                <div className={INP + ' flex items-center justify-between gap-2'}>
+                    <span className="font-semibold truncate">{picked.fullName}</span>
+                    <button onClick={() => onPick('')} className="text-xs text-slate-400 hover:text-rose-500">✕</button>
+                </div>
+            ) : (
+                <input className={INP + ' w-full'} value={text} onChange={e => onText(e.target.value)} placeholder={placeholder} />
+            )}
+            {list.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-auto">
+                    {list.map(c => (
+                        <button key={c.id} onClick={() => onPick(c.id)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                            <span className="font-semibold">{c.fullName}</span> <span className="text-xs text-slate-400">{c.passport || ''} {c.phone || ''}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+});
+
 const ReferralView = ({ clients = [], guests = [], currentUser, showNotification, lang = 'ru' }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
@@ -32,6 +83,10 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
     const [link, setLink] = useState({ code: '', q: '', clientId: '' });
     const [adj, setAdj] = useState({ q: '', clientId: '', amount: '', sign: 1, note: '' });
     const [busy, setBusy] = useState(false);
+    const onLinkText = React.useCallback(v => setLink(l => ({ ...l, q: v })), []);
+    const onLinkPick = React.useCallback(id => setLink(l => ({ ...l, clientId: id })), []);
+    const onAdjText = React.useCallback(v => setAdj(a => ({ ...a, q: v })), []);
+    const onAdjPick = React.useCallback(id => setAdj(a => ({ ...a, clientId: id })), []);
 
     useEffect(() => onSnapshot(doc(db, ...P('settings', 'referralProgram')), (s) => {
         const d = s.exists() ? s.data() : {};
@@ -74,14 +129,6 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
         }).filter(r => !q || norm(r.c.fullName).includes(norm(q)) || norm(r.c.refCode).includes(norm(q)) || norm(r.c.phone).includes(norm(q)))
           .sort((a, b) => (b.credited + b.pending) - (a.credited + a.pending) || String(a.c.fullName).localeCompare(String(b.c.fullName)));
     }, [guests, clients, clientById, ledger, settings, q]);
-
-    const clientSearch = (text) => {
-        const s = norm(text).trim();
-        if (s.length < 2) return [];
-        const ph = normPhone9(text);
-        return clients.filter(c => norm(c.fullName).includes(s) || norm(c.passport).replace(/\s/g, '').includes(s.replace(/\s/g, ''))
-            || (ph && normPhone9(c.phone) === ph) || norm(c.refCode) === s).slice(0, 8);
-    };
 
     const saveSettings = async () => {
         const rate = Math.max(0, Math.round(Number(String(form.ratePerNight).replace(/\D/g, '')) || 0));
@@ -154,32 +201,6 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
     const inp = 'px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-indigo-400';
     const totals = referrers.reduce((a, r) => ({ credited: a.credited + r.credited, pending: a.pending + r.pending, invited: a.invited + r.invited }), { credited: 0, pending: 0, invited: 0 });
 
-    const ClientPicker = ({ value, text, onText, onPick }) => {
-        const picked = clientById.get(value);
-        const list = picked ? [] : clientSearch(text);
-        return (
-            <div className="relative">
-                {picked ? (
-                    <div className={inp + ' flex items-center justify-between gap-2'}>
-                        <span className="font-semibold truncate">{picked.fullName}</span>
-                        <button onClick={() => onPick('')} className="text-xs text-slate-400 hover:text-rose-500">✕</button>
-                    </div>
-                ) : (
-                    <input className={inp + ' w-full'} value={text} onChange={e => onText(e.target.value)} placeholder={t('rfClientPh')} />
-                )}
-                {list.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-auto">
-                        {list.map(c => (
-                            <button key={c.id} onClick={() => onPick(c.id)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
-                                <span className="font-semibold">{c.fullName}</span> <span className="text-xs text-slate-400">{c.passport || ''} {c.phone || ''}</span>
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-    };
-
     return (
         <div className="p-3 md:p-6 space-y-4">
             <div className="flex items-center gap-3 flex-wrap">
@@ -222,7 +243,7 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
                     <p className="text-[11px] text-slate-500 leading-snug">{t('rfLinkHint')}</p>
                     <div className="grid grid-cols-[110px_1fr] gap-2">
                         <input className={inp + ' tabular-nums tracking-widest text-center font-black'} inputMode="numeric" maxLength={6} value={link.code} onChange={e => setLink(l => ({ ...l, code: e.target.value.replace(/\D/g, '') }))} placeholder="000000" />
-                        <ClientPicker value={link.clientId} text={link.q} onText={v => setLink(l => ({ ...l, q: v }))} onPick={id => setLink(l => ({ ...l, clientId: id }))} />
+                        <ClientPicker clients={clients} placeholder={t('rfClientPh')} value={link.clientId} text={link.q} onText={onLinkText} onPick={onLinkPick} />
                     </div>
                     <button disabled={busy} onClick={linkTelegram} className="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-bold flex items-center gap-1.5 disabled:opacity-50"><Send size={14} /> {t('rfLinkBtn')}</button>
                 </div>
@@ -230,7 +251,7 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
                 {isAdmin && (
                     <div className={card + ' space-y-3'}>
                         <div className="font-black text-slate-800">{t('rfAdjTitle')}</div>
-                        <ClientPicker value={adj.clientId} text={adj.q} onText={v => setAdj(a => ({ ...a, q: v }))} onPick={id => setAdj(a => ({ ...a, clientId: id }))} />
+                        <ClientPicker clients={clients} placeholder={t('rfClientPh')} value={adj.clientId} text={adj.q} onText={onAdjText} onPick={onAdjPick} />
                         <div className="flex gap-2">
                             <button onClick={() => setAdj(a => ({ ...a, sign: a.sign * -1 }))} className={`px-3 rounded-xl border text-sm font-black ${adj.sign > 0 ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-rose-200 text-rose-700 bg-rose-50'}`}>{adj.sign > 0 ? <Plus size={14} /> : <Minus size={14} />}</button>
                             <input className={inp + ' flex-1 tabular-nums'} inputMode="numeric" value={adj.amount} onChange={e => setAdj(a => ({ ...a, amount: e.target.value.replace(/\D/g, '') }))} placeholder={t('rfAdjAmount')} />
