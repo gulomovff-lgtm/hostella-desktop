@@ -29,6 +29,7 @@ import { notifySiteBooking } from '../utils/siteCallback';
 import TRANSLATIONS from '../constants/translations';
 import { assessKpp } from '../utils/kppRules';
 import { unpaidServices, splitServiceShare } from '../utils/shop';
+import { referrerForCheckin } from '../utils/referral';
 
 export function useGuestActions(ctx) {
   const {
@@ -131,6 +132,8 @@ export function useGuestActions(ctx) {
         passportIssueDate: data.passportIssueDate || '',
         lastVisit: new Date().toISOString(),
         visits: 1,
+        // реферальная программа: новый клиент навсегда закреплён за пригласившим
+        ...(data.referrerClientId ? { referredBy: data.referrerClientId, referredAt: new Date().toISOString() } : {}),
       });
     }
   };
@@ -268,6 +271,10 @@ export function useGuestActions(ctx) {
         ...(!formData.phone && srcBooking.phone ? { phone: srcBooking.phone } : {}),
       } : {};
 
+      // Реферальная программа: пригласивший — только у нового клиента (по коду из
+      // окна), у уже приглашённого — тот же, что при первом заселении.
+      const refExisting = findExistingClient(clients, formData);
+      const referrerClientId = referrerForCheckin(refExisting, formData.referrerClientId, clients, formData.passport);
       const newGuest = {
         ...formData,
         ...bookingMeta,
@@ -278,6 +285,8 @@ export function useGuestActions(ctx) {
         createdAt: new Date().toISOString(),
         createdBy: currentUser.login || 'admin',
         passportClean: formData.passport ? formData.passport.replace(/\s/g, '').toUpperCase() : '',
+        referrerClientId: referrerClientId || null,
+        ...(refExisting ? { refereeClientId: refExisting.id } : {}),
       };
 
       // Залог по брони: гость мог внести предоплату до заселения (без паспорта).
@@ -391,7 +400,7 @@ export function useGuestActions(ctx) {
           label: `${newGuest.fullName} — комн. ${newGuest.roomNumber}, место ${newGuest.bedId}`,
           guestId, paymentIds: checkinPaymentIds, roomId: formData.roomId, wasActive: true,
         });
-        await upsertClient(formData);
+        await upsertClient({ ...formData, referrerClientId });
 
         // e-mehmon: граждан Узбекистана регистрируем ПОЛНОСТЬЮ авто, но только
         // ПОСЛЕ ОПЛАТЫ (новые деньги ИЛИ залог, внесённый по брони заранее).

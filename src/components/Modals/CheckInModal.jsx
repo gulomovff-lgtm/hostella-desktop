@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { BedDouble, User, FileText, Phone, CreditCard, QrCode, Magnet, X, CheckCircle2, Wallet,
+import { Gift, BedDouble, User, FileText, Phone, CreditCard, QrCode, Magnet, X, CheckCircle2, Wallet,
          Minus, Plus, ChevronDown, RefreshCw, ScanLine, Camera, AlertTriangle,
          Cake, Globe, MapPin, Tag, CalendarDays, Moon, Banknote, Landmark, Signpost } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
@@ -10,6 +10,7 @@ import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice 
 import { recentStays } from '../../utils/guestStayHistory';
 import { dedupePeople } from '../../utils/clientMatch';
 import { sourceOptions, sourceOf, DEFAULT_SOURCE } from '../../utils/guestSource';
+import { findReferrer } from '../../utils/referral';
 import { getConfig } from '../../utils/appConfig';
 import DatePicker from '../UI/DatePicker';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -230,6 +231,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         // Откуда гость: у брони с сайта/бота выводится из записи (sourceOf),
         // у обычного заселения — «с улицы». Разбор словаря — utils/guestSource.js.
         source: sourceOf(initialClient, getConfig().guestSources),
+        // Код пригласившего (реферальная программа): из брони с сайта/бота или вручную
+        refCode: initialClient?.refCode || '',
+        referrerClientId: '',
 
         checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
         days: bookingDays > 0 ? bookingDays : 1,
@@ -299,6 +303,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             ...(bal > 0 ? { paidCash: '', paidCard: '', paidQR: '' } : {}) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formData.passport]);
+    // Кто пригласил: только для НОВОГО клиента (нет в базе по паспорту). Код или телефон.
+    const refLookup = useMemo(() => (clientCard ? { state: 'empty' } : findReferrer(formData.refCode, clientsDb, formData.passport)),
+        [clientCard, formData.refCode, formData.passport, clientsDb]);
+    useEffect(() => {
+        const id = refLookup.state === 'ok' ? refLookup.client.id : '';
+        setFormData(p => (p.referrerClientId === id ? p : { ...p, referrerClientId: id }));
+    }, [refLookup]);
+    const referredByName = useMemo(() => (clientCard?.referredBy ? (clientsDb.find(c => c.id === clientCard.referredBy)?.fullName || '—') : ''),
+        [clientCard, clientsDb]);
 
     const [scanMode, setScanMode] = useState(false); // false | 'usb' | 'ocr'
     const [ocrLoading, setOcrLoading] = useState(false);
@@ -1338,6 +1351,26 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     </select>
                                 </span>
                             </div>
+
+                            {/* ── КТО ПРИГЛАСИЛ (реферальная программа) ── */}
+                            {!clientCard ? (
+                                <div className="ci-r">
+                                    <span className="ci-r-k"><Gift size={15}/>{t('ciRefBy')}</span>
+                                    <span className="ci-r-v flex-col !items-stretch">
+                                        <input className="ci-f" value={formData.refCode || ''} placeholder={t('ciRefPh')}
+                                            onChange={e => handleChange('refCode', e.target.value)} />
+                                        {refLookup.state === 'ok' && <span className="text-[11px] font-bold text-emerald-700">✓ {refLookup.client.fullName}</span>}
+                                        {refLookup.state === 'bad' && <span className="text-[11px] font-bold text-rose-600">{t('ciRefNotFound')}</span>}
+                                        {refLookup.state === 'ambiguous' && <span className="text-[11px] font-bold text-amber-600">{t('ciRefAmbiguous')}</span>}
+                                        {refLookup.state === 'self' && <span className="text-[11px] font-bold text-rose-600">{t('ciRefSelf')}</span>}
+                                    </span>
+                                </div>
+                            ) : clientCard.referredBy ? (
+                                <div className="ci-r">
+                                    <span className="ci-r-k"><Gift size={15}/>{t('ciRefBy')}</span>
+                                    <span className="ci-r-v text-[12.5px] font-semibold">{referredByName} <span className="text-[11px] font-normal opacity-70">· {t('ciRefAuto')}</span></span>
+                                </div>
+                            ) : null}
 
                             {formData.country && formData.country !== 'Узбекистан' && (
                                 <div className="ci-r">

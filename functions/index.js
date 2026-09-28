@@ -1371,3 +1371,6 @@ exports.telegramWebhook = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'T
     res.status(200).send('ok'); // всегда 200 — иначе Telegram будет ретраить
   }
 });
+
+// Реферальная программа (денежные бонусы за сутки приглашённого) — ./referralFunctions.js
+Object.assign(exports, require("./referralFunctions"));

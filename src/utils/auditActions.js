@@ -29,6 +29,9 @@ export const ACTION_META = {
     shop_cancel:          { icon: '↩️', label: 'alShopCancel',            color: 'rose',    group: 'alGrpFinance' },
     shop_stock_in:        { icon: '📦', label: 'alShopStockIn',           color: 'blue',    group: 'alGrpFinance' },
     shop_stock_adjust:    { icon: '🧮', label: 'alShopStockAdjust',       color: 'slate',   group: 'alGrpFinance' },
+    referral_settings:    { icon: '🎁', label: 'alReferralSettings',      color: 'purple',  group: 'alGrpClients' },
+    referral_tg_link:     { icon: '✈️', label: 'alReferralTgLink',        color: 'blue',    group: 'alGrpClients' },
+    referral_adjust:      { icon: '🎁', label: 'alReferralAdjust',        color: 'amber',   group: 'alGrpFinance' },
     // Брони
     booking_add:          { icon: '📋', label: 'alBookingAdd',            color: 'purple',  group: 'alGrpBookings' },
     booking_accept:       { icon: '✅', label: 'alBookingAccept',          color: 'emerald', group: 'alGrpBookings' },
