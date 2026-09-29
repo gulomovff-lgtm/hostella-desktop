@@ -331,8 +331,21 @@ const safeInjectAutofill = (win, payload) => {
 // полным hardening в webPreferences (иначе дочернее окно наследует defaults).
 // Портал тянет картинки, шрифты и медиа, которые автоматике не нужны, а на
 // слабой кассе два скрытых окна раз в пять минут заметно подвешивают
-// интерфейс. Режем их на уровне сессии филиала; капчу (картинку) оставляем —
-// она нужна кассиру при входе в видимом окне той же сессии.
+// интерфейс. Режем их на уровне сессии филиала, но только для СКРЫТЫХ окон и не
+// на странице входа: с 29.09.2026 вход портала — белый текст на фоновой
+// фотографии, без неё кассир видит белый экран. Капчу не режем никогда.
+const portalPageForRequest = (details) => {
+  try {
+    const wc = details.webContents || (details.webContentsId && electron.webContents.fromId(details.webContentsId));
+    if (!wc || wc.isDestroyed()) return { visible: false, login: false };
+    const win = BrowserWindow.fromWebContents(wc);
+    let login = false;
+    try { login = /^\/login\b/i.test(new URL(wc.getURL()).pathname); } catch (_) {}
+    return { visible: !!(win && !win.isDestroyed() && win.isVisible()), login };
+  } catch (_) {
+    return { visible: false, login: false };
+  }
+};
 const lightPartitions = new Set();
 const lightenEmehmonSession = (part) => {
   if (lightPartitions.has(part)) return;
@@ -340,9 +353,11 @@ const lightenEmehmonSession = (part) => {
   try {
     electron.session.fromPartition(part).webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
       const t = details.resourceType;
+      const heavy = t === 'font' || t === 'media' || (t === 'image' && !/captcha/i.test(details.url || ''));
       // Пока снимается лист убытия, картинки и шрифты нужны: они попадут в PDF.
-      const cancel = !emehmonSheet.isCapturing() && (t === 'font' || t === 'media' || (t === 'image' && !/captcha/i.test(details.url || '')));
-      cb({ cancel });
+      if (!heavy || emehmonSheet.isCapturing()) { cb({ cancel: false }); return; }
+      const page = portalPageForRequest(details);
+      cb({ cancel: !page.visible && !page.login });
     });
   } catch (e) {
     log.warn('[emehmon] не удалось облегчить сессию портала:', e.message);
