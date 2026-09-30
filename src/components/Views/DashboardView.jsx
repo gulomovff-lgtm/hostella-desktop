@@ -12,6 +12,9 @@ import { chargeOf } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
 import DashboardDetailModal from '../Modals/DashboardDetailModal';
 import { buildBedsData, bedStats } from '../../utils/roomBeds';
+import BreakfastModal from '../Modals/BreakfastModal';
+import { breakfastGuests, planConfig, addDays } from '../../utils/stayPlans';
+import { getConfig } from '../../utils/appConfig';
 
 // -- Export helpers ----------------------------------------------------------
 const exportGuestsToExcel = (guests) => {
@@ -113,7 +116,7 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 
 // ---------------------------------------------------------------------------
 
-const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [], onOpenGuest, onMarkEmehmonOut }) => {
+const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [], onOpenGuest, onMarkEmehmonOut, catalog = [], onServeBreakfast }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [tab, setTab] = useState('overview');
     const [chartMode, setChartMode] = useState('income');
@@ -123,6 +126,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
     const [bulkDays, setBulkDays] = useState('1');
     // Плитка, по которой нажали: окно «подробно» (DashboardDetailModal)
     const [detail, setDetail] = useState(null);
+    const [breakfastOpen, setBreakfastOpen] = useState(false);
     const nowMs = useNow();
     const now = new Date(nowMs);
 
@@ -427,6 +431,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         { detail: 'free', label: t('freeBedsLabel'), value: data.freeBeds, suffix: '', icon: Plus, color: 'purple', sub: `${t('ofLabel')} ${data.totalBeds}${data.bookedToday ? ` · ${t('ddBookedToday').replace('{n}', data.bookedToday)}` : ''}${data.rentedBeds ? ` · ${t('rentLower')} ${data.rentedBeds}` : ''}` },
     ];
 
+    // Завтраки: филиалы с тарифом «с завтраком» в выбранном охвате
+    const bfHostels = (currentHostelId === 'all' ? ['hostel1', 'hostel2'] : [currentHostelId])
+        .filter(h => planConfig(h, now, getConfig()));
+    const bfToday = bfHostels.reduce((s, h) => s + breakfastGuests(guests, h, now, now).length, 0);
+    const bfTomorrow = bfHostels.reduce((s, h) => s + breakfastGuests(guests, h, addDays(now, 1), now).length, 0);
+
     const scopeLabel = currentHostelId === 'all' ? t('expAllHostels') : currentHostelId === 'hostel1' ? t('expHostel1') : currentHostelId === 'hostel2' ? t('expHostel2') : t('expHostel');
     const monthLabel = now.toLocaleDateString('ru', { month: 'long' });
     const netMonth = data.incomeThisMonth - data.expenseThisMonth;
@@ -450,6 +460,13 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
+                    {bfHostels.length > 0 && (
+                        <button onClick={() => setBreakfastOpen(true)} title={t('bfTitle')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 hover:ring-2 hover:ring-amber-200 transition-all">
+                            <span className="text-sm leading-none">☕</span>
+                            <span className="text-xs font-bold text-amber-800">{t('bfPill').replace('{today}', bfToday).replace('{tomorrow}', bfTomorrow)}</span>
+                            <ChevronRight size={12} className="text-amber-400" />
+                        </button>
+                    )}
                     <button onClick={() => setDetail('incomeMonth')} title={t('ddClickHint')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100 hover:ring-2 hover:ring-emerald-200 transition-all">
                         <TrendingUp size={14} className="text-emerald-600" />
                         <span className="text-xs font-bold text-emerald-700">{t('incomeForMonth').replace('{m}', monthLabel)}: {data.incomeThisMonth.toLocaleString()}</span>
@@ -467,6 +484,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
                 {kpis.map(({ detail: kind, ...k }, i) => <StatCard key={i} {...k} onClick={kind ? () => setDetail(kind) : undefined} />)}
             </div>
+
+            {breakfastOpen && (
+                <BreakfastModal onClose={() => setBreakfastOpen(false)} t={t} guests={guests} hostelIds={bfHostels}
+                    catalog={catalog} onOpenGuest={onOpenGuest}
+                    onServe={onServeBreakfast ? (p) => onServeBreakfast({ ...p, catalog }) : undefined} />
+            )}
 
             {detail && (
                 <DashboardDetailModal kind={detail} onClose={() => setDetail(null)} t={t} data={data} expired={expired}

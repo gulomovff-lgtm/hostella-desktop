@@ -7,7 +7,8 @@ import {
 import QRCode from 'qrcode';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
-import { minNightPrice, packageMinDays } from '../../utils/pricing';
+import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
+import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM } from '../../utils/stayPlans';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
@@ -366,7 +367,7 @@ const EmehmonSheetRow = ({ guest, notify, t, onFetch }) => {
     );
 };
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
@@ -464,7 +465,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     // Тарифные правила: цена ниже минимума комнаты = пакет/скидка → продление
     // только пакетом. Минимум и мин.дни — по комнате/филиалу/дате заезда (utils/pricing).
     const _priceDate = guest.checkInDate ? new Date(guest.checkInDate) : new Date();
-    const MIN_NIGHT_PRICE = minNightPrice(guest.hostelId, guest.roomNumber, _priceDate);
+    // Тарифы с завтраком (второй хостел с 01.10): минимум — цена тарифа гостя
+    // по его стране; пакета и «продления только пакетом» там нет.
+    const guestPlan = planOf(guest);
+    const plansAtStay = hasPlans(guest.hostelId, _priceDate);
+    const plansNow = !!planConfig(guest.hostelId, new Date(), getConfig());
+    const MIN_NIGHT_PRICE = minNightPrice(guest.hostelId, guest.roomNumber, _priceDate, undefined, { plan: guestPlan, country: guest.country });
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
     const guestRate = parseInt(guest.pricePerNight) || 0;
     const isBelowMinRate = guestRate > 0 && guestRate < MIN_NIGHT_PRICE;
@@ -475,7 +481,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const approvedPrice = parseInt(guest.approvedPrice) || parseInt(wlEntry?.price) || 0;
     const extRate = (isPriceApproved && approvedPrice > 0) ? approvedPrice : guestRate;
     // Пакет-онли действует, только если понижение НЕ одобрено
-    const packageOnly = isBelowMinRate && !isPriceApproved;
+    const packageOnly = isBelowMinRate && !isPriceApproved && !plansAtStay;
     // Невозвратный пакетный тариф: при выселении переплата не возвращается (пакет сгорает)
     const isNonRefundable = !!guest.nonRefundable || guest.tariff === 'package';
     // Учитываем и переплату, уже ушедшую на баланс во время проживания
@@ -604,6 +610,22 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         } finally {
             setIsPaymentSubmitting(false);
         }
+    };
+
+    /**
+     * Перевод «без завтрака ↔ с завтраком». С сегодняшнего дня: прожитые сутки
+     * по прежней цене, оставшиеся — по новой. Гостю, заселённому по старым
+     * ценам, — с даты начала тарифов (новая цена с 1-го для всех).
+     */
+    const planTarget = guestPlan === PLAN_FULL ? PLAN_ROOM : PLAN_FULL;
+    const planTargetPrice = plansNow ? planPrice(guest.hostelId, planTarget, guest.country, new Date(), getConfig()) : null;
+    const handleSwitchPlanClick = () => {
+        if (!onSwitchPlan || !planTargetPrice) return;
+        const msg = t('planSwitchConfirm')
+            .replace('{plan}', t(planTarget === PLAN_FULL ? 'planFull' : 'planRoom'))
+            .replace('{price}', planTargetPrice.toLocaleString())
+            + (guest.plan ? t('planSwitchFromToday') : t('planSwitchFromStart'));
+        if (window.confirm(msg)) onSwitchPlan(guest, planTarget);
     };
 
     const handleUpgrade = () => {
@@ -849,6 +871,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         {isBooking    && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{t('bookingBadge')}</span>}
                                         {isCheckedOut && <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{t('checkedOutBadge')}</span>}
                                         {isNonRefundable && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">{t('packageNonRefundBadge')}</span>}
+                                        {(guest.plan || plansAtStay) && (
+                                            guestPlan === PLAN_FULL
+                                                ? <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">☕ {t('planFull')}</span>
+                                                : <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{t('planRoom')}</span>
+                                        )}
                                         {!isNonRefundable && isBelowMinRate && (
                                             isPriceApproved
                                                 ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ {t('priceApprovedBadge')}</span>
@@ -1249,7 +1276,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         🛍️ {t('shAddToGuest')}
                                     </button>
                                 )}
-                                {isBelowMinRate && onUpgradeTariff && (
+                                {plansNow && onSwitchPlan && planTargetPrice && (
+                                    <button onClick={handleSwitchPlanClick} className={`w-full mt-2 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 ${planTarget === PLAN_FULL ? 'bg-amber-500 text-white hover:bg-amber-600' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}>
+                                        {planTarget === PLAN_FULL ? '☕' : '🛏️'} {t('planSwitchBtn').replace('{plan}', t(planTarget === PLAN_FULL ? 'planFull' : 'planRoom'))} · {planTargetPrice.toLocaleString()}
+                                    </button>
+                                )}
+                                {isBelowMinRate && onUpgradeTariff && !plansAtStay && !plansNow && (
                                     <button onClick={handleUpgrade} className="w-full mt-2 py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 flex items-center justify-center gap-1.5">
                                         ⬆️ {t('switchToTariff')} {MIN_NIGHT_PRICE.toLocaleString()}
                                     </button>

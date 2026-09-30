@@ -30,6 +30,8 @@ import TRANSLATIONS from '../constants/translations';
 import { assessKpp } from '../utils/kppRules';
 import { unpaidServices, splitServiceShare } from '../utils/shop';
 import { referrerForCheckin } from '../utils/referral';
+import { getConfig } from '../utils/appConfig';
+import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates } from '../utils/stayPlans';
 
 export function useGuestActions(ctx) {
   const {
@@ -914,6 +916,78 @@ export function useGuestActions(ctx) {
     }
   };
 
+  /** Сколько по услугам гостя уже оплачено записями кассы (purpose 'service'). */
+  const servicesPaidOf = (guestId) => (payments || [])
+    .filter(p => p && p.guestId === guestId && p.purpose === 'service' && !p.reportOnly)
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+  /**
+   * Перевод на тариф «без завтрака / с завтраком» (utils/stayPlans.js).
+   * Граница — сегодня; у гостя, заселённого по старым ценам (без поля plan), —
+   * дата начала тарифов: новая цена с 1-го для всех (решение владельца).
+   * Деление проживания — одним пакетом записи, как у переезда.
+   */
+  const applyPlanSwitch = (batch, g, plan, at) => {
+    const cfg = getConfig();
+    const price = planPrice(g.hostelId, plan, g.country, at, cfg);
+    const r = buildPlanSwitch(g, { plan, price, at, servicesPaid: servicesPaidOf(g.id) });
+    const gRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id);
+    if (r.mode === 'reprice') batch.update(gRef, r.patch);
+    if (r.mode === 'split') {
+      batch.update(gRef, r.oldPatch);
+      batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'guests')), r.newGuest);
+    }
+    return { ...r, price };
+  };
+
+  const handleSwitchPlan = async (g, plan) => {
+    const now = new Date();
+    const h = planConfig(g?.hostelId, now, getConfig());
+    if (!g?.id || !h) { showNotification(t('planNotActive'), 'error'); return false; }
+    const at = g.plan ? now : new Date(h.from + 'T12:00:00');
+    try {
+      const batch = writeBatch(db);
+      const r = applyPlanSwitch(batch, g, plan, at);
+      if (r.mode === 'none') { showNotification(t('planNothingToSwitch'), 'error'); return false; }
+      await batch.commit();
+      logAction(currentUser, 'plan_switch', { guestId: g.id, guestName: g.fullName || '', plan, price: r.price, mode: r.mode, passed: r.passed || 0, remaining: r.remaining || 0 });
+      setGuestDetailsModal({ open: false, guest: null });
+      showNotification(t('planSwitched').replace('{price}', Number(r.price).toLocaleString('ru-RU')), 'success');
+      return true;
+    } catch (e) {
+      showNotification(t('gaErrorPrefix') + e.message, 'error');
+      return false;
+    }
+  };
+
+  /**
+   * «Новые цены с 1-го для всех»: живущие и брони филиала, заселённые по
+   * старым ценам, переводятся на тариф «без завтрака» с даты начала тарифов.
+   * Запускает админ из Настройки → Цены после наступления даты.
+   */
+  const handleApplyNewPrices = async (hostelId) => {
+    const cfg = getConfig();
+    const h = planConfig(hostelId, new Date(), cfg);
+    if (!h) { showNotification(t('planNotActive'), 'error'); return 0; }
+    const list = newPriceCandidates(guests, hostelId, cfg);
+    if (!list.length) { showNotification(t('planNobodyToMove'), 'info'); return 0; }
+    const at = new Date(h.from + 'T12:00:00');
+    try {
+      // по 150 гостей в пакете (деление — две записи на гостя, предел пакета 500)
+      for (let i = 0; i < list.length; i += 150) {
+        const batch = writeBatch(db);
+        list.slice(i, i + 150).forEach(c => applyPlanSwitch(batch, c.guest, c.plan, at));
+        await batch.commit();
+      }
+      logAction(currentUser, 'plan_new_prices', { hostelId, count: list.length, from: h.from });
+      showNotification(t('planNewPricesDone').replace('{n}', list.length), 'success');
+      return list.length;
+    } catch (e) {
+      showNotification(t('gaErrorPrefix') + e.message, 'error');
+      return 0;
+    }
+  };
+
   const handleMoveGuest = async (g, rid, rnum, bid) => {
     // То же самое место — ничего не делаем (иначе гость ошибочно «выселялся» сплитом)
     if (String(rid) === String(g.roomId) && String(bid) === String(g.bedId)) {
@@ -997,6 +1071,7 @@ export function useGuestActions(ctx) {
         paidTransfer: oldTr,
         paidBalance:  oldBal,
         status:      'checked_out',
+        servicesTotal: 0,
         // Убираем бонусный период из старой записи
         bonusCheckOutDate: null,
         bonusDaysAdded:    null,
@@ -1027,6 +1102,11 @@ export function useGuestActions(ctx) {
         status:       'active',
         checkInDateTime: null,
         movedFromRoom:   g.roomNumber || null, // для истории
+        // Услуги «в счёт» переходят в новую запись вместе с уже оплаченной их
+        // частью; на старой обнуляются — раньше они оставались на обеих, и долг
+        // по услугам считался дважды.
+        servicesTotal:     Number(g.servicesTotal) || 0,
+        servicesPaidCarry: (Number(g.servicesPaidCarry) || 0) + servicesPaidOf(g.id),
       };
       delete newGuest.id;
       // ПЕРЕЕЗД ВНУТРИ ХОСТЕЛА — НЕ новое прибытие для e-mehmon.
@@ -1337,6 +1417,7 @@ export function useGuestActions(ctx) {
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
     handleSplitGuest, handleMoveGuest, handleDeleteGuest,
+    handleSwitchPlan, handleApplyNewPrices,
     handleRescheduleGuest, handleGuestUpdate,
     handleAdminReduceDays, handleAdminReduceDaysNoRefund,
     handlePayDebt, handleAdminAdjustDebt,

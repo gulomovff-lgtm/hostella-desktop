@@ -111,11 +111,14 @@ export function salePaymentFields(total, method, split = {}) {
  *   без гостя; method — нет способа оплаты; stock — не хватает товара.
  */
 export function validateSale({ lines = [], hostelId, guestId, mode, method, split = {}, catalog = [] } = {}) {
-  if (!lines.length || linesTotal(lines) <= 0) return 'empty';
+  // Позиции «входит в тариф» (стирка у гостя с завтраком) идут бесплатно —
+  // продажа на ноль допустима, если в ней есть такая позиция.
+  const total = linesTotal(lines);
+  if (!lines.length || (total <= 0 && !lines.some(l => num(l.included) > 0))) return 'empty';
   if (!hostelId || hostelId === 'all') return 'hostel';
   if (mode === 'account' && !guestId) return 'walkin_account';
-  if (mode !== 'account' && !PAY_METHODS.includes(method)) return 'method';
-  if (mode !== 'account' && method === 'mix') { const se = splitError(split, linesTotal(lines)); if (se) return se; }
+  if (mode !== 'account' && total > 0 && !PAY_METHODS.includes(method)) return 'method';
+  if (mode !== 'account' && total > 0 && method === 'mix') { const se = splitError(split, total); if (se) return se; }
   if (stockShortages(lines, catalog, hostelId).length) return 'stock';
   return '';
 }
@@ -139,10 +142,11 @@ export const accountTotal = (sales = []) =>
   (sales || []).filter(s => s && s.status !== 'cancelled' && s.mode === 'account').reduce((a, s) => a + num(s.total), 0);
 
 /** Проверка позиции справочника. Вернёт ключ ошибки или ''. */
-export function validateItem({ name, kind, price } = {}) {
+export function validateItem({ name, kind, price, forSale } = {}) {
   if (!String(name || '').trim()) return 'name';
   if (!KINDS.includes(kind)) return 'kind';
-  if (!(Math.round(num(price)) > 0)) return 'price';
+  // продукт не для продажи (для завтрака) может быть без цены
+  if (!(Math.round(num(price)) > 0) && !(kind === 'product' && forSale === false)) return 'price';
   return '';
 }
 
@@ -176,7 +180,9 @@ export function salesSummary(sales = []) {
 export function unpaidServices(guest, payments = [], sales = []) {
   if (!guest) return { due: 0, items: '' };
   const charged = num(guest.servicesTotal);
-  const paid = (payments || [])
+  // servicesPaidCarry — оплата услуг, пришедшая с прежней записи при делении
+  // проживания (переезд, смена тарифа): сами оплаты остались на старой записи.
+  const paid = num(guest.servicesPaidCarry) + (payments || [])
     .filter(p => p && p.guestId === guest.id && p.purpose === 'service' && !p.reportOnly)
     .reduce((s, p) => s + num(p.amount), 0);
   const due = Math.max(0, charged - paid);

@@ -4,6 +4,7 @@ import TRANSLATIONS from '../../constants/translations';
 import { fmtSum, parseSum } from '../../utils/helpers';
 import { sourceOptions, DEFAULT_SOURCE } from '../../utils/guestSource';
 import { getConfig } from '../../utils/appConfig';
+import { planConfig, planPrice, PLAN_FULL, PLAN_ROOM } from '../../utils/stayPlans';
 
 const MODAL_STYLE = `
     @keyframes gci-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -53,6 +54,11 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
     const [submitting, setSubmitting]           = useState(false);
 
     const room = allRooms.find(r => r.id === selectedRoomId);
+    // Тарифы с завтраком (второй хостел с 01.10): один тариф на группу, цена —
+    // по стране каждого гостя. Единая цена, если задана, по-прежнему главнее.
+    const [plan, setPlan] = useState(PLAN_ROOM);
+    const planDate = new Date((checkInDate || today) + 'T12:00:00');
+    const plansOn = !!(room && planConfig(room.hostelId, planDate, getConfig()));
 
     // ESC to close
     useEffect(() => {
@@ -103,7 +109,12 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
     };
 
     // если задана единая цена – используем её, иначе ценовой тариф
-    const priceForGuest = (g) => { const m = parseInt(commonPrice); return m > 0 ? m : getRoomPrice(room, g.bedId); };
+    const priceForGuest = (g) => {
+        const m = parseInt(commonPrice);
+        if (m > 0) return m;
+        const pp = plansOn ? planPrice(room.hostelId, plan, g.country, planDate, getConfig()) : null;
+        return pp != null ? pp : getRoomPrice(room, g.bedId);
+    };
     const totalForGuest = (g) => priceForGuest(g) * (parseInt(days) || 1);
     const paidForGuest  = (g) => (parseInt(g.paidCash) || 0) + (parseInt(g.paidCard) || 0) + (parseInt(g.paidQR) || 0) + (parseInt(g.paidTransfer) || 0);
 
@@ -163,6 +174,7 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                     days,
                     pricePerNight: price,
                     totalPrice: total,
+                    plan: plansOn ? plan : null,
                     amountPaid: paid,
                     paidCash:     parseInt(g.paidCash)     || 0,
                     paidCard:     parseInt(g.paidCard)     || 0,
@@ -228,6 +240,19 @@ const GroupCheckInModal = ({ allRooms = [], guests = [], onClose, onSubmitOne, n
                                 <button onClick={() => setDays(d => d + 1)} className="w-8 h-9 bg-slate-200 hover:bg-slate-300 rounded-lg font-bold text-slate-600 flex items-center justify-center text-sm">+</button>
                             </div>
                         </div>
+                        {plansOn && (
+                            <div>
+                                <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('tariff')}</label>
+                                <div className="flex gap-1">
+                                    {[PLAN_ROOM, PLAN_FULL].map(pl => (
+                                        <button key={pl} type="button" onClick={() => setPlan(pl)}
+                                            className={`flex-1 h-9 rounded-lg text-xs font-bold ${plan === pl ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                                            {pl === PLAN_FULL ? '☕ ' + t('planFull') : t('planRoom')}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div>
                             <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">{t('pricePerNightAll')}</label>
                             <div className="relative">

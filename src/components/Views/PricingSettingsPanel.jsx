@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Plus, Trash2, Save, CalendarClock, DollarSign, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Plus, Trash2, Save, CalendarClock, DollarSign, Send, ChevronDown, ChevronUp, Coffee } from 'lucide-react';
+import { plansOf, newPriceCandidates, planConfig } from '../../utils/stayPlans';
 import { getConfig, saveAppConfig } from '../../utils/appConfig';
 import { PAY_TYPES, normalizePayType } from '../../utils/emehmonDeparture';
 import TRANSLATIONS from '../../constants/translations';
@@ -82,7 +83,25 @@ const SetEditor = ({ set, onChange, showPackage = true, t = (k) => k }) => {
     );
 };
 
-const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
+// Тарифы «без завтрака / с завтраком» по филиалу (utils/stayPlans.js)
+const mkPlans = (plans) => Object.fromEntries(HOSTELS.map(h => {
+    const x = plans?.[h.id] || {};
+    return [h.id, {
+        enabled: !!x.enabled, from: x.from || '',
+        localRoom: String(x.local?.room ?? ''), localFull: String(x.local?.full ?? ''),
+        foreignRoom: String(x.foreign?.room ?? ''), foreignFull: String(x.foreign?.full ?? ''),
+    }];
+}));
+const plansToCfg = (st) => Object.fromEntries(HOSTELS.map(h => {
+    const x = st[h.id];
+    return [h.id, {
+        enabled: !!x.enabled, from: /^\d{4}-\d{2}-\d{2}$/.test(x.from) ? x.from : '',
+        local:   { room: parseInt(x.localRoom) || 0,   full: parseInt(x.localFull) || 0 },
+        foreign: { room: parseInt(x.foreignRoom) || 0, full: parseInt(x.foreignFull) || 0 },
+    }];
+}));
+
+const PricingSettingsPanel = ({ notify, lang = 'ru', guests = [], catalog = [], onApplyNewPrices }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const cfg = getConfig();
     const p = cfg.pricing || {};
@@ -93,6 +112,15 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
         ...mkSet(s.base, s.packageMinDays ?? p.packageMinDays, s.packagePrice ?? p.packagePrice),
     })));
     const [saving, setSaving] = useState(false);
+    const [plans, setPlans] = useState(() => mkPlans(plansOf(cfg)));
+    const updPlan = (hid, patch) => setPlans(p => ({ ...p, [hid]: { ...p[hid], ...patch } }));
+    // Рецепт завтрака: продукты склада на одну порцию — списываются при выдаче
+    const [recipe, setRecipe] = useState(() => Object.fromEntries(HOSTELS.map(h =>
+        [h.id, (cfg.breakfastRecipe?.[h.id] || []).map(r => ({ itemId: r.itemId, qty: String(r.qty) }))])));
+    const products = useMemo(() => (catalog || []).filter(i => i.kind === 'product' && i.active !== false), [catalog]);
+    const setRecipeRow = (hid, i, patch) => setRecipe(r => ({ ...r, [hid]: r[hid].map((x, j) => j === i ? { ...x, ...patch } : x) }));
+    // Перевод живущих на новые цены: список — по сохранённой схеме
+    const [applying, setApplying] = useState('');
     // Ставки, которые указываются в поле «Сумма оплаты» портала e-mehmon
     const [emLocal, setEmLocal] = useState(String(cfg.emehmonAmountLocal ?? 30000));
     const [emForeign, setEmForeign] = useState(String(cfg.emehmonAmountForeign ?? 50000));
@@ -111,6 +139,7 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
                 packagePrice: parseInt(base.packagePrice) || 65000,
                 base: toBlock(base),
                 package: p.package || { hostel1: { default: 0, rooms: {} }, hostel2: { default: 0, rooms: {} } },
+                plans: plansToCfg(plans),
                 seasons: seasons.filter(s => s.from && s.to).map(s => ({
                     id: s.id, name: s.name, from: s.from, to: s.to,
                     packageMinDays: parseInt(s.packageMinDays) || undefined,
@@ -124,6 +153,9 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
                 emehmonAmountLocal: parseInt(emLocal) || 30000,
                 emehmonAmountForeign: parseInt(emForeign) || 50000,
                 emehmonPayType: normalizePayType(emPayType),
+                breakfastRecipe: Object.fromEntries(HOSTELS.map(h => [h.id, recipe[h.id]
+                    .map(r => ({ itemId: r.itemId, qty: Math.round((parseFloat(String(r.qty).replace(',', '.')) || 0) * 100) / 100 }))
+                    .filter(r => r.itemId && r.qty > 0)])),
             });
             notify?.(t('psSavedOk'), 'success');
         } catch (e) {
@@ -168,6 +200,85 @@ const PricingSettingsPanel = ({ notify, lang = 'ru' }) => {
                         {PAY_TYPES.map(p => <option key={p.value} value={p.value}>{p.literal || t(p.labelKey)}</option>)}
                     </select>
                     <p className="text-xs text-slate-400 mt-1">{t('psEmPayTypeHint')}</p>
+                </div>
+            </div>
+
+            {/* Тарифы без завтрака / с завтраком */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                <div className="font-black text-slate-800 flex items-center gap-2"><Coffee size={16} className="text-amber-600" /> {t('planSettingsTitle')}</div>
+                <p className="text-xs text-slate-400">{t('planSettingsHint')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {HOSTELS.map(h => {
+                        const x = plans[h.id];
+                        const saved = planConfig(h.id, new Date(), cfg);
+                        const cands = saved ? newPriceCandidates(guests, h.id, cfg) : [];
+                        const priceInp = (key, label) => (
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">{label}</label>
+                                <input className={inp} inputMode="numeric" value={x[key]} disabled={!x.enabled}
+                                    onChange={e => updPlan(h.id, { [key]: e.target.value.replace(/\D/g, '') })} />
+                            </div>
+                        );
+                        return (
+                            <div key={h.id} className="rounded-xl border border-slate-200 p-3 space-y-2">
+                                <label className="flex items-center gap-2 font-black text-sm text-slate-700">
+                                    <input type="checkbox" checked={x.enabled} onChange={e => updPlan(h.id, { enabled: e.target.checked })} />
+                                    {t(h.labelKey)}
+                                </label>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">{t('planFrom')}</label>
+                                    <input className={inp} type="date" value={x.from} disabled={!x.enabled} onChange={e => updPlan(h.id, { from: e.target.value })} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {priceInp('localRoom', '🇺🇿 ' + t('planRoom'))}
+                                    {priceInp('localFull', '🇺🇿 ☕ ' + t('planFull'))}
+                                    {priceInp('foreignRoom', '🌍 ' + t('planRoom'))}
+                                    {priceInp('foreignFull', '🌍 ☕ ' + t('planFull'))}
+                                </div>
+                                {/* Рецепт завтрака: что уходит со склада на одну порцию */}
+                                <div className="pt-1 space-y-1.5">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase">{t('bfRecipeTitle')}</div>
+                                    {recipe[h.id].map((r, i) => (
+                                        <div key={i} className="flex items-center gap-1.5">
+                                            <select className={inp + ' flex-1'} value={r.itemId} onChange={e => setRecipeRow(h.id, i, { itemId: e.target.value })}>
+                                                <option value="">—</option>
+                                                {products.map(p => <option key={p.id} value={p.id}>{p.emoji ? p.emoji + ' ' : ''}{p.name}</option>)}
+                                            </select>
+                                            <input className={inp + ' w-20'} inputMode="decimal" placeholder={t('bfQtyPh')} value={r.qty}
+                                                onChange={e => setRecipeRow(h.id, i, { qty: e.target.value.replace(/[^\d.,]/g, '') })} />
+                                            <button onClick={() => setRecipe(rr => ({ ...rr, [h.id]: rr[h.id].filter((_, j) => j !== i) }))} className="p-2 text-slate-400 hover:text-rose-600"><Trash2 size={15} /></button>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => setRecipe(rr => ({ ...rr, [h.id]: [...rr[h.id], { itemId: '', qty: '1' }] }))}
+                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"><Plus size={13} /> {t('bfRecipeAdd')}</button>
+                                    {!products.length && <p className="text-[11px] text-slate-400">{t('bfRecipeNoProducts')}</p>}
+                                </div>
+                                {/* Новые цены для уже живущих (решение владельца: с 1-го для всех) */}
+                                {saved && onApplyNewPrices && cands.length > 0 && (
+                                    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+                                        <p className="text-xs font-semibold text-amber-800">{t('planMigrateHint').replace('{date}', saved.from.split('-').reverse().join('.')).replace('{n}', cands.length)}</p>
+                                        <div className="max-h-40 overflow-auto text-[11px] text-slate-600 space-y-0.5">
+                                            {cands.map(c => (
+                                                <div key={c.guest.id} className="flex justify-between gap-2">
+                                                    <span className="truncate">№{c.guest.roomNumber} · {c.guest.fullName}</span>
+                                                    <span className="tabular-nums shrink-0">{c.oldPrice.toLocaleString()} → <b>{c.newPrice.toLocaleString()}</b> × {c.remaining}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button disabled={!!applying}
+                                            onClick={async () => {
+                                                if (!window.confirm(t('planMigrateConfirm').replace('{n}', cands.length))) return;
+                                                setApplying(h.id);
+                                                try { await onApplyNewPrices(h.id); } finally { setApplying(''); }
+                                            }}
+                                            className="w-full py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 disabled:opacity-50">
+                                            {applying === h.id ? t('psSaving') : t('planMigrateBtn').replace('{n}', cands.length)}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 

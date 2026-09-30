@@ -4,6 +4,8 @@ import { db, storage, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { buildLines, linesTotal, linesComment, validateSale, validateItem, canCancelSale, salePaymentFields } from '../utils/shop';
+import { getConfig } from '../utils/appConfig';
+import { recipeOf, breakfastWriteOff, writeOffDelta, applyPlanAllowance } from '../utils/stayPlans';
 
 /**
  * useShopActions — услуги и товары (стирка, глажка, завтрак, напитки…).
@@ -24,14 +26,16 @@ export function useShopActions({ currentUser, lang, showNotification }) {
    * Продажа. guest — проживающий или null («с улицы»).
    * mode: 'account' — в счёт гостя; 'paid' — оплачено сейчас (method).
    */
-  const handleSale = async ({ guest = null, hostelId, cart = [], mode = 'paid', method = 'cash', split = {}, catalog = [] }) => {
-    const lines = buildLines(cart, catalog);
+  const handleSale = async ({ guest = null, hostelId, cart = [], mode = 'paid', method = 'cash', split = {}, catalog = [], sales = [] }) => {
+    // Гость «с завтраком»: стирка (позиции с planIncludedPerDay) — в пределах
+    // суточного лимита бесплатно, в продаже отмечается included (utils/stayPlans.js)
+    const lines = applyPlanAllowance(buildLines(cart, catalog), guest, sales, catalog, new Date());
     const err = validateSale({ lines, hostelId, guestId: guest?.id || '', mode, method, split, catalog });
     if (err) { showNotification(t('shErr_' + err), 'error'); return false; }
     const total = linesTotal(lines);
     const now = new Date().toISOString();
     const saleRef = doc(col('sales'));
-    const payRef = mode === 'paid' ? doc(col('payments')) : null;
+    const payRef = mode === 'paid' && total > 0 ? doc(col('payments')) : null;
     const need = new Map();
     for (const l of lines) if (l.kind === 'product' && l.itemId) need.set(l.itemId, (need.get(l.itemId) || 0) + l.qty);
     try {
@@ -130,6 +134,10 @@ export function useShopActions({ currentUser, lang, showNotification }) {
     const fields = {
       name: String(item.name).trim().slice(0, 60), kind: item.kind, price: Math.round(Number(item.price)),
       emoji: String(item.emoji || '').slice(0, 4), active: item.active !== false,
+      // тариф «с завтраком»: сколько раз в сутки услуга бесплатно (0 — не входит)
+      planIncludedPerDay: item.kind === 'service' ? Math.max(0, Math.min(99, parseInt(item.planIncludedPerDay) || 0)) : 0,
+      // продукт только для завтрака/расхода — в окне продажи не показывается
+      forSale: item.kind === 'product' ? item.forSale !== false : true,
     };
     try {
       let id = item.id;
@@ -243,5 +251,52 @@ export function useShopActions({ currentUser, lang, showNotification }) {
     }
   };
 
-  return { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust };
+  /**
+   * Завтраки выданы: списание продуктов по рецепту (Настройки → Цены) —
+   * не продажа, выручки нет. Одна отметка на филиал и день
+   * (breakfasts/{филиал}_{дата}); повторная — поправка на разницу. Остаток
+   * может уйти в минус: завтрак уже съеден, минус подскажет закупку или
+   * инвентаризацию.
+   */
+  const handleServeBreakfast = async ({ hostelId, day, guestIds = [], catalog = [] }) => {
+    if (!hostelId || hostelId === 'all' || !day) { showNotification(t('shErr_hostel'), 'error'); return false; }
+    const recipe = recipeOf(getConfig(), hostelId);
+    const now = new Date().toISOString();
+    const bRef = ref('breakfasts', `${hostelId}_${day}`);
+    try {
+      const res = await runTransaction(db, async (tx) => {
+        const prev = await tx.get(bRef);
+        const prevItems = prev.exists() ? (prev.data().items || []) : [];
+        const ids = new Set([...recipe.map(r => r.itemId), ...prevItems.map(l => l.itemId)]);
+        const snaps = {};
+        for (const id of ids) snaps[id] = await tx.get(ref('catalog', id));
+        const cat = [...ids].filter(id => snaps[id].exists()).map(id => ({ id, ...snaps[id].data() }));
+        const next = breakfastWriteOff(recipe, guestIds.length, cat.length ? cat : catalog, hostelId);
+        const delta = writeOffDelta(prevItems, next.lines);
+        for (const d of delta) {
+          if (!snaps[d.itemId]?.exists()) continue;
+          tx.update(ref('catalog', d.itemId), { [`stock.${hostelId}`]: increment(-d.delta) });
+          tx.set(doc(col('stockMoves')), {
+            itemId: d.itemId, itemName: d.name || '', hostelId, qty: -d.delta,
+            reason: 'breakfast', breakfastId: bRef.id, date: now, staffId: staffId(),
+          });
+        }
+        tx.set(bRef, {
+          hostelId, date: day, served: guestIds.length, guestIds: guestIds.slice(0, 300),
+          items: next.lines.map(({ itemId, name, qty, unitCost, cost }) => ({ itemId, name, qty, unitCost, cost })),
+          cost: next.cost, staffId: staffId(), staffName: currentUser?.name || currentUser?.login || '',
+          updatedAt: now, ...(prev.exists() ? {} : { createdAt: now }),
+        });
+        return { served: guestIds.length, cost: next.cost, fix: prev.exists() };
+      });
+      logAction(currentUser, 'breakfast_serve', { hostelId, day, served: res.served, cost: res.cost, fix: res.fix });
+      showNotification(t('bfServedOk').replace('{n}', res.served), 'success');
+      return true;
+    } catch (e) {
+      showNotification(t('shSaleFailed') + (e?.message || e), 'error');
+      return false;
+    }
+  };
+
+  return { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust, handleServeBreakfast };
 }

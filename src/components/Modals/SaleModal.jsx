@@ -3,6 +3,7 @@ import { X, Plus, Minus, Trash2, Check, ShoppingBag } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { fmtSum, parseSum } from '../../utils/helpers';
 import { buildLines, linesTotal, stockOf, stockShortages, PAY_METHODS, SPLIT_KEYS, splitError } from '../../utils/shop';
+import { applyPlanAllowance } from '../../utils/stayPlans';
 
 const labelCls = 'block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5';
 const inputCls = 'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:border-orange-400 outline-none';
@@ -13,7 +14,7 @@ const money = (n) => (Number(n) || 0).toLocaleString('ru-RU');
  * сразу). Цены позиций справочника — из справочника; разовую услугу кассир
  * вводит сам. Товар без остатка в филиале не продаётся.
  */
-const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId = '', lockedHostelId = '', lang = 'ru', onSubmit, onClose }) => {
+const SaleModal = ({ guest = null, catalog = [], sales = [], hostels = [], defaultHostelId = '', lockedHostelId = '', lang = 'ru', onSubmit, onClose }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     // Хостел: у гостя — его; у кассира — где он работает (смена), выбора нет;
     // выбирать может только админ/супер.
@@ -27,14 +28,17 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
     const [split, setSplit] = useState({ cash: '', card: '', qr: '' });
     const [busy, setBusy] = useState(false);
 
-    const items = useMemo(() => (catalog || []).filter(i => i.active !== false)
+    const items = useMemo(() => (catalog || []).filter(i => i.active !== false && i.forSale !== false)
         .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'service' ? -1 : 1) || String(a.name).localeCompare(String(b.name))), [catalog]);
     const shown = items.filter(i => filter === 'all' || i.kind === filter);
-    const lines = useMemo(() => buildLines(cart, catalog), [cart, catalog]);
+    // Строки с ключом корзины; у гостя «с завтраком» стирка в пределах суток — бесплатно
+    const lines = useMemo(() => applyPlanAllowance(
+        cart.map(c => { const l = buildLines([c], catalog)[0]; return l ? { ...l, key: c.key } : null; }).filter(Boolean),
+        guest, sales, catalog, new Date()), [cart, catalog, guest, sales]);
     const total = linesTotal(lines);
     const shortages = useMemo(() => stockShortages(lines, catalog, hostelId), [lines, catalog, hostelId]);
     const splitSum = SPLIT_KEYS.reduce((s, k) => s + (parseInt(split[k]) || 0), 0);
-    const splitErr = mode === 'paid' && method === 'mix' ? splitError(split, total) : '';
+    const splitErr = mode === 'paid' && method === 'mix' && total > 0 ? splitError(split, total) : '';
     const inCart = (itemId) => cart.filter(c => c.itemId === itemId).reduce((s, c) => s + c.qty, 0);
 
     useEffect(() => {
@@ -149,13 +153,14 @@ const SaleModal = ({ guest = null, catalog = [], hostels = [], defaultHostelId =
                         ) : (
                             <div className="space-y-1.5">
                                 {cart.map(c => {
-                                    const l = buildLines([c], catalog)[0];
+                                    const l = lines.find(x => x.key === c.key);
                                     if (!l) return null;
                                     return (
                                         <div key={c.key} className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-2.5 py-2">
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-sm font-bold text-slate-800 truncate">{l.name}</div>
-                                                <div className="text-[11px] text-slate-400 tabular-nums">{money(l.price)} × {l.qty}</div>
+                                                <div className="text-[11px] text-slate-400 tabular-nums">{money(l.price)} × {l.qty}
+                                                    {l.included > 0 && <span className="ml-1.5 font-bold text-amber-700">☕ {t('shIncludedInPlan').replace('{n}', l.included)}</span>}</div>
                                             </div>
                                             <button onClick={() => bump(c.key, -1)} className="p-1 rounded-md hover:bg-slate-100 text-slate-500"><Minus size={13} /></button>
                                             <span className="w-5 text-center text-sm font-black tabular-nums">{l.qty}</span>

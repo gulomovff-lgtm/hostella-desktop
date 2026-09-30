@@ -195,7 +195,7 @@ const CurrencyCard = ({ code, data, bg, text, t }) => {
 };
 
 // --- Main ---
-const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, users, tasks, shifts, lang = 'ru', notify, onOpenTemplateEditor }) => {
+const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, users, tasks, shifts, lang = 'ru', notify, onOpenTemplateEditor, catalog = [], onApplyNewPrices }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const { rates, loading: ratesLoading, updatedAt, error: ratesError, refresh: refreshRates } = useExchangeRate();
 
@@ -720,7 +720,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
 
             {/* ── Цены ── */}
             {tab === 'pricing' && (
-                <PricingSettingsPanel notify={notify} lang={lang} />
+                <PricingSettingsPanel notify={notify} lang={lang} guests={guests} catalog={catalog} onApplyNewPrices={onApplyNewPrices} />
             )}
 
             {/* ── Уведомления ── */}

@@ -6,7 +6,8 @@ import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
-import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice } from '../../utils/pricing';
+import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice, hasPlans } from '../../utils/pricing';
+import { planPrice, isLocal, PLAN_FULL, PLAN_ROOM } from '../../utils/stayPlans';
 import { recentStays } from '../../utils/guestStayHistory';
 import { dedupePeople } from '../../utils/clientMatch';
 import { sourceOptions, sourceOf, DEFAULT_SOURCE } from '../../utils/guestSource';
@@ -238,6 +239,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         checkInDate: initialDate ? initialDate.split('T')[0] : new Date().toISOString().split('T')[0],
         days: bookingDays > 0 ? bookingDays : 1,
         tariff: (isFromBooking && initialClient?.nonRefundable) ? 'package' : 'standard', // 'standard' | 'package' (пакет, от N дней, невозвратный)
+        // Тариф филиала с завтраками (utils/stayPlans.js): 'room' — без завтрака, 'full' — с завтраком
+        plan: initialClient?.plan === PLAN_FULL ? PLAN_FULL : PLAN_ROOM,
 
         paidCash: '',
         paidCard: '',
@@ -252,7 +255,11 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const _curRoom = allRooms.find(r => r.id === formData.roomId) || safeInitialRoom;
     const _roomHostel = _curRoom?.hostelId || currentUser?.hostelId || 'hostel1';
     const _priceDate = formData.checkInDate ? new Date(formData.checkInDate) : new Date();
-    const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate);
+    // Второй хостел с 01.10: тарифы «без завтрака / с завтраком», цена — по стране
+    // гостя; пакета там нет (решение владельца 2026-09-30, utils/stayPlans.js).
+    const _plans = hasPlans(_roomHostel, _priceDate);
+    const _planOpts = { plan: formData.plan, country: formData.country };
+    const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate, undefined, _planOpts);
     const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
 
@@ -728,6 +735,26 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     const priceApproved = priceReqStatus === 'approved' || clientWhitelisted;
 
+    /**
+     * Тарифы с завтраком: цена суток следует за тарифом, страной, местом и
+     * датой заезда. Выбор комнаты или койки ставит цену комнаты — здесь она
+     * заменяется ценой тарифа. Одобренное понижение не трогаем, пакет там,
+     * где действуют тарифы, снимаем.
+     */
+    const _planDay = formData.checkInDate || '';
+    useEffect(() => {
+        if (!_plans) return;
+        const pp = planPrice(_roomHostel, formData.plan, formData.country, _priceDate, getConfig());
+        setFormData(p => {
+            const patch = {};
+            if (p.tariff === 'package') patch.tariff = 'standard';
+            if (pp != null && !priceApproved && (parseInt(p.pricePerNight) || 0) !== pp) patch.pricePerNight = String(pp);
+            return Object.keys(patch).length ? { ...p, ...patch } : p;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [_plans, _roomHostel, formData.plan, formData.country, formData.roomId, formData.bedId, _planDay, priceApproved]);
+
+
     const handleChange = (field, value) => {
         const processed = (field === 'fullName' || field === 'passport') ? value.toUpperCase() : value;
         setFormData(prev => ({ ...prev, [field]: processed }));
@@ -927,6 +954,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 totalPrice,
                 amountPaid: totalPaid,
                 nonRefundable: formData.tariff === 'package',
+                plan: _plans ? formData.plan : null,
                 priceReductionAllowed: !!priceApproved,
                 approvedPrice: priceApproved ? (parseInt(formData.pricePerNight) || 0) : 0,
             });
@@ -1076,7 +1104,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                         value={formData.roomId}
                                         onChange={handleRoomSelect}
                                         options={allRooms.map(r => {
-                                            const cfg = configuredNightPrice(r.hostelId, r.number);
+                                            const cfg = configuredNightPrice(r.hostelId, r.number, _priceDate, undefined, _planOpts);
                                             let priceStr;
                                             if (cfg != null) {
                                                 priceStr = `${cfg.toLocaleString()} ${t('sum')}`;
@@ -1459,12 +1487,21 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             <div className="ci-r">
                                 <span className="ci-r-k ci-r-k-w"><Tag size={15}/>{t('tariff')}</span>
                                 <span className="ci-r-v ci-flat">
-                                    <span className="ci-pick">
-                                        <button type="button" onClick={() => selectTariff('standard')}
-                                            className={formData.tariff === 'standard' ? 'ci-on' : ''}>{t('tariffStandard')}</button>
-                                        <button type="button" onClick={() => selectTariff('package')}
-                                            className={formData.tariff === 'package' ? 'ci-on' : ''}>{t('tariffPackage')}</button>
-                                    </span>
+                                    {_plans ? (
+                                        <span className="ci-pick">
+                                            <button type="button" onClick={() => handleChange('plan', PLAN_ROOM)}
+                                                className={formData.plan !== PLAN_FULL ? 'ci-on' : ''}>{t('planRoom')}</button>
+                                            <button type="button" onClick={() => handleChange('plan', PLAN_FULL)}
+                                                className={formData.plan === PLAN_FULL ? 'ci-on' : ''}>☕ {t('planFull')}</button>
+                                        </span>
+                                    ) : (
+                                        <span className="ci-pick">
+                                            <button type="button" onClick={() => selectTariff('standard')}
+                                                className={formData.tariff === 'standard' ? 'ci-on' : ''}>{t('tariffStandard')}</button>
+                                            <button type="button" onClick={() => selectTariff('package')}
+                                                className={formData.tariff === 'package' ? 'ci-on' : ''}>{t('tariffPackage')}</button>
+                                        </span>
+                                    )}
                                 </span>
                             </div>
 
@@ -1524,7 +1561,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                                 value={fmtSum(formData.pricePerNight)}
                                                 onChange={e => handleChange('pricePerNight', parseSum(e.target.value))}/>
                                         </span>
-                                        <span className="ci-r-side">{t('fromMinSuffix').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}</span>
+                                        <span className="ci-r-side">{_plans
+                                            ? (isLocal(formData.country) ? t('planLocalRate') : t('planForeignRate'))
+                                            : t('fromMinSuffix').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}</span>
                                     </>
                                 )}
                             </div>
@@ -1532,11 +1571,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             <div className="ci-cap ci-cap-sub">{t('notesTitle')}</div>
                             <div className="mt-1.5">
-                                <div className="ci-note">
-                                    <span className={`ci-dot${formData.tariff === 'package' ? '' : ' ci-off'}`}/>
-                                    <span>{t('tariffPackage')} <b>{PACKAGE_PRICE.toLocaleString()}</b>
-                                        {' — '}{t('packageFromDays').replace('{days}', PACKAGE_MIN_DAYS)}</span>
-                                </div>
+                                {_plans ? (
+                                    <div className="ci-note">
+                                        <span className={`ci-dot${formData.plan === PLAN_FULL ? '' : ' ci-off'}`}/>
+                                        <span>☕ {t('planFull')} — {t('planFullIncludes')}</span>
+                                    </div>
+                                ) : (
+                                    <div className="ci-note">
+                                        <span className={`ci-dot${formData.tariff === 'package' ? '' : ' ci-off'}`}/>
+                                        <span>{t('tariffPackage')} <b>{PACKAGE_PRICE.toLocaleString()}</b>
+                                            {' — '}{t('packageFromDays').replace('{days}', PACKAGE_MIN_DAYS)}</span>
+                                    </div>
+                                )}
                                 <div className="ci-note"><span className="ci-dot ci-off"/>
                                     <span>{t('priceBelowMinApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString())}</span>
                                 </div>

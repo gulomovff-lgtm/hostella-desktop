@@ -157,6 +157,12 @@ service cloud.firestore {
         allow create: if isStaff();
         allow update, delete: if false;
       }
+      // Отметка «завтраки выданы» за день филиала (списание продуктов, не продажа):
+      // повторная отметка — поправка того же документа, удаления нет.
+      match /breakfasts/{doc} {
+        allow read, create, update: if isStaff();
+        allow delete: if false;
+      }
 
       // ── Промокоды ─────────────────────────────────────────────────────────
       // Читают сотрудники (виджет берёт активные промо через функцию). Пишет

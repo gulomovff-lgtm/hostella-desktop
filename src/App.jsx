@@ -879,6 +879,7 @@ function App() {
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
     handleSplitGuest, handleMoveGuest, handleDeleteGuest,
+    handleSwitchPlan, handleApplyNewPrices,
     handleRescheduleGuest, handleGuestUpdate,
     handleAdminReduceDays, handleAdminReduceDaysNoRefund,
     handlePayDebt, handleAdminAdjustDebt,
@@ -942,7 +943,7 @@ function App() {
     setUndoStack,
   });
 
-  const { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust } =
+  const { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust, handleServeBreakfast } =
     useShopActions({ currentUser, lang, showNotification });
   const HOSTEL_OPTIONS = useMemo(() => Object.entries(HOSTELS).map(([id, h]) => ({ id, name: h.name })), []);
   // Хостел кассира для продаж: где открыта его смена, иначе его привязка.
@@ -1968,6 +1969,8 @@ return (
                         registrations={filteredRegistrations}
                         onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                         onMarkEmehmonOut={(id) => handleEmehmonFlag(id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() })}
+                        catalog={catalog}
+                        onServeBreakfast={handleServeBreakfast}
                     />
                 )}
 
@@ -2381,6 +2384,8 @@ return (
                         lang={lang}
                         notify={showNotification}
                         onOpenTemplateEditor={() => setTemplateEditorModal(true)}
+                        catalog={catalog}
+                        onApplyNewPrices={handleApplyNewPrices}
                     />
                 )}
 
@@ -2601,6 +2606,7 @@ return (
                 onRegisterAuto={handleRegisterAuto}
                 onPriceRequest={handleRequestPriceReduction}
                 onUpgradeTariff={handleUpgradeToStandardTariff}
+                onSwitchPlan={handleSwitchPlan}
                 priceWhitelist={priceWhitelist}
                 onOpenHistory={() => {
                     const g = guestDetailsModal.guest;
@@ -2794,7 +2800,8 @@ return (
                     defaultHostelId={(currentUser.hostelId && currentUser.hostelId !== 'all') ? currentUser.hostelId : selectedHostelFilter}
                     lockedHostelId={cashierHostelId || ''}
                     lang={lang}
-                    onSubmit={(p) => handleSale({ ...p, catalog })}
+                    sales={sales}
+                    onSubmit={(p) => handleSale({ ...p, catalog, sales })}
                     onClose={() => setSaleModal({ open: false, guest: null })}
                 />
             )}

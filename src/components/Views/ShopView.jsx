@@ -265,6 +265,22 @@ const ShopView = ({
                                 onChange={e => setEditItem(x => ({ ...x, price: e.target.value.replace(/\D/g, '') }))} /></div>
                         </div>
                         <p className="text-[11px] text-slate-400">{t('shKindHint')}</p>
+                        {/* Тариф «с завтраком»: услуга бесплатно N раз в сутки (стирка — 1) */}
+                        {editItem.kind === 'service' && (
+                            <div>
+                                <label className={labelCls}>☕ {t('shPlanIncluded')}</label>
+                                <input className={inputCls + ' tabular-nums'} inputMode="numeric" placeholder="0"
+                                    value={String(editItem.planIncludedPerDay ?? '')}
+                                    onChange={e => setEditItem(x => ({ ...x, planIncludedPerDay: e.target.value.replace(/\D/g, '').slice(0, 2) }))} />
+                                <p className="text-[11px] text-slate-400 mt-1">{t('shPlanIncludedHint')}</p>
+                            </div>
+                        )}
+                        {/* Продукт только для завтрака (яйца, хлеб): в продаже не показывается */}
+                        {editItem.kind === 'product' && (
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                                <input type="checkbox" checked={editItem.forSale !== false} onChange={e => setEditItem(x => ({ ...x, forSale: e.target.checked }))} /> {t('shForSale')}
+                            </label>
+                        )}
                         {editItem.id && (
                             <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
                                 <input type="checkbox" checked={editItem.active !== false} onChange={e => setEditItem(x => ({ ...x, active: e.target.checked }))} /> {t('shActive')}
