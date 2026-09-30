@@ -31,7 +31,7 @@ import { assessKpp } from '../utils/kppRules';
 import { unpaidServices, splitServiceShare } from '../utils/shop';
 import { referrerForCheckin } from '../utils/referral';
 import { getConfig } from '../utils/appConfig';
-import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates } from '../utils/stayPlans';
+import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildPromoContinuation, PLAN_ROOM } from '../utils/stayPlans';
 
 export function useGuestActions(ctx) {
   const {
@@ -667,7 +667,50 @@ export function useGuestActions(ctx) {
     }
   };
 
+  /**
+   * Продление гостя ночного заезда: ночь (50 000 до 07:00) закрывается, с 07:00 —
+   * новая запись на extendDays суток по цене тарифа (utils/stayPlans.js).
+   * Оплата продления — на новую запись.
+   */
+  const extendNightPromo = async (eg, { extendDays, payCash = 0, payCard = 0, payQR = 0 }) => {
+    const safeStaffId = currentUser.id || currentUser.login;
+    const price = planPrice(eg.hostelId, PLAN_ROOM, eg.country, new Date(), getConfig()) || Number(eg.pricePerNight) || 0;
+    const r = buildPromoContinuation(eg, { days: extendDays, price, plan: PLAN_ROOM, servicesPaid: servicesPaidOf(eg.id) });
+    if (!r) { showNotification(t('planNothingToSwitch'), 'error'); return; }
+    const nowIso = new Date().toISOString();
+    const payTotal = payCash + payCard + payQR;
+    const batch = writeBatch(db);
+    const nRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'guests'));
+    const newGuest = { ...r.newGuest, lastExtendedBy: safeStaffId, lastExtendedAt: nowIso };
+    let paymentIds = [];
+    if (payTotal > 0) {
+      paymentIds = addGuestPaymentDocs(batch, { ...newGuest, id: nRef.id }, { cash: payCash, card: payCard, qr: payQR }, safeStaffId,
+        { purpose: 'extend', guestName: eg.fullName, roomNumber: eg.roomNumber, extendDays: Number(extendDays) || 0, untilDate: newGuest.checkOutDate }, nowIso).ids;
+      newGuest.paidCash = (Number(newGuest.paidCash) || 0) + payCash;
+      newGuest.paidCard = (Number(newGuest.paidCard) || 0) + payCard;
+      newGuest.paidQR = (Number(newGuest.paidQR) || 0) + payQR;
+      newGuest.amountPaid = (Number(newGuest.amountPaid) || 0) + payTotal;
+      newGuest.lastPaymentAt = nowIso;
+    }
+    batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', eg.id), r.oldPatch);
+    batch.set(nRef, newGuest);
+    await batch.commit();
+    logAction(currentUser, 'extend', {
+      guestId: nRef.id, guestName: eg.fullName || '', roomNumber: eg.roomNumber || '', nightPromoFrom: eg.id,
+      days: Number(extendDays) || 0, fromDate: eg.checkOutDate || '', toDate: newGuest.checkOutDate,
+      addedPrice: newGuest.totalPrice, totalPrice: newGuest.totalPrice, amount: payTotal, cash: payCash, card: payCard, qr: payQR, paymentIds,
+    });
+    setGuestDetailsModal({ open: false, guest: null });
+    showNotification(t('nightPromoExtended').replace('{days}', extendDays).replace('{price}', price.toLocaleString('ru-RU')), 'success');
+  };
+
   const handleExtendGuest = async (guestId, extData) => {
+    const promoGuest = guests.find(x => x.id === guestId);
+    if (promoGuest?.nightPromo && promoGuest.status === 'active') {
+      try { await extendNightPromo(promoGuest, extData); }
+      catch (e) { showNotification(t('gaExtendErrorPrefix') + (e?.message || e), 'error'); }
+      return;
+    }
     try {
       const safeStaffId = currentUser.id || currentUser.login;
       const { extendDays, payCash = 0, payCard = 0, payQR = 0,

@@ -7,7 +7,7 @@ import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice, hasPlans } from '../../utils/pricing';
-import { planPrice, isLocal, PLAN_FULL, PLAN_ROOM } from '../../utils/stayPlans';
+import { planPrice, isLocal, PLAN_FULL, PLAN_ROOM, nightPromoOffer } from '../../utils/stayPlans';
 import { recentStays } from '../../utils/guestStayHistory';
 import { dedupePeople } from '../../utils/clientMatch';
 import { sourceOptions, sourceOf, DEFAULT_SOURCE } from '../../utils/guestSource';
@@ -260,6 +260,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const _plans = hasPlans(_roomHostel, _priceDate);
     const _planOpts = { plan: formData.plan, country: formData.country };
     const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate, undefined, _planOpts);
+    // Ночной заезд (решение владельца 2026-09-30): второй хостел, граждане
+    // Узбекистана, пришёл с 23:00 до 07:00 — место 50 000 до 07:00 утра.
+    // Предлагается сам, кассир может отключить. Бронь — не ночной заезд.
+    const [nightOff, setNightOff] = useState(false);
+    const _todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+    const _todayOrEve = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+    const nightOffer = (!isFromBooking && (formData.checkInDate === _todayStr || formData.checkInDate === _todayOrEve))
+        ? nightPromoOffer(_roomHostel, formData.country, new Date(), getConfig()) : null;
+    const nightOn = !!nightOffer && !nightOff;
     const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
 
@@ -536,11 +545,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
     /** Дата выезда — считается, а не вводится: два поля про одни сутки разойдутся. */
     const checkOutPreview = useMemo(() => {
+        if (nightOn) return `${nightOffer.end.toLocaleDateString('ru-RU')} 07:00`;
         const d = new Date(formData.checkInDate);
         if (Number.isNaN(d.getTime())) return '';
         d.setDate(d.getDate() + (parseInt(formData.days) || 1));
         return d.toLocaleDateString('ru-RU');
-    }, [formData.checkInDate, formData.days]);
+    }, [formData.checkInDate, formData.days, nightOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * Все проверки полей разом.
@@ -569,7 +579,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         }
         if (formData.tariff === 'package') {
             if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) errs.days = t('minDaysError').replace('{days}', PACKAGE_MIN_DAYS);
-        } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
+        } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved && !(nightOn && status === 'active')) {
             errs.pricePerNight = t('minSumOrApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString());
         }
         return errs;
@@ -743,16 +753,18 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
      */
     const _planDay = formData.checkInDate || '';
     useEffect(() => {
-        if (!_plans) return;
-        const pp = planPrice(_roomHostel, formData.plan, formData.country, _priceDate, getConfig());
+        if (!_plans && !nightOn) return;
+        const pp = nightOn ? nightOffer.price : planPrice(_roomHostel, formData.plan, formData.country, _priceDate, getConfig());
         setFormData(p => {
             const patch = {};
             if (p.tariff === 'package') patch.tariff = 'standard';
+            if (nightOn && (parseInt(p.days) || 0) !== 1) patch.days = 1;
+            if (nightOn && p.plan !== PLAN_ROOM) patch.plan = PLAN_ROOM;
             if (pp != null && !priceApproved && (parseInt(p.pricePerNight) || 0) !== pp) patch.pricePerNight = String(pp);
             return Object.keys(patch).length ? { ...p, ...patch } : p;
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [_plans, _roomHostel, formData.plan, formData.country, formData.roomId, formData.bedId, _planDay, priceApproved]);
+    }, [_plans, _roomHostel, formData.plan, formData.country, formData.roomId, formData.bedId, _planDay, priceApproved, nightOn]);
 
 
     const handleChange = (field, value) => {
@@ -900,7 +912,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 notify(t('packageMinDaysError').replace('{days}', PACKAGE_MIN_DAYS), 'error');
                 return;
             }
-        } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved) {
+        } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved && !(nightOn && status === 'active')) {
             notify(t('priceBelowMinApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString()), 'error');
             return;
         }
@@ -946,15 +958,21 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             if (status === 'active' && checkIn > nowTs && checkIn.toDateString() === nowTs.toDateString()) {
                 checkIn.setTime(nowTs.getTime());
             }
+            const night = nightOn && status === 'active';
+            if (night) {
+                checkIn.setTime(nowTs.getTime());
+                checkOut.setTime(nightOffer.end.getTime());
+            }
             await onSubmit({
                 ...formData,
                 status,
+                ...(night ? { days: 1, pricePerNight: nightOffer.price, plan: PLAN_ROOM, nightPromo: true } : {}),
                 checkInDate: checkIn.toISOString(),
                 checkOutDate: checkOut.toISOString(),
                 totalPrice,
                 amountPaid: totalPaid,
                 nonRefundable: formData.tariff === 'package',
-                plan: _plans ? formData.plan : null,
+                plan: night ? PLAN_ROOM : (_plans ? formData.plan : null),
                 priceReductionAllowed: !!priceApproved,
                 approvedPrice: priceApproved ? (parseInt(formData.pricePerNight) || 0) : 0,
             });
@@ -1484,10 +1502,21 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 <span className="ci-cap-ct">{parseInt(formData.days) || 0} {t('daysShort')}</span>
                             </div>
 
+                            {nightOffer && (
+                                <div className={`ci-notice ${nightOn ? 'ci-info' : ''} flex items-center gap-2`}>
+                                    <span className="flex-1">🌙 {nightOn
+                                        ? t('nightPromoOn').replace('{price}', nightOffer.price.toLocaleString())
+                                        : t('nightPromoOff')}</span>
+                                    <button type="button" className="text-[11px] font-bold underline shrink-0" onClick={() => setNightOff(v => !v)}>
+                                        {nightOn ? t('nightPromoDisable') : t('nightPromoEnable')}</button>
+                                </div>
+                            )}
                             <div className="ci-r">
                                 <span className="ci-r-k ci-r-k-w"><Tag size={15}/>{t('tariff')}</span>
                                 <span className="ci-r-v ci-flat">
-                                    {_plans ? (
+                                    {nightOn ? (
+                                        <span className="text-[13px] font-bold" style={{ color: 'var(--ci-ink-2)' }}>🌙 {t('nightPromoBadge')}</span>
+                                    ) : _plans ? (
                                         <span className="ci-pick">
                                             <button type="button" onClick={() => handleChange('plan', PLAN_ROOM)}
                                                 className={formData.plan !== PLAN_FULL ? 'ci-on' : ''}>{t('planRoom')}</button>
@@ -1542,7 +1571,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 <span className="ci-r-v ci-flat text-[15px] font-bold tabular-nums" style={{ padding: '5px 2px' }}>
                                     {checkOutPreview || '—'}
                                 </span>
-                                <span className="ci-r-side">{t('untilHour').replace('{h}', String(checkOutHour).padStart(2, '0'))}</span>
+                                {!nightOn && <span className="ci-r-side">{t('untilHour').replace('{h}', String(checkOutHour).padStart(2, '0'))}</span>}
                             </div>
 
                             <div className="ci-r">
@@ -1590,7 +1619,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
 
                             {/* Запрос на понижение цены — с состоянием, поэтому блок,
                                 а не строка примечания. */}
-                            {formData.tariff === 'standard' && (parseInt(formData.pricePerNight) || 0) > 0 && (parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && (
+                            {!nightOn && formData.tariff === 'standard' && (parseInt(formData.pricePerNight) || 0) > 0 && (parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && (
                                 <div className="mt-3">
                                     {clientWhitelisted ? (
                                         <div className="flex items-start gap-2 rounded-xl px-3 py-2.5"

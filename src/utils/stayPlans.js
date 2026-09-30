@@ -15,6 +15,9 @@
  *    в сутки — на позиции справочника, planIncludedPerDay).
  *  • Завтрак расходует продукты склада по рецепту — это списание, а не
  *    продажа: остаток уменьшается, выручки нет, себестоимость видна.
+ *  • Ночной заезд (только второй хостел, граждане Узбекистана): пришёл с
+ *    23:00 до 07:00 — место 50 000 до 07:00 утра. Остаётся дальше — это
+ *    новое проживание с 07:00 по обычной цене тарифа (продолжение записи).
  *
  * Без React и Firestore — покрыто тестами (tests/stay-plans.test.mjs).
  */
@@ -30,6 +33,7 @@ export const DEFAULT_PLANS = {
     from: '2026-10-01',
     local:   { room: 80000,  full: 100000 },
     foreign: { room: 105000, full: 125000 },
+    night:   { enabled: true, price: 50000, fromHour: 23, toHour: 7, localOnly: true },
   },
 };
 
@@ -266,4 +270,64 @@ export function newPriceCandidates(guests = [], hostelId, cfg) {
     out.push({ guest: g, plan: PLAN_ROOM, oldPrice, newPrice, passed: nights === total ? 0 : passed, remaining: nights, extra: (newPrice - oldPrice) * nights });
   }
   return out.sort((a, b) => String(a.guest.roomNumber || '').localeCompare(String(b.guest.roomNumber || ''), 'ru', { numeric: true }));
+}
+
+// ── Ночной заезд ──────────────────────────────────────────────────────────
+
+/**
+ * Предложение ночного заезда для гостя, пришедшего `now`: { price, end } —
+ * цена места и конец (07:00 ближайшего утра), либо null (не тот филиал,
+ * не то время, иностранец).
+ */
+export function nightPromoOffer(hostelId, country, now = new Date(), cfg) {
+  const h = planConfig(hostelId, now, cfg);
+  const n = h?.night;
+  if (!n || n.enabled === false || !(num(n.price) > 0)) return null;
+  if (n.localOnly !== false && !isLocal(country)) return null;
+  const from = Number.isFinite(Number(n.fromHour)) ? Number(n.fromHour) : 23;
+  const to = Number.isFinite(Number(n.toHour)) ? Number(n.toHour) : 7;
+  const x = toDate(now);
+  const hr = x.getHours();
+  const inside = from > to ? (hr >= from || hr < to) : (hr >= from && hr < to);
+  if (!inside) return null;
+  const end = new Date(x);
+  if (from > to && hr >= from) end.setDate(end.getDate() + 1);
+  end.setHours(to, 0, 0, 0);
+  return { price: Math.round(num(n.price)), end };
+}
+
+/**
+ * Гость ночного заезда остаётся: его запись (50 000 до 07:00) закрывается,
+ * с 07:00 начинается новая — `days` суток по цене тарифа, выезд в обычный
+ * час. Деньги: сначала оплачивается ночь, остальное — в новую запись; услуги
+ * «в счёт» и регистрация e-mehmon переходят, как при переезде.
+ */
+export function buildPromoContinuation(g, { days, price, plan, servicesPaid = 0, checkOutHour = 12 } = {}) {
+  const n = Math.max(0, Math.round(num(days)));
+  const p = Math.round(num(price));
+  if (!g || !n || p <= 0 || !g.checkOutDate) return null;
+  const start = new Date(g.checkOutDate);
+  const end = new Date(start); end.setDate(end.getDate() + n); end.setHours(checkOutHour, 0, 0, 0);
+  const nightCost = Math.round(num(g.totalPrice)) || Math.round(num(g.pricePerNight));
+  const { first, second } = splitPaid(g, nightCost);
+  const oldPatch = {
+    ...first, servicesTotal: 0, status: 'checked_out', promoContinued: true,
+    ...(g.emehmonReg ? { emehmonOut: true, emehmonOutAt: start.toISOString(), emehmonMovedOut: true } : {}),
+  };
+  const newGuest = {
+    ...g, ...second,
+    checkInDate: start.toISOString(), checkOutDate: end.toISOString(),
+    days: n, pricePerNight: p, totalPrice: p * n,
+    plan: plan === PLAN_FULL ? PLAN_FULL : PLAN_ROOM, tariff: 'standard', nonRefundable: false,
+    priceReductionAllowed: false, approvedPrice: 0,
+    servicesTotal: num(g.servicesTotal),
+    servicesPaidCarry: num(g.servicesPaidCarry) + Math.max(0, num(servicesPaid)),
+    status: 'active', checkInDateTime: null, movedWithin: true, promoFrom: g.id || '',
+  };
+  delete newGuest.id;
+  delete newGuest.nightPromo;
+  delete newGuest.refBonusCredited;
+  ['emehmonRegError', 'emehmonRegErrorAt', ...EMEHMON_OUT_KEYS].forEach((k) => { delete newGuest[k]; });
+  if (g.emehmonReg) newGuest.emehmonRoomSkip = true;
+  return { oldPatch, newGuest };
 }

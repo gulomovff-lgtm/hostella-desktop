@@ -90,6 +90,7 @@ const mkPlans = (plans) => Object.fromEntries(HOSTELS.map(h => {
         enabled: !!x.enabled, from: x.from || '',
         localRoom: String(x.local?.room ?? ''), localFull: String(x.local?.full ?? ''),
         foreignRoom: String(x.foreign?.room ?? ''), foreignFull: String(x.foreign?.full ?? ''),
+        nightEnabled: !!x.night?.enabled, nightPrice: String(x.night?.price ?? ''),
     }];
 }));
 const plansToCfg = (st) => Object.fromEntries(HOSTELS.map(h => {
@@ -98,6 +99,8 @@ const plansToCfg = (st) => Object.fromEntries(HOSTELS.map(h => {
         enabled: !!x.enabled, from: /^\d{4}-\d{2}-\d{2}$/.test(x.from) ? x.from : '',
         local:   { room: parseInt(x.localRoom) || 0,   full: parseInt(x.localFull) || 0 },
         foreign: { room: parseInt(x.foreignRoom) || 0, full: parseInt(x.foreignFull) || 0 },
+        // ночной заезд: граждане Узбекистана, с 23:00 до 07:00, место до 07:00 утра
+        night: { enabled: !!x.nightEnabled && (parseInt(x.nightPrice) || 0) > 0, price: parseInt(x.nightPrice) || 0, fromHour: 23, toHour: 7, localOnly: true },
     }];
 }));
 
@@ -234,6 +237,13 @@ const PricingSettingsPanel = ({ notify, lang = 'ru', guests = [], catalog = [], 
                                     {priceInp('localFull', '🇺🇿 ☕ ' + t('planFull'))}
                                     {priceInp('foreignRoom', '🌍 ' + t('planRoom'))}
                                     {priceInp('foreignFull', '🌍 ☕ ' + t('planFull'))}
+                                </div>
+                                <div className="flex items-end gap-2">
+                                    <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 pb-2.5 shrink-0">
+                                        <input type="checkbox" checked={x.nightEnabled} disabled={!x.enabled} onChange={e => updPlan(h.id, { nightEnabled: e.target.checked })} />
+                                        🌙 {t('nightPromoSetting')}
+                                    </label>
+                                    <div className="flex-1">{priceInp('nightPrice', '🇺🇿 23:00–07:00')}</div>
                                 </div>
                                 {/* Рецепт завтрака: что уходит со склада на одну порцию */}
                                 <div className="pt-1 space-y-1.5">

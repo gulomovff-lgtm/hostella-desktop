@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
     planConfig, planPrice, isLocal, planOf, breakfastGuests, breakfastWriteOff, writeOffDelta,
     includedUsed, applyPlanAllowance, stayNightsBefore, splitPaid, recipeOf, DEFAULT_PLANS, ymd,
-    buildPlanSwitch, newPriceCandidates,
+    buildPlanSwitch, newPriceCandidates, nightPromoOffer, buildPromoContinuation,
 } from '../src/utils/stayPlans.js';
 
 const cfg = { pricing: { plans: DEFAULT_PLANS } };
@@ -166,4 +166,40 @@ test('новые цены с 01.10: живущие через дату и бро
     assert.deepEqual([a.passed, a.remaining, a.newPrice, a.extra], [3, 3, 80000, 45000]);
     const b = c.find(x => x.guest.id === 'b');
     assert.deepEqual([b.passed, b.remaining, b.newPrice, b.extra], [0, 2, 105000, 70000]);
+});
+
+test('ночной заезд: второй хостел, местные, с 23:00 до 07:00, до 07:00 утра', () => {
+    const at = (d, h, m = 0) => new Date(2026, 9, d, h, m);
+    const o1 = nightPromoOffer('hostel2', 'Узбекистан', at(2, 23, 30), cfg);
+    assert.equal(o1.price, 50000);
+    assert.equal(o1.end.getDate(), 3);
+    assert.equal(o1.end.getHours(), 7);
+    const o2 = nightPromoOffer('hostel2', '', at(3, 2, 15), cfg);
+    assert.equal(o2.end.getDate(), 3);
+    assert.equal(o2.end.getHours(), 7);
+    assert.equal(nightPromoOffer('hostel2', 'Узбекистан', at(3, 7, 0), cfg), null);
+    assert.equal(nightPromoOffer('hostel2', 'Узбекистан', at(3, 22, 59), cfg), null);
+    assert.equal(nightPromoOffer('hostel2', 'Россия', at(3, 1, 0), cfg), null);
+    assert.equal(nightPromoOffer('hostel1', 'Узбекистан', at(3, 1, 0), cfg), null);
+    assert.equal(nightPromoOffer('hostel2', 'Узбекистан', new Date(2026, 8, 30, 23, 30), cfg), null); // до 01.10
+});
+
+test('ночной гость остаётся: ночь закрыта, дальше по тарифу, деньги целы', () => {
+    const g = {
+        id: 'n1', hostelId: 'hostel2', status: 'active', nightPromo: true, plan: 'room', country: 'Узбекистан',
+        checkInDate: new Date(2026, 9, 3, 1, 20).toISOString(), checkOutDate: new Date(2026, 9, 3, 7, 0).toISOString(),
+        days: 1, pricePerNight: 50000, totalPrice: 50000, amountPaid: 130000, paidCash: 130000, emehmonReg: true,
+    };
+    const r = buildPromoContinuation(g, { days: 1, price: 80000, plan: 'room' });
+    assert.equal(r.oldPatch.amountPaid, 50000);
+    assert.equal(r.oldPatch.status, 'checked_out');
+    const n = r.newGuest;
+    assert.equal(n.amountPaid, 80000);
+    assert.equal(n.totalPrice, 80000);
+    assert.equal(n.nightPromo, undefined);
+    assert.equal(new Date(n.checkInDate).getHours(), 7);
+    assert.equal(new Date(n.checkOutDate).getDate(), 4);
+    assert.equal(new Date(n.checkOutDate).getHours(), 12);
+    assert.equal(n.emehmonReg, true);
+    assert.equal(buildPromoContinuation(g, { days: 0, price: 80000 }), null);
 });

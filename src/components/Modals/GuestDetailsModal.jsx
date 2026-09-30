@@ -479,7 +479,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const wlEntry = priceWhitelist.find(w => normPass(w.passport || w.id) === normPass(guest.passport));
     const isPriceApproved = !!guest.priceReductionAllowed || !!wlEntry;
     const approvedPrice = parseInt(guest.approvedPrice) || parseInt(wlEntry?.price) || 0;
-    const extRate = (isPriceApproved && approvedPrice > 0) ? approvedPrice : guestRate;
+    // Ночной заезд (50 000 до 07:00): продление — по обычной цене тарифа с 07:00
+    const promoNextRate = guest.nightPromo
+        ? (planPrice(guest.hostelId, PLAN_ROOM, guest.country, new Date(), getConfig()) || minNightPrice(guest.hostelId, guest.roomNumber, new Date()))
+        : 0;
+    const extRate = promoNextRate || ((isPriceApproved && approvedPrice > 0) ? approvedPrice : guestRate);
     // Пакет-онли действует, только если понижение НЕ одобрено
     const packageOnly = isBelowMinRate && !isPriceApproved && !plansAtStay;
     // Невозвратный пакетный тариф: при выселении переплата не возвращается (пакет сгорает)
@@ -871,6 +875,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         {isBooking    && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{t('bookingBadge')}</span>}
                                         {isCheckedOut && <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{t('checkedOutBadge')}</span>}
                                         {isNonRefundable && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">{t('packageNonRefundBadge')}</span>}
+                                        {guest.nightPromo && <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">🌙 {t('nightPromoBadge')}</span>}
                                         {(guest.plan || plansAtStay) && (
                                             guestPlan === PLAN_FULL
                                                 ? <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">☕ {t('planFull')}</span>
