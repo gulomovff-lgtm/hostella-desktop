@@ -879,7 +879,7 @@ function App() {
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
     handleSplitGuest, handleMoveGuest, handleDeleteGuest,
-    handleSwitchPlan, handleApplyNewPrices,
+    handleSwitchPlan, handleApplyNewPrices, autoApplyNewPrices,
     handleRescheduleGuest, handleGuestUpdate,
     handleAdminReduceDays, handleAdminReduceDaysNoRefund,
     handlePayDebt, handleAdminAdjustDebt,
@@ -900,6 +900,25 @@ function App() {
     // оплата гостя сначала гасит неоплаченные услуги по счёту (utils/shop.js)
     payments, sales,
   });
+
+  // Новые тарифы (второй хостел с 01.10): заселённые по старым ценам
+  // пересчитываются сами — через 20 с после загрузки и раз в 10 минут, пока
+  // программа открыта (решение владельца 2026-10-01). Пересчёт идемпотентный:
+  // транзакция на гостя, см. useGuestActions.applyNewPriceTx.
+  const autoPricesRef = useRef(autoApplyNewPrices);
+  autoPricesRef.current = autoApplyNewPrices;
+  useEffect(() => {
+    if (!currentUser || !isDataReady || !isOnline) return undefined;
+    let busy = false;
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      try { await autoPricesRef.current(); } catch (e) { console.error('[autoPrices]', e); } finally { busy = false; }
+    };
+    const first = setTimeout(run, 20000);
+    const every = setInterval(run, 10 * 60 * 1000);
+    return () => { clearTimeout(first); clearInterval(every); };
+  }, [currentUser?.id, currentUser?.login, isDataReady, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     handleUpdateClient, handleImportClients, handleMergeClients,

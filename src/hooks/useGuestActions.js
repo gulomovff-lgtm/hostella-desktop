@@ -17,7 +17,7 @@
  * @param {function} ctx.showNotification
  */
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField,
+  collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField, runTransaction,
 } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
@@ -989,6 +989,15 @@ export function useGuestActions(ctx) {
     if (!g?.id || !h) { showNotification(t('planNotActive'), 'error'); return false; }
     const at = g.plan ? now : new Date(h.from + 'T12:00:00');
     try {
+      if (!g.plan) {
+        // заселён по старым ценам — тот же путь, что у автопересчёта (без двойного деления)
+        const r = await applyNewPriceTx(g, at, plan);
+        if (!r) { showNotification(t('planNothingToSwitch'), 'error'); return false; }
+        logAction(currentUser, 'plan_switch', { guestId: g.id, guestName: g.fullName || '', plan, price: r.price, mode: r.mode, fromStart: true });
+        setGuestDetailsModal({ open: false, guest: null });
+        showNotification(t('planSwitched').replace('{price}', Number(r.price).toLocaleString('ru-RU')), 'success');
+        return true;
+      }
       const batch = writeBatch(db);
       const r = applyPlanSwitch(batch, g, plan, at);
       if (r.mode === 'none') { showNotification(t('planNothingToSwitch'), 'error'); return false; }
@@ -1004,31 +1013,65 @@ export function useGuestActions(ctx) {
   };
 
   /**
-   * «Новые цены с 1-го для всех»: живущие и брони филиала, заселённые по
-   * старым ценам, переводятся на тариф «без завтрака» с даты начала тарифов.
-   * Запускает админ из Настройки → Цены после наступления даты.
+   * «Новые цены с 1-го для всех» (решение владельца 2026-10-01: пересчёт сам,
+   * без кнопки). Живущие и брони филиала, заселённые по старым ценам (нет поля
+   * plan), переводятся на тариф «без завтрака» с даты начала тарифов.
+   *
+   * Каждый гость — своей транзакцией: она перечитывает гостя и пропускает его,
+   * если тариф уже выставлен или он выселен, а продолжение пишет под
+   * постоянным id `<гость>_np`. Поэтому пересчёт, запущенный одновременно с
+   * нескольких касс, не делит одного гостя дважды.
    */
-  const handleApplyNewPrices = async (hostelId) => {
+  const applyNewPriceTx = async (g, at, plan = PLAN_ROOM) => {
+    const gRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id);
+    const nRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', `${g.id}_np`);
+    return runTransaction(db, async (tx) => {
+      const cur = await tx.get(gRef);
+      if (!cur.exists()) return null;
+      const fresh = { id: g.id, ...cur.data() };
+      if (fresh.plan || !(fresh.status === 'active' || fresh.status === 'booking')) return null;
+      const price = planPrice(fresh.hostelId, plan, fresh.country, at, getConfig());
+      const r = buildPlanSwitch(fresh, { plan, price, at, servicesPaid: servicesPaidOf(g.id) });
+      if (r.mode === 'none') return null;
+      if (r.mode === 'split') {
+        const ex = await tx.get(nRef);
+        if (ex.exists()) return null;
+        tx.update(gRef, r.oldPatch);
+        tx.set(nRef, r.newGuest);
+      } else {
+        tx.update(gRef, r.patch);
+      }
+      return { mode: r.mode, price };
+    });
+  };
+
+  const applyNewPrices = async (hostelId, { silent = false } = {}) => {
     const cfg = getConfig();
     const h = planConfig(hostelId, new Date(), cfg);
-    if (!h) { showNotification(t('planNotActive'), 'error'); return 0; }
+    if (!h) { if (!silent) showNotification(t('planNotActive'), 'error'); return 0; }
     const list = newPriceCandidates(guests, hostelId, cfg);
-    if (!list.length) { showNotification(t('planNobodyToMove'), 'info'); return 0; }
+    if (!list.length) { if (!silent) showNotification(t('planNobodyToMove'), 'info'); return 0; }
     const at = new Date(h.from + 'T12:00:00');
-    try {
-      // по 150 гостей в пакете (деление — две записи на гостя, предел пакета 500)
-      for (let i = 0; i < list.length; i += 150) {
-        const batch = writeBatch(db);
-        list.slice(i, i + 150).forEach(c => applyPlanSwitch(batch, c.guest, c.plan, at));
-        await batch.commit();
-      }
-      logAction(currentUser, 'plan_new_prices', { hostelId, count: list.length, from: h.from });
-      showNotification(t('planNewPricesDone').replace('{n}', list.length), 'success');
-      return list.length;
-    } catch (e) {
-      showNotification(t('gaErrorPrefix') + e.message, 'error');
-      return 0;
+    let done = 0, failed = 0;
+    for (const c of list) {
+      try { if (await applyNewPriceTx(c.guest, at)) done++; }
+      catch (e) { failed++; console.error('[newPrices]', c.guest.id, e); }
     }
+    if (done) {
+      logAction(currentUser, 'plan_new_prices', { hostelId, count: done, failed, from: h.from, auto: silent });
+      showNotification(t('planNewPricesDone').replace('{n}', done), 'success');
+    }
+    if (failed && !silent) showNotification(t('gaErrorPrefix') + failed, 'error');
+    return done;
+  };
+
+  const handleApplyNewPrices = (hostelId) => applyNewPrices(hostelId);
+
+  /** Автопересчёт: все филиалы с тарифами, тихо (тост — только если кого-то перевели). */
+  const autoApplyNewPrices = async () => {
+    let n = 0;
+    for (const hid of ['hostel1', 'hostel2']) n += await applyNewPrices(hid, { silent: true });
+    return n;
   };
 
   const handleMoveGuest = async (g, rid, rnum, bid) => {
@@ -1460,7 +1503,7 @@ export function useGuestActions(ctx) {
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
     handleSplitGuest, handleMoveGuest, handleDeleteGuest,
-    handleSwitchPlan, handleApplyNewPrices,
+    handleSwitchPlan, handleApplyNewPrices, autoApplyNewPrices,
     handleRescheduleGuest, handleGuestUpdate,
     handleAdminReduceDays, handleAdminReduceDaysNoRefund,
     handlePayDebt, handleAdminAdjustDebt,
