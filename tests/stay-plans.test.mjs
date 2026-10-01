@@ -4,6 +4,7 @@ import {
     planConfig, planPrice, isLocal, planOf, breakfastGuests, breakfastWriteOff, writeOffDelta,
     includedUsed, applyPlanAllowance, stayNightsBefore, splitPaid, recipeOf, DEFAULT_PLANS, ymd,
     buildPlanSwitch, newPriceCandidates, nightPromoOffer, buildPromoContinuation,
+    buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, paidOf,
 } from '../src/utils/stayPlans.js';
 
 const cfg = { pricing: { plans: DEFAULT_PLANS } };
@@ -190,7 +191,7 @@ test('ночной гость остаётся: ночь закрыта, дал�
         checkInDate: new Date(2026, 9, 3, 1, 20).toISOString(), checkOutDate: new Date(2026, 9, 3, 7, 0).toISOString(),
         days: 1, pricePerNight: 50000, totalPrice: 50000, amountPaid: 130000, paidCash: 130000, emehmonReg: true,
     };
-    const r = buildPromoContinuation(g, { days: 1, price: 80000, plan: 'room' });
+    const r = buildPromoContinuation(g, { days: 1, price: 80000, plan: 'room', now: new Date(2026, 9, 3, 8, 0) });
     assert.equal(r.oldPatch.amountPaid, 50000);
     assert.equal(r.oldPatch.status, 'checked_out');
     const n = r.newGuest;
@@ -202,4 +203,65 @@ test('ночной гость остаётся: ночь закрыта, дал�
     assert.equal(new Date(n.checkOutDate).getHours(), 12);
     assert.equal(n.emehmonReg, true);
     assert.equal(buildPromoContinuation(g, { days: 0, price: 80000 }), null);
+});
+
+test('предоплата: автопересчёт не трогает оплативших', () => {
+    const list = [
+        { id: 'p', hostelId: 'hostel2', status: 'active', checkInDate: '2026-09-28T14:00:00', checkOutDate: '2026-10-04T12:00:00', days: 6, pricePerNight: 65000, amountPaid: 130000 },
+        { id: 'q', hostelId: 'hostel2', status: 'active', checkInDate: '2026-09-28T14:00:00', checkOutDate: '2026-10-04T12:00:00', days: 6, pricePerNight: 65000, paidCash: 50000 },
+        { id: 'u', hostelId: 'hostel2', status: 'active', checkInDate: '2026-09-28T14:00:00', checkOutDate: '2026-10-04T12:00:00', days: 6, pricePerNight: 65000 },
+        { id: 'k', hostelId: 'hostel2', status: 'active', oldPriceKept: true, checkInDate: '2026-10-01T12:00:00', checkOutDate: '2026-10-04T12:00:00', days: 3, pricePerNight: 65000 },
+    ];
+    assert.deepEqual(newPriceCandidates(list, 'hostel2', cfg).map(c => c.guest.id), ['u']);
+    assert.equal(paidOf({ amountPaid: 10, paidCash: 30 }), 30);
+});
+
+test('откат: оплатившие и уже разделённые пересчётом — обратно на старую цену', () => {
+    const orig = { id: 'a', hostelId: 'hostel2', status: 'checked_out', amountPaid: 195000, planSwitchedOut: true };
+    const np = { id: 'a_np', hostelId: 'hostel2', status: 'active', plan: 'room', days: 3, pricePerNight: 80000, totalPrice: 240000, planSwitchedFrom: { guestId: 'a', plan: null, price: 65000 } };
+    const unpaidOrig = { id: 'b', hostelId: 'hostel2', status: 'checked_out', amountPaid: 0 };
+    const unpaidNp = { ...np, id: 'b_np', planSwitchedFrom: { guestId: 'b', plan: null, price: 65000 } };
+    const card = { ...np, id: 'c_np', plan: 'full', planSwitchedFrom: { guestId: 'a', plan: null, price: 65000 } };
+    const r = oldPriceRevertCandidates([orig, np, unpaidOrig, unpaidNp, card], 'hostel2');
+    assert.deepEqual(r.map(x => x.guest.id), ['a_np']);
+    assert.deepEqual(r[0].patch, { pricePerNight: 65000, totalPrice: 195000, plan: null, oldPriceKept: true });
+    assert.equal(oldPriceRevertCandidates([orig, { ...np, oldPriceKept: true }], 'hostel2').length, 0);
+    // пересчитанные целиком: прежняя цена из priceBefore
+    const rp = repricedPrepaidCandidates([{ id: 'r', hostelId: 'hostel2', status: 'booking', plan: 'room', days: 2, pricePerNight: 80000, priceBefore: 65000, amountPaid: 50000 }], 'hostel2');
+    assert.deepEqual(rp[0].patch, { pricePerNight: 65000, totalPrice: 130000, plan: null, oldPriceKept: true });
+    const b = buildPlanSwitch({ status: 'booking', checkInDate: '2026-10-03T14:00:00', days: 2, pricePerNight: 65000 }, { plan: 'room', price: 80000, at: new Date(2026, 9, 1, 12) });
+    assert.equal(b.patch.priceBefore, 65000);
+});
+
+test('продление старой цены — новым проживанием по тарифу с конца оплаченных дней', () => {
+    const g = { id: 'g', hostelId: 'hostel2', status: 'active', checkInDate: '2026-09-28T14:00:00', checkOutDate: '2026-10-04T12:00:00',
+        days: 6, pricePerNight: 65000, totalPrice: 390000, amountPaid: 450000, paidCash: 450000, emehmonReg: true, servicesTotal: 10000 };
+    assert.equal(extendsToNewTariff(g, new Date(2026, 9, 2), cfg), true);
+    assert.equal(extendsToNewTariff({ ...g, plan: 'room' }, new Date(2026, 9, 2), cfg), false);
+    assert.equal(extendsToNewTariff({ ...g, hostelId: 'hostel1' }, new Date(2026, 9, 2), cfg), false);
+    // продлевает заранее (дни ещё идут): прежняя запись живёт, продолжение — бронь
+    const r = buildContinuation(g, { days: 2, price: 80000, plan: 'room', now: new Date(2026, 9, 2, 10) });
+    assert.equal(r.begun, false);
+    assert.equal(r.oldPatch.status, undefined);
+    assert.equal(r.oldPatch.amountPaid, 390000);
+    assert.equal(r.oldPatch.servicesTotal, 0);
+    assert.equal(r.newGuest.status, 'booking');
+    assert.equal(r.newGuest.amountPaid, 60000);
+    assert.equal(r.newGuest.totalPrice, 160000);
+    assert.equal(r.newGuest.servicesTotal, 10000);
+    assert.equal(r.newGuest.continuedFrom, 'g');
+    assert.equal(new Date(r.newGuest.checkInDate).getDate(), 4);
+    assert.equal(new Date(r.newGuest.checkOutDate).getDate(), 6);
+    // срок вышел — прежняя запись закрывается сразу, продолжение живёт
+    const r2 = buildContinuation(g, { days: 1, price: 80000, plan: 'room', now: new Date(2026, 9, 4, 15) });
+    assert.equal(r2.oldPatch.status, 'checked_out');
+    assert.equal(r2.oldPatch.emehmonMovedOut, true);
+    assert.equal(r2.newGuest.status, 'active');
+    // автопроверка: закрыть прежнюю, открыть продолжение
+    const due = continuationsDue([
+        { id: 'o', status: 'active', continuedBy: 'n', checkOutDate: '2026-10-04T12:00:00' },
+        { id: 'n', status: 'booking', continuedFrom: 'o', checkInDate: '2026-10-04T12:00:00' },
+        { id: 'x', status: 'active', continuedBy: 'y', checkOutDate: '2026-10-09T12:00:00' },
+    ], new Date(2026, 9, 4, 12, 5));
+    assert.deepEqual([due.close.map(g => g.id), due.activate.map(g => g.id)], [['o'], ['n']]);
 });

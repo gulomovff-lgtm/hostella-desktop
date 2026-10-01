@@ -6,8 +6,10 @@
  *  • Второй хостел с 01.10.2026: местные (Узбекистан) — 80 000 койка,
  *    100 000 с завтраком, глажкой и стиркой; иностранцы — 105 000 и 125 000.
  *    Первый хостел — прежние цены по комнатам (planConfig → null).
- *  • Новая цена с 1-го — для всех, и для уже живущих: их проживание делится
- *    на даты «до» и «после» (кнопка в Настройки → Цены).
+ *  • Новая цена с 1-го (уточнение владельца 2026-10-01): у кого есть оплата —
+ *    не трогать, оплаченные дни по старой цене; продление (и продление после
+ *    окончания) — уже по новому тарифу, новым проживанием с конца оплаченных
+ *    дней. Сам пересчитывается только тот, кто ничего не платил.
  *  • Пакетного тарифа там, где действуют эти тарифы, нет.
  *  • Смена тарифа посреди проживания — с сегодняшнего дня: прожитые сутки
  *    по старой цене, оставшиеся по новой (деление проживания, как переезд).
@@ -215,7 +217,8 @@ export function buildPlanSwitch(g, { plan, price, at, servicesPaid = 0 } = {}) {
   const base = { plan: plan === PLAN_FULL ? PLAN_FULL : PLAN_ROOM, tariff: 'standard', nonRefundable: false, priceReductionAllowed: false, approvedPrice: 0 };
   const { passed, remaining, total } = stayNightsBefore(g, at);
   if (g.status === 'booking' || passed === 0) {
-    return { mode: 'reprice', patch: { ...base, pricePerNight: newPrice, totalPrice: newPrice * total } };
+    const before = Math.round(num(g.pricePerNight)) || (total > 0 ? Math.round(num(g.totalPrice) / total) : 0);
+    return { mode: 'reprice', patch: { ...base, pricePerNight: newPrice, totalPrice: newPrice * total, priceBefore: before } };
   }
   if (remaining <= 0) return { mode: 'none' };
   const oldPrice = Math.round(num(g.pricePerNight)) || (total > 0 ? Math.round(num(g.totalPrice) / total) : 0);
@@ -258,8 +261,9 @@ export function newPriceCandidates(guests = [], hostelId, cfg) {
   const from = new Date(h.from + 'T12:00:00');
   const out = [];
   for (const g of guests || []) {
-    if (!g || g.hostelId !== hostelId || g.plan) continue;
+    if (!g || g.hostelId !== hostelId || g.plan || g.oldPriceKept || g.nightPromo) continue;
     if (!(g.status === 'active' || g.status === 'booking')) continue;
+    if (paidOf(g) > 0) continue; // есть оплата — не трогаем, новый тариф с продления
     if (!g.checkOutDate || ymd(g.checkOutDate) <= h.from) continue;
     const newPrice = planPrice(hostelId, PLAN_ROOM, g.country, from, cfg);
     if (!newPrice) continue;
@@ -302,18 +306,45 @@ export function nightPromoOffer(hostelId, country, now = new Date(), cfg) {
  * час. Деньги: сначала оплачивается ночь, остальное — в новую запись; услуги
  * «в счёт» и регистрация e-mehmon переходят, как при переезде.
  */
-export function buildPromoContinuation(g, { days, price, plan, servicesPaid = 0, checkOutHour = 12 } = {}) {
+export function buildPromoContinuation(g, opts = {}) {
+  return buildContinuation(g, opts);
+}
+
+/** Оплачено гостем: amountPaid или сумма способов, что больше. */
+export const paidOf = (g) => Math.max(num(g?.amountPaid), PAY_FIELDS.reduce((s, k) => s + num(g?.[k]), 0));
+
+/**
+ * Продлевается ли гость новым проживанием по тарифу: у филиала действуют
+ * тарифы, а гость живёт по старой цене (нет plan или цена сохранена) или
+ * пришёл ночным заездом.
+ */
+export const extendsToNewTariff = (g, now = new Date(), cfg) =>
+  !!g && !!planConfig(g.hostelId, now, cfg) && (!!g.nightPromo || !g.plan || !!g.oldPriceKept);
+
+/**
+ * Продолжение проживания с конца оплаченных дней: `days` суток по цене
+ * тарифа, выезд в обычный час. Прежняя запись остаётся со своими днями и
+ * ценой; оплата сверх её стоимости, услуги «в счёт» и регистрация e-mehmon
+ * переходят в продолжение. Если конец ещё не наступил — продолжение ждёт
+ * бронью, прежняя запись живёт до своего выезда (закрывает и открывает их
+ * автопроверка, continuationsDue).
+ */
+export function buildContinuation(g, { days, price, plan, servicesPaid = 0, checkOutHour = 12, now = new Date() } = {}) {
   const n = Math.max(0, Math.round(num(days)));
   const p = Math.round(num(price));
   if (!g || !n || p <= 0 || !g.checkOutDate) return null;
-  const start = new Date(g.checkOutDate);
+  const co = new Date(g.checkOutDate);
+  const bonus = g.bonusCheckOutDate ? new Date(g.bonusCheckOutDate) : null;
+  const start = (bonus && bonus > co) ? bonus : co;
   const end = new Date(start); end.setDate(end.getDate() + n); end.setHours(checkOutHour, 0, 0, 0);
-  const nightCost = Math.round(num(g.totalPrice)) || Math.round(num(g.pricePerNight));
-  const { first, second } = splitPaid(g, nightCost);
-  const oldPatch = {
-    ...first, servicesTotal: 0, status: 'checked_out', promoContinued: true,
+  const begun = start <= toDate(now);
+  const firstCost = Math.round(num(g.totalPrice)) || Math.round(num(g.pricePerNight)) * Math.max(1, Math.round(num(g.days)));
+  const { first, second } = splitPaid(g, firstCost);
+  const closeOld = {
+    status: 'checked_out',
     ...(g.emehmonReg ? { emehmonOut: true, emehmonOutAt: start.toISOString(), emehmonMovedOut: true } : {}),
   };
+  const oldPatch = { ...first, servicesTotal: 0, ...(begun ? closeOld : {}) };
   const newGuest = {
     ...g, ...second,
     checkInDate: start.toISOString(), checkOutDate: end.toISOString(),
@@ -322,12 +353,63 @@ export function buildPromoContinuation(g, { days, price, plan, servicesPaid = 0,
     priceReductionAllowed: false, approvedPrice: 0,
     servicesTotal: num(g.servicesTotal),
     servicesPaidCarry: num(g.servicesPaidCarry) + Math.max(0, num(servicesPaid)),
-    status: 'active', checkInDateTime: null, movedWithin: true, promoFrom: g.id || '',
+    status: begun ? 'active' : 'booking', checkInDateTime: null, movedWithin: true, continuedFrom: g.id || '',
   };
   delete newGuest.id;
-  delete newGuest.nightPromo;
-  delete newGuest.refBonusCredited;
+  ['nightPromo', 'refBonusCredited', 'oldPriceKept', 'continuedBy', 'planSwitchedFrom', 'priceBefore', 'bonusCheckOutDate', 'bonusDaysAdded']
+    .forEach((k) => { delete newGuest[k]; });
   ['emehmonRegError', 'emehmonRegErrorAt', ...EMEHMON_OUT_KEYS].forEach((k) => { delete newGuest[k]; });
   if (g.emehmonReg) newGuest.emehmonRoomSkip = true;
-  return { oldPatch, newGuest };
+  return { oldPatch, newGuest, begun, closeOld };
+}
+
+/**
+ * Что пора сделать с продолжениями: закрыть прежние записи, чьи дни
+ * кончились (close), и открыть продолжения-брони, чьё время пришло (activate).
+ */
+export function continuationsDue(guests = [], now = new Date()) {
+  const t = toDate(now);
+  const close = [], activate = [];
+  for (const g of guests || []) {
+    if (!g) continue;
+    if (g.continuedBy && g.status === 'active' && g.checkOutDate && new Date(g.checkOutDate) <= t) close.push(g);
+    if (g.continuedFrom && g.status === 'booking' && g.checkInDate && new Date(g.checkInDate) <= t) activate.push(g);
+  }
+  return { close, activate };
+}
+
+/**
+ * Откат автопересчёта для гостей с оплатой (уточнение владельца 2026-10-01):
+ * продолжения `<гость>_np`, созданные пересчётом, возвращаются на прежнюю
+ * цену, если у гостя была оплата. Цена берётся из planSwitchedFrom.price.
+ */
+export function oldPriceRevertCandidates(guests = [], hostelId) {
+  const byId = new Map((guests || []).map((g) => [g.id, g]));
+  const out = [];
+  for (const g of guests || []) {
+    if (!g || g.hostelId !== hostelId || !String(g.id || '').endsWith('_np')) continue;
+    if (g.oldPriceKept || g.plan !== PLAN_ROOM || !(g.status === 'active' || g.status === 'booking')) continue;
+    const from = g.planSwitchedFrom;
+    if (!from || from.plan || !(num(from.price) > 0)) continue;
+    const orig = byId.get(from.guestId);
+    if (!orig || paidOf(orig) <= 0) continue;
+    const price = Math.round(num(from.price));
+    out.push({ guest: g, patch: { pricePerNight: price, totalPrice: price * Math.round(num(g.days)), plan: null, oldPriceKept: true } });
+  }
+  return out;
+}
+
+/**
+ * Пересчитанные целиком (бронь или заезд с 1-го) гости с оплатой: прежняя
+ * цена записана в priceBefore — возвращаем её.
+ */
+export function repricedPrepaidCandidates(guests = [], hostelId) {
+  const out = [];
+  for (const g of guests || []) {
+    if (!g || g.hostelId !== hostelId || g.oldPriceKept || !(num(g.priceBefore) > 0)) continue;
+    if (!(g.status === 'active' || g.status === 'booking') || paidOf(g) <= 0) continue;
+    const price = Math.round(num(g.priceBefore));
+    out.push({ guest: g, patch: { pricePerNight: price, totalPrice: price * Math.round(num(g.days)), plan: null, oldPriceKept: true } });
+  }
+  return out;
 }

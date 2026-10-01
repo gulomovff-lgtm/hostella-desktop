@@ -31,7 +31,7 @@ import { assessKpp } from '../utils/kppRules';
 import { unpaidServices, splitServiceShare } from '../utils/shop';
 import { referrerForCheckin } from '../utils/referral';
 import { getConfig } from '../utils/appConfig';
-import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildPromoContinuation, PLAN_ROOM } from '../utils/stayPlans';
+import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, PLAN_ROOM } from '../utils/stayPlans';
 
 export function useGuestActions(ctx) {
   const {
@@ -668,16 +668,18 @@ export function useGuestActions(ctx) {
   };
 
   /**
-   * Продление гостя ночного заезда: ночь (50 000 до 07:00) закрывается, с 07:00 —
-   * новая запись на extendDays суток по цене тарифа (utils/stayPlans.js).
-   * Оплата продления — на новую запись.
+   * Продление по новому тарифу (уточнение владельца 2026-10-01): гость живёт по
+   * старой цене (оплаченные дни не трогаем) или пришёл ночным заездом —
+   * продлённые сутки идут новым проживанием с конца оплаченных дней по цене
+   * тарифа (utils/stayPlans.js buildContinuation). Оплата продления — на него.
    */
-  const extendNightPromo = async (eg, { extendDays, payCash = 0, payCard = 0, payQR = 0 }) => {
+  const extendToNewTariff = async (eg, { extendDays, payCash = 0, payCard = 0, payQR = 0 }) => {
     const safeStaffId = currentUser.id || currentUser.login;
-    const price = planPrice(eg.hostelId, PLAN_ROOM, eg.country, new Date(), getConfig()) || Number(eg.pricePerNight) || 0;
-    const r = buildPromoContinuation(eg, { days: extendDays, price, plan: PLAN_ROOM, servicesPaid: servicesPaidOf(eg.id) });
+    const now = new Date();
+    const price = planPrice(eg.hostelId, PLAN_ROOM, eg.country, now, getConfig()) || Number(eg.pricePerNight) || 0;
+    const r = buildContinuation(eg, { days: extendDays, price, plan: PLAN_ROOM, servicesPaid: servicesPaidOf(eg.id), now });
     if (!r) { showNotification(t('planNothingToSwitch'), 'error'); return; }
-    const nowIso = new Date().toISOString();
+    const nowIso = now.toISOString();
     const payTotal = payCash + payCard + payQR;
     const batch = writeBatch(db);
     const nRef = doc(collection(db, ...PUBLIC_DATA_PATH, 'guests'));
@@ -692,22 +694,42 @@ export function useGuestActions(ctx) {
       newGuest.amountPaid = (Number(newGuest.amountPaid) || 0) + payTotal;
       newGuest.lastPaymentAt = nowIso;
     }
-    batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', eg.id), r.oldPatch);
+    batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', eg.id), { ...r.oldPatch, continuedBy: nRef.id });
     batch.set(nRef, newGuest);
     await batch.commit();
     logAction(currentUser, 'extend', {
-      guestId: nRef.id, guestName: eg.fullName || '', roomNumber: eg.roomNumber || '', nightPromoFrom: eg.id,
-      days: Number(extendDays) || 0, fromDate: eg.checkOutDate || '', toDate: newGuest.checkOutDate,
+      guestId: nRef.id, guestName: eg.fullName || '', roomNumber: eg.roomNumber || '', continuedFrom: eg.id,
+      days: Number(extendDays) || 0, fromDate: newGuest.checkInDate, toDate: newGuest.checkOutDate,
       addedPrice: newGuest.totalPrice, totalPrice: newGuest.totalPrice, amount: payTotal, cash: payCash, card: payCard, qr: payQR, paymentIds,
     });
     setGuestDetailsModal({ open: false, guest: null });
-    showNotification(t('nightPromoExtended').replace('{days}', extendDays).replace('{price}', price.toLocaleString('ru-RU')), 'success');
+    showNotification(t('extendNewTariffDone').replace('{days}', extendDays).replace('{price}', price.toLocaleString('ru-RU'))
+      .replace('{date}', new Date(newGuest.checkInDate).toLocaleDateString('ru-RU')), 'success');
+  };
+
+  /** У записи уже есть продолжение — продлеваем продолжение (на его цене), а не старую запись. */
+  const extendContinuationOf = async (eg, extData) => {
+    const target = guests.find(x => x.id === eg.continuedBy);
+    if (!target || !(target.status === 'active' || target.status === 'booking')) return false;
+    const d = Number(extData.extendDays) || 0;
+    const co = new Date(target.checkOutDate); co.setDate(co.getDate() + d); co.setHours(12, 0, 0, 0);
+    return handleExtendGuest(target.id, {
+      ...extData, extendDays: d,
+      prevDays: Number(target.days) || 0, prevTotalPrice: Number(target.totalPrice) || 0, prevCheckOut: target.checkOutDate,
+      prevBonusCheckOut: null, prevStatus: target.status,
+      newDays: (Number(target.days) || 0) + d, newTotalPrice: (Number(target.totalPrice) || 0) + d * (Number(target.pricePerNight) || 0),
+      newCheckOut: co.toISOString(), keepStatus: true,
+    });
   };
 
   const handleExtendGuest = async (guestId, extData) => {
-    const promoGuest = guests.find(x => x.id === guestId);
-    if (promoGuest?.nightPromo && promoGuest.status === 'active') {
-      try { await extendNightPromo(promoGuest, extData); }
+    const xg = guests.find(x => x.id === guestId);
+    if (xg?.continuedBy && xg.status === 'active') {
+      try { if (await extendContinuationOf(xg, extData) !== false) return; }
+      catch (e) { showNotification(t('gaExtendErrorPrefix') + (e?.message || e), 'error'); return; }
+    }
+    if (xg && xg.status === 'active' && extendsToNewTariff(xg, new Date(), getConfig())) {
+      try { await extendToNewTariff(xg, extData); }
       catch (e) { showNotification(t('gaExtendErrorPrefix') + (e?.message || e), 'error'); }
       return;
     }
@@ -746,7 +768,7 @@ export function useGuestActions(ctx) {
           { purpose: 'extend', guestName: eg?.fullName, roomNumber: eg?.roomNumber, extendDays: Number(extendDays) || 0, untilDate: newCheckOut }, nowIso).ids;
       }
       batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
-        days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, status: 'active',
+        days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, ...(extData.keepStatus ? {} : { status: 'active' }),
         lastExtendedBy: safeStaffId,
         lastExtendedAt: nowIso,
         lastExtensionPrice: extensionAddedPrice,
@@ -808,6 +830,11 @@ export function useGuestActions(ctx) {
     for (const guestId of guestIds) {
       const guest = guests.find(g => g.id === guestId);
       if (!guest || guest.status !== 'active') continue;
+      if (guest.continuedBy || extendsToNewTariff(guest, new Date(), getConfig())) {
+        await handleExtendGuest(guestId, { extendDays: days });
+        count++;
+        continue;
+      }
       // Берём фактический диапазон (CI→CO), чтобы не опираться на устаревшее поле days
       const ciMs = new Date(guest.checkInDate  || guest.checkInDateTime || 0).getTime();
       const coMs = new Date(guest.checkOutDate || 0).getTime();
@@ -987,7 +1014,8 @@ export function useGuestActions(ctx) {
     const now = new Date();
     const h = planConfig(g?.hostelId, now, getConfig());
     if (!g?.id || !h) { showNotification(t('planNotActive'), 'error'); return false; }
-    const at = g.plan ? now : new Date(h.from + 'T12:00:00');
+    // С сегодняшнего дня всегда: оплаченные прежние дни не трогаем (владелец 2026-10-01)
+    const at = now;
     try {
       if (!g.plan) {
         // заселён по старым ценам — тот же путь, что у автопересчёта (без двойного деления)
@@ -1067,11 +1095,49 @@ export function useGuestActions(ctx) {
 
   const handleApplyNewPrices = (hostelId) => applyNewPrices(hostelId);
 
-  /** Автопересчёт: все филиалы с тарифами, тихо (тост — только если кого-то перевели). */
+  /** Вернуть гостю прежнюю цену: транзакция, пропуск, если уже возвращена. */
+  const revertOldPriceTx = (g, patch) => {
+    const gRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id);
+    return runTransaction(db, async (tx) => {
+      const cur = await tx.get(gRef);
+      if (!cur.exists() || cur.data().oldPriceKept) return false;
+      tx.update(gRef, { ...patch, oldPriceRestoredAt: new Date().toISOString() });
+      return true;
+    });
+  };
+
+  /**
+   * Автопроверка (App, раз в 10 минут):
+   *  1) гостям с оплатой, которых пересчёт 0.15.39 уже перевёл, — прежняя цена;
+   *  2) продолжения: прежняя запись закрывается в конце своих дней, бронь-продолжение открывается;
+   *  3) пересчёт на новые цены — только тех, кто ничего не платил.
+   */
   const autoApplyNewPrices = async () => {
-    let n = 0;
+    let n = 0, restored = 0;
+    for (const hid of ['hostel1', 'hostel2']) {
+      for (const c of [...oldPriceRevertCandidates(guests, hid), ...repricedPrepaidCandidates(guests, hid)]) {
+        try { if (await revertOldPriceTx(c.guest, c.patch)) restored++; } catch (e) { console.error('[oldPrice]', c.guest.id, e); }
+      }
+    }
+    const due = continuationsDue(guests, new Date());
+    for (const g of due.close) {
+      try {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
+          status: 'checked_out',
+          ...(g.emehmonReg ? { emehmonOut: true, emehmonOutAt: g.checkOutDate, emehmonMovedOut: true } : {}),
+        });
+      } catch (e) { console.error('[continue close]', g.id, e); }
+    }
+    for (const g of due.activate) {
+      try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { status: 'active' }); }
+      catch (e) { console.error('[continue open]', g.id, e); }
+    }
+    if (restored) {
+      logAction(currentUser, 'plan_old_price_restored', { count: restored });
+      showNotification(t('planOldPriceRestored').replace('{n}', restored), 'success');
+    }
     for (const hid of ['hostel1', 'hostel2']) n += await applyNewPrices(hid, { silent: true });
-    return n;
+    return n + restored;
   };
 
   const handleMoveGuest = async (g, rid, rnum, bid) => {

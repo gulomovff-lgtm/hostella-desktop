@@ -8,7 +8,7 @@ import QRCode from 'qrcode';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
-import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM } from '../../utils/stayPlans';
+import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff } from '../../utils/stayPlans';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
@@ -479,10 +479,17 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const wlEntry = priceWhitelist.find(w => normPass(w.passport || w.id) === normPass(guest.passport));
     const isPriceApproved = !!guest.priceReductionAllowed || !!wlEntry;
     const approvedPrice = parseInt(guest.approvedPrice) || parseInt(wlEntry?.price) || 0;
-    // Ночной заезд (50 000 до 07:00): продление — по обычной цене тарифа с 07:00
-    const promoNextRate = guest.nightPromo
-        ? (planPrice(guest.hostelId, PLAN_ROOM, guest.country, new Date(), getConfig()) || minNightPrice(guest.hostelId, guest.roomNumber, new Date()))
-        : 0;
+    // Продление по новому тарифу (владелец 2026-10-01): гость по старой цене
+    // (оплаченные дни не трогаем) или ночной заезд — продлённые сутки идут
+    // новым проживанием с конца оплаченных дней по цене тарифа. Есть уже
+    // продолжение — продлевается оно, по своей цене.
+    const contTarget = guest.continuedBy ? guests.find(x => x.id === guest.continuedBy) : null;
+    const newTariffExt = !contTarget && guest.status === 'active' && extendsToNewTariff(guest, new Date(), getConfig());
+    const promoNextRate = contTarget
+        ? (parseInt(contTarget.pricePerNight) || 0)
+        : newTariffExt
+            ? (planPrice(guest.hostelId, PLAN_ROOM, guest.country, new Date(), getConfig()) || minNightPrice(guest.hostelId, guest.roomNumber, new Date()))
+            : 0;
     const extRate = promoNextRate || ((isPriceApproved && approvedPrice > 0) ? approvedPrice : guestRate);
     // Пакет-онли действует, только если понижение НЕ одобрено
     const packageOnly = isBelowMinRate && !isPriceApproved && !plansAtStay;
@@ -628,7 +635,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const msg = t('planSwitchConfirm')
             .replace('{plan}', t(planTarget === PLAN_FULL ? 'planFull' : 'planRoom'))
             .replace('{price}', planTargetPrice.toLocaleString())
-            + (guest.plan ? t('planSwitchFromToday') : t('planSwitchFromStart'));
+            + t('planSwitchFromToday');
         if (window.confirm(msg)) onSwitchPlan(guest, planTarget);
     };
 
@@ -875,6 +882,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         {isBooking    && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{t('bookingBadge')}</span>}
                                         {isCheckedOut && <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{t('checkedOutBadge')}</span>}
                                         {isNonRefundable && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">{t('packageNonRefundBadge')}</span>}
+                                        {guest.oldPriceKept && <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{t('oldPriceBadge')}</span>}
+                                        {guest.continuedBy && <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">→ {t('continuedBadge')}</span>}
                                         {guest.nightPromo && <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">🌙 {t('nightPromoBadge')}</span>}
                                         {(guest.plan || plansAtStay) && (
                                             guestPlan === PLAN_FULL
@@ -1370,6 +1379,16 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                     <div className="flex flex-col overflow-hidden h-full">
                         {hdr(t('extendTitle'), true)}
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
+                            {(newTariffExt || contTarget) && (
+                                <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-300 rounded-xl">
+                                    <span className="shrink-0">☕</span>
+                                    <p className="text-xs text-amber-800 font-semibold leading-snug">
+                                        {(contTarget ? t('extendContinuationNote') : t('extendNewTariffNote'))
+                                            .replace('{price}', (promoNextRate || 0).toLocaleString())
+                                            .replace('{date}', new Date(contTarget ? contTarget.checkOutDate : guest.checkOutDate).toLocaleDateString('ru-RU'))}
+                                    </p>
+                                </div>
+                            )}
                             {isPriceApproved && (
                                 <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-300 rounded-xl">
                                     <ShieldCheck size={16} className="text-emerald-600 shrink-0 mt-0.5"/>
