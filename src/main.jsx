@@ -39,6 +39,8 @@ try {
     const s = document.createElement('script')
     s.src = 'https://telegram.org/js/telegram-web-app.js'
     s.async = true
+    // скрипт не загрузился — шапка Telegram страницу не перекрывает, запас не нужен
+    s.onerror = () => root.style.setProperty('--tg-top', 'calc(env(safe-area-inset-top, 0px) + 6px)')
     s.onload = () => {
       const w = window.Telegram && window.Telegram.WebApp
       if (!w) return
@@ -46,16 +48,16 @@ try {
       const apply = () => {
         const sa = w.safeAreaInset || {}, ca = w.contentSafeAreaInset || {}
         const top = (sa.top || 0) + (ca.top || 0)
-        const known = w.platform && w.platform !== 'unknown'
         if (top > 0) {
           // полноэкранный режим: системная строка + кнопки Telegram поверх страницы
           root.style.setProperty('--tg-top', `${top + 4}px`)
-        } else if (known) {
-          // мини-приложение в обычном режиме: шапка Telegram своя, над страницей —
-          // запас не нужен (раньше оставались лишние 56px пустоты сверху)
+        } else {
+          // мини-приложение в обычном режиме (known) и встроенный браузер Telegram
+          // (ссылка из чата, platform 'unknown'): шапка Telegram своя, над
+          // страницей — запас не нужен. Раньше встроенный браузер оставался с
+          // запасом 56px — белая полоса над «Номерами», календарём и др. (2026-10-02)
           root.style.setProperty('--tg-top', 'calc(env(safe-area-inset-top, 0px) + 6px)')
         }
-        // иначе (встроенный браузер, данных нет) — запас по умолчанию из CSS
         root.style.setProperty('--tg-bottom', `${(sa.bottom || 0) + (ca.bottom || 0)}px`)
       }
       apply()

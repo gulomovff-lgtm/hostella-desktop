@@ -2016,6 +2016,9 @@ return (
                         contractGroups={manualStayGroups}
                         payments={filteredPayments}
                         allGuests={filteredGuests}
+                        catalog={catalog}
+                        onServeBreakfast={handleServeBreakfast}
+                        onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                     />
                 )}
                 

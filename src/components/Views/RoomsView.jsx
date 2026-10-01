@@ -10,6 +10,9 @@ import { computeContractFinancials } from '../../utils/contractFinancials';
 import { getKppDayNumber, getRegistrationWindow } from '../../utils/helpers';
 import { buildBedsData } from '../../utils/roomBeds';
 import { stableView } from '../UI/stableView';
+import BreakfastModal from '../Modals/BreakfastModal';
+import { breakfastGuests, planConfig, addDays, PLAN_FULL } from '../../utils/stayPlans';
+import { getConfig } from '../../utils/appConfig';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -204,6 +207,8 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru',
                     {bed?.isExtra ? <ExtraBedIcon size={13} className="opacity-70" /> : `#${id}`}
                 </span>
                 <div className="flex items-center gap-1.5">
+                    {/* тариф «с завтраком» — кухне видно, кому готовить */}
+                    {guest?.plan === PLAN_FULL && status !== 'free' && <span className="text-[12px] leading-none" title={t('planFull')}>☕</span>}
                     {flagCode ? (
                         <span className={`fi fi-${flagCode.toLowerCase()}`} style={{ width: 22, height: 14, display: 'inline-block', objectFit: 'cover', borderRadius: 2, verticalAlign: 'middle', backgroundSize: 'cover' }} />
                     ) : (
@@ -807,9 +812,22 @@ RoomRow.displayName = 'RoomRow';
 const RoomsView = ({
     filteredRooms, guestsByRoom, currentUser,
     onBedClick, onAddExtraGuest, onEditRoom, onCloneRoom, onDeleteRoom, onAddRoom, onKppConfirm, onExportGuests, onOpenGroupReceipt, onEndRental, onEditRental, onExtendRental, onPayRental, lang = 'ru', cadastreRegs = [],
-    contractGroups = [], payments = [], allGuests = [],
+    contractGroups = [], payments = [], allGuests = [], catalog = [], onServeBreakfast, onOpenGuest,
 }) => {
     const [filter, setFilter]           = useState('all');
+    // Завтраки: филиалы на экране с тарифом «с завтраком» (владелец 2026-10-02)
+    const [breakfastOpen, setBreakfastOpen] = useState(false);
+    const bfHostels = useMemo(() => {
+        const now = new Date();
+        return [...new Set(filteredRooms.map(r => r.hostelId).filter(Boolean))].filter(h => planConfig(h, now, getConfig()));
+    }, [filteredRooms]);
+    const bfCount = useMemo(() => {
+        const now = new Date();
+        return {
+            today: bfHostels.reduce((s, h) => s + breakfastGuests(allGuests, h, now, now).length, 0),
+            tomorrow: bfHostels.reduce((s, h) => s + breakfastGuests(allGuests, h, addDays(now, 1), now).length, 0),
+        };
+    }, [bfHostels, allGuests]);
     const [guestSearch, setGuestSearch] = useState('');
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
 
@@ -955,7 +973,18 @@ const RoomsView = ({
                             <AlertTriangle size={11} />{totals.timeoutCount} {t('overdueBadge')}
                         </span>
                     </>}
+                    {bfHostels.length > 0 && (
+                        <button onClick={() => setBreakfastOpen(true)}
+                            className="ml-auto flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 hover:bg-amber-100">
+                            ☕ {t('bfPill').replace('{today}', bfCount.today).replace('{tomorrow}', bfCount.tomorrow)}
+                        </button>
+                    )}
                 </div>
+                {breakfastOpen && (
+                    <BreakfastModal onClose={() => setBreakfastOpen(false)} t={t} guests={allGuests} hostelIds={bfHostels}
+                        catalog={catalog} onOpenGuest={onOpenGuest}
+                        onServe={onServeBreakfast ? (p) => onServeBreakfast({ ...p, catalog }) : undefined} />
+                )}
             </div>
             {/* ══ СПИСОК КОМНАТ ══════════════════════════════════════════════ */}
             <div className="flex-1 overflow-y-auto px-4 md:px-6 py-5 space-y-4 pb-24 scrollbar-hide">
