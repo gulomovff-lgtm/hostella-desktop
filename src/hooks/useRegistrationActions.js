@@ -3,14 +3,16 @@
  */
 import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { openEmehmonArrival } from '../utils/emehmon';
+import TRANSLATIONS from '../constants/translations';
 
 export function useRegistrationActions({
   currentUser, selectedHostelFilter, lang,
   setRegistrationModal, showNotification, guests,
 }) {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   const handleRegistrationSubmit = async (formData) => {
     try {
@@ -42,10 +44,7 @@ export function useRegistrationActions({
       }
 
       setRegistrationModal(false);
-      showNotification(
-        lang === 'ru' ? 'Гость зарегистрирован в E-mehmon!' : "Mehmon E-mehmon'da ro'yxatga olindi!",
-        'success'
-      );
+      showNotification(t('rgaGuestRegistered'), 'success');
 
       // Открываем стандартное окно регистрации e-mehmon с автозаполнением из формы.
       // Комнату (нужна на шаге 3 мастера) берём у совпадающего активного гостя.
@@ -65,10 +64,7 @@ export function useRegistrationActions({
           roomNumber: match?.roomNumber || '',
           hostelId: targetHostelId,
         });
-        showNotification(
-          lang === 'ru' ? 'Открываю e-mehmon — нажмите «Заполнить из Hostella»' : 'E-mehmon ochilmoqda',
-          'info'
-        );
+        showNotification(t('emehmonOpenArrival'), 'info');
       }
 
       // Автоматически подтверждаем kppRegistered у совпадающего активного гостя
@@ -94,12 +90,12 @@ export function useRegistrationActions({
       }
       logAction(currentUser, 'registration_add', { fullName: formData.fullName, passport: formData.passport, days: formData.days });
       sendTelegramMessage(
-        `🪪 <b>Регистрация (E-mehmon)</b>\n👤 ${formData.fullName}\n🪪 ${formData.passport} · ${formData.country || ''}\n📅 ${formData.startDate} → ${formData.endDate} (${formData.days} дн.)\n💰 ${totalPaid.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
+        `🪪 <b>${t('rgaTgAddTitle')}</b>\n👤 ${escapeTg(formData.fullName)}\n🪪 ${escapeTg(formData.passport)} · ${escapeTg(formData.country || '')}\n📅 ${formData.startDate} → ${formData.endDate} (${formData.days} ${t('daysShort')})\n💰 ${totalPaid.toLocaleString()} ${t('cadSum')}\n👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         'registration'
       );
     } catch (e) {
       console.error(e);
-      showNotification('Ошибка регистрации: ' + e.message, 'error');
+      showNotification(t('rgaRegError') + e.message, 'error');
     }
   };
 
@@ -122,26 +118,19 @@ export function useRegistrationActions({
           method: [(extData.paidCash||0)>0,(extData.paidCard||0)>0,(extData.paidQR||0)>0].filter(Boolean).length>1 ? 'split' : (extData.paidCash||0)>0 ? 'cash' : (extData.paidCard||0)>0 ? 'card' : 'qr',
         });
       }
-      showNotification(
-        lang === 'ru'
-          ? `Регистрация продлена до ${extData.newEndDate}`
-          : `Ro'yxat ${extData.newEndDate} gacha uzaytirildi`,
-        'success'
-      );
+      showNotification(t('cdaRegExtendedTo').replace('{date}', extData.newEndDate), 'success');
       logAction(currentUser, 'registration_extend', { id: reg.id, fullName: reg.fullName, newEndDate: extData.newEndDate });
       sendTelegramMessage(
-        `🔄 <b>Продление регистрации (E-mehmon)</b>\n👤 ${reg.fullName}\n🪪 ${reg.passport || '—'}\n📅 +${extData.days} дн. → ${extData.newEndDate}\n💰 ${extData.amount.toLocaleString()} сум\n👷 ${currentUser.name || currentUser.login}`,
+        `🔄 <b>${t('rgaTgExtendTitle')}</b>\n👤 ${escapeTg(reg.fullName)}\n🪪 ${escapeTg(reg.passport || '—')}\n📅 +${extData.days} ${t('daysShort')} → ${extData.newEndDate}\n💰 ${extData.amount.toLocaleString()} ${t('cadSum')}\n👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         'registrationExtend'
       );
     } catch (e) {
-      showNotification('Ошибка продления: ' + e.message, 'error');
+      showNotification(t('cdaExtendError') + e.message, 'error');
     }
   };
 
   const handleRemoveFromEmehmon = async (reg) => {
-    const confirmMsg = lang === 'ru'
-      ? `Подтвердить вывод "${reg.fullName}" из E-mehmon?`
-      : `"${reg.fullName}" ni E-mehmondan chiqarishni tasdiqlaysizmi?`;
+    const confirmMsg = t('rgaConfirmRemove').replace('{name}', reg.fullName);
     if (!window.confirm(confirmMsg)) return;
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', reg.id), {
@@ -149,30 +138,25 @@ export function useRegistrationActions({
         removedAt: new Date().toISOString(),
         removedBy: currentUser.login || currentUser.id,
       });
-      showNotification(
-        lang === 'ru' ? `${reg.fullName} выведен из E-mehmon` : `${reg.fullName} E-mehmondan chiqarildi`,
-        'success'
-      );
+      showNotification(t('rgaRemovedFrom').replace('{name}', reg.fullName), 'success');
       logAction(currentUser, 'registration_remove', { id: reg.id, fullName: reg.fullName });
       sendTelegramMessage(
-        `🔴 <b>Вывод из E-mehmon</b>\n👤 ${reg.fullName}\n🪪 ${reg.passport || '—'}\n👷 ${currentUser.name || currentUser.login}`,
+        `🔴 <b>${t('alRegistrationRemove')}</b>\n👤 ${escapeTg(reg.fullName)}\n🪪 ${escapeTg(reg.passport || '—')}\n👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         'registrationRemove'
       );
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
   const handleDeleteRegistration = async (reg) => {
-    const confirmMsg = lang === 'ru'
-      ? `Удалить запись регистрации "${reg.fullName}"?`
-      : `"${reg.fullName}" ro'yxatini o'chirishni tasdiqlaysizmi?`;
+    const confirmMsg = t('rgaConfirmDelete').replace('{name}', reg.fullName);
     if (!window.confirm(confirmMsg)) return;
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'registrations', reg.id));
-      showNotification(lang === 'ru' ? 'Запись удалена' : "Yozuv o'chirildi", 'success');
+      showNotification(t('cdaRecordDeleted'), 'success');
     } catch (e) {
-      showNotification('Ошибка удаления: ' + e.message, 'error');
+      showNotification(t('rgaDeleteError') + e.message, 'error');
     }
   };
 

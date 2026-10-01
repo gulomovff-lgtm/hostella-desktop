@@ -1,18 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
-
-const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-const WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+import TRANSLATIONS from '../../constants/translations';
 
 const pad = n => String(n).padStart(2, '0');
 const toISO = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const fmtDisplay = (iso) => {
-    if (!iso) return '';
-    const [y, m, d] = iso.split('-').map(Number);
-    if (!y || !m || !d) return '';
-    return `${pad(d)} ${MONTHS_SHORT[m - 1]} ${y}`;
-};
 // YYYY-MM-DD → ДД.ММ.ГГГГ (для ручного ввода)
 const fmtInput = (iso) => {
     if (!iso) return '';
@@ -26,7 +17,10 @@ const fmtInput = (iso) => {
  * @param {string} value   — дата в формате YYYY-MM-DD
  * @param {(d:string)=>void} onChange
  */
-export default function DatePicker({ value, onChange, placeholder = 'Дата', className = '' }) {
+export default function DatePicker({ value, onChange, placeholder, className = '', lang = 'ru' }) {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
+    const MONTHS = t('monthsFull');
+    const WD = t('dpWeekdays').split(',');
     const [open, setOpen] = useState(false);
     const [alignRight, setAlignRight] = useState(false);
     const [openUp, setOpenUp] = useState(false);
@@ -98,10 +92,10 @@ export default function DatePicker({ value, onChange, placeholder = 'Дата', 
                     value={text}
                     onChange={e => onType(e.target.value)}
                     onFocus={() => setOpen(false)}
-                    placeholder={placeholder}
+                    placeholder={placeholder || t('date')}
                     className="flex-1 min-w-0 bg-transparent outline-none border-0 p-0 m-0 text-current"
                 />
-                <button type="button" onClick={toggleOpen} className="shrink-0 text-slate-400 hover:text-teal-500" title="Календарь">
+                <button type="button" onClick={toggleOpen} className="shrink-0 text-slate-400 hover:text-teal-500" title={t('calendar')}>
                     <Calendar size={15} />
                 </button>
             </div>
@@ -144,7 +138,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Дата', 
                     {/* Быстро: сегодня */}
                     <button type="button" onClick={() => { onChange(todayISO); setOpen(false); }}
                         className="mt-2.5 w-full py-2 rounded-xl text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors">
-                        Сегодня
+                        {t('today')}
                     </button>
                 </div>
             )}

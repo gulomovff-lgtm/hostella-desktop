@@ -4,6 +4,17 @@ import { functions } from '../firebase';
 // API токен не хранится на фронте — всё через Cloud Functions
 
 /**
+ * Экранирование пользовательских данных для Telegram parse_mode:HTML.
+ * Имя гостя/комментарий/получатель перевода задаются людьми (в т.ч. через
+ * ПУБЛИЧНЫЙ виджет брони), поэтому значение вида `<a href="evil">…</a>` без
+ * экранирования отрисовалось бы как фишинг-ссылка в доверенном канале персонала,
+ * а неподдерживаемый тег (`<script>`) вызвал бы HTTP 400 и потерю уведомления.
+ * Экранируем только эти три символа — Telegram HTML требует ровно этого.
+ */
+export const escapeTg = (s = '') =>
+    String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
  * Send a Telegram notification.
  * @param {string} text  - Message text (HTML)
  * @param {string} [notificationType] - Type key from NOTIFICATION_TYPES (e.g. 'checkin')

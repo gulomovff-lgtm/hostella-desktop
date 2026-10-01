@@ -107,7 +107,7 @@ const ShiftBlockScreen = ({ activeShift, activeUser, currentUser, onLogout, onSw
             if (rafRef.current) cancelAnimationFrame(rafRef.current);
             styleEl.remove();
         };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);  
 
     // ── Colour scheme ────────────────────────────────────────────────
     const clr = isRed

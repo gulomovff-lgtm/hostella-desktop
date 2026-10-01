@@ -3,8 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3, MapPin, ShieldCheck,
-} from 'lucide-react';
+    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge, ShoppingBag, Activity } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Primary tabs always shown in the bottom bar ─────────────────────────────
@@ -29,9 +28,10 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('main2'),
         items: [
             { id: 'dashboard',     icon: LayoutDashboard, label: t('dashboard'), adminOnly: true },
+            { id: 'clientdupes',   icon: Merge,           label: t('cdTitle'),   adminOnly: true },
             { id: 'registrations', icon: ClipboardCheck,  label: t('emehmon'),   badgeKey: 'registrations', permKey: 'viewRegistrations' },
-            { id: 'cadastre',      icon: MapPin,          label: 'Кадастр', permKey: 'viewCadastre' },
-            { id: 'manualstay',    icon: Users,           label: 'Ручной учёт', permKey: 'viewManualStay' },
+            { id: 'cadastre',      icon: MapPin,          label: t('navCadastre'), permKey: 'viewCadastre' },
+            { id: 'manualstay',    icon: Users,           label: t('navManualStay'), permKey: 'viewManualStay' },
             { id: 'tasks',         icon: CheckSquare,     label: t('tasks'),     badgeKey: 'tasks', permKey: 'viewTasks' },
         ],
     },
@@ -39,6 +39,7 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('finance'),
         items: [
             { id: 'reports',   icon: FileText,  label: t('reports'),   adminOnly: true },
+            { id: 'timeline',  icon: Activity,  label: t('ctlNav'),    adminOnly: true },
             { id: 'expenses',  icon: Wallet,    label: t('expenses'),  adminOnly: true },
             { id: 'analytics', icon: BarChart3, label: t('analytics'), adminOnly: true },
         ],
@@ -47,18 +48,19 @@ const MORE_GROUPS_ADMIN = (t) => [
         label: t('personnel'),
         items: [
             { id: 'staff',  icon: UserCog, label: t('staff'),  adminOnly: true },
-            { id: 'pricePerms', icon: ShieldCheck, label: 'Понижение цены', adminOnly: true },
+            { id: 'pricePerms', icon: ShieldCheck, label: t('navPriceLowering'), adminOnly: true },
             { id: 'shifts', icon: Clock,   label: t('shifts'), adminOnly: true },
         ],
     },
     {
         label: t('other2'),
         items: [
+            { id: 'shop',         icon: ShoppingBag,   label: t('shNav'), permKey: 'viewShop' },
             { id: 'referrals',    icon: Users2,        label: t('bonuses'), permKey: 'viewReferrals' },
             { id: 'telegram',     icon: BellRing,      label: t('telegram2'),      adminOnly: true },
             { id: 'promos',       icon: Tag,            label: t('promos2'),        adminOnly: true },
             { id: 'hostelconfig', icon: Settings,       label: t('hostelSettings'), adminOnly: true },
-            { id: 'auditlog',     icon: ClipboardList,  label: t('auditHistory'),   superOnly: true },
+            { id: 'auditlog',     icon: ClipboardList,  label: t('auditHistory'),   adminOnly: true },
         ],
     },
 ];
@@ -76,9 +78,10 @@ const MORE_GROUPS_CASHIER = (t) => [
         items: [
             { id: 'bookings',      icon: Globe,          label: t('bookings2'), badgeKey: 'bookings', glow: true },
             { id: 'registrations', icon: ClipboardCheck, label: t('emehmon'),   badgeKey: 'registrations', permKey: 'viewRegistrations' },
-            { id: 'cadastre',      icon: MapPin,         label: 'Кадастр', permKey: 'viewCadastre' },
-            { id: 'manualstay',    icon: Users,          label: 'Ручной учёт', permKey: 'viewManualStay' },
+            { id: 'cadastre',      icon: MapPin,         label: t('navCadastre'), permKey: 'viewCadastre' },
+            { id: 'manualstay',    icon: Users,          label: t('navManualStay'), permKey: 'viewManualStay' },
             { id: 'referrals',     icon: Users2,         label: t('bonuses'), permKey: 'viewReferrals' },
+            { id: 'shop',          icon: ShoppingBag,    label: t('shNav'), permKey: 'viewShop' },
         ],
     },
 ];
@@ -176,7 +179,7 @@ const MobileNavigation = ({
                     boxShadow: '0 -8px 48px rgba(0,0,0,0.55)',
                     overflowY: 'auto',
                     overscrollBehavior: 'contain',
-                    paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${showHostelBar ? 92 : 68}px)`,
+                    paddingBottom: `calc(max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px)) + ${showHostelBar ? 104 : 68}px)`,
                 }}
             >
                 {/* Handle bar */}
@@ -216,13 +219,13 @@ const MobileNavigation = ({
                 {canPerformActions && isCashier && (
                     <div className="px-4 pt-4 pb-1">
                         <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'rgba(158,205,208,0.5)' }}>
-                            Заселение
+                            {t('navCheckinSection')}
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                             {[
-                                { label: 'Один гость', icon: UserPlus,  color: '#5eead4', action: () => { setDrawerOpen(false); onOpenCheckIn?.();        } },
-                                { label: 'Группа',     icon: Users2,    color: '#a5b4fc', action: () => { setDrawerOpen(false); onOpenGroupCheckIn?.();  } },
-                                { label: 'Аренда',     icon: Building2, color: '#6ee7b7', action: () => { setDrawerOpen(false); onOpenRoomRental?.();    } },
+                                { label: t('checkinOneGuest'), icon: UserPlus,  color: '#5eead4', action: () => { setDrawerOpen(false); onOpenCheckIn?.();        } },
+                                { label: t('checkinGroup'),     icon: Users2,    color: '#a5b4fc', action: () => { setDrawerOpen(false); onOpenGroupCheckIn?.();  } },
+                                { label: t('checkinRental'),    icon: Building2, color: '#6ee7b7', action: () => { setDrawerOpen(false); onOpenRoomRental?.();    } },
                             ].map(({ label, icon: Icon, color, action }) => (
                                 <button
                                     key={label} onClick={action}
@@ -241,14 +244,14 @@ const MobileNavigation = ({
                                 className="flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
                                 style={{ background: 'rgba(232,140,64,0.18)', border: '1px solid rgba(232,140,64,0.35)', color: '#f6ad6b' }}
                             >
-                                <Wallet size={14}/> Расход
+                                <Wallet size={14}/> {t('expense')}
                             </button>
                             <button
                                 onClick={() => { setDrawerOpen(false); onOpenShiftClosing?.(); }}
                                 className="flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
                                 style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}
                             >
-                                <Lock size={14}/> Смену
+                                <Lock size={14}/> {t('shift')}
                             </button>
                         </div>
                         <button
@@ -256,7 +259,7 @@ const MobileNavigation = ({
                             className="w-full mt-2 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl font-bold text-xs active:scale-95 transition-transform"
                             style={{ background: 'rgba(15,150,136,0.16)', border: '1px solid rgba(15,150,136,0.34)', color: '#5eead4' }}
                         >
-                            <FileText size={14}/> Лист в бухгалтерию
+                            <FileText size={14}/> {t('navAccountingSheet')}
                         </button>
                     </div>
                 )}
@@ -338,7 +341,7 @@ const MobileNavigation = ({
                             }}
                         >
                             {appTheme === 'dark' ? '🌙' : '☀️'}
-                            <span>{appTheme === 'dark' ? 'Тёмная' : 'Светлая'}</span>
+                            <span>{appTheme === 'dark' ? t('navThemeDark') : t('navThemeLight')}</span>
                         </button>
                     </div>
                     <button
@@ -346,7 +349,7 @@ const MobileNavigation = ({
                         className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-bold text-sm active:scale-95 transition-transform"
                         style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }}
                     >
-                        <LogOut size={17} /> Выйти из аккаунта
+                        <LogOut size={17} /> {t('navLogoutAccount')}
                     </button>
                 </div>
             </div>
@@ -357,7 +360,9 @@ const MobileNavigation = ({
                     ref={checkinRef}
                     className="fixed z-[90] md:hidden"
                     style={{
-                        bottom: `calc(env(safe-area-inset-bottom, 0px) + ${showHostelBar ? 92 : 68}px)`,
+                        // Высота меню: 57px, с переключателем хостелов — 95px (+ отступ снизу).
+                        // При 92 кнопка налезала на меню на 3px (смоук-тест 2026-09-26).
+                        bottom: `calc(max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px)) + ${showHostelBar ? 104 : 68}px)`,
                         left: '50%',
                         transform: 'translateX(-50%)',
                     }}
@@ -366,9 +371,9 @@ const MobileNavigation = ({
                     {checkinOpen && (
                         <div className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 flex gap-2.5 animate-in zoom-in-90 fade-in duration-150">
                             {[
-                                { label: 'Один',   icon: UserPlus,  color: '#5eead4', bg: '#0f2a2e', action: () => { setCheckinOpen(false); onOpenCheckIn?.();       } },
-                                { label: 'Группа', icon: Users2,    color: '#a5b4fc', bg: '#161030', action: () => { setCheckinOpen(false); onOpenGroupCheckIn?.(); } },
-                                { label: 'Аренда', icon: Building2, color: '#6ee7b7', bg: '#0e2820', action: () => { setCheckinOpen(false); onOpenRoomRental?.();   } },
+                                { label: t('navOne'),        icon: UserPlus,  color: '#5eead4', bg: '#0f2a2e', action: () => { setCheckinOpen(false); onOpenCheckIn?.();       } },
+                                { label: t('checkinGroup'),  icon: Users2,    color: '#a5b4fc', bg: '#161030', action: () => { setCheckinOpen(false); onOpenGroupCheckIn?.(); } },
+                                { label: t('checkinRental'), icon: Building2, color: '#6ee7b7', bg: '#0e2820', action: () => { setCheckinOpen(false); onOpenRoomRental?.();   } },
                             ].map(({ label, icon: Icon, color, bg, action }) => (
                                 <button
                                     key={label} onClick={action}
@@ -488,7 +493,7 @@ const MobileNavigation = ({
                                 </span>
                             )}
                         </div>
-                        <span className="text-[9px] font-bold">Ещё</span>
+                        <span className="text-[9px] font-bold">{t('navMore')}</span>
                         {(drawerOpen || activeInMore) && (
                             <span
                                 className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full"

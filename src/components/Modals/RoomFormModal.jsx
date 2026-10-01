@@ -8,7 +8,7 @@ const labelClass = "block text-xs font-bold text-slate-500 mb-2 uppercase tracki
 
 // --- RoomFormModal ---
 const RoomFormModal = ({ title, initialData = {}, onClose, onSubmit, lang }) => {
-    const t = (k) => TRANSLATIONS[lang][k];
+    const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [form, setForm] = useState({ 
         number: initialData.number || '', 
         capacity: initialData.capacity || '4', 
@@ -41,17 +41,16 @@ const RoomFormModal = ({ title, initialData = {}, onClose, onSubmit, lang }) => 
                     <div>
                         <label className={labelClass} style={{display:'flex', alignItems:'center', gap:6}}>
                             <span style={{background:'#003580',color:'#fff',fontSize:9,fontWeight:900,padding:'1px 6px',borderRadius:4}}>booking</span>
-                            Уникальное название (необязательно)
+                            {t('rfmUniqueName')}
                         </label>
                         <input
                             className={inputClass}
                             value={form.bookingName}
                             onChange={e => setForm({...form, bookingName: e.target.value})}
-                            placeholder="напр. Bed in Dorm"
+                            placeholder={t('rfmUniqueNamePh')}
                         />
                         <p style={{fontSize:10,color:'#94a3b8',marginTop:4,marginLeft:4}}>
-                            Booking.com → Комнаты → Редактировать → «Уникальное название».
-                            Используется для супоставления броней из iCal.
+                            {t('rfmUniqueNameHelp')}
                         </p>
                     </div>
                     <Button onClick={() => onSubmit(form)} className="w-full mt-4">{t('save')}</Button>

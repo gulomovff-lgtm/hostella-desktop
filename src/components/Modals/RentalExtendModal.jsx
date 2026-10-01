@@ -4,6 +4,7 @@ import {
     RefreshCw, LogOut, Receipt, CalendarDays, BedDouble, CheckCircle2,
     ChevronRight, AlertTriangle,
 } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 const STYLE = `
 @keyframes pos-in {
@@ -44,7 +45,7 @@ const Section = ({ icon: Icon, title, right }) => (
     </div>
 );
 
-const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent }) => (
+const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent, magnetTitle }) => (
     <div className="flex items-center gap-2">
         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${accent}`}>
             <Icon size={13} className="text-white" />
@@ -61,7 +62,7 @@ const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent }) => (
             <button
                 type="button"
                 onClick={onMagnet}
-                title="Заполнить остаток"
+                title={magnetTitle}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-teal-500 transition-colors"
             >
                 <Magnet size={13} />
@@ -71,7 +72,8 @@ const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent }) => (
     </div>
 );
 
-const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, currentUser, guests = [] }) => {
+const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, currentUser, guests = [], lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const rental = room?.rental;
     const [tab, setTab] = useState('extend');
 
@@ -174,7 +176,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                 newTotal,
             });
         } catch (e) {
-            notify?.(e.message || 'Ошибка', 'error');
+            notify?.(e.message || t('error'), 'error');
             setBusy(false);
         }
     };
@@ -196,14 +198,14 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
             await onEndRental?.(room);
             onClose();
         } catch (e) {
-            notify?.(e.message || 'Ошибка', 'error');
+            notify?.(e.message || t('error'), 'error');
             setBusy(false);
         }
     };
 
     const tabs = [
-        { id: 'extend', label: 'Продлить', icon: RefreshCw, color: '#0f9688' },
-        { id: 'evict',  label: 'Выселить', icon: LogOut,    color: '#f59e0b' },
+        { id: 'extend', label: t('extend'),   icon: RefreshCw, color: '#0f9688' },
+        { id: 'evict',  label: t('checkout'), icon: LogOut,    color: '#f59e0b' },
     ];
 
     return (
@@ -224,10 +226,10 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                             </div>
                             <div>
                                 <div className="text-white font-black text-sm leading-tight">
-                                    {tab === 'extend' ? 'Продление аренды' : 'Выселение'}
+                                    {tab === 'extend' ? t('reExtendTitle') : t('reEviction')}
                                 </div>
                                 <div className="text-slate-500 text-[10px]">
-                                    Комната {room?.number} · {rental?.tenantName}
+                                    {t('roomWord')} {room?.number} · {rental?.tenantName}
                                 </div>
                             </div>
                         </div>
@@ -241,7 +243,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                         style={{ background: '#0e2428', border: '1px solid rgba(94,234,212,0.1)' }}>
                         <div>
                             <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
-                                {tab === 'extend' ? 'Доплата' : 'Долг'}
+                                {tab === 'extend' ? t('reSurcharge') : t('debt')}
                             </div>
                             <div className="font-mono font-black leading-none" style={{
                                 fontSize: '26px',
@@ -250,11 +252,11 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                                 transition: 'color .2s',
                             }}>
                                 {ledAmount > 0 ? ledAmount.toLocaleString() : '0'}
-                                <span className="ml-1.5" style={{ color: '#4b5563', fontSize: '11px' }}>СУМ</span>
+                                <span className="ml-1.5" style={{ color: '#4b5563', fontSize: '11px' }}>{t('sumCurrency')}</span>
                             </div>
                             {tab === 'extend' && pricePerDay > 0 && (
                                 <div className="text-[10px] text-slate-600 mt-0.5 font-mono">
-                                    {pricePerDay.toLocaleString()} x {extDays} дн.
+                                    {pricePerDay.toLocaleString()} x {extDays} {t('daysShort')}
                                 </div>
                             )}
                             {tab === 'evict' && (
@@ -266,7 +268,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                         <div className="text-right">
                             {ledDebt > 0 && (
                                 <div>
-                                    <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Остаток</div>
+                                    <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{t('remaining')}</div>
                                     <div className="font-mono font-black text-rose-400 text-lg leading-tight">
                                         {ledDebt.toLocaleString()}
                                     </div>
@@ -274,7 +276,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                             )}
                             {ledDebt === 0 && ledPaid > 0 && (
                                 <div className="flex items-center gap-1 text-teal-400 text-xs font-bold">
-                                    <CheckCircle2 size={14} /> Оплачено
+                                    <CheckCircle2 size={14} /> {t('paid')}
                                 </div>
                             )}
                         </div>
@@ -305,21 +307,21 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                             {/* ЛЕВО — период, продление, доплата */}
                             <div className="space-y-4">
                             <div className="bg-slate-50 rounded-xl border border-slate-100 px-4 py-3">
-                                <Section icon={CalendarDays} title="Текущий период" />
+                                <Section icon={CalendarDays} title={t('reCurrentPeriod')} />
                                 <div className="flex justify-between text-sm font-mono">
-                                    <span className="text-slate-500">До:</span>
+                                    <span className="text-slate-500">{t('reUntil')}:</span>
                                     <span className="font-bold text-slate-700">
                                         {rental?.checkOutStr || rental?.checkOutDate?.slice(0,10)}
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm font-mono mt-0.5">
-                                    <span className="text-slate-500">Дней:</span>
+                                    <span className="text-slate-500">{t('days')}:</span>
                                     <span className="font-bold text-slate-700">{rental?.days}</span>
                                 </div>
                             </div>
 
                             <div>
-                                <Section icon={RefreshCw} title="Продлить на" />
+                                <Section icon={RefreshCw} title={t('reExtendBy')} />
                                 <div className="flex items-center gap-3 mb-3">
                                     <button onClick={() => setExtDays(d => Math.max(1, d - 1))}
                                         className="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 shrink-0 transition-colors">
@@ -354,27 +356,27 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                             <div className="rounded-xl px-4 py-3 flex items-center justify-between"
                                 style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
                                 <div>
-                                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#16a34a' }}>Новая дата выезда</div>
+                                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#16a34a' }}>{t('reNewCheckoutDate')}</div>
                                     <div className="font-mono font-black text-lg" style={{ color: '#15803d' }}>{newCheckOut}</div>
                                 </div>
                                 <div className="text-right">
-                                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#16a34a' }}>Итого дней</div>
+                                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#16a34a' }}>{t('reTotalDays')}</div>
                                     <div className="font-black text-lg" style={{ color: '#15803d' }}>{newDays}</div>
                                 </div>
                             </div>
 
                             <div>
-                                <Section icon={DollarSign} title="Сумма доплаты за продление"
-                                    right={pricePerDay > 0 ? <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{pricePerDay.toLocaleString()} × {extDays} дн.</span> : null} />
+                                <Section icon={DollarSign} title={t('reSurchargeTitle')}
+                                    right={pricePerDay > 0 ? <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{pricePerDay.toLocaleString()} × {extDays} {t('daysShort')}</span> : null} />
                                 <div className="relative">
                                     <input type="text" inputMode="numeric" className="pos-input-ext pr-12 text-right font-mono font-black"
                                         placeholder="0"
                                         value={chargeDisplay}
                                         onChange={e => { setChargeTouched(true); setExtCharge(e.target.value.replace(/\D/g, '')); }} />
-                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">сум</span>
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">{t('sum')}</span>
                                 </div>
                                 <p className="text-[10px] text-slate-400 mt-1">
-                                    Добавится к долгу аренды. {pricePerDay > 0 ? 'Подставлено авто — можно изменить.' : 'Цена за сутки не задана — укажите сумму вручную.'}
+                                    {t('reSurchargePrefix')} {pricePerDay > 0 ? t('reSurchargeAuto') : t('reSurchargeManual')}
                                 </p>
                             </div>
 
@@ -382,10 +384,13 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                                 <div className="flex items-start gap-2 px-3 py-2.5 bg-rose-50 border border-rose-200 rounded-xl">
                                     <AlertTriangle size={14} className="text-rose-500 shrink-0 mt-0.5" />
                                     <div>
-                                        <p className="text-xs text-rose-700 font-bold mb-1">Конфликт — продление невозможно:</p>
+                                        <p className="text-xs text-rose-700 font-bold mb-1">{t('reConflictTitle')}</p>
                                         {extConflicts.map(g => (
                                             <p key={g.id} className="text-[11px] text-rose-600">
-                                                {g.fullName} · {g.status === 'booking' ? 'бронь' : 'заселён'} с {g.checkInDate?.slice(0,10)}
+                                                {t('reConflictLine')
+                                                    .replace('{name}', g.fullName)
+                                                    .replace('{status}', g.status === 'booking' ? t('reBookingLower') : t('reCheckedIn'))
+                                                    .replace('{date}', g.checkInDate?.slice(0,10) || '')}
                                             </p>
                                         ))}
                                     </div>
@@ -395,23 +400,23 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
 
                             {/* ПРАВО — оплата */}
                             <div className="space-y-3 md:border-l md:border-slate-100 md:pl-5 border-t border-slate-100 pt-4 md:border-t-0 md:pt-0">
-                                <Section icon={Receipt} title="Оплатить сейчас (опц.)"
+                                <Section icon={Receipt} title={t('payNowOptional')}
                                     right={extPaid > 0 && newDebt === 0
-                                        ? <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a' }}>Полная оплата</span>
+                                        ? <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a' }}>{t('reFullPayment')}</span>
                                         : extPaid > 0
-                                            ? <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>Долг: {newDebt.toLocaleString()}</span>
+                                            ? <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>{t('debt')}: {newDebt.toLocaleString()}</span>
                                             : null
                                     }
                                 />
-                                <PayRow icon={DollarSign} label="Нал."  value={extCash} onChange={setExtCash} onMagnet={() => applyExtMagnet('extCash')} accent="bg-teal-600" />
-                                <PayRow icon={CreditCard} label="Карта" value={extCard} onChange={setExtCard} onMagnet={() => applyExtMagnet('extCard')} accent="bg-blue-500" />
-                                <PayRow icon={QrCode}     label="QR"    value={extQR}   onChange={setExtQR}   onMagnet={() => applyExtMagnet('extQR')}   accent="bg-violet-500" />
+                                <PayRow icon={DollarSign} label={t('cashShort')} value={extCash} onChange={setExtCash} onMagnet={() => applyExtMagnet('extCash')} accent="bg-teal-600"   magnetTitle={t('reFillRemainder')} />
+                                <PayRow icon={CreditCard} label={t('cardShort')} value={extCard} onChange={setExtCard} onMagnet={() => applyExtMagnet('extCard')} accent="bg-blue-500"   magnetTitle={t('reFillRemainder')} />
+                                <PayRow icon={QrCode}     label={t('qr')}        value={extQR}   onChange={setExtQR}   onMagnet={() => applyExtMagnet('extQR')}   accent="bg-violet-500" magnetTitle={t('reFillRemainder')} />
 
                                 <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 space-y-1.5 mt-1">
-                                    <div className="flex justify-between text-xs"><span className="text-slate-500">Доплата за продление</span><span className="font-mono font-bold text-slate-700">{extCost.toLocaleString()}</span></div>
-                                    {extPaid > 0 && <div className="flex justify-between text-xs"><span className="text-slate-500">Внесено сейчас</span><span className="font-mono font-bold text-emerald-600">{extPaid.toLocaleString()}</span></div>}
+                                    <div className="flex justify-between text-xs"><span className="text-slate-500">{t('reSurchargeForExtend')}</span><span className="font-mono font-bold text-slate-700">{extCost.toLocaleString()}</span></div>
+                                    {extPaid > 0 && <div className="flex justify-between text-xs"><span className="text-slate-500">{t('rePaidNow')}</span><span className="font-mono font-bold text-emerald-600">{extPaid.toLocaleString()}</span></div>}
                                     <div className="flex justify-between text-xs pt-1.5 border-t border-slate-200">
-                                        <span className="font-bold text-slate-700">{newDebt > 0 ? 'Остаток долга' : 'Долг'}</span>
+                                        <span className="font-bold text-slate-700">{newDebt > 0 ? t('debtRemaining') : t('debt')}</span>
                                         <span className={`font-mono font-black ${newDebt > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>{newDebt.toLocaleString()}</span>
                                     </div>
                                 </div>
@@ -423,50 +428,50 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                     {tab === 'evict' && (
                         <div className="px-5 py-4 space-y-4">
                             <div className="bg-slate-50 rounded-xl border border-slate-100 px-4 py-3 space-y-2">
-                                <Section icon={BedDouble} title="Итоги аренды" />
+                                <Section icon={BedDouble} title={t('reRentalSummary')} />
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Заехал:</span>
+                                    <span className="text-slate-500">{t('reCheckedInAt')}:</span>
                                     <span className="font-bold text-slate-700 font-mono">{rental?.checkInDate?.slice(0,10)}</span>
                                 </div>
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Выезд:</span>
+                                    <span className="text-slate-500">{t('checkoutDate')}:</span>
                                     <span className="font-bold text-slate-700 font-mono">{rental?.checkOutStr || rental?.checkOutDate?.slice(0,10)}</span>
                                 </div>
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Дней:</span>
+                                    <span className="text-slate-500">{t('days')}:</span>
                                     <span className="font-bold text-slate-700">{rental?.days}</span>
                                 </div>
                                 <hr className="receipt-divider-ext" />
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Начислено:</span>
+                                    <span className="text-slate-500">{t('accrued')}:</span>
                                     <span className="font-bold font-mono text-slate-700">{(rental?.totalAmount || 0).toLocaleString()}</span>
                                 </div>
                                 {(rental?.paidCash || 0) > 0 && (
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">Нал. оплачено:</span>
+                                        <span className="text-slate-500">{t('reCashPaid')}:</span>
                                         <span className="font-bold font-mono text-teal-700">{(rental.paidCash).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {(rental?.paidCard || 0) > 0 && (
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">Карта:</span>
+                                        <span className="text-slate-500">{t('cardShort')}:</span>
                                         <span className="font-bold font-mono text-blue-700">{(rental.paidCard).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {(rental?.paidQR || 0) > 0 && (
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">QR:</span>
+                                        <span className="text-slate-500">{t('qr')}:</span>
                                         <span className="font-bold font-mono text-violet-700">{(rental.paidQR).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {existingDebt > 0 ? (
                                     <div className="flex justify-between text-sm pt-1 border-t border-slate-200">
-                                        <span className="font-bold text-rose-500">Долг:</span>
+                                        <span className="font-bold text-rose-500">{t('debt')}:</span>
                                         <span className="font-black font-mono text-rose-500">{existingDebt.toLocaleString()}</span>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-1.5 text-teal-600 text-sm font-bold pt-1 border-t border-slate-200">
-                                        <CheckCircle2 size={14} /> Долгов нет
+                                        <CheckCircle2 size={14} /> {t('reNoDebts')}
                                     </div>
                                 )}
                             </div>
@@ -474,17 +479,17 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                             {existingDebt > 0 && (
                                 <>
                                     <hr className="receipt-divider-ext" />
-                                    <Section icon={Receipt} title="Принять оплату при выезде"
+                                    <Section icon={Receipt} title={t('rePayOnCheckout')}
                                         right={evDebt === 0 && evPaid > 0
-                                            ? <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a' }}>Закрыт</span>
+                                            ? <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a' }}>{t('reClosed')}</span>
                                             : evDebt > 0 && evPaid > 0
-                                                ? <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>Долг: {evDebt.toLocaleString()}</span>
+                                                ? <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>{t('debt')}: {evDebt.toLocaleString()}</span>
                                                 : null
                                         }
                                     />
-                                    <PayRow icon={DollarSign} label="Нал."  value={evCash} onChange={setEvCash} onMagnet={() => applyEvMagnet('evCash')} accent="bg-teal-600" />
-                                    <PayRow icon={CreditCard} label="Карта" value={evCard} onChange={setEvCard} onMagnet={() => applyEvMagnet('evCard')} accent="bg-blue-500" />
-                                    <PayRow icon={QrCode}     label="QR"    value={evQR}   onChange={setEvQR}   onMagnet={() => applyEvMagnet('evQR')}   accent="bg-violet-500" />
+                                    <PayRow icon={DollarSign} label={t('cashShort')} value={evCash} onChange={setEvCash} onMagnet={() => applyEvMagnet('evCash')} accent="bg-teal-600"   magnetTitle={t('reFillRemainder')} />
+                                    <PayRow icon={CreditCard} label={t('cardShort')} value={evCard} onChange={setEvCard} onMagnet={() => applyEvMagnet('evCard')} accent="bg-blue-500"   magnetTitle={t('reFillRemainder')} />
+                                    <PayRow icon={QrCode}     label={t('qr')}        value={evQR}   onChange={setEvQR}   onMagnet={() => applyEvMagnet('evQR')}   accent="bg-violet-500" magnetTitle={t('reFillRemainder')} />
                                 </>
                             )}
 
@@ -492,7 +497,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                                 <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl">
                                     <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
                                     <p className="text-xs text-amber-700 font-semibold">
-                                        Остаток {evDebt.toLocaleString()} сум — выселение всё равно будет выполнено
+                                        {t('reEvictAnywayNote').replace('{n}', evDebt.toLocaleString())}
                                     </p>
                                 </div>
                             )}
@@ -504,7 +509,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                     style={{ background: '#0f172a', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     <button onClick={onClose}
                         className="px-4 py-2.5 text-slate-500 hover:text-slate-300 font-bold rounded-xl transition-colors text-sm">
-                        Отмена
+                        {t('cancel')}
                     </button>
 
                     {tab === 'extend' && (
@@ -517,7 +522,9 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                                 ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                 : <RefreshCw size={15} />
                             }
-                            {extPaid > 0 ? `Оплатить и продлить на ${extDays} дн.` : `Продлить на ${extDays} дн.`}
+                            {extPaid > 0
+                                ? t('rePayAndExtendDays').replace('{n}', extDays)
+                                : t('reExtendDays').replace('{n}', extDays)}
                             <ChevronRight size={15} />
                         </button>
                     )}
@@ -532,7 +539,7 @@ const RentalExtendModal = ({ room, onClose, onExtend, onEndRental, notify, curre
                                 ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                 : <LogOut size={15} />
                             }
-                            {evPaid > 0 ? 'Принять оплату и выселить' : 'Выселить'}
+                            {evPaid > 0 ? t('rePayAndEvict') : t('checkout')}
                             <ChevronRight size={15} />
                         </button>
                     )}

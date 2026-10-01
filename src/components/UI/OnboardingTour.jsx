@@ -1,53 +1,54 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ArrowRight, X, CheckCircle } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 const STEPS = [
     {
         id:      'dashboard',
-        title:   'Добро пожаловать в Hostella!',
-        text:    'Это дашборд — здесь вы видите ключевые показатели: занятость, выручку, задачи и последние действия.',
+        title:   'obDashTitle',
+        text:    'obDashText',
         target:  'nav-dashboard',
         emoji:   '🏠',
     },
     {
         id:      'rooms',
-        title:   'Управление номерами',
-        text:    'В разделе «Номера» можно добавлять комнаты, настраивать цены и следить за свободными местами.',
+        title:   'obRoomsTitle',
+        text:    'obRoomsText',
         target:  'nav-rooms',
         emoji:   '🛏️',
     },
     {
         id:      'checkin',
-        title:   'Заселение гостей',
-        text:    'Нажмите «+ Заселить» в любой момент чтобы зарегистрировать нового гостя. Используйте групповое заселение для нескольких гостей сразу.',
+        title:   'obCheckinTitle',
+        text:    'obCheckinText',
         target:  'checkin-btn',
         emoji:   '👤',
     },
     {
         id:      'guests',
-        title:   'Список гостей',
-        text:    'В разделе «Гости» — все текущие гости с деталями, оплатами и историей. Можно искать по имени или паспорту.',
+        title:   'obGuestsTitle',
+        text:    'obGuestsText',
         target:  'nav-guests',
         emoji:   '👥',
     },
     {
         id:      'expenses',
-        title:   'Расходы',
-        text:    'Фиксируйте расходы с фото чека. Все расходы учитываются в отчётах и видны в разрезе смены.',
+        title:   'obExpTitle',
+        text:    'obExpText',
         target:  'nav-expenses',
         emoji:   '💸',
     },
     {
         id:      'reports',
-        title:   'Отчёты',
-        text:    'Отчёты показывают выручку по периодам, топ-кассиров, статистику по оплатам. Данные можно экспортировать в Excel.',
+        title:   'obRepTitle',
+        text:    'obRepText',
         target:  'nav-reports',
         emoji:   '📊',
     },
     {
         id:      'settings',
-        title:   'Настройки',
-        text:    'Укажите название и логотип хостела, настройте шаблоны чеков, сделайте резервную копию данных.',
+        title:   'obSetTitle',
+        text:    'obSetText',
         target:  'nav-settings',
         emoji:   '⚙️',
     },
@@ -55,7 +56,8 @@ const STEPS = [
 
 const LS_KEY = 'hostella_onboarding_v1';
 
-const OnboardingTour = ({ onComplete, lang }) => {
+const OnboardingTour = ({ onComplete, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [step, setStep]     = useState(0);
     const [visible, setVisible] = useState(true);
 
@@ -91,9 +93,9 @@ const OnboardingTour = ({ onComplete, lang }) => {
                         <div className="text-3xl leading-none">{current.emoji}</div>
                         <div>
                             <div className="text-[10px] font-black text-white/60 uppercase tracking-wider mb-0.5">
-                                Шаг {step + 1} / {STEPS.length}
+                                {t('obStep').replace('{n}', step + 1).replace('{total}', STEPS.length)}
                             </div>
-                            <div className="text-white font-black text-[15px]">{current.title}</div>
+                            <div className="text-white font-black text-[15px]">{t(current.title)}</div>
                         </div>
                     </div>
                     <button onClick={handleSkip}
@@ -110,7 +112,7 @@ const OnboardingTour = ({ onComplete, lang }) => {
 
                 {/* Body */}
                 <div className="px-6 py-5">
-                    <p className="text-slate-600 text-sm leading-relaxed">{current.text}</p>
+                    <p className="text-slate-600 text-sm leading-relaxed">{t(current.text)}</p>
                 </div>
 
                 {/* Step dots */}
@@ -126,7 +128,7 @@ const OnboardingTour = ({ onComplete, lang }) => {
                 {/* Footer */}
                 <div className="flex items-center justify-between px-6 pb-5">
                     <button onClick={handleSkip} className="text-slate-400 hover:text-slate-600 text-xs font-medium transition-colors">
-                        Пропустить
+                        {t('obSkip')}
                     </button>
                     <button onClick={handleNext}
                         className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black text-white transition-all shadow-lg
@@ -135,9 +137,9 @@ const OnboardingTour = ({ onComplete, lang }) => {
                                 : 'bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 shadow-indigo-200'
                             }`}>
                         {isLast ? (
-                            <><CheckCircle size={15}/> Начать работу</>
+                            <><CheckCircle size={15}/> {t('hpStart')}</>
                         ) : (
-                            <>Далее <ArrowRight size={15}/></>
+                            <>{t('next')} <ArrowRight size={15}/></>
                         )}
                     </button>
                 </div>

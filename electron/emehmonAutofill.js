@@ -31,6 +31,13 @@ function buildAutofillScript(guest) {
     // сохранения возвращало бы на новую регистрацию).
     try {
       var _target = GUEST.path || '/listok/create-page';
+      // Защита от увода окна на чужой домен: path приходит из Hostella, но
+      // берём только «чистый» относительный путь. Строка вида '@evil.com/' или
+      // '//evil.com' иначе увела бы окно на чужой origin при редиректе ниже —
+      // а туда инжектится автозаполнение с логином/паролем портала.
+      if (typeof _target !== 'string' || !/^\\/[A-Za-z0-9\\/_.\\-?=&%]*$/.test(_target) || _target.indexOf('//') === 0) {
+        _target = '/listok/create-page';
+      }
       var _p = location.pathname || '';
       var _onTarget = _target === '/listok'
         ? (_p.replace(/\\/+$/, '') === '/listok')
@@ -153,7 +160,9 @@ function buildAutofillScript(guest) {
       if (GUEST.room) { fillRoomRetry(GUEST.room, 6); n++; }  // Номер/Комната (с повтором — список грузится с задержкой)
       if (fillSelectValue('id_visittype', '5')) n++;  // Тип визита — Другое
       if (fillSelectValue('payed', '2')) n++;         // Статус оплаты — Оплачен полностью
-      if (fillInput('amount', '1')) n++;              // Сумма оплаты — всегда 1
+      // Сумма оплаты: ставка зависит от гражданства (местные / иностранцы),
+      // задаётся в настройках приложения и приходит в GUEST.amount.
+      if (fillInput('amount', String(GUEST.amount || '1'))) n++;
       if (fillSelectValue('id_guest', '4')) n++;      // Тип гостя — Другое
       return n;
     }
@@ -278,6 +287,42 @@ function buildDepartureAutoScript(guest) {
   function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
 
   try {
+    // Лист убытия снимает в PDF main-процесс (emehmonSheet.js): окно листа он
+    // держит скрытым, а диалог печати некому закрыть — печать глушим и здесь,
+    // со стороны родителя: это страхует окно без адреса (document.write).
+    // Портал печатает лист так: POST /listok/print → HTML → скрытый iframe →
+    // iframe.print(). Перехватываем на уровне $.ajax: HTML забираем себе, а
+    // печать (iframe) не запускаем вовсе — диалогу неоткуда взяться. Лист
+    // рисует main-процесс / мост (emehmonSheet.renderSheetHtml).
+    if (GUEST.sheet && $ && $.ajax && !$.__hostellaSheetHook) {
+      $.__hostellaSheetHook = true;
+      var _ajax = $.ajax;
+      $.ajax = function(opts){
+        try {
+          var o = (typeof opts === 'string') ? { url: opts } : (opts || {});
+          if (/\\/listok\\/print(\\?|$)/.test(String(o.url || ''))) {
+            var onErr = o.error;
+            var patched = {};
+            for (var pk in o) patched[pk] = o[pk];
+            patched.success = function(html){ try { window.__hostellaSheetHtml = String(html || ''); window.__hostellaSheetIds = (o.data && o.data.ids) || []; window.__hostellaSheetCheckout = (o.data && o.data.checkout != null) ? String(o.data.checkout) : null; } catch(e){} };
+            patched.error = function(){ window.__hostellaSheetError = 'print_fetch_failed'; if (typeof onErr === 'function') { try { onErr.apply(this, arguments); } catch(e){} } };
+            return _ajax.call($, patched);
+          }
+        } catch(e){}
+        return _ajax.apply($, arguments);
+      };
+    }
+    if (GUEST.sheet && !window.__hostellaOpenWrapped) {
+      window.__hostellaOpenWrapped = true;
+      var _open = window.open;
+      window.open = function(){
+        var w = _open.apply(window, arguments);
+        try { if (w) { w.print = function(){ try { w.__hostellaPrintWanted = true; } catch(e){} }; } } catch(e){}
+        return w;
+      };
+      var _print = window.print;
+      window.print = function(){ if (window.__hostellaSheetOff) { return _print.apply(window, arguments); } window.__hostellaPrintWanted = true; };
+    }
     // 0) страница входа → нужен человек (капча/логин)
     if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
       return { status: 'need_login' };
@@ -328,7 +373,8 @@ function buildDepartureAutoScript(guest) {
       el.value = payType; try { if ($) $(el).val(payType).trigger('change'); } catch(e){} fire(el);
     });
 
-    // 6) галочка печати листа убытия (по умолчанию e-mehmon ставит её — снимаем если печать не нужна)
+    // 6) галочка печати листа убытия (по умолчанию e-mehmon ставит её — снимаем, если лист не нужен;
+    //    при sheet:true лист открывается скрытым окном и снимается в PDF — emehmonSheet.js)
     var pc = document.getElementById('printAll');
     if (pc) { pc.checked = !!GUEST.print; fire(pc); }
 
@@ -340,8 +386,17 @@ function buildDepartureAutoScript(guest) {
 
     // 8) закрытие модалки = успех
     function modalGone(){ return !document.querySelector('.confirm input.payment-input') && !document.querySelector('.modal.show input.payment-input'); }
-    for (var m=0;m<30;m++){ if (modalGone()){ return { status: 'done' }; } await sleep(400); }
-    return { status: 'submitted' };
+    // Лист: после Check-Out портал зовёт печать (POST /listok/print → iframe);
+    // хук $.ajax выше забирает HTML себе — ждём его и отдаём main-процессу.
+    async function finishWithSheet(status){
+      if (!GUEST.sheet) return { status: status };
+      for (var w=0; w<27; w++){ if (window.__hostellaSheetHtml || window.__hostellaSheetError) break; await sleep(300); }
+      return { status: status, sheetHtml: window.__hostellaSheetHtml || null, sheetIds: window.__hostellaSheetIds || null,
+               sheetCheckout: window.__hostellaSheetCheckout == null ? null : String(window.__hostellaSheetCheckout),
+               sheetFetchError: window.__hostellaSheetError || null };
+    }
+    for (var m=0;m<30;m++){ if (modalGone()){ return await finishWithSheet('done'); } await sleep(400); }
+    return await finishWithSheet('submitted');
   } catch(e){
     return { status: 'error', message: (e && e.message) || String(e) };
   }
@@ -375,6 +430,217 @@ function buildDepartureCheckScript(guest) {
       if ((gp && rp && rp===gp) || (gn && rn && rn===gn)) { found = true; }
     });
     return { status: found ? 'present' : 'absent' };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+
+// ── Проверка паспортных данных в госбазе (БЕЗ регистрации) ───────────────────
+// Прогоняет ТОЛЬКО первый шаг мастера: гражданство + тип документа + паспорт +
+// дата рождения → «Keyingi». Дальше портал либо отвечает «topilmadi» (в госбазе
+// такого нет), либо открывает вкладку general-info и сам подставляет официальное
+// ФИО. Переход на следующий шаг и есть признак верных данных.
+//
+// Ничего не сохраняет: запись создаётся только кнопкой submitForm на последнем
+// шаге, сюда мы не доходим. Нужно, чтобы разобрать дубликаты клиентов и понять,
+// у какой из записей паспорт настоящий (напр. AC против AS).
+//
+// Имя из госбазы достаём «как получится»: id полей ФИО в портале не зафиксированы,
+// поэтому пробуем набор вероятных вариантов и дополнительно отдаём дамп заполненных
+// полей general-info (fields) — по нему можно уточнить разбор без новой поездки в портал.
+// ── Общие помощники скрытых скриптов (проверка паспорта, авто-прибытие) ────────
+// Подставляются в оба скрипта как текст. Здесь же — harvestWizard: дамп полей,
+// подписей, таблиц и текстовых блоков вкладки. DOM-имена даты/№ КПП и списка
+// прошлых проживаний порталом не задокументированы, поэтому скрипт ничего не
+// интерпретирует — отдаёт сырой дамп, разбор делает рендерер (utils/kppRules.js),
+// а дамп сохраняется на госте, чтобы уточнить селекторы по живым данным.
+const HIDDEN_HELPERS = `
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function byId(id){ return document.getElementById(id); }
+  function vis(el){ return !!(el && el.offsetParent !== null); }
+  function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+  function setInput(id, val){ var el=byId(id); if(!el) return false; el.value=(val==null?'':val); try{ if($) $(el).val(el.value); }catch(e){} fire(el); return true; }
+  function setSelect(id, val){ var el=byId(id); if(!el) return false; el.value=String(val); try{ if($) $(el).val(String(val)).trigger('change'); }catch(e){} fire(el); return true; }
+  function setSelectByCode(id, code){
+    var el=byId(id); if(!el||!code) return false;
+    var opt=Array.prototype.filter.call(el.options, function(o){ return (o.text||'').indexOf('('+code+')')!==-1; })[0];
+    if(!opt) return false;
+    return setSelect(id, opt.value);
+  }
+  // Гражданство: Узбекистан — известный код 173; остальные — по «(ISO3)» в тексте опции.
+  function selectCitizen(code){ if(!code || code==='UZB') return setSelect('id_citizen','173'); return setSelectByCode('id_citizen', code); }
+  function activeTab(){ var a=document.querySelector('#myTab .nav-link.active'); return a? a.id : ''; }
+  function popups(){ return document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup'); }
+  function notFound(){
+    var nodes = popups();
+    for (var i=0;i<nodes.length;i++){ if (/topilmadi/i.test(nodes[i].textContent||'')) return true; }
+    return false;
+  }
+  function notFoundText(){
+    var nodes = popups();
+    for (var i=0;i<nodes.length;i++){ var tx=String(nodes[i].textContent||'').replace(/\\s+/g,' ').trim(); if (/topilmadi/i.test(tx)) return tx.slice(0,200); }
+    return '';
+  }
+  // Любое видимое сообщение портала (кроме «сохранено») — отказ, который раньше
+  // терялся как молчаливый таймаут: «комната переполнена», «уже зарегистрирован»…
+  function popupText(){
+    var nodes = popups();
+    for (var i=0;i<nodes.length;i++){
+      if (!vis(nodes[i])) continue;
+      var tx=String(nodes[i].textContent||'').replace(/\\s+/g,' ').trim();
+      if (tx && !/saqland|muvaffaqiyat/i.test(tx)) return tx.slice(0,240);
+    }
+    return '';
+  }
+  async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
+  function textOf(el){ return String((el && el.textContent) || '').replace(/\\s+/g,' ').trim(); }
+  function labelFor(el){
+    var t='';
+    try {
+      if (el.id) { var l=document.querySelector('label[for="'+el.id+'"]'); if (l) t=textOf(l); }
+      if (!t) { var grp=el.closest('.form-group, .mb-3, .form-floating, .col, .col-md-6, .col-md-4, .col-md-3'); if (grp) { var l2=grp.querySelector('label'); if (l2) t=textOf(l2); } }
+      if (!t) t = el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.getAttribute('title') || '';
+    } catch(e){}
+    return String(t).replace(/[*:\\s]+$/,'').trim().slice(0,80);
+  }
+  function invalidIds(){
+    try { return Array.prototype.map.call(document.querySelectorAll('.is-invalid, .has-error, .error'), function(e){ return e.id||e.name||e.className||''; }).slice(0,10); } catch(e){ return []; }
+  }
+  function harvestWizard(panelId){
+    var out={}, labels={}, tables=[], blocks=[], parts=[], keys=[], n=0;
+    var panel = byId(panelId||'general-info') || byId('myTabContent') || document.querySelector('.tab-content') || document;
+    var els = panel.querySelectorAll('input, select, textarea');
+    for (var i=0;i<els.length && n<150;i++){
+      var el=els[i]; if ((el.type||'')==='password' || (el.type||'')==='hidden') continue;
+      var key = el.id || el.name || '';
+      var val='';
+      try { val = el.tagName==='SELECT' ? ((el.options[el.selectedIndex]||{}).text||'') : (el.value||''); } catch(e){}
+      val=String(val).replace(/\\s+/g,' ').trim();
+      var lb = labelFor(el);
+      // Список всех полей, включая ПУСТЫЕ: по нему видно, как портал называет
+      // дату/№ КПП, даже когда для этого гостя они не заполнены.
+      if (keys.length < 80 && (key || lb)) keys.push((key||'?') + ' | ' + (lb||'') + (val ? '' : ' | (пусто)'));
+      if (!val || val==='0') continue;
+      val=val.slice(0,160);
+      if (key) { out[key]=val; n++; }
+      if (lb && labels[lb]===undefined) labels[lb]=val;
+    }
+    // Таблицы: сначала в панели, затем во всём мастере, затем в документе.
+    var scopes=[panel];
+    if (panel!==document) { var tc=byId('myTabContent')||document.querySelector('.tab-content'); if (tc && tc!==panel) scopes.push(tc); scopes.push(document); }
+    for (var s=0;s<scopes.length && !tables.length;s++){
+      var tbs=scopes[s].querySelectorAll('table');
+      for (var t=0;t<tbs.length && tables.length<5;t++){
+        var tb=tbs[t], headers=[], rows=[];
+        var ths=tb.querySelectorAll('thead th, thead td');
+        if (!ths.length){ var fr=tb.querySelector('tr'); if (fr && fr.querySelectorAll('th').length) ths=fr.querySelectorAll('th'); }
+        for (var h=0;h<ths.length && h<12;h++) headers.push(textOf(ths[h]).slice(0,80));
+        var trs=tb.querySelectorAll('tbody tr'); if (!trs.length) trs=tb.querySelectorAll('tr');
+        for (var r=0;r<trs.length && rows.length<30;r++){
+          var tds=trs[r].querySelectorAll('td'); if (!tds.length) continue;
+          var cells=[]; for (var c=0;c<tds.length && c<12;c++) cells.push(textOf(tds[c]).slice(0,80));
+          rows.push(cells);
+        }
+        if (headers.length || rows.length) tables.push({ id: tb.id||'', caption: textOf(tb.querySelector('caption')).slice(0,80), headers: headers, rows: rows });
+      }
+    }
+    // Текстовые блоки — до 1500 знаков: список проживаний «Mehmon bizda qolgan»
+    // на последней вкладке стоит в конце карточки, и при 300 знаках отрезался —
+    // касса не видела, что гость только что выехал из соседнего отеля.
+    var bl = panel.querySelectorAll('.card, .alert, .well, .list-group, ol, ul');
+    for (var b=0;b<bl.length && blocks.length<12;b++){ var tx=String(bl[b].innerText||bl[b].textContent||'').trim().slice(0,1500); if (tx && blocks.indexOf(tx)===-1) blocks.push(tx); }
+    // Строки проживаний как есть: «1 10.09.2026 - 11.09.2026 - ASIA HOSTEL»,
+    // «11.09.2026 - ... - HOSTELLA» (открытое). Берём со всей вкладки, не завися
+    // от разметки; разбирает касса (kppRules.parseEmehmonProbe / parseStayLine).
+    var stayLines=[], lastActivity='';
+    try {
+      var all=String(((panel!==document ? panel : document.body).innerText)||'').split(/\\n+/);
+      for (var li=0; li<all.length && stayLines.length<20; li++){
+        var ln=all[li].replace(/\\s+/g,' ').trim();
+        if (/\\d{2}\\.\\d{2}\\.\\d{4}\\s*[-–—]\\s*(\\d{2}\\.\\d{2}\\.\\d{4}|\\.{3}|…)?\\s*[-–—]\\s*\\S/.test(ln)) stayLines.push(ln.slice(0,160));
+        if (!lastActivity && /oxirgi faollik|последн\\S* актив/i.test(ln)) lastActivity=ln.slice(0,160);
+      }
+    } catch(e){}
+    // ФИО из госбазы: фамилия → имя → отчество. В портале surname — фамилия,
+    // firstname — имя, а lastname — ОТЧЕСТВО (у многих заглушка «XXX»); прежний
+    // порядок давал «фамилия отчество имя».
+    var order = ['surname','familiya','sname','firstname','firstName','name','ism','lastname','lastName','patronymic','middlename','otchestvo','sharif'];
+    for (var j=0;j<order.length;j++){
+      for (var key2 in out){
+        var v2 = out[key2];
+        if (key2.toLowerCase()===order[j].toLowerCase() && parts.indexOf(v2)===-1 && !/^(xxx|x|-|—|\\.)$/i.test(v2)) parts.push(v2);
+      }
+    }
+    var name = parts.join(' ').replace(/\\s+/g,' ').trim();
+    if (!name) { for (var lk in labels){ if (/f\\.?i\\.?o|фио|to\\W?liq ism|full ?name/i.test(lk)) { name=labels[lk]; break; } } }
+    var panelIds=[]; var panes=document.querySelectorAll('.tab-pane'); for (var q=0;q<panes.length;q++) if (panes[q].id) panelIds.push(panes[q].id);
+    return { fields:out, labels:labels, tables:tables, blocks:blocks, keys:keys, stayLines:stayLines, lastActivity:lastActivity, officialName:name, panelIds:panelIds };
+  }
+  // Слить дампы двух вкладок в один (поля/подписи — объединение, таблицы/блоки/ключи — конкатенация).
+  function mergeProbe(a, b){
+    if (!a) return b; if (!b) return a;
+    var f={}, l={}, k;
+    for (k in a.fields) f[k]=a.fields[k]; for (k in b.fields) if (f[k]===undefined) f[k]=b.fields[k];
+    for (k in a.labels) l[k]=a.labels[k]; for (k in b.labels) if (l[k]===undefined) l[k]=b.labels[k];
+    return { fields:f, labels:l, tables:(a.tables||[]).concat(b.tables||[]), blocks:(a.blocks||[]).concat(b.blocks||[]),
+             keys:(a.keys||[]).concat(b.keys||[]), stayLines:(a.stayLines||[]).concat(b.stayLines||[]), lastActivity:a.lastActivity||b.lastActivity||'',
+             officialName:a.officialName||b.officialName||'', panelIds:a.panelIds||b.panelIds||[] };
+  }
+`;
+
+function buildPassportCheckScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var G = ${G};
+  ${HIDDEN_HELPERS}
+  try {
+    if ((location.pathname||'').indexOf('login')!==-1 || document.querySelector('input[type=password]')) return { status:'need_login' };
+
+    // 1) ждём форму первого шага
+    if (!(await waitFor(function(){ return byId('passportNumber') && byId('id_citizen'); }, 30, 400))) return { status:'no_form' };
+    await sleep(300);
+
+    // 2) заполняем проверяемые данные и жмём «Keyingi». Гражданство — по коду
+    //    гостя (иностранцев проверяем так же, как местных); без кода — UZB.
+    if (!selectCitizen(G.citizenCode)) return { status:'no_citizen', code: G.citizenCode||'' };
+    setSelect('id_passporttype', G.docType || '1');
+    setInput('datebirth', G.birthDate);
+    setInput('passportNumber', (G.passport||'').toUpperCase());
+    await sleep(500);
+    var fcb = byId('formCheckButton');
+    if (!fcb) return { status:'no_form' };
+    fcb.removeAttribute('disabled');
+    fcb.click();
+
+    // 3) вердикт: «не найден» либо переход на general-info
+    if (!(await waitFor(function(){ return notFound() || popupText() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
+    if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
+    var pe0 = popupText();
+    if (pe0 && activeTab()!=='general-info-tab') return { status:'portal_error', stage:'check', message: pe0 };
+    await sleep(700);   // даём порталу дозаполнить general-info
+    // Портал дописывает вкладку асинхронно (в т.ч. дату КПП) — ждём до 3 с признаков.
+    await waitFor(function(){ var p=byId('general-info')||document; return !!(p.querySelector('table') || p.querySelector('[id*="kpp" i],[name*="kpp" i],[id*="chegara" i],[name*="chegara" i]')); }, 6, 500);
+    var h = harvestWizard('general-info');
+    // На второй вкладке даты КПП может не быть (у портала там только дата
+    // заезда). Идём на третью — она тоже до «Сохранить», ничего не пишем.
+    try {
+      var foreign = !!(G.citizenCode && G.citizenCode !== 'UZB');
+      if (foreign) {
+        if (G.passportIssueDate) setInput('datePassport', G.passportIssueDate);
+        setSelectByCode('id_country', G.citizenCode);
+        if (G.passportIssuedBy) setInput('passportissuedby', G.passportIssuedBy);
+        await sleep(300);
+      }
+      var g2 = document.querySelector('#general-info button[onclick*=additional-info-tab]');
+      if (g2) {
+        g2.click();
+        if (await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 20, 400)) {
+          await sleep(800);
+          h = mergeProbe(h, harvestWizard('additional-info'));
+        }
+      }
+    } catch(e){}
+    return { status:'valid', officialName: h.officialName, fields: h.fields, labels: h.labels, tables: h.tables, blocks: h.blocks, keys: h.keys, panelIds: h.panelIds };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }
@@ -417,6 +683,109 @@ function buildListFetchScript() {
 })();`;
 }
 
+// ── Турсбор: отчёт со страницы /tursborpays ───────────────────────────────────
+// Портал отдаёт данные через DataTables serverSide: GET /tursborpays/data
+//   tp:         HT — иностранцы, LT — местные, ST — самостоятельные туристы
+//   date_range: 'YYYY-MM-DD ~ YYYY-MM-DD'
+// Тянем все три типа за один проход и возвращаем строки + БРВ со страницы.
+// Поля строки: qty (гостей), lived (прожито суток), minsalary (БРВ),
+// percent (% БРВ), tursbor (ставка), tp_lived (начислено суток), real_tursbor (итого).
+function buildTursborFetchScript(payload) {
+  const P = JSON.stringify(payload || {});
+  return `(async function(){
+  var DATA = ${P};
+  var RANGE = DATA.range || '';
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
+      return { status: 'need_login' };
+    }
+    // Разбор чисел портала. Форматы на одной странице разные:
+    // «412,000.00» (запятая = разряды) и «110 000.00» (пробел = разряды),
+    // возможен и «1 234 567,00» (запятая = дробная часть). Определяем, какой
+    // разделитель дробный, по ПОСЛЕДНЕМУ вхождению, иначе сумма врала в 100 раз.
+    var num = function(v){
+      if (v == null) return 0;
+      if (typeof v === 'number') return isFinite(v) ? v : 0;
+      var s = String(v)
+        .replace(/<[^>]*>/g, '')          // html-обёртки
+        .replace(/&nbsp;|&#160;/g, ' ')
+        .replace(/[\\u00A0\\u202F\\u2009]/g, ' ') // неразрывные пробелы
+        .trim();
+      var neg = /^\\(.*\\)$/.test(s) || /^-/.test(s);   // (1 234) или -1234
+      s = s.replace(/[^0-9.,]/g, '');                 // валюта, буквы, пробелы
+      if (!s) return 0;
+      var lastDot = s.lastIndexOf('.'), lastComma = s.lastIndexOf(',');
+      var dec = Math.max(lastDot, lastComma);
+      if (dec === -1) {
+        s = s;                                        // целое без разделителей
+      } else {
+        var tail = s.length - dec - 1;
+        // Разделитель дробный, только если после него 1–2 цифры (копейки).
+        // «1,234» и «1.234» с тремя цифрами — это разряды, а не дробь.
+        if (tail >= 1 && tail <= 2) {
+          s = s.slice(0, dec).replace(/[.,]/g, '') + '.' + s.slice(dec + 1);
+        } else {
+          s = s.replace(/[.,]/g, '');
+        }
+      }
+      var n = parseFloat(s);
+      if (!isFinite(n)) return 0;
+      return neg ? -n : n;
+    };
+    var strip = function(v){ return String(v == null ? '' : v).replace(/<[^>]*>/g, '').replace(/&nbsp;/g,' ').trim(); };
+
+    async function fetchType(tp){
+      var url = '/tursborpays/data?draw=1&start=0&length=2000'
+              + '&tp=' + encodeURIComponent(tp)
+              + '&date_range=' + encodeURIComponent(RANGE);
+      var res = await fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      if (!res.ok) return { tp: tp, error: 'HTTP ' + res.status, rows: [] };
+      var j = await res.json();
+      var list = (j && j.data) || [];
+      var rows = list.map(function(d){
+        return {
+          hotel:    strip(d.hotel),
+          company:  strip(d.hotel_company),
+          inn:      strip(d.inn),
+          district: strip(d.district_name),
+          guests:   num(d.qty),          // кол-во гостей
+          lived:    num(d.lived),        // прожито суток
+          brv:      num(d.minsalary),    // БРВ
+          percent:  num(d.percent),      // % БРВ
+          rate:     num(d.tursbor),      // ставка турсбора
+          accrued:  num(d.tp_lived),     // начислено (сутки)
+          total:    num(d.real_tursbor), // итого к оплате, сум
+          // Сырые строки портала — чтобы расхождение было видно, а не гадалось
+          rawTotal:  strip(d.real_tursbor),
+          rawRate:   strip(d.tursbor),
+          rawGuests: strip(d.qty),
+          rawLived:  strip(d.lived),
+        };
+      });
+      return { tp: tp, rows: rows, recordsTotal: (j && j.recordsTotal) || rows.length };
+    }
+
+    var types = ['HT', 'LT', 'ST'];
+    var out = {};
+    for (var i = 0; i < types.length; i++) {
+      try { out[types[i]] = await fetchType(types[i]); }
+      catch (e) { out[types[i]] = { tp: types[i], error: (e && e.message) || String(e), rows: [] }; }
+    }
+
+    // БРВ и депозит — со страницы (если открыта именно /tursborpays)
+    var brvTxt = '', depTxt = '';
+    try {
+      var badge = document.querySelector('.card-title .badge');
+      if (badge) brvTxt = strip(badge.textContent);
+      var dep = document.querySelector('.hotel-info span');
+      if (dep) depTxt = strip(dep.textContent);
+    } catch(e){}
+
+    return { status: 'ok', range: RANGE, data: out, brvText: brvTxt, depositText: depTxt };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+
 // ── Массовое выселение: выделить все совпавшие строки и выселить разом ─────────
 // e-mehmon поддерживает множественный Check-Out (модалка Chiqish с несколькими
 // строками). Принимает { list:[{passport,name}], amount, payType, print }.
@@ -431,6 +800,42 @@ function buildDepartureBulkScript(payload) {
   function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
   function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
   try {
+    // Лист убытия снимает в PDF main-процесс (emehmonSheet.js): окно листа он
+    // держит скрытым, а диалог печати некому закрыть — печать глушим и здесь,
+    // со стороны родителя: это страхует окно без адреса (document.write).
+    // Портал печатает лист так: POST /listok/print → HTML → скрытый iframe →
+    // iframe.print(). Перехватываем на уровне $.ajax: HTML забираем себе, а
+    // печать (iframe) не запускаем вовсе — диалогу неоткуда взяться. Лист
+    // рисует main-процесс / мост (emehmonSheet.renderSheetHtml).
+    if (DATA.sheet && $ && $.ajax && !$.__hostellaSheetHook) {
+      $.__hostellaSheetHook = true;
+      var _ajax = $.ajax;
+      $.ajax = function(opts){
+        try {
+          var o = (typeof opts === 'string') ? { url: opts } : (opts || {});
+          if (/\\/listok\\/print(\\?|$)/.test(String(o.url || ''))) {
+            var onErr = o.error;
+            var patched = {};
+            for (var pk in o) patched[pk] = o[pk];
+            patched.success = function(html){ try { window.__hostellaSheetHtml = String(html || ''); window.__hostellaSheetIds = (o.data && o.data.ids) || []; window.__hostellaSheetCheckout = (o.data && o.data.checkout != null) ? String(o.data.checkout) : null; } catch(e){} };
+            patched.error = function(){ window.__hostellaSheetError = 'print_fetch_failed'; if (typeof onErr === 'function') { try { onErr.apply(this, arguments); } catch(e){} } };
+            return _ajax.call($, patched);
+          }
+        } catch(e){}
+        return _ajax.apply($, arguments);
+      };
+    }
+    if (DATA.sheet && !window.__hostellaOpenWrapped) {
+      window.__hostellaOpenWrapped = true;
+      var _open = window.open;
+      window.open = function(){
+        var w = _open.apply(window, arguments);
+        try { if (w) { w.print = function(){ try { w.__hostellaPrintWanted = true; } catch(e){} }; } } catch(e){}
+        return w;
+      };
+      var _print = window.print;
+      window.print = function(){ if (window.__hostellaSheetOff) { return _print.apply(window, arguments); } window.__hostellaPrintWanted = true; };
+    }
     if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
       return { status: 'need_login' };
     }
@@ -473,8 +878,109 @@ function buildDepartureBulkScript(payload) {
     if (!btn) return { status: 'no_button', selected: selected };
     btn.click();
     function modalGone(){ return !document.querySelector('.confirm input.payment-input') && !document.querySelector('.modal.show input.payment-input'); }
-    for (var m=0;m<40;m++){ if (modalGone()){ return { status: 'done', selected: selected, requested: LIST.length }; } await sleep(400); }
-    return { status: 'submitted', selected: selected, requested: LIST.length };
+    async function finishWithSheet(status){
+      var out = { status: status, selected: selected, requested: LIST.length };
+      if (!DATA.sheet) return out;
+      for (var w=0; w<27; w++){ if (window.__hostellaSheetHtml || window.__hostellaSheetError) break; await sleep(300); }
+      out.sheetHtml = window.__hostellaSheetHtml || null; out.sheetIds = window.__hostellaSheetIds || null;
+      out.sheetFetchError = window.__hostellaSheetError || null;
+      return out;
+    }
+    for (var m=0;m<40;m++){ if (modalGone()){ return await finishWithSheet('done'); } await sleep(400); }
+    return await finishWithSheet('submitted');
+  } catch(e){ return { status: 'error', message: (e && e.message) || String(e) }; }
+})();`;
+}
+
+// ── Пересчёт стоимости услуг в листках прибытия ───────────────────────────────
+// Портал ждёт сумму за фактическое проживание: 10 суток по 30 000 = 300 000.
+// Приложение считает суммы само (utils/emehmonAmount) и передаёт готовый список
+// { passport, name, amount }; здесь мы находим строки в /listok, отбираем те,
+// где сумма отличается, и отправляем их пачками через тот же эндпоинт, что и
+// пункт меню «Изменить статус оплаты» (POST /listok/status-payment).
+//   done / need_login / no_table / not_found / error
+function buildRecalcScript(payload) {
+  const P = JSON.stringify(payload || {});
+  return `(async function(){
+  var DATA = ${P};
+  var ITEMS = DATA.items || [];
+  var STATUS = String(DATA.paymentStatus || '2');   // 2 — оплачен полностью
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
+  // «30 000.00», «412,000.00», «1 234 567,00» → число. Дробным считаем ПОСЛЕДНИЙ
+  // разделитель, иначе сумма врёт в сто раз.
+  function money(v){
+    var s = String(v == null ? '' : v).replace(/[^0-9.,]/g, '');
+    if (!s) return NaN;
+    var lastDot = s.lastIndexOf('.'), lastCom = s.lastIndexOf(',');
+    var cut = Math.max(lastDot, lastCom);
+    if (cut > -1 && s.length - cut - 1 <= 2) {
+      s = s.slice(0, cut).replace(/[.,]/g, '') + '.' + s.slice(cut + 1);
+    } else {
+      s = s.replace(/[.,]/g, '');
+    }
+    var n = parseFloat(s);
+    return isFinite(n) ? n : NaN;
+  }
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
+      return { status: 'need_login' };
+    }
+    function getTable(){ try { return ($ && $.fn && $.fn.DataTable) ? $('#listok-table').DataTable() : null; } catch(e){ return null; } }
+    var table = null;
+    for (var i=0;i<20 && !table;i++){ table = getTable(); if(!table){ await sleep(400); } }
+    if (!table) return { status: 'no_table' };
+    try { table.page.len(-1).draw(false); } catch(e){}
+    await sleep(300);
+
+    var want = ITEMS.map(function(g){ return { p: norm(g.passport), n: norm(g.name), amount: Math.round(Number(g.amount)||0) }; })
+                    .filter(function(g){ return g.amount > 0 && (g.p || g.n); });
+    if (!want.length) return { status: 'done', updated: 0, matched: 0, skipped: 0 };
+
+    var byAmount = {};      // сумма → [id листка]
+    var matched = 0, skipped = 0;
+    table.rows().every(function(){
+      var d = this.data() || {};
+      var rp = norm(d.passport_numb || d.passport_full || d.passport);
+      var rn = norm(d.guest || d.guestname);
+      var hit = null;
+      for (var k=0;k<want.length;k++){
+        var t = want[k];
+        if ((t.p && rp && t.p === rp) || (t.n && rn && t.n === rn)) { hit = t; break; }
+      }
+      if (!hit || !d.id) return;
+      matched++;
+      var cur = money(d.amount);
+      if (isFinite(cur) && Math.round(cur) === hit.amount) { skipped++; return; }   // уже верная сумма
+      (byAmount[hit.amount] = byAmount[hit.amount] || []).push(d.id);
+    });
+
+    if (!matched) return { status: 'not_found', matched: 0, updated: 0, skipped: 0 };
+    var groups = Object.keys(byAmount);
+    if (!groups.length) return { status: 'done', updated: 0, matched: matched, skipped: skipped };
+
+    var token = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
+    var updated = 0, failed = 0, lastError = '';
+    for (var gi=0; gi<groups.length; gi++){
+      var amount = groups[gi];
+      var ids = byAmount[amount];
+      var res = await new Promise(function(resolve){
+        $.ajax({
+          url: '/listok/status-payment',
+          type: 'POST',
+          data: { _token: token, guest_ids: ids, paymentStatus: STATUS, payment: String(amount) },
+          success: function(r){ resolve(r || {}); },
+          error: function(xhr){ resolve({ status: 'error', message: (xhr && xhr.responseJSON && xhr.responseJSON.message) || ('HTTP ' + (xhr && xhr.status)) }); }
+        });
+      });
+      if (res && res.status === 'success') { updated += ids.length; }
+      else { failed += ids.length; lastError = (res && res.message) || lastError; }
+      await sleep(250);   // не долбим портал очередью
+    }
+    try { table.ajax.reload(null, false); } catch(e){}
+    return { status: failed && !updated ? 'error' : 'done',
+             updated: updated, failed: failed, matched: matched, skipped: skipped, message: lastError };
   } catch(e){ return { status: 'error', message: (e && e.message) || String(e) }; }
 })();`;
 }
@@ -489,21 +995,7 @@ function buildAutoArrivalScript(guest) {
   const G = JSON.stringify(guest || {});
   return `(async function(){
   var G = ${G};
-  var $ = window.jQuery || window.$;
-  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
-  function byId(id){ return document.getElementById(id); }
-  function vis(el){ return !!(el && el.offsetParent !== null); }
-  function fire(el){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
-  function setInput(id, val){ var el=byId(id); if(!el) return false; el.value = (val==null?'':val); try{ if($) $(el).val(el.value); }catch(e){} fire(el); return true; }
-  function setSelect(id, val){ var el=byId(id); if(!el) return false; el.value=String(val); try{ if($) $(el).val(String(val)).trigger('change'); }catch(e){} fire(el); return true; }
-  function activeTab(){ var a=document.querySelector('#myTab .nav-link.active'); return a? a.id : ''; }
-  function notFound(){
-    var nodes = document.querySelectorAll('.jconfirm, .modal.show, .app-modal-content, .swal2-popup');
-    for (var i=0;i<nodes.length;i++){ if (/topilmadi/i.test(nodes[i].textContent||'')) return true; }
-    return false;
-  }
-  async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
-
+  ${HIDDEN_HELPERS}
   try {
     if ((location.pathname||'').indexOf('login')!==-1 || document.querySelector('input[type=password]')) return { status:'need_login' };
 
@@ -511,8 +1003,8 @@ function buildAutoArrivalScript(guest) {
     if (!(await waitFor(function(){ return byId('passportNumber') && byId('id_citizen'); }, 30, 400))) return { status:'no_form' };
     await sleep(300);
 
-    // 2) шаг 1: гражданство UZB (173), паспорт, дата рождения → «Keyingi»
-    setSelect('id_citizen', '173');
+    // 2) шаг 1: гражданство по коду (UZB → 173), паспорт, дата рождения → «Keyingi»
+    if (!selectCitizen(G.citizenCode)) return { status:'no_citizen', code: G.citizenCode||'' };
     setSelect('id_passporttype', G.docType || '1');
     setInput('datebirth', G.birthDate);
     setInput('passportNumber', (G.passport||'').toUpperCase());
@@ -522,15 +1014,28 @@ function buildAutoArrivalScript(guest) {
     fcb.removeAttribute('disabled');
     fcb.click();
 
-    // 3) ждём: general-info активна ИЛИ «не найден»
-    if (!(await waitFor(function(){ return notFound() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
-    if (notFound()) return { status:'not_found' };
+    // 3) ждём: general-info активна ИЛИ «не найден» ИЛИ иной отказ портала
+    if (!(await waitFor(function(){ return notFound() || popupText() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
+    if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
+    var pe1 = popupText();
+    if (pe1 && activeTab()!=='general-info-tab') return { status:'portal_error', stage:'check', message: pe1 };
     await sleep(600);
 
-    // 4) general-info авто-заполнена → «Keyingi» → additional-info
+    // 4) general-info. Местному портал заполняет всё сам. Иностранцу дописываем
+    //    то, чего портал не знает: дату выдачи, страну, кем выдан. Поля, которые
+    //    ставит портал (ФИО, пол, № и дата КПП, страна рождения), не трогаем.
+    var foreign = !!(G.citizenCode && G.citizenCode !== 'UZB');
+    if (foreign) {
+      if (G.passportIssueDate) setInput('datePassport', G.passportIssueDate);
+      setSelectByCode('id_country', G.citizenCode);
+      if (G.passportIssuedBy) setInput('passportissuedby', G.passportIssuedBy);
+      await sleep(300);
+    }
+    // Дамп вкладки — отсюда рендерер берёт дату прохода КПП.
+    var probe = harvestWizard('general-info');
     var g2 = document.querySelector('#general-info button[onclick*=additional-info-tab]');
     if (g2) g2.click();
-    if (!(await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 30, 400))) return { status:'step2_failed' };
+    if (!(await waitFor(function(){ return activeTab()==='additional-info-tab' || vis(byId('wdays')); }, 30, 400))) return { status:'step2_failed', probe: probe, invalid: invalidIds() };
     await sleep(300);
 
     // 5) additional-info: дни → (комнаты грузятся AJAX) → комната по номеру
@@ -545,12 +1050,19 @@ function buildAutoArrivalScript(guest) {
         return false;
       }, 12, 700);
     }
-    if (!roomOk) return { status:'no_room' };
+    if (!roomOk) {
+      // Список комнат портала — чтобы отличить «комнаты нет в списке» (она у
+      // портала заполнена) от пустого списка или несовпадения номеров.
+      var sel0 = byId('propiska');
+      var opts0 = sel0 ? Array.prototype.map.call(sel0.options, function(o){ return (o.value||'')+':'+String(o.text||'').replace(/\\s+/g,' ').trim().slice(0,30); }).slice(0,40) : [];
+      return { status:'no_room', probe: mergeProbe(probe, harvestWizard('additional-info')), roomOptions: opts0 };
+    }
     setSelect('id_visittype', '5');  // Boshqa
     setSelect('payed', '2');         // To'liq to'langan
     setInput('amount', G.amount || '1');
     setSelect('id_guest', '4');      // Boshqa
     await sleep(300);
+    probe = mergeProbe(probe, harvestWizard('additional-info'));
 
     var addBtn = document.querySelector('#additional-info button[onclick*=children-info-tab]');
     if (addBtn) addBtn.click();
@@ -561,20 +1073,216 @@ function buildAutoArrivalScript(guest) {
     await waitFor(function(){ return activeTab()==='guest-info-tab' || byId('submitForm'); }, 20, 400);
     await sleep(300);
 
-    // 6) Saqlash
+    // 6) Последний шаг. У иностранца за пределами окна портал показывает здесь
+    //    список отелей, где он жил. Если нас просили (gateStays) — читаем список
+    //    и ОСТАНАВЛИВАЕМСЯ до «Сохранить»: регистрировать или направить в
+    //    миграционную службу решает человек. force — решение уже принято.
+    var last = harvestWizard('guest-info');
+    if (G.gateStays && !G.force) return { status:'needs_decision', probe: probe, last: last };
+
+    // 7) Saqlash
     var sub = byId('submitForm');
-    if (!sub) return { status:'no_submit' };
+    if (!sub) return { status:'no_submit', probe: probe, last: last };
     sub.click();
 
-    // 7) ждём успех swal2 «Muvaffaqiyatli saqlandi»
+    // 8) ждём успех swal2 «Muvaffaqiyatli saqlandi»
     var done = await waitFor(function(){
       var ic = document.querySelector('.swal2-popup .swal2-icon.swal2-success');
       var t = document.querySelector('.swal2-title');
       return !!(ic && t && /saqland|muvaffaqiyat/i.test(t.textContent||''));
     }, 50, 500);
-    return { status: done ? 'done' : 'submit_unconfirmed' };
+    if (!done) {
+      // Портал отказал словами (комната переполнена, гость уже есть…) — отдаём
+      // текст: рендерер разберёт причину и покажет её кассиру, а не «не удалось».
+      var pe2 = popupText();
+      if (pe2) return { status:'portal_error', stage:'submit', message: pe2, probe: probe, last: last };
+    }
+    return { status: done ? 'done' : 'submit_unconfirmed', probe: probe, last: last };
+  } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
+})();`;
+}
+// ── Смена комнаты у активной регистрации (/listok → правка листка) ───────────
+// Гость переехал внутри Hostella — в портале меняем комнату, а не выводим и
+// регистрируем заново (решение владельца 2026-09-14). DOM правки портала вживую
+// не видели: ищем кнопку/ссылку правки в строке (edit/tahrir/o‘zgartirish) или
+// общую над таблицей после выделения строки, затем ждём select комнаты
+// #propiska — тот же, что в мастере. При любой неудаче отдаём статус и дамп
+// найденных кнопок, чтобы уточнить селекторы по живым данным.
+function buildRoomChangeScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var G = ${G};
+  ${HIDDEN_HELPERS}
+  function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
+  function txt(el){ return String((el && (el.innerText||el.textContent))||'').replace(/\\s+/g,' ').trim(); }
+  var EDIT_RX = /edit|update|change|tahrir|o.zgartir|ozgartir|редакт|измен/i;
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) return { status:'need_login' };
+    function getTable(){ try { return ($ && $.fn && $.fn.DataTable) ? $('#listok-table').DataTable() : null; } catch(e){ return null; } }
+    var table=null; for (var i=0;i<20 && !table;i++){ table=getTable(); if(!table) await sleep(400); }
+    if (!table) return { status:'no_table' };
+    try { table.page.len(-1).draw(false); } catch(e){}
+    await sleep(300);
+    var gp=norm(G.passport), gn=norm(G.guestName), node=null, rowData=null;
+    table.rows().every(function(){
+      var d=this.data()||{};
+      var rp=norm(d.passport_numb||d.passport_full||d.passport), rn=norm(d.guest||d.guestname);
+      if (!node && ((gp&&rp&&rp===gp)||(gn&&rn&&rn===gn))) { node=this.node(); rowData=d; }
+    });
+    if (!node) return { status:'not_found' };
+    var controls = Array.prototype.slice.call(node.querySelectorAll('a, button'));
+    var sig = function(c){ return (c.getAttribute('href')||'')+' '+(c.getAttribute('onclick')||'')+' '+(c.id||'')+' '+(c.className||'')+' '+(c.title||'')+' '+txt(c); };
+    var found = controls.filter(function(c){ return EDIT_RX.test(sig(c)); })[0];
+    var probe = {
+      rowControls: controls.map(function(c){ return (c.tagName+' '+sig(c)).slice(0,120); }).slice(0,12),
+      rowKeys: Object.keys(rowData||{}).slice(0,40),
+    };
+    if (!found) {
+      try { table.row(node).select(); } catch(e){}
+      try { $(node).addClass('selected'); } catch(e){}
+      await sleep(300);
+      var globals = Array.prototype.slice.call(document.querySelectorAll('a.btn, button, a[href]')).filter(vis);
+      found = globals.filter(function(c){ return EDIT_RX.test(sig(c)) && !/delete|o.chir|удал|chiqish|checkout|print|chop/i.test(sig(c)); })[0];
+      probe.globalControls = globals.map(function(c){ return (c.tagName+' '+(c.id||'')+' '+(c.getAttribute('href')||'')+' '+txt(c)).slice(0,80); }).slice(0,24);
+    }
+    if (!found) return { status:'no_edit', probe: probe };
+    found.click();
+    if (!(await waitFor(function(){ return vis(byId('propiska')); }, 25, 500))) return { status:'no_form', probe: probe, page: location.pathname };
+    await sleep(600);
+    var room = String(G.room||'').trim(), rInt = parseInt(room, 10);
+    var sel = byId('propiska');
+    var opt = Array.prototype.filter.call(sel.options, function(o){
+      if (!o.value) return false;
+      var t = String(o.text||'').replace(/\\s+/g,' ').trim();
+      return String(o.value)===room || (!isNaN(rInt) && parseInt(t,10)===rInt);
+    })[0];
+    if (!opt) return { status:'no_room', probe: probe, roomOptions: Array.prototype.map.call(sel.options, function(o){ return (o.value||'')+':'+String(o.text||'').trim().slice(0,30); }).slice(0,40) };
+    setSelect('propiska', opt.value);
+    await sleep(300);
+    var form = sel.form || sel.closest('form');
+    var save = byId('submitForm') || (form && form.querySelector('button[type=submit], input[type=submit]'))
+      || Array.prototype.filter.call(document.querySelectorAll('button, input[type=submit]'), function(b){ return vis(b) && /saqla|save|сохран|yangila|update/i.test(txt(b)+' '+(b.value||'')); })[0];
+    if (!save) return { status:'no_submit', probe: probe };
+    var before = location.pathname;
+    save.click();
+    var ok = await waitFor(function(){
+      var ic=document.querySelector('.swal2-popup .swal2-icon.swal2-success'); var t=document.querySelector('.swal2-title');
+      if (ic && t && /saqland|muvaffaqiyat|yangiland/i.test(t.textContent||'')) return true;
+      return location.pathname!==before && !vis(byId('propiska'));
+    }, 40, 500);
+    if (!ok) { var pe = popupText(); return { status: pe ? 'portal_error' : 'submit_unconfirmed', message: pe, probe: probe }; }
+    return { status:'done', room: room };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }
 
-module.exports = { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildListFetchScript, buildDepartureBulkScript, buildAutoArrivalScript };
+
+// ── Лист убытия заново: страница выехавших (/listokout) ─────────────────────
+// Гостю, выведенному раньше или без листа. Находит строку гостя в таблице
+// страницы, выделяет её и жмёт кнопку печати портала (#custom-print-btn) —
+// лист открывается окном, которое снимает emehmonSheet.js (флаг sheet:true).
+// Таблица ищется любая DataTable на странице: у /listokout id может отличаться
+// от /listok. Активному гостю портал печатает листок регистрации — это другой
+// документ, поэтому /listok здесь не смотрим.
+//   printed / need_login / no_table / not_found / multiple / no_print_btn / error
+function buildSheetPrintScript(guest) {
+  const G = JSON.stringify(guest || {});
+  return `(async function(){
+  var GUEST = ${G};
+  var $ = window.jQuery || window.$;
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  function norm(s){ return (s||'').replace(/\\s/g,'').toUpperCase(); }
+  try {
+    if ((location.pathname||'').indexOf('login') !== -1 || document.querySelector('input[type="password"]')) {
+      return { status: 'need_login' };
+    }
+    // Печать глушим со стороны родителя: лист снимает main-процесс / мост
+    // (emehmonSheet.js), диалог печати некому закрыть.
+    // Портал печатает лист так: POST /listok/print → HTML → скрытый iframe →
+    // iframe.print(). Перехватываем на уровне $.ajax: HTML забираем себе, а
+    // печать (iframe) не запускаем вовсе — диалогу неоткуда взяться. Лист
+    // рисует main-процесс / мост (emehmonSheet.renderSheetHtml).
+    if (GUEST.sheet && $ && $.ajax && !$.__hostellaSheetHook) {
+      $.__hostellaSheetHook = true;
+      var _ajax = $.ajax;
+      $.ajax = function(opts){
+        try {
+          var o = (typeof opts === 'string') ? { url: opts } : (opts || {});
+          if (/\\/listok\\/print(\\?|$)/.test(String(o.url || ''))) {
+            var onErr = o.error;
+            var patched = {};
+            for (var pk in o) patched[pk] = o[pk];
+            patched.success = function(html){ try { window.__hostellaSheetHtml = String(html || ''); window.__hostellaSheetIds = (o.data && o.data.ids) || []; window.__hostellaSheetCheckout = (o.data && o.data.checkout != null) ? String(o.data.checkout) : null; } catch(e){} };
+            patched.error = function(){ window.__hostellaSheetError = 'print_fetch_failed'; if (typeof onErr === 'function') { try { onErr.apply(this, arguments); } catch(e){} } };
+            return _ajax.call($, patched);
+          }
+        } catch(e){}
+        return _ajax.apply($, arguments);
+      };
+    }
+    if (GUEST.sheet && !window.__hostellaOpenWrapped) {
+      window.__hostellaOpenWrapped = true;
+      var _open = window.open;
+      window.open = function(){
+        var w = _open.apply(window, arguments);
+        try { if (w) { w.print = function(){ try { w.__hostellaPrintWanted = true; } catch(e){} }; } } catch(e){}
+        return w;
+      };
+      var _print = window.print;
+      window.print = function(){ if (window.__hostellaSheetOff) { return _print.apply(window, arguments); } window.__hostellaPrintWanted = true; };
+    }
+    function getTable(){
+      try {
+        if (!($ && $.fn && $.fn.dataTable)) return null;
+        if ($.fn.dataTable.isDataTable('#listok-table')) return $('#listok-table').DataTable();
+        var all = $.fn.dataTable.tables({ api: true });
+        return (all && all.tables && all.tables().count() > 0) ? all : null;
+      } catch(e){ return null; }
+    }
+    var table = null;
+    for (var i=0;i<20 && !table;i++){ table = getTable(); if(!table){ await sleep(400); } }
+    if (!table) return { status: 'no_table' };
+    try { table.page.len(-1).draw(false); } catch(e){}
+    await sleep(300);
+    var gp = norm(GUEST.passport), gn = norm(GUEST.guestName || GUEST.fullName);
+    if (!gp && !gn) return { status: 'not_found' };
+    // Гость на странице выехавших бывает много раз (жил у нас не однажды):
+    // берём строку с датой выезда гостя, иначе самую свежую по выезду.
+    var wantDay = String(GUEST.checkOutDay || '');
+    var cands = [];
+    table.rows().every(function(){
+      var d = this.data() || {};
+      var rp = norm(d.passport_numb || d.passport_full || d.passport);
+      var rn = norm(d.guest || d.guestname || d.fio);
+      if (!rp && !rn && d && typeof d === 'object') {
+        var vals = Object.keys(d).map(function(k){ return norm(String(d[k] == null ? '' : d[k])); });
+        if (gp && vals.indexOf(gp) !== -1) rp = gp;
+        if (gn && vals.indexOf(gn) !== -1) rn = gn;
+      }
+      if ((gp && rp && rp===gp) || (gn && rn && rn===gn)) {
+        var outAt = String(d.check_out || d.checkout || d.chiqish || '');
+        var m = /(\\d{2})\\.(\\d{2})\\.(\\d{4})(?:\\s+(\\d{2}):(\\d{2})(?::(\\d{2}))?)?/.exec(outAt);
+        var key = m ? (m[3] + m[2] + m[1] + (m[4]||'00') + (m[5]||'00') + (m[6]||'00')) : '';
+        cands.push({ row: this, day: m ? (m[1] + '.' + m[2] + '.' + m[3]) : '', key: key });
+      }
+    });
+    if (!cands.length) return { status: 'not_found' };
+    var pick = null;
+    if (wantDay) { for (var ci=0; ci<cands.length; ci++) { if (cands[ci].day === wantDay) { pick = cands[ci]; break; } } }
+    if (!pick) { cands.sort(function(a,b){ return b.key.localeCompare(a.key); }); pick = cands[0]; }
+    try { pick.row.select(); $(pick.row.node()).addClass('selected'); } catch(e){}
+    var btn = document.getElementById('custom-print-btn')
+      || Array.prototype.slice.call(document.querySelectorAll('button, a.btn')).filter(function(b){ return /print|chop|печат/i.test((b.id||'') + ' ' + (b.textContent||'')); })[0];
+    if (!btn) return { status: 'no_print_btn' };
+    try { $(btn).trigger('click'); } catch(e){ btn.click(); }
+    // Печать портала перехвачена хуком $.ajax выше: ждём HTML листа.
+    if (GUEST.sheet) {
+      for (var w=0; w<27; w++){ if (window.__hostellaSheetHtml || window.__hostellaSheetError) break; await sleep(300); }
+      if (window.__hostellaSheetError && !window.__hostellaSheetHtml) return { status: 'no_sheet', message: window.__hostellaSheetError };
+    }
+    return { status: 'printed', sheetHtml: window.__hostellaSheetHtml || null, sheetIds: window.__hostellaSheetIds || null, pickedDay: pick.day, candidates: cands.length };
+  } catch(e){ return { status: 'error', message: (e && e.message) || String(e) }; }
+})();`;
+}
+
+module.exports = { buildRoomChangeScript, buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildDepartureBulkScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript };

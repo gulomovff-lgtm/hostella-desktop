@@ -12,7 +12,7 @@
  * по дням и статусу гостя уже не совпадут со старыми ключами).
  */
 
-import { doc, runTransaction, getDoc, updateDoc, setDoc, deleteField } from 'firebase/firestore';
+import { doc, runTransaction, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 
 const getRef = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'alertsLog');

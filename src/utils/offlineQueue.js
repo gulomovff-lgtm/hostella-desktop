@@ -12,6 +12,21 @@
 
 const QUEUE_KEY = 'hostella_offline_payment_queue';
 
+/**
+ * Срок годности отложенного уведомления. Позже отправлять нельзя:
+ * «Новое заселение» или «Регистрация», пришедшие через неделю после события,
+ * дезинформируют — гостя уже давно нет.
+ */
+export const TELEGRAM_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+/** true — запись не telegram-уведомление либо уведомление ещё не протухло */
+export const isFreshTelegram = (entry, now = Date.now()) => {
+  if (!entry || entry._type !== 'telegram') return true;
+  const ts = entry._queuedAt ? new Date(entry._queuedAt).getTime() : NaN;
+  if (!Number.isFinite(ts)) return false; // без метки времени считаем протухшим
+  return now - ts <= TELEGRAM_MAX_AGE_MS;
+};
+
 /** Получить очередь из localStorage */
 export const getQueue = () => {
   try {
@@ -67,6 +82,8 @@ export const queueLength = () => getQueue().length;
 /**
  * Загрузить очередь из Electron-файла (вызывается при старте приложения).
  * Если файл есть — мёрджит записи в localStorage (без дублей по _id).
+ * Протухшие telegram-уведомления из файла отбрасываем: приложение могло
+ * не запускаться неделями, и старые сообщения ушли бы «задним числом».
  */
 export const loadFromElectron = async () => {
   try {
@@ -75,8 +92,9 @@ export const loadFromElectron = async () => {
     if (!data || !data.length) return;
     const existing = getQueue();
     const existingIds = new Set(existing.map(i => i._id));
-    const merged = [...existing, ...data.filter(i => !existingIds.has(i._id))];
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(merged));
+    const fresh = data.filter(i => !existingIds.has(i._id) && isFreshTelegram(i));
+    if (!fresh.length) return;
+    localStorage.setItem(QUEUE_KEY, JSON.stringify([...existing, ...fresh]));
   } catch (e) {
     console.warn('offlineQueue: не удалось загрузить из Electron-файла', e);
   }
