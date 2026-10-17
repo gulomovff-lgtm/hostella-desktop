@@ -1041,11 +1041,23 @@ function buildAutoArrivalScript(guest) {
     // 5) additional-info: дни → (комнаты грузятся AJAX) → комната по номеру
     setInput('wdays', G.days || '1');
     await sleep(700);
+    // Комната: точное значение, иначе по номеру в начале — с 10.2026 портал
+    // называет комнаты «5-new» (value «5-new», текст «5-new - standart; …»),
+    // и точное «5» не находилось: все гости вставали в no_room.
+    function pickRoomOption(options, room){
+      var rInt = parseInt(room, 10);
+      var opts = Array.prototype.filter.call(options, function(o){ return !!o.value; });
+      return opts.filter(function(o){ return String(o.value)===room; })[0]
+        || (isNaN(rInt) ? null : opts.filter(function(o){
+             var t = String(o.text||'').replace(/\\s+/g,' ').trim();
+             return parseInt(String(o.value), 10)===rInt || parseInt(t, 10)===rInt;
+           })[0]) || null;
+    }
     var room = String(G.room||'').trim(), roomOk=false;
     if (room) {
       roomOk = await waitFor(function(){
         var sel = byId('propiska'); if(!sel) return false;
-        var opt = Array.prototype.filter.call(sel.options, function(o){ return o.value && String(o.value)===room; })[0];
+        var opt = pickRoomOption(sel.options, room);
         if (opt){ setSelect('propiska', opt.value); return true; }
         return false;
       }, 12, 700);

@@ -79,6 +79,19 @@ test('за пределами окна мастер останавливаетс
   assert.ok(src.includes("last: last"), 'список отелей уходит в рендерер');
 });
 
+test('комната находится и по новым названиям портала «5-new» (10.2026: все вставали в no_room)', () => {
+  const src = m.buildAutoArrivalScript(FOREIGN);
+  const fn = src.slice(src.indexOf('function pickRoomOption'), src.indexOf("var room = String(G.room"));
+  const pick = new vm.Script(`(${fn.trim()})`).runInNewContext({});
+  const o = (value, text) => ({ value, text });
+  const live = [o('', '--- Tanlanmagan ---'), o('1-new', '1-new - standart; 1 - Qavat Yo'), o('15-new', '15-new - standart'), o('5-new', '5-new - standart; 1 - Qavat Yo')];
+  assert.equal(pick(live, '5').value, '5-new');
+  assert.equal(pick(live, '1').value, '1-new', '«1» не путается с «15»');
+  assert.equal(pick([o('5', '5'), o('5-new', '5-new')], '5').value, '5', 'точное совпадение сильнее');
+  assert.equal(pick(live, '9'), null);
+  assert.equal(pick(live, ''), null);
+});
+
 test('итоги мастера несут дамп шага 2 — дата КПП попадает в карточку и при регистрации', () => {
   const src = m.buildAutoArrivalScript(FOREIGN);
   for (const st of ["status:'step2_failed', probe: probe", "status:'no_room', probe: mergeProbe(probe", "'submit_unconfirmed', probe: probe"]) {
