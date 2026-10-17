@@ -308,6 +308,20 @@ const claimForPortal = useCallback(async (guestId) => {
     return true; // сбой транзакции — не блокируем регистрацию, как и раньше
   }
 }, []);
+// До портала не дошли (нет входа) — снимаем свою заявку: иначе касса без
+// сессии раз за разом занимала гостей на 10 минут, и рабочая касса их не брала.
+const releasePortalClaim = useCallback(async (guestId) => {
+  if (!guestId) return;
+  try {
+    const me = getDeviceId();
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId);
+      const snap = await tx.get(ref);
+      if (!snap.exists() || snap.data().emehmonClaimBy !== me) return;
+      tx.update(ref, { emehmonClaimAt: deleteField(), emehmonClaimBy: deleteField() });
+    });
+  } catch (_) { /* заявка истечёт сама */ }
+}, []);
 
 // ─── Кто в какой комнате: сверка комнаты портала с Hostella ────────────────
 // Портал отказывает «комната переполнена» почти всегда из-за стала: выехавший
@@ -472,6 +486,7 @@ const runForeignRegistration = useCallback(async (guest, opts = {}) => {
     const gateStays = !opts.force && (!guest.kppDate || dayNumber > win);
     if (!silent) showNotification(t('emaRegistering').replace('{name}', guest.fullName), 'info');
     let res = await autoRegisterArrival(guest, { silent, gateStays, force: !!opts.force, quietFail: true });
+    if (res?.status === 'need_login') await releasePortalClaim(guest.id);
     if (res?.status === 'needs_decision') {
       const { parsed, assessment, kppDate } = await applyProbeToGuest(guest, res);
       if (assessment?.ok) {
@@ -592,7 +607,7 @@ const handleSituationDecision = useCallback(async (guest, decision) => {
   }
 }, [handleEmehmonFlag, runForeignRegistration]); // eslint-disable-line react-hooks/exhaustive-deps
 
-// ─── Добор «забытых»: местные и иностранцы, тихо, до 3 походов на портал ─────
+// ─── Добор «забытых»: местные и иностранцы, тихо, до 5 походов на портал ─────
 // Раньше добор был приделан к успешной загрузке /listok и только по выбранному
 // филиалу — при ошибке списка или на неоткрытом филиале гости просто ждали.
 // Теперь: без списка тоже работает (но только по свежим заездам — чтобы не
@@ -619,7 +634,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
     !(g.kppSituation && !g.kppSituationDecision)   // ждёт решения человека — не дёргаем портал
   );
   let trips = 0;
-  const MAX_TRIPS = 3;
+  const MAX_TRIPS = 5;
   for (const g of candidates) {
     if (trips >= MAX_TRIPS) break;
     if (isLocal(g)) {
@@ -627,7 +642,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
       emehmonAutoBusy.current.add(g.id); trips++;
       try {
         const reg = await autoRegisterArrival(g, { silent: true });
-        if (reg?.status === 'need_login') break;
+        if (reg?.status === 'need_login') { await releasePortalClaim(g.id); break; }
         await finishAutoArrival(g, reg, { silent: true, quiet, again: () => autoRegisterArrival(g, { silent: true }) });
       } catch (_) { /* пропускаем */ } finally { emehmonAutoBusy.current.delete(g.id); }
       continue;

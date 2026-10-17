@@ -1,4 +1,12 @@
 import test from 'node:test';
+import { shouldRetryNoRoom as retryNoRoom } from '../src/utils/kppRules.js';
+
+test('ложные «нет комнаты» до 0.15.42 (комнаты «5-new») повторяются сразу', () => {
+  const now = Date.parse('2026-10-17T13:00:00Z');
+  assert.equal(retryNoRoom({ emehmonNoRoomAt: '2026-10-17T08:51:00Z' }, now), true);
+  assert.equal(retryNoRoom({ emehmonNoRoomAt: '2026-10-17T12:30:00Z' }, now), false, 'новые метки — по-прежнему раз в 6 часов');
+  assert.equal(retryNoRoom({}, now), true);
+});
 import assert from 'node:assert/strict';
 import {
     toIsoDate, daysBetween, parseEmehmonProbe, assessKpp, registrationDue,
@@ -140,10 +148,10 @@ test('trimProbe: укладывается в лимит, сначала жерт
 });
 
 test('shouldRetryNoRoom: без метки — да; свежая метка — нет; старше 6 часов — да', () => {
-    const now = Date.parse('2026-09-08T12:00:00Z');
+    const now = Date.parse('2026-10-18T12:00:00Z');
     assert.equal(shouldRetryNoRoom({}, now), true);
-    assert.equal(shouldRetryNoRoom({ emehmonNoRoomAt: '2026-09-08T10:00:00Z' }, now), false);
-    assert.equal(shouldRetryNoRoom({ emehmonNoRoomAt: '2026-09-08T05:00:00Z' }, now), true);
+    assert.equal(shouldRetryNoRoom({ emehmonNoRoomAt: '2026-10-18T10:00:00Z' }, now), false);
+    assert.equal(shouldRetryNoRoom({ emehmonNoRoomAt: '2026-10-18T05:00:00Z' }, now), true);
 });
 
 // ── Строки таблиц плоские: Firestore не принимает массив в массиве ────────

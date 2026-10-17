@@ -309,9 +309,13 @@ export function trimProbe(probe, maxBytes = 8000) {
   return p;
 }
 
+// Метки «нет комнаты» до выпуска 0.15.42 — ложные: портал переименовал комнаты
+// в «5-new», мастер их не узнавал. Такие гости повторяются сразу, без 6 часов.
+export const NO_ROOM_RESET_AT = Date.parse('2026-10-17T12:00:00Z');
+
 /** Повторять «нет комнаты» не чаще раза в N часов (метка на госте, не в памяти). */
 export function shouldRetryNoRoom(guest, now = Date.now(), hours = 6) {
   const at = guest?.emehmonNoRoomAt ? new Date(guest.emehmonNoRoomAt).getTime() : 0;
-  if (!at || !Number.isFinite(at)) return true;
+  if (!at || !Number.isFinite(at) || at < NO_ROOM_RESET_AT) return true;
   return now - at >= hours * 3600 * 1000;
 }
