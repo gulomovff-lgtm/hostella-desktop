@@ -35,6 +35,27 @@ export const alphabetical = (field) => ({
 });
 
 /**
+ * Объединить несколько живых списков одной коллекции (окно, договоры…) без
+ * дублей по id; объекты не копируются — кэши экранов сохраняются.
+ */
+export function mergeLists(lists, order = null) {
+  const seen = new Set();
+  const out = [];
+  for (const list of lists) {
+    for (const o of list || []) {
+      if (!o || seen.has(o.id)) continue;
+      seen.add(o.id);
+      out.push(o);
+    }
+  }
+  if (order) {
+    const keys = new Map(out.map((o) => [o.id, order.key(o)]));
+    out.sort((a, b) => order.compare(keys.get(a.id), keys.get(b.id)));
+  }
+  return out;
+}
+
+/**
  * Создаёт накопитель списка. apply(changes) → новый массив или null, если
  * менять нечего. changes: [{ type: 'added'|'modified'|'removed', id, data }].
  * order: { key, compare } — порядок списка; extra — поля, добавляемые к объекту.

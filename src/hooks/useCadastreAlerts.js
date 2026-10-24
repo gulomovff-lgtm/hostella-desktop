@@ -47,7 +47,7 @@ export function useCadastreAlerts({ cadastreRegs, guests, clients, tgSettings, i
 
     // Гости ещё не загрузились — не судим, кто уехал: иначе сводка дня уйдёт
     // со всеми уехавшими (ключ дня одноразовый, исправить её будет нельзя).
-    if (!cadastreRegs?.length || !guests?.length) return;
+    if (!cadastreRegs?.length || !guests?.length || !clients?.length) return;   // и клиенты — см. cadastrePersonGone
 
     const disabledTypes = new Set(tgSettings?.disabledTypes || []);
     if (disabledTypes.has('cadastreExpiring')) return;
@@ -60,7 +60,7 @@ export function useCadastreAlerts({ cadastreRegs, guests, clients, tgSettings, i
     const now = new Date();
     const expiring = cadastreRegs.filter(r => {
       if (r.status === 'removed') return false;
-      if (cadastrePersonGone(r, guests, now)) return false;
+      if (cadastrePersonGone(r, guests, now, clients)) return false;
       const d = getDaysLeft(r.endDate);
       return d >= 0 && d <= ALERT_DAYS;
     });

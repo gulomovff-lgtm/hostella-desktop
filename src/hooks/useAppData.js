@@ -1,9 +1,36 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { visibleAuditFor } from '../utils/auditScope';
-import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_USERS } from '../constants/config';
-import { createLiveList, newestFirst, alphabetical } from '../utils/liveList';
+import { createLiveList, newestFirst, alphabetical, mergeLists } from '../utils/liveList';
+import { historyCutoffIso, LIVE_GUEST_STATUSES, openContractKeys, chunk } from '../utils/historyWindow';
+
+/**
+ * Живой список по изменениям снимка (utils/liveList.js): неизменённые документы
+ * сохраняют объект, снимок без изменений не перерисовывает App.
+ * opts — порядок ({ key, compare }) или { order, extra }. Возвращает отписку.
+ */
+function listenLive(q, setter, opts = {}, onErr = undefined, onFirst = undefined) {
+  const apply = createLiveList(opts.key ? { order: opts } : opts);
+  let first = true;
+  return onSnapshot(q, (snap) => {
+    const next = apply(snap.docChanges().map(c => ({ type: c.type, id: c.doc.id, data: c.doc.data() })));
+    if (next) setter(next);
+    if (first) { first = false; if (onFirst) onFirst(); }
+  }, (err) => {
+    if (onErr) onErr(err);
+    if (first) { first = false; if (onFirst) onFirst(); }   // ошибка — не держим загрузку
+  });
+}
+
+/** Несколько запросов (части по 30 для «in») в один список. */
+function listenChunks(queries, setter, order) {
+  const parts = queries.map(() => []);
+  const unsubs = queries.map((q, i) => listenLive(q, (list) => { parts[i] = list; setter(mergeLists(parts, order)); }));
+  if (!queries.length) setter([]);
+  return () => unsubs.forEach(u => u());
+}
 
 // Сколько последних записей журнала держим в памяти (только супер).
 // Журнал растёт бесконечно, поэтому грузим окно, а не всю историю.
@@ -22,10 +49,22 @@ const AUDIT_LOG_LIMIT = 5000;
  */
 export const useAppData = (firebaseUser, currentUser) => {
   const [rooms,       setRooms      ] = useState([]);
-  const [guests,      setGuests     ] = useState([]);
-  const [expenses,    setExpenses   ] = useState([]);
+  // Гости, оплаты и расходы — окном (utils/historyWindow): живущие, брони и
+  // долговые записи + последние HISTORY_WINDOW_DAYS дней + участники и оплаты
+  // открытых договоров. Полная история — по запросу (requestHistory), когда
+  // открыт экран, которому она нужна; тогда списки — вся коллекция.
+  const [guestsLive,     setGuestsLive    ] = useState([]);
+  const [guestsRecent,   setGuestsRecent  ] = useState([]);
+  const [guestsContract, setGuestsContract] = useState([]);
+  const [guestsAll,      setGuestsAll     ] = useState(null);
+  const [paymentsRecent,   setPaymentsRecent  ] = useState([]);
+  const [paymentsContract, setPaymentsContract] = useState([]);
+  const [paymentsAll,      setPaymentsAll     ] = useState(null);
+  const [expensesRecent, setExpensesRecent] = useState([]);
+  const [expensesAll,    setExpensesAll   ] = useState(null);
+  const [historyWanted,  setHistoryWanted ] = useState(false);
+  const [historyReady,   setHistoryReady  ] = useState(false);
   const [clients,     setClients    ] = useState([]);
-  const [payments,    setPayments   ] = useState([]);
   const [usersList,   setUsersList  ] = useState([]);
   const [tasks,       setTasks      ] = useState([]);
   const [shifts,         setShifts        ] = useState([]);
@@ -84,24 +123,12 @@ export const useAppData = (firebaseUser, currentUser) => {
     if (!userKey) return unsubUsers;
 
     const isAdmin = role === 'admin' || role === 'super';
+    const cutoff = historyCutoffIso();
     const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
     const unsubs = [unsubUsers];
     let cancelled = false;
 
-    // Живой список по изменениям снимка (utils/liveList.js): неизменённые
-    // документы сохраняют объект, снимок без изменений не перерисовывает App.
-    const listen = (q, setter, opts = {}, onErr = undefined, onFirst = undefined) => {
-      const apply = createLiveList(opts.key ? { order: opts } : opts);   // порядок или { order, extra }
-      let first = true;
-      unsubs.push(onSnapshot(q, (snap) => {
-        const next = apply(snap.docChanges().map(c => ({ type: c.type, id: c.doc.id, data: c.doc.data() })));
-        if (next) setter(next);
-        if (first) { first = false; if (onFirst) onFirst(); }
-      }, (err) => {
-        if (onErr) onErr(err);
-        if (first) { first = false; if (onFirst) onFirst(); }   // ошибка — не держим загрузку
-      }));
-    };
+    const listen = (...args) => unsubs.push(listenLive(...args));
     const listenDoc = (ref, setter, fallback) => {
       unsubs.push(onSnapshot(ref, (snap) => setter(snap.exists() ? snap.data() : fallback), () => setter(fallback)));
     };
@@ -138,9 +165,9 @@ export const useAppData = (firebaseUser, currentUser) => {
     const coreDone = () => { pending -= 1; if (pending === 0 && !cancelled) setIsAllDataReady(true); };
     const phase2 = () => {
       if (cancelled) return;
-      listen(col('payments'), setPayments, {}, undefined, coreDone);
+      listen(query(col('payments'), where('date', '>=', cutoff)), setPaymentsRecent, {}, undefined, coreDone);
       listen(col('clients'), setClients, alphabetical('fullName'), undefined, coreDone);
-      listen(col('expenses'), setExpenses, newestFirst('date'), undefined, coreDone);
+      listen(query(col('expenses'), where('date', '>=', cutoff)), setExpensesRecent, newestFirst('date'), undefined, coreDone);
       listen(col('tasks'), setTasks);
       listen(col('promos'), setPromos, {}, () => setPromos([]));
       listen(query(col('sales'), orderBy('date', 'desc'), limit(2000)), setSales, newestFirst('date'), () => setSales([]));
@@ -173,7 +200,9 @@ export const useAppData = (firebaseUser, currentUser) => {
     };
     phase2Timer = setTimeout(startPhase2, 2500);   // гости задержались — не ждём дольше
 
-    listen(col('guests'), setGuests, newestFirst('checkInDate'), undefined, startPhase2);
+    // Гости окном: живущие, брони и долговые — всегда; выехавшие — за окно дней
+    listen(query(col('guests'), where('status', 'in', LIVE_GUEST_STATUSES)), setGuestsLive, newestFirst('checkInDate'), undefined, startPhase2);
+    listen(query(col('guests'), where('checkOutDate', '>=', cutoff)), setGuestsRecent, newestFirst('checkInDate'));
     listenDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'telegram'), setTgSettings, {});
     listenDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig'), setHostelConfig, {});
     listen(col('shifts'), setShifts);
@@ -193,6 +222,56 @@ export const useAppData = (firebaseUser, currentUser) => {
       setIsAllDataReady(false);
     };
   }, [firebaseUser, userKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Открытые договоры: участники и оплаты любой давности ─────────────────
+  // Суммы договора считаются по всей его длине (utils/contractFinancials), а
+  // договор аренды виден прямо в «Номерах» — окна дней ему мало.
+  const contractKeys = useMemo(() => openContractKeys(manualStayGroups), [manualStayGroups]);
+  const contractSig = contractKeys.ids.join('|') + '#' + contractKeys.names.join('|');
+  useEffect(() => {
+    if (!firebaseUser || !userKey) return undefined;
+    const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
+    const u1 = listenChunks(chunk(contractKeys.ids).map(ids => query(col('payments'), where('contractGroupId', 'in', ids))), setPaymentsContract);
+    const u2 = listenChunks(chunk(contractKeys.names).map(names => query(col('guests'), where('fullName', 'in', names))), setGuestsContract);
+    return () => { u1(); u2(); };
+  }, [firebaseUser, userKey, contractSig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Полная история — по запросу (экраны отчётов, долгов, истории…) ───────
+  // Подключается один раз за вход и дальше живёт: правки старых записей
+  // (погашение давнего долга) видны сразу.
+  useEffect(() => {
+    if (!firebaseUser || !userKey || !historyWanted) return undefined;
+    const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
+    let pending = 3;
+    let cancelled = false;
+    const done = () => { pending -= 1; if (pending === 0 && !cancelled) setHistoryReady(true); };
+    const unsubs = [
+      listenLive(col('guests'), setGuestsAll, newestFirst('checkInDate'), undefined, done),
+      listenLive(col('payments'), setPaymentsAll, {}, undefined, done),
+      listenLive(col('expenses'), setExpensesAll, newestFirst('date'), undefined, done),
+    ];
+    return () => {
+      cancelled = true;
+      unsubs.forEach(u => u());
+      setGuestsAll(null); setPaymentsAll(null); setExpensesAll(null);
+      setHistoryReady(false);
+    };
+  }, [firebaseUser, userKey, historyWanted]);
+
+  // Сменился пользователь — история снова только по запросу
+  useEffect(() => { setHistoryWanted(false); }, [userKey]);
+
+  const requestHistory = useCallback(() => setHistoryWanted(true), []);
+
+  // Итоговые списки: полная история, когда загружена, иначе окно + договоры.
+  const guests = useMemo(() => (historyReady && guestsAll) ? guestsAll
+    : mergeLists([guestsLive, guestsRecent, guestsContract], newestFirst('checkInDate')),
+    [historyReady, guestsAll, guestsLive, guestsRecent, guestsContract]);
+  const payments = useMemo(() => (historyReady && paymentsAll) ? paymentsAll
+    : mergeLists([paymentsRecent, paymentsContract]),
+    [historyReady, paymentsAll, paymentsRecent, paymentsContract]);
+  const expenses = useMemo(() => (historyReady && expensesAll) ? expensesAll : expensesRecent,
+    [historyReady, expensesAll, expensesRecent]);
 
   // Журнал для роли: супер — оба по времени, админ — общий без зачётов.
   const auditLog = useMemo(
@@ -227,5 +306,7 @@ export const useAppData = (firebaseUser, currentUser) => {
     permissionError,
     isDataReady,
     isAllDataReady,
+    historyReady,
+    requestHistory,
   };
 };

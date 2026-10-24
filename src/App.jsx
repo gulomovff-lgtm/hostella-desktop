@@ -149,6 +149,7 @@ import { useRegistrationActions } from './hooks/useRegistrationActions';
 import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { hasRegistration, isLivingNow } from './utils/registrationStatus';
+import { HISTORY_TABS } from './utils/historyWindow';
 import { useExpenseActions }      from './hooks/useExpenseActions';
 import { useShopActions }         from './hooks/useShopActions';
 import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
@@ -357,8 +358,20 @@ function App() {
     manualStayGroups,
     priceWhitelist,
     clientVersions,
-    isOnline, permissionError, isDataReady, isAllDataReady,
+    isOnline, permissionError, isDataReady, isAllDataReady, historyReady, requestHistory,
   } = useAppData(firebaseUser, currentUser);
+
+  // Полная история — когда она нужна (utils/historyWindow): экран отчётов,
+  // долгов, истории… А админу и суперу — фоном через полминуты после входа,
+  // чтобы у владельца цифры везде были полными, а касса входила быстро.
+  const needsHistoryTab = HISTORY_TABS.has(activeTab);
+  useEffect(() => { if (needsHistoryTab) requestHistory(); }, [needsHistoryTab, requestHistory]);
+  const historyInBackground = currentUser?.role === 'admin' || currentUser?.role === 'super' || currentUser?.permissions?.viewStats === true;
+  useEffect(() => {
+    if (!isAllDataReady || !historyInBackground) return undefined;
+    const tm = setTimeout(requestHistory, 30 * 1000);
+    return () => clearTimeout(tm);
+  }, [isAllDataReady, historyInBackground, requestHistory]);
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
   const [groupCheckInModal,  setGroupCheckInModal ] = useState(false);
@@ -414,6 +427,9 @@ function App() {
   const [editRoomModal, setEditRoomModal] = useState({ open: false, room: null });
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
+  // Поиск гостя и история клиента ищут по всем визитам — нужна полная история
+  useEffect(() => { if (isSearchOpen || clientHistoryModal.open) requestHistory(); },
+    [isSearchOpen, clientHistoryModal.open, requestHistory]);
 
   // Авто-выселение просроченных гостей — см. hooks/useAutoCheckout (5 гейтов защиты)
   useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady: isAllDataReady, showNotification, lang });
@@ -1990,6 +2006,12 @@ return (
                         ? 'py-3 md:py-6 pt-2 pb-32 md:pb-6'
                         : 'p-3 md:p-6 pt-2 pb-32 md:pb-6'
                 }`}>
+                {needsHistoryTab && !historyReady && (
+                    <div className="mb-3 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                        {TRANSLATIONS[lang]?.historyLoading || 'Загружаю историю — цифры за прошлые месяцы появятся через несколько секунд'}
+                    </div>
+                )}
                 {activeTab === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.permissions?.viewStats === true) && (
                     <DashboardView
                         rooms={filteredRooms}

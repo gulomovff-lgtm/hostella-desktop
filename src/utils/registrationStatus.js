@@ -108,12 +108,17 @@ export function isLivingNow(g, now = new Date()) {
  * нашлись его записи гостя, и ни одна не живёт сейчас. Если записей нет
  * вовсе (регистрация человеку «с улицы», не гостю) — false: напоминать надо.
  */
-export function cadastrePersonGone(reg, guests = [], now = new Date()) {
+export function cadastrePersonGone(reg, guests = [], now = new Date(), clients = []) {
   let matched = false;
   for (const g of guests || []) {
     if (!cadastreMatches(reg, g)) continue;
     if (isLivingNow(g, now)) return false;
     matched = true;
   }
-  return matched;
+  if (matched) return true;
+  // Старые записи гостей грузятся только по запросу (utils/historyWindow), а
+  // живущие — всегда. Поэтому «наш ли это человек» досматриваем по клиентам
+  // (они целиком): бывал у нас (визиты/последний визит) и сейчас не живёт — уехал.
+  return (clients || []).some(c => (Number(c?.visits) > 0 || c?.lastVisit) &&
+    cadastreMatches(reg, { id: c.id, passport: c.passport, fullName: c.fullName }));
 }
