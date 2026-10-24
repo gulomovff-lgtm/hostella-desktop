@@ -88,7 +88,7 @@ const PeriodEditModal = ({ group, entry, rooms, savedSpecialties, onUpdate, onRe
                         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-bold text-rose-500 hover:bg-rose-50 transition-colors">
                         <Trash2 size={14} /> {t('msmDeletePeriod')}
                     </button>
-                    <button onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-orange-500 hover:bg-orange-600 transition-colors">{t('done')}</button>
+                    <button onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-colors">{t('done')}</button>
                 </div>
             </div>
         </div>

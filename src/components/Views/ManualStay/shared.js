@@ -8,10 +8,10 @@ export const COLLECTION = [...PUBLIC_DATA_PATH, 'manualStayGroups'];
 export const PAYMENTS_COLLECTION = [...PUBLIC_DATA_PATH, 'payments'];
 export const TRANSFER_ENTITIES = ['YATT SOBIROVA', 'YATT YULDASHEV'];
 
-export const INP = 'px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 bg-white text-slate-700 transition-all';
+export const INP = 'px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white text-slate-700 transition-all';
 export const LBL = 'block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5';
 // Вторичная кнопка-призрак (карточки договоров, окна)
-export const GHOST_BTN = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors';
+export const GHOST_BTN = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors';
 // Затемнение под модалками экрана
 export const OVERLAY_STYLE = { background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' };
 

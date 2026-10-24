@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { CreditCard, DollarSign, Shuffle, X } from 'lucide-react';
-import { addDoc, collection } from 'firebase/firestore';
+import { collection } from 'firebase/firestore';
+// Оплата — без ожидания сервера (utils/fsWrite.js): без сети окно не висит и запись не теряется
+import { addDoc } from '../../../utils/fsWrite';
 import { db } from '../../../firebase';
 import { INP, OVERLAY_STYLE, PAYMENTS_COLLECTION, TRANSFER_ENTITIES, fmt } from './shared';
 import TRANSLATIONS from '../../../constants/translations';
@@ -79,7 +81,7 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                         ].map(opt => (
                             <button key={opt.id} type="button"
                                 onClick={() => setMethod(opt.id)}
-                                className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-bold transition-all ${method === opt.id ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-500 hover:border-orange-300'}`}
+                                className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-bold transition-all ${method === opt.id ? 'border-teal-500 bg-teal-50 text-teal-600' : 'border-slate-200 text-slate-500 hover:border-teal-300'}`}
                             >
                                 {opt.icon}
                                 {opt.label}
@@ -95,7 +97,7 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                             <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">{t('amount')}</div>
                             {combinedDebt > 0 && (
                                 <button type="button" onClick={() => setAmount(String(combinedDebt))}
-                                    className="text-xs font-bold text-orange-600 hover:text-orange-700 px-2 py-0.5 rounded-md hover:bg-orange-50">
+                                    className="text-xs font-bold text-teal-600 hover:text-teal-700 px-2 py-0.5 rounded-md hover:bg-teal-50">
                                     {t('mslWholeDebt')} · {fmt(combinedDebt)}
                                 </button>
                             )}
@@ -138,7 +140,7 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                             {TRANSFER_ENTITIES.map(ent => (
                                 <button key={ent} type="button"
                                     onClick={() => setTransferTo(ent)}
-                                    className={`px-3 py-2 rounded-xl border-2 text-xs font-bold transition-all text-left ${transferTo === ent ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-600 hover:border-orange-300'}`}
+                                    className={`px-3 py-2 rounded-xl border-2 text-xs font-bold transition-all text-left ${transferTo === ent ? 'border-teal-500 bg-teal-50 text-teal-600' : 'border-slate-200 text-slate-600 hover:border-teal-300'}`}
                                 >
                                     {ent}
                                 </button>
@@ -151,7 +153,7 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                     <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
                         {t('cancel')}
                     </button>
-                    <button onClick={handlePay} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white font-bold text-sm hover:bg-orange-600 disabled:opacity-60 transition-colors">
+                    <button onClick={handlePay} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 disabled:opacity-60 transition-colors">
                         {saving ? t('rrSaving') : t('rpmAccept')}
                     </button>
                 </div>

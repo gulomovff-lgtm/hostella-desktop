@@ -42,7 +42,7 @@ const RoomPicker = ({ rooms, selected, onChange, lang = 'ru' }) => {
                 ref={btnRef}
                 type="button"
                 onClick={handleOpen}
-                className={`w-full flex items-center justify-between gap-1.5 px-3 py-2 text-sm rounded-xl border transition-all ${open ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
+                className={`w-full flex items-center justify-between gap-1.5 px-3 py-2 text-sm rounded-xl border transition-all ${open ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
             >
                 <span className={`truncate font-semibold ${selected.length === 0 ? 'text-slate-400' : ''}`}>{selected.length === 0 ? t('mslChooseRooms') : label}</span>
                 <ChevronDown size={14} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />

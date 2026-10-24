@@ -76,7 +76,7 @@ const PeriodMiniCalendar = ({ entries = [], onAddPeriod, onEditPeriod, onDeleteP
                                 className={`relative flex flex-col items-center justify-center rounded-lg border transition-colors ${info ? 'border-teal-300' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'}`}
                                 style={{ height: 42, opacity: inMonth ? 1 : 0.35,
                                     background: info ? `rgba(20,184,166,${intensity})` : undefined,
-                                    boxShadow: isToday ? 'inset 0 0 0 2px #e88c40' : 'none' }}>
+                                    boxShadow: isToday ? 'inset 0 0 0 2px #6366f1' : 'none' }}>
                                 <span className={`text-xs font-bold leading-none tabular-nums ${info ? 'text-teal-900' : 'text-slate-600'}`}>{d.getDate()}</span>
                                 {info && info.people > 0 && <span className="text-[10px] font-black leading-none mt-0.5 text-teal-900 tabular-nums">{info.people} {t('msPeopleWord')}</span>}
                             </button>
@@ -105,13 +105,13 @@ const PeriodMiniCalendar = ({ entries = [], onAddPeriod, onEditPeriod, onDeleteP
                                             <div className="text-sm font-bold text-slate-700 tabular-nums">{pmcSd(p.checkIn)} → {pmcSd(p.checkOut)}</div>
                                             <div className="text-xs text-slate-500">{p.people > 0 ? `${p.people} ${t('msPeopleWord')}` : t('mslPeopleNotSet')}{p.nights > 0 ? ` · ${p.nights} ${t('ormNochShort')}.` : ''}{wgCount > 0 ? ` · ${t('msBrigShort')} ${wgCount}` : ''}</div>
                                         </div>
-                                        <button onClick={() => { onEditPeriod?.(p.id); setDayPopup(null); }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:border-slate-300">{t('changeTitle')}</button>
+                                        <button onClick={() => { onEditPeriod?.(p.id); setDayPopup(null); }} className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:border-slate-300">{t('changeTitle')}</button>
                                         <button onClick={() => onDeletePeriod?.(p.id)} title={t('msmDeletePeriod')} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50"><Trash2 size={14} /></button>
                                     </div>
                                 );
                             })}
                             <button onClick={() => { const co = pmcFmtISO(new Date(new Date(dayPopup + 'T12:00:00').getTime() + 86400000)); onAddPeriod?.(dayPopup, co); setDayPopup(null); }}
-                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold transition-colors">
+                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold transition-colors">
                                 <Plus size={15} /> {t('msmNewPeriodFrom').replace('{n}', pmcSd(dayPopup))}
                             </button>
                         </div>
