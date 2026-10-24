@@ -227,13 +227,14 @@ function renderTabs() {
 
 async function init() {
   try {
-    await signInAnonymously(auth);
-    const [rSnap, gSnap] = await Promise.all([
-      getDocs(collection(db, ...PATH, 'rooms')),
-      getDocs(collection(db, ...PATH, 'guests')),
-    ]);
-    allRooms  = rSnap.docs.map(d => ({id:d.id, ...d.data()}));
-    allGuests = gSnap.docs.map(d => ({id:d.id, ...d.data()})).filter(g => g.status !== 'checked_out');
+    // Данные берём из публичной функции getPublicAvailability БЕЗ PII. Раньше этот
+    // виджет анонимно грузил всю коллекцию guests (паспорта/имена/телефоны) в браузер
+    // любого посетителя — это была живая утечка. Анонимный вход тут больше не нужен.
+    const res = await fetch('https://us-central1-hostella-app-a1e07.cloudfunctions.net/getPublicAvailability');
+    const d = await res.json();
+    if (!d || !d.ok) throw new Error('load');
+    allRooms  = d.rooms || [];
+    allGuests = d.stays || [];   // только интервалы проживания (roomId + даты), без PII
     renderTabs();
     renderCalendar();
     document.getElementById('subtitleEl').textContent = `Загрузка — ${HOSTELS[hostelId]}`;

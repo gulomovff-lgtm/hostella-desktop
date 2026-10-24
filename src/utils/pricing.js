@@ -7,6 +7,7 @@
  * админ не задал свою схему.
  */
 import { getConfig } from './appConfig';
+import { planConfig, planPrice } from './stayPlans';
 
 export const LEGACY_MIN_PRICE = 70000;
 export const LEGACY_PACKAGE_PRICE = 65000;
@@ -46,7 +47,10 @@ const pick = (block, hostelId, roomNumber, fallback) => {
  * null — если для филиала вообще нет конфигурации. Используется как ПОДСТАВЛЯЕМАЯ
  * цена при заселении (в отличие от minNightPrice, который всегда что-то возвращает).
  */
-export function configuredNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig()) {
+export function configuredNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig(), opts = {}) {
+    // Филиал с тарифами «без завтрака / с завтраком»: цена — по тарифу и стране гостя
+    const pp = planPrice(hostelId, opts.plan, opts.country, date, cfg);
+    if (pp != null) return pp;
     const p = cfg?.pricing;
     if (!p) return null;
     const s = activeSeason(date, cfg);
@@ -61,7 +65,9 @@ export function configuredNightPrice(hostelId, roomNumber, date = new Date(), cf
 }
 
 /** Минимальная цена ночи (обычный тариф) для комнаты филиала на дату. */
-export function minNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig()) {
+export function minNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig(), opts = {}) {
+    const pp = planPrice(hostelId, opts.plan, opts.country, date, cfg);
+    if (pp != null) return pp;
     const p = cfg?.pricing;
     if (!p) return LEGACY_MIN_PRICE;
     const s = activeSeason(date, cfg);
@@ -86,3 +92,9 @@ export function packageMinDays(date = new Date(), cfg = getConfig()) {
     const s = activeSeason(date, cfg);
     return Number((s && s.packageMinDays) ?? p.packageMinDays ?? LEGACY_PACKAGE_MIN_DAYS) || LEGACY_PACKAGE_MIN_DAYS;
 }
+
+/**
+ * Действуют ли у филиала на дату тарифы «без завтрака / с завтраком»
+ * (utils/stayPlans.js). Там, где действуют, пакетного тарифа нет.
+ */
+export const hasPlans = (hostelId, date = new Date(), cfg = getConfig()) => !!planConfig(hostelId, date, cfg);

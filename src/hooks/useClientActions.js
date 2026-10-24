@@ -1,10 +1,13 @@
 /**
  * useClientActions — операции с базой клиентов.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment } from 'firebase/firestore';
+import { addDoc, updateDoc, commitNow } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { getNormalizedCountry } from '../utils/helpers';
+import { computeMergedClient } from '../utils/clientDuplicates';
+import { findExistingClient, createPendingIndex } from '../utils/clientMatch';
 
 export function useClientActions({ currentUser, clients, showNotification, setUndoStack }) {
 
@@ -26,11 +29,13 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     try {
       const batch = writeBatch(db);
       let updated = 0, created = 0;
+      // Тот же цикл, та же ловушка: в одном файле человек может встретиться
+      // дважды, а clients внутри цикла не меняется. Плюс сверка была точной по
+      // строке — «AC 1234567» и «AC1234567» считались разными людьми.
+      const pending = createPendingIndex();
       newClients.forEach(nc => {
-        const existing = clients.find(c =>
-          (c.passport && nc.passport && c.passport === nc.passport) ||
-          (c.fullName === nc.fullName && c.passport === nc.passport)
-        );
+        const existing = findExistingClient(clients, nc);
+        if (!existing && pending.has(nc)) return;
         if (existing) {
           batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), {
             fullName: existing.fullName || nc.fullName,
@@ -40,11 +45,12 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
           });
           updated++;
         } else {
+          pending.add(nc);
           batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), { ...nc, visits: 0, lastVisit: new Date().toISOString() });
           created++;
         }
       });
-      await batch.commit();
+      await commitNow(batch);
       showNotification(`Success! New: ${created}, Merged: ${updated}`, 'success');
     } catch (e) {
       console.error(e);
@@ -70,7 +76,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
         });
         batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', duplicate.id));
       });
-      await batch.commit();
+      await commitNow(batch);
       showNotification(`Merged ${duplicates.length} duplicates!`, 'success');
     } catch (e) {
       console.error(e);
@@ -78,11 +84,53 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     }
   };
 
+  /**
+   * Слить дубликаты в одну запись. Главной становится та, чей паспорт подтвердила
+   * госбаза e-mehmon (кнопка «Проверить» в разборе дубликатов).
+   *
+   * Баланс и визиты складываются со всех записей — это деньги гостя, потерять их
+   * нельзя. Перед удалением дублей их полный снимок пишется в журнал, поэтому
+   * слияние всегда можно разобрать постфактум.
+   *
+   * @param {string}   mainId    id главной записи
+   * @param {string[]} mergeIds  id сливаемых записей
+   * @param {object}   [patch]   доп. поля главной (напр. официальное ФИО из госбазы)
+   */
+  const handleMergeClients = async (mainId, mergeIds = [], patch = {}) => {
+    const main = clients.find(c => c.id === mainId);
+    const others = mergeIds.map(id => clients.find(c => c.id === id)).filter(Boolean);
+    if (!main || others.length === 0) return false;
+
+    try {
+      const merged = computeMergedClient(main, others);
+      const batch = writeBatch(db);
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', main.id), { ...merged, ...patch });
+      others.forEach(c => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id)));
+      await commitNow(batch);
+
+      // Снимок удалённых записей — чтобы слияние было прослеживаемым.
+      logAction(currentUser, 'clients_merge', {
+        mainId: main.id,
+        mainPassport: main.passport || '',
+        mergedCount: others.length,
+        balanceTotal: merged.balance,
+        removed: others.map(c => ({
+          id: c.id, fullName: c.fullName || '', passport: c.passport || '',
+          birthDate: c.birthDate || '', balance: c.balance || 0, visits: c.visits || 0,
+        })),
+      });
+      return true;
+    } catch (e) {
+      console.error('[clients] merge failed:', e);
+      return false;
+    }
+  };
+
   const handleBulkDeleteClients = async (ids) => {
     try {
       const batch = writeBatch(db);
       ids.forEach(id => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', id)));
-      await batch.commit();
+      await commitNow(batch);
       showNotification(`Deleted ${ids.length} clients`, 'success');
     } catch (e) {
       showNotification('Bulk delete failed', 'error');
@@ -100,7 +148,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
           count++;
         }
       });
-      if (count > 0) { await batch.commit(); showNotification(`Normalized ${count} countries`, 'success'); }
+      if (count > 0) { await commitNow(batch); showNotification(`Normalized ${count} countries`, 'success'); }
       else showNotification('All normalized');
     } catch (e) {
       showNotification('Normalization failed', 'error');
@@ -114,15 +162,16 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
       // Sync ALL guests (active + checked_out) that have at least a name
       const allGuests = guests.filter(g => (g.passport || g.fullName));
 
-      const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
+      // У постоянного гостя ОДНА ЗАПИСЬ НА КАЖДЫЙ ЗАЕЗД. Поиск идёт по clients —
+      // состоянию, которое внутри цикла не меняется (batch применяется в конце),
+      // поэтому человека, которого ещё нет в базе, создавало столько раз, сколько
+      // раз он жил. Отсюда и брались дубликаты с одинаковыми данными.
+      // pendingIndex помнит, кого уже поставили в очередь на создание.
+      const pending = createPendingIndex();
       for (const g of allGuests) {
-        const normPassport = norm(g.passport);
-        const normName = norm(g.fullName);
-        // Search by normalized passport first, then fallback to name (regardless of whether client has passport)
-        const ec = normPassport
-          ? (clients.find(c => c.passport && norm(c.passport) === normPassport)
-              || (normName && clients.find(c => norm(c.fullName) === normName)))
-          : (normName ? clients.find(c => norm(c.fullName) === normName) : null);
+        const ec = findExistingClient(clients, g);
+
+        if (!ec && pending.has(g)) { skipped++; continue; }
 
         if (ec) {
           const updates = {};
@@ -143,6 +192,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
             skipped++;
           }
         } else {
+          pending.add(g);
           batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), {
             fullName: g.fullName || '',
             passport: g.passport || '',
@@ -158,7 +208,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
         }
       }
 
-      if (created + updated > 0) await batch.commit();
+      if (created + updated > 0) await commitNow(batch);
       showNotification(
         `✅ Готово: ${created} добавлено, ${updated} обновлено${skipped ? `, ${skipped} без изменений` : ''}`,
         'success'
@@ -224,6 +274,21 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
   };
 
   const handleAddClient = async (data) => {
+    // Проверки на существующего тут не было вовсе: повторное добавление того же
+    // человека молча заводило второго. Дублировать не даём, но и не теряем —
+    // дополняем пустые поля у уже заведённой записи.
+    const existing = findExistingClient(clients, data);
+    if (existing) {
+      const updates = {};
+      for (const f of ['fullName', 'passport', 'birthDate', 'country', 'phone']) {
+        if (!existing[f] && data[f]) updates[f] = data[f];
+      }
+      if (Object.keys(updates).length) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), updates);
+      }
+      showNotification(`Клиент уже есть в базе: ${existing.fullName || existing.passport}`, 'info');
+      return;
+    }
     await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
       fullName: data.fullName || '',
       passport: data.passport || '',
@@ -242,6 +307,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     handleUpdateClient,
     handleImportClients,
     handleDeduplicate,
+    handleMergeClients,
     handleBulkDeleteClients,
     handleNormalizeCountries,
     handleSyncClientsFromGuests,
