@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, ArrowRight, User } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
-const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectRoom, lang }) => {
+const GlobalSearch = ({ isOpen, onClose, guests, clients = [], rooms, onSelectGuest, onSelectRoom, lang }) => {
     const [query, setQuery] = useState('');
     const inputRef = useRef(null);
     const t = (k) => TRANSLATIONS[lang][k];
@@ -42,6 +42,20 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
             const existingPrio = existing ? (statusPriority[existing.status] ?? 3) : 99;
             if (!existing || prio < existingPrio) personMap.set(key, g);
         });
+        // Давние гости — из базы клиентов (она в памяти целиком; гости — только
+        // за последние недели, utils/historyWindow). Выбор открывает историю
+        // клиента, а она подтягивает все визиты человека точечно.
+        const seenPass = new Set([...personMap.values()].map(g => (g.passport || '').replace(/\s/g, '').toUpperCase()).filter(Boolean));
+        const seenName = new Set([...personMap.values()].map(g => (g.fullName || '').trim().toLowerCase()));
+        for (const c of clients) {
+            const name = (c.fullName || '').toLowerCase();
+            const passport = (c.passport || '').toLowerCase();
+            if (!name.includes(lowerQ) && !passport.includes(lowerQ)) continue;
+            const pk = (c.passport || '').replace(/\s/g, '').toUpperCase();
+            if ((pk && seenPass.has(pk)) || (!pk && seenName.has(name.trim()))) continue;
+            personMap.set('client|' + c.id, { ...c, status: 'checked_out', _client: true });
+            if (personMap.size > 60) break;
+        }
         // personMap already deduplicates: active beats booking beats checked_out.
         // If checked_out remains in map → no active/booking record exists for that person → show it.
         const foundGuests = [...personMap.values()]
@@ -53,7 +67,7 @@ const GlobalSearch = ({ isOpen, onClose, guests, rooms, onSelectGuest, onSelectR
         ).slice(0, 3);
 
         return { guests: foundGuests, rooms: foundRooms };
-    }, [query, guests, rooms]);
+    }, [query, guests, clients, rooms]);
 
     if (!isOpen) return null;
 

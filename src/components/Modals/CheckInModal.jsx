@@ -9,6 +9,8 @@ import { Flag, fmtSum, parseSum } from '../../utils/helpers';
 import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice, hasPlans } from '../../utils/pricing';
 import { planPrice, isLocal, PLAN_FULL, PLAN_ROOM, nightPromoOffer } from '../../utils/stayPlans';
 import { recentStays } from '../../utils/guestStayHistory';
+import { usePersonStays } from '../../hooks/usePersonStays';
+import { mergeLists } from '../../utils/liveList';
 import { dedupePeople } from '../../utils/clientMatch';
 import { sourceOptions, sourceOf, DEFAULT_SOURCE } from '../../utils/guestSource';
 import { findReferrer } from '../../utils/referral';
@@ -490,9 +492,12 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
      * один и тот же срок, и знать его — значит сразу понимать, сколько суток
      * ставить. Считаем по фактическим датам выезда, а не по оформленному сроку.
      */
+    // Прошлые визиты этого паспорта — точечно из базы: в памяти программы
+    // только последние недели (utils/historyWindow). Ждём, пока допечатают.
+    const personStays = usePersonStays({ passport: formData.passport }, { debounceMs: 600 });
     const pastStays = useMemo(
-        () => recentStays(guests, { passport: formData.passport, excludeId: selfGuestId, limit: 3 }),
-        [guests, formData.passport, selfGuestId],
+        () => recentStays(mergeLists([personStays, guests]), { passport: formData.passport, excludeId: selfGuestId, limit: 3 }),
+        [guests, personStays, formData.passport, selfGuestId],
     );
 
     /**

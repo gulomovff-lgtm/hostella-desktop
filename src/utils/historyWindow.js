@@ -48,6 +48,19 @@ export function openContractKeys(groups = []) {
   return { ids: ids.sort(), names: [...names].sort() };
 }
 
+/**
+ * Ключи поиска визитов одного человека: паспорт как введён и без пробелов
+ * (в базе встречаются оба вида), иначе ФИО как записано. Короткий паспорт
+ * (кассир ещё печатает) — не ключ.
+ */
+export function personQueryKeys(person = {}) {
+  const raw = String(person?.passport || '').trim();
+  const clean = raw.replace(/\s+/g, '').toUpperCase();
+  const passports = clean.length >= 5 ? [...new Set([clean, raw, raw.toUpperCase()])].filter(Boolean) : [];
+  const name = passports.length ? '' : String(person?.fullName || '').trim();
+  return { passports, name };
+}
+
 /** Разбить на части (запрос «in» в Firestore — до 30 значений). */
 export function chunk(arr = [], size = 30) {
   const out = [];

@@ -6,6 +6,8 @@ import {
 import TRANSLATIONS from '../../constants/translations';
 import ClientEditModal from './ClientEditModal';
 import { chargeOf } from '../../utils/shop';
+import { usePersonStays } from '../../hooks/usePersonStays';
+import { mergeLists } from '../../utils/liveList';
 
 const getTotalPaid = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
 
@@ -128,14 +130,17 @@ const ClientHistoryModalInner = ({ client, guests, users, rooms, currentUser, on
         if (onAdjustBalance) onAdjustBalance(id, -Math.abs(amt));
     };
 
+    // Все визиты этого человека — точечно из базы (в памяти программы только
+    // живущие и последние недели, utils/historyWindow)
+    const personStays = usePersonStays(client);
     const history = useMemo(() => {
         const normP = p => (p || '').replace(/\s/g, '').toUpperCase();
         const normN = n => (n || '').trim().toLowerCase();
-        return guests.filter(g =>
+        return mergeLists([personStays, guests]).filter(g =>
             (g.passport && client.passport && normP(g.passport) === normP(client.passport)) ||
             (g.fullName && normN(g.fullName) === normN(client.fullName))
         ).sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate));
-    }, [client, guests]);
+    }, [client, guests, personStays]);
 
     const stats = useMemo(() => history.reduce((acc, s) => {
         const paid = getTotalPaid(s);

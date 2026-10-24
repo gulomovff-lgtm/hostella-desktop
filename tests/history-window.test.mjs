@@ -43,3 +43,11 @@ test('сводка кадастра: давний гость вне окна у�
   assert.equal(cadastrePersonGone(reg, [{ id: 'g', passport: 'AB1234567', status: 'active', checkOutDate: '2026-10-30' }], now,
     [{ id: 'c1', passport: 'AB1234567', visits: 3 }]), false, 'живёт — напоминаем');
 });
+
+test('визиты одного человека: паспорт как введён и без пробелов; без паспорта — ФИО; недопечатанный — не ключ', async () => {
+  const { personQueryKeys } = await import('../src/utils/historyWindow.js');
+  assert.deepEqual(personQueryKeys({ passport: 'ac 1234567' }).passports.sort(), ['AC 1234567', 'AC1234567', 'ac 1234567'].sort());
+  assert.deepEqual(personQueryKeys({ passport: 'AC1234567', fullName: 'X' }), { passports: ['AC1234567'], name: '' });
+  assert.deepEqual(personQueryKeys({ passport: 'AC1', fullName: ' Ali Valiyev ' }), { passports: [], name: 'Ali Valiyev' });
+  assert.deepEqual(personQueryKeys({}), { passports: [], name: '' });
+});

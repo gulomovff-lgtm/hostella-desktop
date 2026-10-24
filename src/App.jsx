@@ -427,9 +427,6 @@ function App() {
   const [editRoomModal, setEditRoomModal] = useState({ open: false, room: null });
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
-  // Поиск гостя и история клиента ищут по всем визитам — нужна полная история
-  useEffect(() => { if (isSearchOpen || clientHistoryModal.open) requestHistory(); },
-    [isSearchOpen, clientHistoryModal.open, requestHistory]);
 
   // Авто-выселение просроченных гостей — см. hooks/useAutoCheckout (5 гейтов защиты)
   useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady: isAllDataReady, showNotification, lang });
@@ -2883,6 +2880,7 @@ return (
                 isOpen={isSearchOpen}
                 onClose={() => setIsSearchOpen(false)}
                 guests={guests}
+                clients={clients}
                 rooms={rooms}
                 lang={lang}
                 onSelectGuest={(guest) => {
