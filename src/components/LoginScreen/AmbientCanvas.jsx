@@ -1,5 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 
+const FPS = 15;            // мягкому дрейфу пятен больше не нужно
+const IDLE_MS = 20 * 1000;  // без движения — замираем
+const RENDER_SCALE = 0.5;   // доля разрешения холста
+
 /**
  * Живой фоновый слой экрана входа — мягкое ПЕРЕЛИВАНИЕ цвета.
  *
@@ -50,7 +54,10 @@ const AmbientCanvas = ({ colors = [], intensity = 1 }) => {
     let w = 0, h = 0;
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // Пятна размытые — полутора-двукратное разрешение им не нужно: рисуем в
+      // половину размера, браузер растягивает. Это в 4–16 раз меньше пикселей
+      // на кадр, чем было (devicePixelRatio до 2).
+      const dpr = RENDER_SCALE;
       // Опираемся на реальный размер бокса; если раскладка ещё не случилась —
       // подстраховываемся окном, иначе canvas остаётся 1×1 и слой пустой.
       w = canvas.clientWidth || window.innerWidth;
@@ -71,10 +78,26 @@ const AmbientCanvas = ({ colors = [], intensity = 1 }) => {
       { i: 2, bx: 0.82, by: 0.68, ax: 0.11, ay: 0.09, sx: 0.000036, sy: 0.000028, r: 1.05, ph: 4.2, br: 0.00006, depth: 0.20 },
     ];
 
-    let raf = 0, last = performance.now(), t = 0, running = true;
+    let raf = 0, timer = 0, last = performance.now(), t = 0, running = true;
+    // Экран входа может стоять часами. Раньше фон рисовался 60 раз в секунду
+    // без остановки — около двух ядер процессора и сотни МБ видеопамяти в
+    // простое. Теперь — FPS кадров в секунду, а без мыши и клавиш IDLE_MS
+    // (или когда окно не в фокусе) всё замирает до первого движения.
+    let lastInput = performance.now();
+    const setIdle = (idle) => document.documentElement.classList.toggle('motion-idle', idle);
+    const schedule = () => {
+      if (!running || reduced) return;
+      timer = setTimeout(() => { raf = requestAnimationFrame(draw); }, 1000 / FPS);
+    };
+    const stop = () => { running = false; clearTimeout(timer); cancelAnimationFrame(raf); setIdle(true); };
+    const wake = () => {
+      lastInput = performance.now();
+      if (running || reduced || document.hidden) return;
+      running = true; setIdle(false); last = performance.now(); schedule();
+    };
 
     const draw = (now) => {
-      const dt = Math.min(now - last, 50);
+      const dt = Math.min(now - last, 120);
       last = now;
       if (!reduced) t += dt;
 
@@ -111,25 +134,32 @@ const AmbientCanvas = ({ colors = [], intensity = 1 }) => {
         ctx.fill();
       }
 
-      if (running && !reduced) raf = requestAnimationFrame(draw);
+      // Кадр нарисован; дальше — только если кто-то за кассой и окно в фокусе
+      if (now - lastInput > IDLE_MS || !document.hasFocus()) stop(); else schedule();
     };
     raf = requestAnimationFrame(draw);
 
     const onMove = (e) => {
       mouse.current.tx = e.clientX / window.innerWidth;
       mouse.current.ty = e.clientY / window.innerHeight;
+      wake();
     };
-    const onVis = () => {
-      if (document.hidden) { running = false; cancelAnimationFrame(raf); }
-      else if (!reduced) { running = true; last = performance.now(); raf = requestAnimationFrame(draw); }
-    };
+    const onVis = () => { if (document.hidden) stop(); else wake(); };
     window.addEventListener('resize', resize);
     window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('keydown', wake);
+    window.addEventListener('focus', wake);
+    window.addEventListener('blur', stop);
     document.addEventListener('visibilitychange', onVis);
 
     return () => {
       running = false;
+      clearTimeout(timer);
       cancelAnimationFrame(raf);
+      setIdle(false);
+      window.removeEventListener('keydown', wake);
+      window.removeEventListener('focus', wake);
+      window.removeEventListener('blur', stop);
       ro?.disconnect();
       window.removeEventListener('resize', resize);
       window.removeEventListener('pointermove', onMove);

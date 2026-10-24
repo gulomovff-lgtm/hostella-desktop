@@ -732,3 +732,13 @@ html, body, #root {
   border-color: transparent !important;
   color: var(--ci-ink) !important;
 }
+
+/* Простой кассы: окно не в фокусе / свёрнуто или экран входа без движения
+   (класс ставят main.jsx и AmbientCanvas). Бесконечные анимации — пульсы,
+   волны, звёзды, спиннеры — замирают: иначе видеокарта и процессор
+   перерисовывают окно 60 раз в секунду, даже когда за кассой никого нет. */
+html.motion-idle *,
+html.motion-idle *::before,
+html.motion-idle *::after {
+  animation-play-state: paused !important;
+}

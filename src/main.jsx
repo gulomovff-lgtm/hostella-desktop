@@ -9,6 +9,15 @@ import { BUILD_TS } from './constants/config.js'
  
 console.info('[Hostella] build:', BUILD_TS)
 
+// ── Простой: окно не в фокусе или свёрнуто — анимации на паузу (index.css,
+// html.motion-idle). Касса часто стоит в фоне за браузером или порталом.
+try {
+  const idle = (v) => document.documentElement.classList.toggle('motion-idle', v)
+  window.addEventListener('blur', () => idle(true))
+  window.addEventListener('focus', () => idle(false))
+  document.addEventListener('visibilitychange', () => idle(document.hidden))
+} catch { /* не браузер */ }
+
 // ── Telegram-окружение ──
 // Внутри Telegram (Mini App или встроенный браузер) сверху плавает шапка
 // «Закрыть / ⌄ / …». Помечаем <html class="tg">, чтобы CSS добавил верхний
