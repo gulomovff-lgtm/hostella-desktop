@@ -116,6 +116,25 @@ let emehmonWindow = null;
 let arrivalPayload = null; // текущий payload окна прибытия (для авто-галочки на нужного гостя)
 const departureWindows = {};   // partition -> скрытое окно убытия/списков
 const autoArrivalWindows = {}; // partition -> скрытое окно авто-регистрации
+// Скрытые окна портала живут, пока ими пользуются: без дела дольше
+// PORTAL_IDLE_MS (и невидимое кассиру) — закрываем. Каждое окно — отдельный
+// процесс Chromium с загруженным порталом; до четырёх таких висели всю смену.
+// Вход не теряется: куки в постоянной сессии филиала (persist:emehmon-…).
+const PORTAL_IDLE_MS = 10 * 60 * 1000;
+const portalLastUse = new WeakMap();
+const touchPortal = (win) => { portalLastUse.set(win, Date.now()); return win; };
+setInterval(() => {
+  const now = Date.now();
+  for (const pool of [departureWindows, autoArrivalWindows]) {
+    for (const part of Object.keys(pool)) {
+      const w = pool[part];
+      if (!w || w.isDestroyed() || w.isVisible()) continue;
+      if (now - (portalLastUse.get(w) || 0) < PORTAL_IDLE_MS) continue;
+      try { w.destroy(); } catch (_) { /* уже закрыто */ }
+      delete pool[part];
+    }
+  }
+}, 60 * 1000).unref?.();
 let emehmonWindowPartition = null; // партиция открытого окна прибытия
 let autoArrivalChain = Promise.resolve(); // сериализация авто-регистраций (по одной за раз)
 let isDownloading = false;
@@ -473,7 +492,7 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
 function ensureDepartureWindow(hostelId) {
   const part = emehmonPartition(hostelId);
   const cur = departureWindows[part];
-  if (cur && !cur.isDestroyed()) return cur;
+  if (cur && !cur.isDestroyed()) return touchPortal(cur);
   const win = new BrowserWindow({
     width: 1200,
     height: 860,
@@ -495,7 +514,7 @@ function ensureDepartureWindow(hostelId) {
   // emehmon.uz и с полным hardening в дочернем окне, см. hardenEmehmonWindow.
   hardenEmehmonWindow(win, part);
   departureWindows[part] = win;
-  return win;
+  return touchPortal(win);
 }
 
 // Лист убытия: PDF из скрытого окна → файл на этом компьютере (печать без
@@ -652,7 +671,7 @@ ipcMain.handle('emehmon-check', async (_event, guest) => {
 function ensureAutoArrivalWindow(hostelId) {
   const part = emehmonPartition(hostelId);
   const cur = autoArrivalWindows[part];
-  if (cur && !cur.isDestroyed()) return cur;
+  if (cur && !cur.isDestroyed()) return touchPortal(cur);
   const win = new BrowserWindow({
     width: 1200, height: 860, parent: mainWindow, show: false,
     title: 'e-mehmon — авто-регистрация',
@@ -666,7 +685,7 @@ function ensureAutoArrivalWindow(hostelId) {
   win.on('closed', () => { delete autoArrivalWindows[part]; });
   hardenEmehmonWindow(win, part);
   autoArrivalWindows[part] = win;
-  return win;
+  return touchPortal(win);
 }
 
 async function runAutoArrival(payload) {

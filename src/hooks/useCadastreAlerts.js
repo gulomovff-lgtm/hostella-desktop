@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { checkAndMarkAlert, maybeCleanupAlerts } from '../utils/alertsLog';
 import TRANSLATIONS from '../constants/translations';
+import { cadastrePersonGone } from '../utils/registrationStatus';
 
 const ALERT_DAYS = 3;
 
@@ -32,7 +33,7 @@ const fmtDate = (iso) => {
   return `${d}.${m}.${y}`;
 };
 
-export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline, lang }) {
+export function useCadastreAlerts({ cadastreRegs, guests, clients, tgSettings, isOnline, lang }) {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   const cleanupDoneRef = useRef(false);
 
@@ -44,15 +45,22 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline,
       maybeCleanupAlerts();
     }
 
-    if (!cadastreRegs?.length) return;
+    // Гости ещё не загрузились — не судим, кто уехал: иначе сводка дня уйдёт
+    // со всеми уехавшими (ключ дня одноразовый, исправить её будет нельзя).
+    if (!cadastreRegs?.length || !guests?.length) return;
 
     const disabledTypes = new Set(tgSettings?.disabledTypes || []);
     if (disabledTypes.has('cadastreExpiring')) return;
 
     const today = getLocalDateStr();
 
+    // Уехавших не напоминаем: регистрация кадастра остаётся «действующей», пока
+    // её не снимут, а выселение снимает её не всегда (переезд, продолжение,
+    // запись закрыта автоматом). Судим по самому человеку — живёт ли он у нас.
+    const now = new Date();
     const expiring = cadastreRegs.filter(r => {
       if (r.status === 'removed') return false;
+      if (cadastrePersonGone(r, guests, now)) return false;
       const d = getDaysLeft(r.endDate);
       return d >= 0 && d <= ALERT_DAYS;
     });
@@ -110,5 +118,5 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline,
 
       sendTelegramMessage(lines.join('\n'), 'cadastreExpiring');
     });
-  }, [cadastreRegs, clients, tgSettings, isOnline, lang]);
+  }, [cadastreRegs, guests, clients, tgSettings, isOnline, lang]);
 }

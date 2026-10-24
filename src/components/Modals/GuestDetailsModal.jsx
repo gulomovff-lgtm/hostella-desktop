@@ -9,6 +9,7 @@ import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
 import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff } from '../../utils/stayPlans';
+import { cadastreRegFor, cadastreValid } from '../../utils/registrationStatus';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
@@ -374,7 +375,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     // Долг = проживание + услуги «в счёт» (utils/shop.js) − оплачено
     const servicesOnAccount = Number(guest.servicesTotal) || 0;
     const debt = chargeOf(guest) - totalPaid;
-    const mySales = guestSales(sales, guest.id);
+    // Поиски по большим спискам — только при их смене, а не на каждое нажатие
+    // клавиши в поле суммы (карточка перерисовывается при каждом вводе).
+    const mySales = useMemo(() => guestSales(sales, guest.id), [sales, guest.id]);
     
     const [currentView, setCurrentView] = useState(initialView); 
     const [payCash, setPayCash] = useState('');
@@ -476,7 +479,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const isBelowMinRate = guestRate > 0 && guestRate < MIN_NIGHT_PRICE;
     // Понижение цены одобрено: флаг на госте ИЛИ паспорт в списке разрешённых
     const normPass = (p) => (p || '').replace(/\s/g, '').toUpperCase();
-    const wlEntry = priceWhitelist.find(w => normPass(w.passport || w.id) === normPass(guest.passport));
+    const wlEntry = useMemo(() => priceWhitelist.find(w => normPass(w.passport || w.id) === normPass(guest.passport)),
+        [priceWhitelist, guest.passport]); // eslint-disable-line react-hooks/exhaustive-deps
     const isPriceApproved = !!guest.priceReductionAllowed || !!wlEntry;
     const approvedPrice = parseInt(guest.approvedPrice) || parseInt(wlEntry?.price) || 0;
     // Продление по новому тарифу (владелец 2026-10-01): гость по старой цене
@@ -509,11 +513,13 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     }, [currentView, packageOnly]);
 
     // Bonus days: first check guest.bonusDaysAdded (already applied), then client remaining balance
-    const normStr = s => (s || '').replace(/\s/g, '').toUpperCase();
-    const clientRecord = clients.find(c =>
-        (c.passport && guest.passport && normStr(c.passport) === normStr(guest.passport)) ||
-        (guest.fullName && normStr(c.fullName) === normStr(guest.fullName))
-    );
+    const clientRecord = useMemo(() => {
+        const normStr = s => (s || '').replace(/\s/g, '').toUpperCase();
+        const gp = normStr(guest.passport), gn = normStr(guest.fullName);
+        return clients.find(c =>
+            (c.passport && gp && normStr(c.passport) === gp) ||
+            (gn && normStr(c.fullName) === gn));
+    }, [clients, guest.passport, guest.fullName]);
     const clientBalance = clientRecord?.balance || 0;
     const bonusDays = (guest.bonusDaysAdded || 0) > 0
         ? (guest.bonusDaysAdded || 0)
@@ -815,10 +821,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const w = getRegistrationWindow(guest.country);
         return !guest.kppRegistered && getKppDayNumber(guest.kppDate) >= w - 1;
     })();
+    // Регистрация по кадастру — та же, что считают «Оформить» и автоматика
+    const cadReg = cadastreRegFor(guest, cadastreRegs);
+    const cadOk = cadastreValid(cadReg);          // истёкший кадастр — не регистрация
     const cadUrgent = (() => {
-        const n = s => (s || '').replace(/\s/g, '').toUpperCase();
-        const r = cadastreRegs.find(x => x.status !== 'removed' &&
-            (x.guestId === guest.id || (x.passport && guest.passport && n(x.passport) === n(guest.passport))));
+        const r = cadReg;
         if (!r) return false;
         return Math.ceil((new Date(r.endDate + 'T23:59:59') - Date.now()) / 86400000) <= 3;
     })();
@@ -890,12 +897,6 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         );
     };
     const renderCadastre = () => {
-        const normStr2 = s => (s || '').replace(/\s/g, '').toUpperCase();
-        const cadReg = cadastreRegs.find(r =>
-            r.status !== 'removed' &&
-            (r.guestId === guest.id ||
-            (r.passport && guest.passport && normStr2(r.passport) === normStr2(guest.passport)))
-        );
         if (!cadReg) return null;
         const daysLeft = Math.ceil((new Date(cadReg.endDate + 'T23:59:59') - Date.now()) / 86400000);
         const isExpired = daysLeft < 0;
@@ -1177,12 +1178,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         {(() => {
                                             // «Оформить (прибытие)» прячем, если уже зарегистрирован в e-mehmon
                                             // или есть активная регистрация по кадастру.
-                                            const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
-                                            const hasCadastre = cadastreRegs.some(r =>
-                                                r.status !== 'removed' &&
-                                                (r.guestId === guest.id ||
-                                                 (r.passport && guest.passport && normP(r.passport) === normP(guest.passport))));
-                                            if (guest.emehmonReg || hasCadastre) return null;
+                                            if (guest.emehmonReg || cadOk) return null;
                                             // Две кнопки: вручную (окно портала) и авто (скрытый мастер).
                                             // Иностранцу авто по правилу регистрируется на предпоследний
                                             // день окна — подпись напоминает, что ждать не обязательно.
@@ -1308,12 +1304,22 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         {!cadUrgent && renderCadastre()}
                                     {guest.country && !isBooking && (
                                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1">
-                                            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
-                                                <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600"
-                                                    checked={!!guest.emehmonReg}
-                                                    onChange={e => onUpdate(guest.id, { emehmonReg: e.target.checked, emehmonRegAt: e.target.checked ? new Date().toISOString() : '' })} />
-                                                {t('registeredInEmehmon')}
-                                            </label>
+                                            {/* Есть регистрация по кадастру — галочка стоит сама. Отметку
+                                                e-mehmon ей не пишем: её сверка с порталом сняла бы галочку,
+                                                а выселение пыталось бы вывести гостя из портала. */}
+                                            {cadOk && !guest.emehmonReg ? (
+                                                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 select-none" title={cadReg.cadastreAddress || ''}>
+                                                    <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600" checked readOnly disabled />
+                                                    {t('registeredByCadastre')}
+                                                </label>
+                                            ) : (
+                                                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                                                    <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600"
+                                                        checked={!!guest.emehmonReg}
+                                                        onChange={e => onUpdate(guest.id, { emehmonReg: e.target.checked, emehmonRegAt: e.target.checked ? new Date().toISOString() : '' })} />
+                                                    {t('registeredInEmehmon')}
+                                                </label>
+                                            )}
                                             {isCheckedOut && (
                                                 <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
                                                     <input type="checkbox" className="w-4 h-4 rounded accent-emerald-600"

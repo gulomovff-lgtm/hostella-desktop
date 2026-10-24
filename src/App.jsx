@@ -147,6 +147,7 @@ import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
 import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
+import { hasRegistration, isLivingNow } from './utils/registrationStatus';
 import { useExpenseActions }      from './hooks/useExpenseActions';
 import { useShopActions }         from './hooks/useShopActions';
 import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
@@ -347,7 +348,7 @@ function App() {
     manualStayGroups,
     priceWhitelist,
     clientVersions,
-    isOnline, permissionError, isDataReady,
+    isOnline, permissionError, isDataReady, isAllDataReady,
   } = useAppData(firebaseUser, currentUser);
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
@@ -406,7 +407,7 @@ function App() {
   const [clientHistoryModal, setClientHistoryModal] = useState({ open: false, client: null });
 
   // Авто-выселение просроченных гостей — см. hooks/useAutoCheckout (5 гейтов защиты)
-  useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady, showNotification, lang });
+  useAutoCheckout({ guests, rooms, payments, hostelConfig, currentUser, isDataReady: isAllDataReady, showNotification, lang });
 
   // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
   useOfflineQueue({ isOnline, showNotification });
@@ -908,7 +909,7 @@ function App() {
   const autoPricesRef = useRef(autoApplyNewPrices);
   autoPricesRef.current = autoApplyNewPrices;
   useEffect(() => {
-    if (!currentUser || !isDataReady || !isOnline) return undefined;
+    if (!currentUser || !isAllDataReady || !isOnline) return undefined;
     let busy = false;
     const run = async () => {
       if (busy) return;
@@ -918,7 +919,7 @@ function App() {
     const first = setTimeout(run, 20000);
     const every = setInterval(run, 10 * 60 * 1000);
     return () => { clearTimeout(first); clearInterval(every); };
-  }, [currentUser?.id, currentUser?.login, isDataReady, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, currentUser?.login, isAllDataReady, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     handleUpdateClient, handleImportClients, handleMergeClients,
@@ -929,7 +930,7 @@ function App() {
   // Плановое пополнение базы клиентов из гостей — см. hooks/useAutoClientSync.
   // Вызов стоит ПОСЛЕ useClientActions: handleSyncClientsFromGuests рождается там,
   // а обратиться к нему раньше объявления нельзя (ReferenceError при первом рендере).
-  useAutoClientSync({ guests, hostelConfig, isDataReady, onSync: handleSyncClientsFromGuests });
+  useAutoClientSync({ guests, hostelConfig, isDataReady: isAllDataReady, onSync: handleSyncClientsFromGuests });
 
   const {
     handleStartShift, handleEndShift,
@@ -986,9 +987,11 @@ function App() {
     currentUser, selectedHostelFilter,
     recurringExpenses, expenses, showNotification, lang,
   });
+  // Считается при смене расходов, а не на каждую перерисовку App (шаблоны × все расходы)
+  const recurringAdvances = useMemo(() => getRecurringAdvances(), [getRecurringAdvances]);
 
   // Уведомления об истекающих кадастр-регистрациях
-  useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline, lang });
+  useCadastreAlerts({ cadastreRegs, guests, clients, tgSettings, isOnline, lang });
 
   // 🔔 Уведомление Telegram в день дедлайна и на следующий день (срок зависит от гражданства)
   useEffect(() => {
@@ -997,9 +1000,14 @@ function App() {
     if (disabledTypes.has('kppAlert')) return;
     const today = new Date().toISOString().slice(0, 10);
     guests.forEach(g => {
-      if (g.status !== 'active') return;
+      // Только тем, кто живёт сейчас: срок проживания вышел — гость уехал,
+      // даже если запись забыли выселить (utils/registrationStatus.isLivingNow).
+      if (!isLivingNow(g)) return;
       if (!g.kppDate || !g.country || g.country === 'Узбекистан') return;
-      if (g.kppRegistered) return;
+      // Зарегистрирован любым путём — e-mehmon (в т.ч. автоматом), журнал, кадастр.
+      // Раньше смотрели только на журнал (kppRegistered), и иностранцу,
+      // зарегистрированному автоматом, «Нужна регистрация!» шло каждый день.
+      if (g.kppRegistered || g.emehmonSkip || hasRegistration(g, cadastreRegs)) return;
       // День прибытия = 1. Срок без регистрации зависит от гражданства (дедлайн = regWindow).
       // Шлём КАЖДЫЙ день начиная с дня дедлайна, пока не зарегистрируют (kppRegistered).
       // Раньше слали только 2 дня — пропустил их (приложение закрыто) и гость терялся.
@@ -1011,12 +1019,7 @@ function App() {
       // STALE_TASK_DAYS назад, гость давно уехал, а запись просто не закрыли
       // (авто-выселение выключено для хостела или нет даты выезда).
       // Без этой отсечки такие гости шлют «Нужна регистрация!» каждый день вечно.
-      const coRaw = (g.bonusCheckOutDate && g.checkOutDate &&
-                     new Date(g.bonusCheckOutDate) > new Date(g.checkOutDate))
-        ? g.bonusCheckOutDate : g.checkOutDate;
-      if (coRaw) {
-        if (isStaleSince(coRaw, 2)) return;          // выезд прошёл больше 2 дней назад
-      } else if (isStaleSince(g.kppDate)) {
+      if (!g.checkOutDate && !g.bonusCheckOutDate && isStaleSince(g.kppDate)) {
         return;                                       // даты выезда нет — судим по возрасту записи
       }
       const key = `kpp_${g.id}_day${days}_${today}`;
@@ -1042,7 +1045,7 @@ function App() {
     // «Ситуация»: гость за пределами окна и с разрывом после другого отеля —
     // в КПП-бот один раз на ситуацию (ключ — момент её обнаружения).
     guests.forEach(g => {
-      if (g.status !== 'active' || !g.kppSituation || g.kppSituationDecision) return;
+      if (!isLivingNow(g) || hasRegistration(g, cadastreRegs) || !g.kppSituation || g.kppSituationDecision) return;
       const sit = g.kppSituation;
       const key = `kppsit_${g.id}_${String(sit.at || '').slice(0, 16)}`;
       const hostelName = g.hostelId === 'hostel2' ? 'Хостел №2' : 'Хостел №1';
@@ -1063,18 +1066,23 @@ function App() {
         if (shouldFire) sendTelegramMessage(msg, 'kppAlert');
       });
     });
-  }, [guests, isOnline, tgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [guests, cadastreRegs, isOnline, tgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 🔔 Окно «ситуация» возвращается раз в 6 часов, пока решение не принято.
   // Данные берём из документа гостя (список отелей уже сохранён) — портал
   // ради повторного показа не дёргаем.
+  // Свежие данные — через ref: с guests в зависимостях каждый снимок базы
+  // перезапускал таймеры, и на оживлённой кассе окно не появлялось вовсе.
+  const situationRef = useRef({});
+  situationRef.current = { guests, kppSituation, checkInOpen: checkInModal.open, emehmonHostelId, cadastreRegs };
   useEffect(() => {
     if (!currentUser) return;
     const check = () => {
-      if (kppSituation || checkInModal.open) return;
+      const { guests, kppSituation, checkInOpen, emehmonHostelId, cadastreRegs } = situationRef.current;
+      if (kppSituation || checkInOpen) return;
       // Только свой филиал: окно чужого гостя на этой кассе — шум и путаница.
       const pending = (guests || []).find(g =>
-        g.status === 'active' && g.kppSituation && !g.kppSituationDecision &&
+        isLivingNow(g) && !hasRegistration(g, cadastreRegs) && g.kppSituation && !g.kppSituationDecision &&
         g.country && g.country !== 'Узбекистан' &&
         (g.hostelId || 'hostel1') === emehmonHostelId &&
         Date.now() - parseInt(localStorage.getItem(`hostella_kpp_situation_ts_${g.id}`) || '0') > 6 * 60 * 60 * 1000);
@@ -1090,7 +1098,7 @@ function App() {
     const t = setTimeout(check, 12000);
     const iv = setInterval(check, 5 * 60 * 1000);
     return () => { clearTimeout(t); clearInterval(iv); };
-  }, [currentUser?.id, guests, kppSituation, checkInModal.open, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddAdvance = async ({ staffExpense, amount }) => {
     try {
@@ -2300,7 +2308,7 @@ return (
                         onFireNow={fireRecurringNow}
                         onAddAdvance={handleAddAdvance}
                         onAddRecurringAdvance={handleAddRecurringAdvance}
-                        recurringAdvances={getRecurringAdvances()}
+                        recurringAdvances={recurringAdvances}
                         onUpdateExpense={handleUpdateExpense}
                         onAddExpensesBulk={handleAddExpensesBulk}
                         notify={showNotification}

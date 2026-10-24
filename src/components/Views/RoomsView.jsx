@@ -13,6 +13,7 @@ import { stableView } from '../UI/stableView';
 import BreakfastModal from '../Modals/BreakfastModal';
 import { breakfastGuests, planConfig, addDays, PLAN_FULL } from '../../utils/stayPlans';
 import { getConfig } from '../../utils/appConfig';
+import { cadastreRegFor, cadastreValid } from '../../utils/registrationStatus';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  УТИЛИТЫ
@@ -45,6 +46,8 @@ const ExtraBedIcon = ({ size = 13, className = '' }) => (
         <rect x="2" y="11" width="20" height="4" rx="2"/>
     </svg>
 );
+
+const NO_GUESTS = Object.freeze([]);
 
 const useNow = () => {
     const [n, setN] = useState(() => Date.now());
@@ -129,7 +132,8 @@ const KpiCard = ({ icon: Icon, label, value, sub, colorClass }) => (
 // ─────────────────────────────────────────────────────────────────────────────
 //  КАРТОЧКА КОЙКИ
 // ─────────────────────────────────────────────────────────────────────────────
-const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru', cadastreRegs = [] }) => {
+const BedCell = React.memo(({ bed, room, onRoomBedClick, onKppConfirm, nowMs, lang = 'ru', cadastreRegs = [] }) => {
+    const onBedClick = (bedId, g, action) => onRoomBedClick(room, bedId, g, action);
     const { id, status, guest, debt, freeForDays, isTimeout, isBonus, incomingGuest, incomingDays } = bed;
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const flagCode = guest?.country ? CF[guest.country] : null;
@@ -140,17 +144,12 @@ const BedCell = React.memo(({ bed, onBedClick, onKppConfirm, nowMs, lang = 'ru',
         ? getKppDayNumber(guest.kppDate)
         : -1;
     const kppWindow = getRegistrationWindow(guest?.country);
-    const kppAlert = kppDays >= kppWindow - 1 && !guest?.kppRegistered;
+    // Регистрация — e-mehmon, журнал или кадастр (utils/registrationStatus); раньше
+    // значок смотрел только на журнал, и зарегистрированный автоматом иностранец «горел».
+    const cadReg = guest ? cadastreRegFor(guest, cadastreRegs) : null;
+    const kppAlert = kppDays >= kppWindow - 1 && !guest?.kppRegistered && !guest?.emehmonReg && !cadastreValid(cadReg, nowMs);
 
-    const cadastreExpired = (() => {
-        if (!guest?.id && !guest?.fullName) return false;
-        const regs = cadastreRegs.filter(r =>
-            (r.guestId === guest?.id || r.guestName === guest?.fullName) &&
-            r.status !== 'removed'
-        );
-        if (regs.length === 0) return false;
-        return !regs.some(r => r.endDate && new Date(r.endDate + 'T12:00:00') >= new Date(nowMs));
-    })();
+    const cadastreExpired = !!cadReg && !(cadReg.endDate && new Date(cadReg.endDate + 'T12:00:00') >= new Date(nowMs));
 
     if (status === 'free') {
         return (
@@ -377,10 +376,15 @@ const Sparkline = ({ guests, capacity, lang = 'ru' }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  СТРОКА КОМНАТЫ
 // ─────────────────────────────────────────────────────────────────────────────
-const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, onBedClick, onAddExtraGuest, onKppConfirm, onEndRental, onEditRental, onExtendRental, onPayRental, filter, guestSearch, lang = 'ru', cadastreRegs = [], contractGroups = [], payments = [], allGuests = [] }) => {
+const RoomRow = React.memo(({ room, guests, isAdmin, onEditRoom, onCloneRoom, onDeleteRoom, onBedClick, onAddExtraGuest, onKppConfirm, onEndRental, onEditRental, onExtendRental, onPayRental, filter, guestSearch, lang = 'ru', cadastreRegs = [], contractGroups = [], payments = [], allGuests = [] }) => {
     const nowMs = useNow();
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const bedsData = useMemo(() => buildBedsData(room, guests), [room, guests]);
+    // Обработчики с комнатой — здесь, а не стрелками в списке: новые функции
+    // на каждую перерисовку отключали memo у всех комнат и мест.
+    const onEdit = useCallback(() => onEditRoom(room), [onEditRoom, room]);
+    const onClone = useCallback(() => onCloneRoom(room), [onCloneRoom, room]);
+    const onDelete = useCallback(() => onDeleteRoom(room), [onDeleteRoom, room]);
 
     // ── Rental state (computed here; return deferred until after all hooks) ───
     const rental = room.rental?.active ? room.rental : null;
@@ -723,7 +727,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                     if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
                     return (
                         <div key={bed.id} className="w-36 shrink-0">
-                            <BedCell bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} cadastreRegs={cadastreRegs} />
+                            <BedCell bed={bed} room={room} onRoomBedClick={onBedClick} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} cadastreRegs={cadastreRegs} />
                         </div>
                     );
                 })}
@@ -795,7 +799,7 @@ const RoomRow = React.memo(({ room, guests, isAdmin, onEdit, onClone, onDelete, 
                             if (filter === 'timeout'  && !bed.isTimeout && bed.status !== 'free') return null;
                             if (filter === 'booking'  && bed.status !== 'booking' && bed.status !== 'free') return null;
                             return (
-                                <BedCell key={bed.id} bed={bed} onBedClick={(bedId, g, action) => onBedClick(room, bedId, g, action)} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} cadastreRegs={cadastreRegs} />
+                                <BedCell key={bed.id} bed={bed} room={room} onRoomBedClick={onBedClick} onKppConfirm={onKppConfirm} nowMs={nowMs} lang={lang} cadastreRegs={cadastreRegs} />
                         );
                     })}
                     </div>
@@ -992,11 +996,11 @@ const RoomsView = ({
                     <RoomRow
                         key={room.id}
                         room={room}
-                        guests={guestsByRoom[room.id] || []}
+                        guests={guestsByRoom[room.id] || NO_GUESTS}
                         isAdmin={isAdmin}
-                        onEdit={() => onEditRoom(room)}
-                        onClone={() => onCloneRoom(room)}
-                        onDelete={() => onDeleteRoom(room)}
+                        onEditRoom={onEditRoom}
+                        onCloneRoom={onCloneRoom}
+                        onDeleteRoom={onDeleteRoom}
                         onBedClick={onBedClick}
                         onAddExtraGuest={onAddExtraGuest}
                         onKppConfirm={onKppConfirm}

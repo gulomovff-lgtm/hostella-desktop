@@ -3,6 +3,7 @@ import { visibleAuditFor } from '../utils/auditScope';
 import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_USERS } from '../constants/config';
+import { createLiveList, newestFirst, alphabetical } from '../utils/liveList';
 
 // Сколько последних записей журнала держим в памяти (только супер).
 // Журнал растёт бесконечно, поэтому грузим окно, а не всю историю.
@@ -47,6 +48,8 @@ export const useAppData = (firebaseUser, currentUser) => {
   const [isOnline,       setIsOnline      ] = useState(navigator.onLine);
   const [permissionError, setPermissionError] = useState(false);
   const [isDataReady,    setIsDataReady   ] = useState(false);
+  // Всё основное загружено (гости, оплаты, клиенты, расходы) — для автоматики с деньгами
+  const [isAllDataReady, setIsAllDataReady] = useState(false);
 
   // Fix 13: добавляем слушатели online/offline — snapshot от rooms даёт задержку при старте (fromCache = true)
   useEffect(() => {
@@ -60,6 +63,13 @@ export const useAppData = (firebaseUser, currentUser) => {
     };
   }, []);
 
+  // Ключ пользователя: эффект читает только наличие, роль и id. Раньше в
+  // зависимостях стоял сам объект currentUser — вход кассира нескольких
+  // филиалов (два setCurrentUser подряд), выбор филиала, смена пароля
+  // ({...currentUser}) рвали и заново открывали ВСЕ ~25 подписок.
+  const userKey = currentUser ? `${currentUser.id || currentUser.login || ''}|${currentUser.role || ''}` : '';
+  const role = currentUser?.role || '';
+
   useEffect(() => {
     if (!firebaseUser) return;
 
@@ -71,212 +81,118 @@ export const useAppData = (firebaseUser, currentUser) => {
     });
 
     // Wait for a logged-in app user before subscribing to the rest
-    if (!currentUser) return unsubUsers;
+    if (!userKey) return unsubUsers;
 
-    const roomsCol    = collection(db, ...PUBLIC_DATA_PATH, 'rooms');
-    const guestsCol   = collection(db, ...PUBLIC_DATA_PATH, 'guests');
-    const expensesCol = collection(db, ...PUBLIC_DATA_PATH, 'expenses');
-    const clientsCol  = collection(db, ...PUBLIC_DATA_PATH, 'clients');
-    const paymentsCol  = collection(db, ...PUBLIC_DATA_PATH, 'payments');
-    const tasksCol     = collection(db, ...PUBLIC_DATA_PATH, 'tasks');
-    const shiftsCol    = collection(db, ...PUBLIC_DATA_PATH, 'shifts');
-    const tgSettingsDoc = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'telegram');
+    const isAdmin = role === 'admin' || role === 'super';
+    const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
+    const unsubs = [unsubUsers];
+    let cancelled = false;
 
-    const u1 = onSnapshot(
-      roomsCol,
+    // Живой список по изменениям снимка (utils/liveList.js): неизменённые
+    // документы сохраняют объект, снимок без изменений не перерисовывает App.
+    const listen = (q, setter, opts = {}, onErr = undefined, onFirst = undefined) => {
+      const apply = createLiveList(opts.key ? { order: opts } : opts);   // порядок или { order, extra }
+      let first = true;
+      unsubs.push(onSnapshot(q, (snap) => {
+        const next = apply(snap.docChanges().map(c => ({ type: c.type, id: c.doc.id, data: c.doc.data() })));
+        if (next) setter(next);
+        if (first) { first = false; if (onFirst) onFirst(); }
+      }, (err) => {
+        if (onErr) onErr(err);
+        if (first) { first = false; if (onFirst) onFirst(); }   // ошибка — не держим загрузку
+      }));
+    };
+    const listenDoc = (ref, setter, fallback) => {
+      unsubs.push(onSnapshot(ref, (snap) => setter(snap.exists() ? snap.data() : fallback), () => setter(fallback)));
+    };
+
+    // ── Очередь 1: то, без чего нельзя работать — комнаты, гости, настройки ──
+    let roomsSeen = false;
+    unsubs.push(onSnapshot(
+      col('rooms'),
       { includeMetadataChanges: true },
       (snap) => {
         setPermissionError(false);
-        setRooms(
-          snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => parseInt(a.number) - parseInt(b.number))
-        );
         if (!snap.metadata.fromCache) setIsOnline(true);
+        // Метаданные (fromCache/pending) меняются часто: массив комнат
+        // пересобираем только при настоящих изменениях документов.
+        if (snap.docChanges().length || !roomsSeen) {
+          roomsSeen = true;
+          setRooms(snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => parseInt(a.number) - parseInt(b.number)));
+        }
         setIsDataReady(true);
       },
       (err) => {
         if (err.code === 'permission-denied') setPermissionError(true);
         setIsOnline(false);
       }
-    );
+    ));
 
-    const u2 = onSnapshot(guestsCol,   (snap) =>
-      setGuests(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => new Date(b.checkInDate) - new Date(a.checkInDate)))
-    );
-    const u3 = onSnapshot(expensesCol, (snap) =>
-      setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => new Date(b.date) - new Date(a.date)))
-    );
-    const u4 = onSnapshot(clientsCol,  (snap) =>
-      setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => a.fullName.localeCompare(b.fullName)))
-    );
-    const u5 = onSnapshot(paymentsCol, (snap) =>
-      setPayments(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const u6 = onSnapshot(tasksCol,    (snap) =>
-      setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const u7 = onSnapshot(shiftsCol, (snap) =>
-      setShifts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const u8 = onSnapshot(tgSettingsDoc, (snap) => {
-      setTgSettings(snap.exists() ? snap.data() : {});
-    }, () => setTgSettings({}));
+    // ── Очередь 2: история и справочники — после первой отрисовки ──────────
+    // Оплаты, клиенты и расходы — самые большие коллекции. Автоматика, которой
+    // нужны деньги (авто-выселение, пересчёт цен, синхронизация клиентов),
+    // ждёт isAllDataReady, а не появления комнат.
+    let pending = 3;
+    const coreDone = () => { pending -= 1; if (pending === 0 && !cancelled) setIsAllDataReady(true); };
+    const phase2 = () => {
+      if (cancelled) return;
+      listen(col('payments'), setPayments, {}, undefined, coreDone);
+      listen(col('clients'), setClients, alphabetical('fullName'), undefined, coreDone);
+      listen(col('expenses'), setExpenses, newestFirst('date'), undefined, coreDone);
+      listen(col('tasks'), setTasks);
+      listen(col('promos'), setPromos, {}, () => setPromos([]));
+      listen(query(col('sales'), orderBy('date', 'desc'), limit(2000)), setSales, newestFirst('date'), () => setSales([]));
+      listen(col('cadastres'), setCadastres, {}, () => setCadastres([]));
 
-    // Promos (admin+super)
-    const promosCol = collection(db, ...PUBLIC_DATA_PATH, 'promos');
-    const u9 = onSnapshot(promosCol,
-      (snap) => setPromos(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => setPromos([])
-    );
-
-    // Sessions (admin + super) — latest 300 records
-    let uSess = () => {};
-    if (currentUser.role === 'admin' || currentUser.role === 'super') {
-      const sessionsCol = query(
-        collection(db, ...PUBLIC_DATA_PATH, 'sessions'),
-        orderBy('loginAt', 'desc'),
-        limit(300)
-      );
-      uSess = onSnapshot(sessionsCol,
-        (snap) => setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-        () => setSessions([])
-      );
-    }
-
-    // Audit log — последние записи, super only.
-    // Раньше тянулись ВСЕ записи с начала базы: журнал пишется на каждый вход,
-    // заселение, оплату, смену и ошибку, поэтому он рос бесконечно и держался
-    // в памяти целиком — приложение «подъедало» RAM и подвисало на долгих сессиях.
-    // Более старые записи остаются в Firestore, просто не грузятся в клиент.
-    // Общий журнал читают админ и супер; зачёты и ручные оплаты супера лежат
-    // в auditLogSuper — его правила отдают только суперу (utils/auditScope.js).
-    let u10 = () => {};
-    let u10s = () => {};
-    if (currentUser.role === 'super' || currentUser.role === 'admin') {
-      const auditCol = query(
-        collection(db, ...PUBLIC_DATA_PATH, 'auditLog'),
-        orderBy('timestamp', 'desc'),
-        limit(AUDIT_LOG_LIMIT)
-      );
-      u10 = onSnapshot(auditCol,
-        (snap) => setAuditLogCommon(snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLog' }))),
-        () => setAuditLogCommon([])
-      );
-    }
-    if (currentUser.role === 'super') {
-      const superCol = query(
-        collection(db, ...PUBLIC_DATA_PATH, 'auditLogSuper'),
-        orderBy('timestamp', 'desc'),
-        limit(AUDIT_LOG_LIMIT)
-      );
-      u10s = onSnapshot(superCol,
-        (snap) => setAuditLogSuper(snap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'auditLogSuper' }))),
-        () => setAuditLogSuper([])
-      );
-    }
-
-    // Услуги и товары: справочник, продажи (последние), движения склада (админу)
-    const uShop1 = onSnapshot(collection(db, ...PUBLIC_DATA_PATH, 'catalog'),
-      (snap) => setCatalog(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setCatalog([]));
-    const uShop2 = onSnapshot(query(collection(db, ...PUBLIC_DATA_PATH, 'sales'), orderBy('date', 'desc'), limit(2000)),
-      (snap) => setSales(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setSales([]));
-    let uShop3 = () => {};
-    if (currentUser.role === 'super' || currentUser.role === 'admin') {
-      uShop3 = onSnapshot(query(collection(db, ...PUBLIC_DATA_PATH, 'stockMoves'), orderBy('date', 'desc'), limit(300)),
-        (snap) => setStockMoves(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => setStockMoves([]));
-    }
-
-    // Registrations (E-mehmon)
-    const registrationsCol = collection(db, ...PUBLIC_DATA_PATH, 'registrations');
-    const u11 = onSnapshot(
-      registrationsCol,
-      (snap) => setRegistrations(
-        snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      ),
-      () => setRegistrations([])
-    );
-
-    // Cadastres (private houses)
-    const cadastresCol = collection(db, ...PUBLIC_DATA_PATH, 'cadastres');
-    const uCad1 = onSnapshot(
-      cadastresCol,
-      (snap) => setCadastres(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => setCadastres([])
-    );
-
-    // Cadastre registrations
-    const cadastreRegsCol = collection(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations');
-    const uCad2 = onSnapshot(
-      cadastreRegsCol,
-      (snap) => setCadastreRegs(
-        snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      ),
-      (err) => {
-        console.error('[cadastreRegs] onSnapshot error:', err.code, err.message);
-        // Не очищаем массив при ошибке — лучше показать старые данные
+      if (isAdmin) {
+        listen(query(col('sessions'), orderBy('loginAt', 'desc'), limit(300)), setSessions, newestFirst('loginAt'), () => setSessions([]));
+        // Журнал — последние записи: он пишется на каждое действие и растёт
+        // бесконечно; зачёты и ручные оплаты супера — в auditLogSuper.
+        listen(query(col('auditLog'), orderBy('timestamp', 'desc'), limit(AUDIT_LOG_LIMIT)), setAuditLogCommon,
+          { order: newestFirst('timestamp'), extra: { _col: 'auditLog' } }, () => setAuditLogCommon([]));
+        listen(query(col('stockMoves'), orderBy('date', 'desc'), limit(300)), setStockMoves, newestFirst('date'), () => setStockMoves([]));
+        listen(col('recurringExpenses'), setRecurringExpenses, {}, () => setRecurringExpenses([]));
+        listen(col('clientVersions'), setClientVersions, newestFirst('lastSeenAt'), () => setClientVersions([]));
       }
-    );
+      if (role === 'super') {
+        listen(query(col('auditLogSuper'), orderBy('timestamp', 'desc'), limit(AUDIT_LOG_LIMIT)), setAuditLogSuper,
+          { order: newestFirst('timestamp'), extra: { _col: 'auditLogSuper' } }, () => setAuditLogSuper([]));
+      }
+    };
+    let phase2Started = false;
+    let phase2Timer = null;
+    const startPhase2 = () => {
+      if (phase2Started) return;
+      phase2Started = true;
+      clearTimeout(phase2Timer);
+      // Дать экрану отрисоваться с комнатами и гостями, потом — история
+      if (typeof window !== 'undefined' && window.requestIdleCallback) window.requestIdleCallback(phase2, { timeout: 800 });
+      else setTimeout(phase2, 50);
+    };
+    phase2Timer = setTimeout(startPhase2, 2500);   // гости задержались — не ждём дольше
 
-    // Recurring expenses (Fix 17: только для admin/super — кассирам не нужно)
-    const recurringCol = collection(db, ...PUBLIC_DATA_PATH, 'recurringExpenses');
-    let u12 = () => {};
-    if (currentUser.role === 'admin' || currentUser.role === 'super') {
-      u12 = onSnapshot(
-        recurringCol,
-        (snap) => setRecurringExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-        () => setRecurringExpenses([])
-      );
-    }
+    listen(col('guests'), setGuests, newestFirst('checkInDate'), undefined, startPhase2);
+    listenDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'telegram'), setTgSettings, {});
+    listenDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig'), setHostelConfig, {});
+    listen(col('shifts'), setShifts);
+    listen(col('registrations'), setRegistrations, newestFirst('createdAt'), () => setRegistrations([]));
+    listen(col('cadastreRegistrations'), setCadastreRegs, newestFirst('createdAt'), (err) => {
+      console.error('[cadastreRegs] onSnapshot error:', err.code, err.message);
+      // Не очищаем массив при ошибке — лучше показать старые данные
+    });
+    listen(col('manualStayGroups'), setManualStayGroups, {}, () => setManualStayGroups([]));
+    listen(col('priceWhitelist'), setPriceWhitelist, {}, () => setPriceWhitelist([]));
+    listen(col('catalog'), setCatalog, {}, () => setCatalog([]));
 
-    // Договоры (групповое проживание / аренда по договору)
-    const manualStayCol = collection(db, ...PUBLIC_DATA_PATH, 'manualStayGroups');
-    const uMsg = onSnapshot(
-      manualStayCol,
-      (snap) => setManualStayGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => setManualStayGroups([])
-    );
-
-    // Список разрешённых на понижение цены (по паспорту)
-    const priceWlCol = collection(db, ...PUBLIC_DATA_PATH, 'priceWhitelist');
-    const uPwl = onSnapshot(
-      priceWlCol,
-      (snap) => setPriceWhitelist(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => setPriceWhitelist([])
-    );
-
-    // Hostel config (checkInHour, etc.)
-    const hostelCfgDoc = doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig');
-    const uCfg = onSnapshot(
-      hostelCfgDoc,
-      (snap) => setHostelConfig(snap.exists() ? snap.data() : {}),
-      () => setHostelConfig({})
-    );
-
-    // Телеметрия версий клиентов — admin/super
-    let uVer = () => {};
-    if (currentUser.role === 'admin' || currentUser.role === 'super') {
-      const versionsCol = collection(db, ...PUBLIC_DATA_PATH, 'clientVersions');
-      uVer = onSnapshot(
-        versionsCol,
-        (snap) => setClientVersions(
-          snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => new Date(b.lastSeenAt || 0) - new Date(a.lastSeenAt || 0))
-        ),
-        () => setClientVersions([])
-      );
-    }
-
-    return () => { unsubUsers(); u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9(); u10(); u10s(); uShop1(); uShop2(); uShop3(); u11(); u12(); uCfg(); uSess(); uCad1(); uCad2(); uMsg(); uPwl(); uVer(); };
-  }, [firebaseUser, currentUser]);
+    return () => {
+      cancelled = true;
+      clearTimeout(phase2Timer);
+      unsubs.forEach(u => u());
+      setIsAllDataReady(false);
+    };
+  }, [firebaseUser, userKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Журнал для роли: супер — оба по времени, админ — общий без зачётов.
   const auditLog = useMemo(
@@ -310,5 +226,6 @@ export const useAppData = (firebaseUser, currentUser) => {
     isOnline,
     permissionError,
     isDataReady,
+    isAllDataReady,
   };
 };

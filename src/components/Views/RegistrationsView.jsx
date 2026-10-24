@@ -7,6 +7,7 @@ import {
 import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 import TRANSLATIONS from '../../constants/translations';
 import { stableView } from '../UI/stableView';
+import { validCadastreFor } from '../../utils/registrationStatus';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -528,9 +529,8 @@ const RegistrationsView = ({
 
     // ── Данные ──
     const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
-    const hasCadastre = (g) => cadastreRegs.some(r =>
-        r.status !== 'removed' &&
-        (r.guestId === g.id || (r.passport && g.passport && normP(r.passport) === normP(g.passport))));
+    // Кадастр — тоже регистрация; кто чей — один ответ на всю программу (utils/registrationStatus)
+    const hasCadastre = (g) => !!validCadastreFor(g, cadastreRegs);   // истёкший кадастр — снова «Оформить»
 
     const enriched = useMemo(() => registrations.map(r => {
         const staff = users.find(u => u.id === r.staffId || u.login === r.staffId);
@@ -544,7 +544,8 @@ const RegistrationsView = ({
     const residents = useMemo(() => guests.filter(g => g.status === 'active' && g.roomId !== 'DEBT_ONLY'), [guests]);
     const registered = useMemo(() => residents.filter(g => g.emehmonReg), [residents]);
     // Нужно оформить: активные, без e-mehmon и без кадастра (кадастр = уже зарегистрирован по-другому)
-    const needRegister = useMemo(() => residents.filter(g => !g.emehmonReg && !hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
+    // «Направить в миграционную службу» (emehmonSkip) — решение принято, в задачах не держим
+    const needRegister = useMemo(() => residents.filter(g => !g.emehmonReg && !g.emehmonSkip && !hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
     const inCadastre = useMemo(() => residents.filter(g => !g.emehmonReg && hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
 
     // ── Кого выводить из портала ─────────────────────────────────────────────
@@ -954,7 +955,9 @@ const RegistrationsView = ({
                                                 ? <span className="text-rose-600">🚨 {t('kppSituationBadge')}</span>
                                                 : g.emehmonRegNote
                                                     ? <span className="text-amber-700">🛏 {g.emehmonRegNote}</span>
-                                                    : null}
+                                                    : g.emehmonLastTry
+                                                        ? <span className="text-amber-700">⏳ {t('emsLastTry').replace('{status}', t('emsTry_' + g.emehmonLastTry.status) !== 'emsTry_' + g.emehmonLastTry.status ? t('emsTry_' + g.emehmonLastTry.status) : g.emehmonLastTry.status).replace('{n}', g.emehmonLastTry.n || 1)}</span>
+                                                        : null}
                                         onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
                                         actions={canAct && canEmehmon && onRegisterEmehmon && (
                                             <BigBtn color="indigo" onClick={() => onRegisterEmehmon(g)}>

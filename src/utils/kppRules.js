@@ -313,6 +313,37 @@ export function trimProbe(probe, maxBytes = 8000) {
 // в «5-new», мастер их не узнавал. Такие гости повторяются сразу, без 6 часов.
 export const NO_ROOM_RESET_AT = Date.parse('2026-10-17T12:00:00Z');
 
+/**
+ * След неудачной попытки регистрации на госте: какой итог, когда, которая по счёту.
+ * Итоги без явной причины (таймаут, форма, «сохранено» не подтвердилось) раньше
+ * не оставляли ничего — гость молча лежал в «Оформить» и занимал добор.
+ */
+export function lastTryMark(guest, status, res, nowIso = new Date().toISOString()) {
+  const prev = guest?.emehmonLastTry;
+  return {
+    status: String(status || 'error'),
+    at: nowIso,
+    n: (prev && Number(prev.n) > 0 ? Number(prev.n) : 0) + 1,
+    message: String(res?.message || '').slice(0, 140),
+  };
+}
+
+/**
+ * Можно ли автомату пробовать снова. Пауза растёт: 30 мин, 1 ч, 2 ч, 4 ч,
+ * дальше раз в 6 ч. «Сохранено, но не подтверждено» вслепую не повторяем —
+ * анкета могла уйти, и второй раз будет дубль листка: ждём, пока список
+ * портала (listOk) покажет, что гостя там нет, и не раньше чем через 30 мин.
+ */
+export function shouldRetryAttempt(guest, now = Date.now(), { listOk = false } = {}) {
+  const lt = guest?.emehmonLastTry;
+  const at = lt?.at ? Date.parse(lt.at) : NaN;
+  if (!Number.isFinite(at)) return true;
+  if (lt.status === 'submit_unconfirmed') return listOk && now - at >= 30 * 60 * 1000;
+  const n = Math.max(1, Number(lt.n) || 1);
+  const waitH = Math.min(6, 0.5 * 2 ** (n - 1));
+  return now - at >= waitH * 3600 * 1000;
+}
+
 /** Повторять «нет комнаты» не чаще раза в N часов (метка на госте, не в памяти). */
 export function shouldRetryNoRoom(guest, now = Date.now(), hours = 6) {
   const at = guest?.emehmonNoRoomAt ? new Date(guest.emehmonNoRoomAt).getTime() : 0;

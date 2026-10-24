@@ -32,6 +32,8 @@ import { unpaidServices, splitServiceShare } from '../utils/shop';
 import { referrerForCheckin } from '../utils/referral';
 import { getConfig } from '../utils/appConfig';
 import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, PLAN_ROOM } from '../utils/stayPlans';
+import { cadastreMatches, NEW_STAY_RESET_KEYS } from '../utils/registrationStatus';
+import { emehmonStayStartOf } from '../utils/emehmonAmount';
 
 export function useGuestActions(ctx) {
   const {
@@ -547,17 +549,11 @@ export function useGuestActions(ctx) {
       // Матчим по guestId, паспорту ИЛИ имени — т.к. старые/ручные регистрации
       // могли быть созданы с другим guestId (id клиента) или вообще без него,
       // и тогда по выселенному гостю продолжали идти алерты «истекает регистрация».
+      // Тот же человек живёт по другой записи (переезд, продолжение, вернулся) —
+      // его регистрация действует, снимать её нельзя.
       try {
-        const normP = (s) => (s || '').replace(/\s/g, '').toUpperCase();
-        const gPass = normP(guest.passport);
-        const toRemove = (cadastreRegs || []).filter(r => {
-          if (r.status !== 'active') return false;
-          if (guest.id && r.guestId === guest.id) return true;
-          if (gPass && normP(r.passport) === gPass) return true;
-          // По имени — только если у регистрации нет паспорта (нет сильного ключа)
-          if (!r.passport && guest.fullName && r.guestName === guest.fullName) return true;
-          return false;
-        });
+        const toRemove = livesAgain ? [] : (cadastreRegs || []).filter(r =>
+          r.status === 'active' && cadastreMatches(r, guest));
         const removedAt = new Date().toISOString();
         for (const r of toRemove) {
           await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', r.id), {
@@ -976,8 +972,10 @@ export function useGuestActions(ctx) {
       delete newGuest.id;
       // Вторая часть (после паузы) — новая регистрация в e-mehmon: сбрасываем отметки,
       // система оформит её при наступлении даты возврата.
-      ['emehmonReg', 'emehmonRegAt', 'emehmonRegAuto', 'emehmonRegError', 'emehmonRegErrorAt',
-       'emehmonOut', 'emehmonOutAt', 'emehmonOutAuto'].forEach(k => { delete newGuest[k]; });
+      // Раньше сбрасывали только отметку e-mehmon: «зарегистрирован в журнале»,
+      // решение по «ситуации», заявка кассы и лист прошлого заезда переезжали в
+      // новую часть, и её считали уже зарегистрированной.
+      NEW_STAY_RESET_KEYS.forEach(k => { delete newGuest[k]; });
       await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'guests'), newGuest);
       showNotification(t('gaSplitSuccess'));
     } catch (e) {
@@ -1123,7 +1121,7 @@ export function useGuestActions(ctx) {
     for (const g of due.close) {
       try {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
-          status: 'checked_out',
+          status: 'checked_out', closedByContinuation: true,
           ...(g.emehmonReg ? { emehmonOut: true, emehmonOutAt: g.checkOutDate, emehmonMovedOut: true } : {}),
         });
       } catch (e) { console.error('[continue close]', g.id, e); }
@@ -1271,6 +1269,7 @@ export function useGuestActions(ctx) {
         newGuest.emehmonReg = true;
         newGuest.emehmonRegAt = g.emehmonRegAt || new Date().toISOString();
         newGuest.emehmonRoomSkip = true;   // не сверять номер комнаты с порталом
+        newGuest.emehmonStayStart = emehmonStayStartOf(g);   // сумма в портале — с первого заезда
         delete newGuest.emehmonOut;        // гость не убывал — отметку вывода снимаем
         delete newGuest.emehmonOutAt;
         delete newGuest.emehmonOutAuto;
@@ -1347,10 +1346,11 @@ export function useGuestActions(ctx) {
     // Исправили паспортные данные → снимаем пометку «ошибка в паспортных данных»,
     // авто-регистрация e-mehmon попробует снова в ближайшем цикле (каждые 5 мин).
     const g0 = guests.find(x => x.id === id);
-    if (g0?.emehmonRegError &&
+    if ((g0?.emehmonRegError || g0?.emehmonLastTry) &&
         ['passport', 'birthDate', 'passportIssueDate', 'fullName', 'roomNumber', 'country', 'kppDate'].some(k => d[k] !== undefined)) {
       d.emehmonRegError = deleteField();
       d.emehmonRegErrorAt = deleteField();
+      d.emehmonLastTry = deleteField();   // данные другие — пауза прошлых неудач не действует
     }
     // Ручная правка даты КПП: помечаем источник и время — правка, сделанная
     // ПОСЛЕ проверки в госбазе, сильнее данных портала; оценку срока пересчитываем.

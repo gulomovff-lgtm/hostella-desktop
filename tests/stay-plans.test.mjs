@@ -265,3 +265,14 @@ test('продление старой цены — новым проживани
     ], new Date(2026, 9, 4, 12, 5));
     assert.deepEqual([due.close.map(g => g.id), due.activate.map(g => g.id)], [['o'], ['n']]);
 });
+
+test('продолжение не открывается, если прежнюю запись выселили раньше срока (гость уехал)', () => {
+  const now = new Date('2026-10-20T13:00:00');
+  const cont = { id: 'c', continuedFrom: 'p', status: 'booking', checkInDate: '2026-10-20T12:00:00' };
+  const early = continuationsDue([{ id: 'p', continuedBy: 'c', status: 'checked_out', checkOutDate: '2026-10-18T10:00:00' }, cont], now);
+  assert.deepEqual(early.activate, [], 'выселен раньше — бронь не открываем');
+  const auto = continuationsDue([{ id: 'p', continuedBy: 'c', status: 'checked_out', closedByContinuation: true }, cont], now);
+  assert.equal(auto.activate.length, 1, 'закрыла автопроверка — открываем');
+  const live = continuationsDue([{ id: 'p', continuedBy: 'c', status: 'active', checkOutDate: '2026-10-20T12:00:00' }, cont], now);
+  assert.equal(live.activate.length, 1); assert.equal(live.close.length, 1);
+});

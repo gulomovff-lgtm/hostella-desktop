@@ -36,6 +36,9 @@ export const emehmonStayDays = (checkInDate, checkOutDate = null, now = Date.now
   return Math.max(1, Math.floor((sec + DAYS_ROUNDING_OFFSET_SEC) / 86400));
 };
 
+/** Начало проживания по порталу: emehmonStayStart, иначе заезд записи. */
+export const emehmonStayStartOf = (guest) => guest?.emehmonStayStart || guest?.checkInDate || null;
+
 /**
  * Сумма для портала: суточная ставка × прожитые сутки.
  * @param {object} guest — { checkInDate, checkOutDate }
@@ -44,7 +47,9 @@ export const emehmonStayDays = (checkInDate, checkOutDate = null, now = Date.now
 export const emehmonAmountForStay = (guest, dailyRate, now = Date.now()) => {
   const rate = Number(dailyRate);
   if (!Number.isFinite(rate) || rate <= 0) return 0;
-  const days = emehmonStayDays(guest?.checkInDate, guest?.checkOutDate, now);
+  // Начало проживания по порталу: после переезда, смены тарифа или продления
+  // запись новая (заезд «сегодня»), а регистрация в портале — прежняя.
+  const days = emehmonStayDays(emehmonStayStartOf(guest), guest?.checkOutDate, now);
   return days * rate;
 };
 

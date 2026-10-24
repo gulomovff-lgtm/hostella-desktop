@@ -4,6 +4,7 @@ import { Flag } from '../../../utils/helpers';
 import { COUNTRY_FLAGS } from '../../../constants/countries';
 import { calcEndDate, inp } from './shared';
 import TRANSLATIONS from '../../../constants/translations';
+import { cadastreRegFor } from '../../../utils/registrationStatus';
 
 const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRegs = [], currentUser, selectedHostelFilter, onClose, onSubmit, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
@@ -75,8 +76,7 @@ const CadastreModal = ({ clients, cadastres, guests = [], rooms = [], cadastreRe
   };
 
   // ─── Быстрый выбор из текущих проживающих (не Узбекистан) ──────────────────
-  const isResidentRegistered = (g) =>
-    (cadastreRegs || []).some(r => r.status !== 'removed' && (r.guestId === g.id || r.guestName === g.fullName));
+  const isResidentRegistered = (g) => !!cadastreRegFor(g, cadastreRegs);
 
   const selectResident = (g) => {
     setSelectedGuest({

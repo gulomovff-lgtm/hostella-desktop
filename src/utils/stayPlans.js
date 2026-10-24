@@ -24,6 +24,8 @@
  * Без React и Firestore — покрыто тестами (tests/stay-plans.test.mjs).
  */
 
+import { emehmonStayStartOf } from './emehmonAmount.js';
+
 export const PLAN_ROOM = 'room';
 export const PLAN_FULL = 'full';
 export const LOCAL_COUNTRY = 'Узбекистан';
@@ -245,7 +247,7 @@ export function buildPlanSwitch(g, { plan, price, at, servicesPaid = 0 } = {}) {
   delete newGuest.refBonusCredited;
   delete newGuest.planSwitchedOut;
   ['emehmonRegError', 'emehmonRegErrorAt', ...EMEHMON_OUT_KEYS].forEach((k) => { delete newGuest[k]; });
-  if (g.emehmonReg) newGuest.emehmonRoomSkip = true;
+  if (g.emehmonReg) { newGuest.emehmonRoomSkip = true; newGuest.emehmonStayStart = emehmonStayStartOf(g); }
   return { mode: 'split', passed, remaining, oldPrice, oldPatch, newGuest };
 }
 
@@ -341,7 +343,7 @@ export function buildContinuation(g, { days, price, plan, servicesPaid = 0, chec
   const firstCost = Math.round(num(g.totalPrice)) || Math.round(num(g.pricePerNight)) * Math.max(1, Math.round(num(g.days)));
   const { first, second } = splitPaid(g, firstCost);
   const closeOld = {
-    status: 'checked_out',
+    status: 'checked_out', closedByContinuation: true,
     ...(g.emehmonReg ? { emehmonOut: true, emehmonOutAt: start.toISOString(), emehmonMovedOut: true } : {}),
   };
   const oldPatch = { ...first, servicesTotal: 0, ...(begun ? closeOld : {}) };
@@ -356,10 +358,10 @@ export function buildContinuation(g, { days, price, plan, servicesPaid = 0, chec
     status: begun ? 'active' : 'booking', checkInDateTime: null, movedWithin: true, continuedFrom: g.id || '',
   };
   delete newGuest.id;
-  ['nightPromo', 'refBonusCredited', 'oldPriceKept', 'continuedBy', 'planSwitchedFrom', 'priceBefore', 'bonusCheckOutDate', 'bonusDaysAdded']
+  ['nightPromo', 'refBonusCredited', 'oldPriceKept', 'continuedBy', 'closedByContinuation', 'planSwitchedFrom', 'priceBefore', 'bonusCheckOutDate', 'bonusDaysAdded']
     .forEach((k) => { delete newGuest[k]; });
   ['emehmonRegError', 'emehmonRegErrorAt', ...EMEHMON_OUT_KEYS].forEach((k) => { delete newGuest[k]; });
-  if (g.emehmonReg) newGuest.emehmonRoomSkip = true;
+  if (g.emehmonReg) { newGuest.emehmonRoomSkip = true; newGuest.emehmonStayStart = emehmonStayStartOf(g); }
   return { oldPatch, newGuest, begun, closeOld };
 }
 
@@ -370,10 +372,18 @@ export function buildContinuation(g, { days, price, plan, servicesPaid = 0, chec
 export function continuationsDue(guests = [], now = new Date()) {
   const t = toDate(now);
   const close = [], activate = [];
+  const byId = new Map((guests || []).filter(Boolean).map((g) => [g.id, g]));
   for (const g of guests || []) {
     if (!g) continue;
     if (g.continuedBy && g.status === 'active' && g.checkOutDate && new Date(g.checkOutDate) <= t) close.push(g);
-    if (g.continuedFrom && g.status === 'booking' && g.checkInDate && new Date(g.checkInDate) <= t) activate.push(g);
+    if (g.continuedFrom && g.status === 'booking' && g.checkInDate && new Date(g.checkInDate) <= t) {
+      // Продолжение открываем, только если прежняя запись дожила до своего
+      // конца (ещё активна — закроется сейчас — или её закрыла сама автопроверка).
+      // Выселили раньше — гость уехал: бронь остаётся бронью, решает кассир.
+      // Раньше она открывалась сама, и уехавшего регистрировали в портале снова.
+      const parent = byId.get(g.continuedFrom);
+      if (!parent || parent.status === 'active' || parent.closedByContinuation) activate.push(g);
+    }
   }
   return { close, activate };
 }

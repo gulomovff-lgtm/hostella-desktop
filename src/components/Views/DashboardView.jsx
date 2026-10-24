@@ -137,6 +137,12 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         return getLocalDateString(new Date(d));
     };
 
+    // Клиент по паспорту — один раз на список, а не перебором клиентов в каждой строке
+    const clientByPassport = useMemo(() => {
+        const m = new Map();
+        for (const c of clients) if (c.passport && !m.has(c.passport)) m.set(c.passport, c);
+        return m;
+    }, [clients]);
     const data = useMemo(() => {
         const relRooms = currentHostelId === 'all' ? rooms : rooms.filter(r => r.hostelId === currentHostelId);
         const relGuests = currentHostelId === 'all' ? guests : guests.filter(g => g.hostelId === currentHostelId);
@@ -579,7 +585,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                     const debt = chargeOf(g) - getTotalPaid(g);
                                     const co = parseDate(g.checkOutDate);
                                     const lbl = co ? getTimeLeftLabel(g.checkOutDate, nowMs, t) : null;
-                                    const client = onGuestClick ? clients.find(c => c.passport && c.passport === g.passport) : null;
+                                    const client = onGuestClick ? (clientByPassport.get(g.passport) || null) : null;
                                     return (
                                         <div key={g.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-50 hover:bg-slate-50">
                                             <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
@@ -954,7 +960,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                                 if (selectMode) {
                                                     setSelectedIds(ids => isSelected ? ids.filter(i => i !== g.id) : [...ids, g.id]);
                                                 } else if (onGuestClick) {
-                                                    const client = clients.find(c => c.passport && c.passport === g.passport);
+                                                    const client = clientByPassport.get(g.passport);
                                                     if (client) onGuestClick(client);
                                                 }
                                             }}
