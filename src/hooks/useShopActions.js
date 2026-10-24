@@ -1,4 +1,5 @@
-import { collection, doc, runTransaction, increment, addDoc, updateDoc, deleteField } from 'firebase/firestore';
+import { collection, doc, runTransaction, increment, deleteField } from 'firebase/firestore';
+import { addDoc, updateDoc } from '../utils/fsWrite';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';

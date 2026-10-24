@@ -1,7 +1,8 @@
 /**
  * useExpenseActions — расходы, удаление платежей, экспорт.
  */
-import { collection, doc, addDoc, updateDoc, increment, runTransaction } from 'firebase/firestore';
+import { collection, doc, increment, runTransaction } from 'firebase/firestore';
+import { addDoc, updateDoc } from '../utils/fsWrite';
 
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';

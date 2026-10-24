@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { loadFromElectron, getQueue, clearQueue, isFreshTelegram } from '../utils/offlineQueue';
+import { loadFromElectron, getQueue, dequeuePayment, isFreshTelegram, delayedTelegramText } from '../utils/offlineQueue';
 import { closeSession } from '../utils/session';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, isNetworkFailure } from '../utils/telegram';
 
 /**
  * useOfflineQueue — отложенные операции, накопленные без сети.
@@ -37,23 +37,49 @@ export function useOfflineQueue({ isOnline, showNotification }) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // Появилась сеть — досылаем накопленное
+  // Появилась сеть — досылаем накопленное. Запись уходит из очереди только
+  // после удачной отправки: раньше очередь чистилась сразу, и уведомление,
+  // отправленное в ещё неустойчивую сеть, терялось. Пока очередь не пуста и
+  // связь есть — пробуем снова раз в 2 минуты.
   useEffect(() => {
-    if (!isOnline || !queueLoaded) return;
-    const q = getQueue();
-    if (!q.length) return;
-
-    const telegramEntries = q.filter(e => e._type === 'telegram' && isFreshTelegram(e));
-    const staleCount      = q.filter(e => e._type === 'telegram' && !isFreshTelegram(e)).length;
-    telegramEntries.forEach(e => { sendTelegramMessage(e.text, e.notifType).catch(() => {}); });
-    if (staleCount > 0) console.info(`[offlineQueue] отброшено устаревших уведомлений: ${staleCount}`);
-
-    const paymentCount = q.filter(e => e._type !== 'telegram').length;
-    const parts = [];
-    if (paymentCount > 0) parts.push(`${paymentCount} оплат`);
-    if (telegramEntries.length > 0) parts.push(`${telegramEntries.length} уведомлений`);
-    if (parts.length > 0) showNotification?.(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
-
-    clearQueue();
+    if (!isOnline || !queueLoaded) return undefined;
+    let cancelled = false;
+    let busy = false;
+    const flush = async () => {
+      if (busy || cancelled) return;
+      busy = true;
+      try {
+        const q = getQueue();
+        if (!q.length) return;
+        let sentTg = 0, dropped = 0;
+        const payments = q.filter(e => e._type !== 'telegram');
+        // Оплаты в очереди — только отметка для кассира: сами записи Firestore
+        // досылает из своей локальной базы (utils/fsWrite.js).
+        payments.forEach(e => dequeuePayment(e._id));
+        for (const e of q.filter(x => x._type === 'telegram')) {
+          if (cancelled) return;
+          if (!isFreshTelegram(e)) { dequeuePayment(e._id); dropped++; continue; }
+          try {
+            await sendTelegramMessage(delayedTelegramText(e), e.notifType, null, true);
+            dequeuePayment(e._id);
+            sentTg++;
+          } catch (err) {
+            if (isNetworkFailure(err)) break;       // сеть снова пропала — дошлём позже
+            console.warn('[offlineQueue] уведомление отклонено сервером:', err?.message);
+            dequeuePayment(e._id);                  // отказ по существу — повтор не поможет
+          }
+        }
+        if (dropped > 0) console.info(`[offlineQueue] отброшено устаревших уведомлений: ${dropped}`);
+        const parts = [];
+        if (payments.length > 0) parts.push(`${payments.length} оплат`);
+        if (sentTg > 0) parts.push(`${sentTg} уведомлений`);
+        if (parts.length > 0) showNotification?.(`📶 Синхронизировано: ${parts.join(', ')}`, 'success');
+      } finally {
+        busy = false;
+      }
+    };
+    flush();
+    const iv = setInterval(flush, 2 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(iv); };
   }, [isOnline, queueLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 }

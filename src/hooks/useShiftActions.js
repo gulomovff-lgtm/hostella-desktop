@@ -2,9 +2,10 @@
  * useShiftActions — операции со сменами и пользователями.
  */
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, getDocs,
+  collection, doc, writeBatch, query, where, getDocs,
   runTransaction, getDoc, deleteField,
 } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc, commitNow } from '../utils/fsWrite';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions, PUBLIC_DATA_PATH } from '../firebase';
 import { hashPassword } from '../utils/hash';
@@ -289,7 +290,7 @@ export function useShiftActions({
           staffName: targetUser.name || null, shiftId: newShiftRef.id, startTime: now,
         },
       }, { merge: true });
-      await batch.commit();
+      await commitNow(batch);
 
       logAction(currentUser, 'shift_transfer', { to: toName, hostelId, shiftId: currentShiftId, cash: handedCash });
 
@@ -349,7 +350,7 @@ export function useShiftActions({
         splitFrom:      shift.id,
         sharedWithName: shift.staffName || null,
       });
-      await batch.commit();
+      await commitNow(batch);
       logAction(currentUser, 'shift_split', {
         shiftId: shift.id, with: partner.name || partner.login, startTime: shift.startTime,
       });
@@ -375,7 +376,7 @@ export function useShiftActions({
       batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', base.id), {
         shareRatio: deleteField(), shareGroupId: deleteField(), sharedWithName: deleteField(),
       });
-      await batch.commit();
+      await commitNow(batch);
       logAction(currentUser, 'shift_unsplit', { shiftId: base.id });
       showNotification(t('alShiftUnsplit'), 'success');
     } catch (e) {

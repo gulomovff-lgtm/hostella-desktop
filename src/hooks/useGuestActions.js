@@ -17,8 +17,9 @@
  * @param {function} ctx.showNotification
  */
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, increment, writeBatch, deleteField, runTransaction,
+  collection, doc, increment, writeBatch, deleteField, runTransaction,
 } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc, commitNow } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
@@ -244,7 +245,7 @@ export function useGuestActions(ctx) {
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', item.roomId), restore);
         (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
       }
-      await fb.commit();
+      await commitNow(fb);
       setUndoStack(prev => prev.filter(u => u.id !== item.id));
       setUndoHistoryOpen(false);
       showNotification(t('gaUndoDone'), 'success');
@@ -692,7 +693,7 @@ export function useGuestActions(ctx) {
     }
     batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', eg.id), { ...r.oldPatch, continuedBy: nRef.id });
     batch.set(nRef, newGuest);
-    await batch.commit();
+    await commitNow(batch);
     logAction(currentUser, 'extend', {
       guestId: nRef.id, guestName: eg.fullName || '', roomNumber: eg.roomNumber || '', continuedFrom: eg.id,
       days: Number(extendDays) || 0, fromDate: newGuest.checkInDate, toDate: newGuest.checkOutDate,
@@ -1027,7 +1028,7 @@ export function useGuestActions(ctx) {
       const batch = writeBatch(db);
       const r = applyPlanSwitch(batch, g, plan, at);
       if (r.mode === 'none') { showNotification(t('planNothingToSwitch'), 'error'); return false; }
-      await batch.commit();
+      await commitNow(batch);
       logAction(currentUser, 'plan_switch', { guestId: g.id, guestName: g.fullName || '', plan, price: r.price, mode: r.mode, passed: r.passed || 0, remaining: r.remaining || 0 });
       setGuestDetailsModal({ open: false, guest: null });
       showNotification(t('planSwitched').replace('{price}', Number(r.price).toLocaleString('ru-RU')), 'success');

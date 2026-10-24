@@ -1,7 +1,8 @@
 /**
  * useRegistrationActions — операции с регистрациями E-mehmon.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';

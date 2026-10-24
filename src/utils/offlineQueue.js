@@ -19,12 +19,33 @@ const QUEUE_KEY = 'hostella_offline_payment_queue';
  */
 export const TELEGRAM_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
+/**
+ * Деньги — исключение: расход, возврат, оплата, долг, выселение с расчётом и
+ * закрытие смены владелец должен увидеть и через несколько дней (решение
+ * владельца 2026-10-24). Такие уведомления живут неделю и уходят с пометкой
+ * «с задержкой» и временем события.
+ */
+export const MONEY_TELEGRAM_TYPES = new Set(['expenseAdded', 'refund', 'paymentAdded', 'debtAlert', 'checkout', 'shiftEnd']);
+export const MONEY_TELEGRAM_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** true — запись не telegram-уведомление либо уведомление ещё не протухло */
 export const isFreshTelegram = (entry, now = Date.now()) => {
   if (!entry || entry._type !== 'telegram') return true;
   const ts = entry._queuedAt ? new Date(entry._queuedAt).getTime() : NaN;
   if (!Number.isFinite(ts)) return false; // без метки времени считаем протухшим
-  return now - ts <= TELEGRAM_MAX_AGE_MS;
+  const max = MONEY_TELEGRAM_TYPES.has(entry.notifType) ? MONEY_TELEGRAM_MAX_AGE_MS : TELEGRAM_MAX_AGE_MS;
+  return now - ts <= max;
+};
+
+/** Текст отложенного уведомления: опоздало больше чем на 2 минуты — пометка со временем события. */
+export const delayedTelegramText = (entry, now = Date.now()) => {
+  const ts = entry?._queuedAt ? new Date(entry._queuedAt).getTime() : NaN;
+  if (!Number.isFinite(ts) || now - ts < 2 * 60 * 1000) return entry?.text || '';
+  const d = new Date(ts);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const when = `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return `⏳ <i>Без сети — отправлено с задержкой. Событие: ${when}</i>
+${entry.text || ''}`;
 };
 
 /** Получить очередь из localStorage */

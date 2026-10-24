@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
+import { enqueueTelegram } from './offlineQueue';
 
 // API токен не хранится на фронте — всё через Cloud Functions
 
@@ -34,9 +35,24 @@ export const sendTelegramMessage = async (text, notificationType = null, chatIds
         return result.data;
     } catch (error) {
         if (throwOnError) throw error;
+        // Сеть пропала (программа ещё думала, что связь есть) — не теряем: в
+        // очередь, уйдёт при восстановлении (useOfflineQueue). Раньше такое
+        // уведомление о расходе или возврате просто писалось в консоль.
+        if (!chatIds && isNetworkFailure(error)) {
+            enqueueTelegram(text, notificationType);
+            return null;
+        }
         // Ошибку не пробрасываем — фоновые уведомления не должны ломать UX
         console.error('Telegram notification failed:', error?.message);
         return null;
     }
+};
+
+/** Ошибка связи (а не отказ сервера по существу): нет сети, таймаут, сервис недоступен. */
+export const isNetworkFailure = (error) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    const code = String(error?.code || '').replace(/^functions\//, '');
+    return code === 'unavailable' || code === 'deadline-exceeded' ||
+        (code === 'internal' && /network|fetch|failed to fetch|timeout/i.test(String(error?.message || '')));
 };
 

@@ -36,3 +36,16 @@ test('платежи в очереди срок годности не огран
   const payment = { amount: 100000, _queuedAt: new Date(NOW - 30 * 86400000).toISOString() };
   assert.equal(isFreshTelegram(payment, NOW), true);
 });
+
+test('расход и возврат без сети уходят и через несколько дней — с пометкой о задержке', async () => {
+  const { MONEY_TELEGRAM_MAX_AGE_MS, delayedTelegramText } = await import('../src/utils/offlineQueue.js');
+  for (const notifType of ['expenseAdded', 'refund']) {
+    assert.equal(isFreshTelegram(entry(3 * 24 * 3600_000, { notifType }), NOW), true, notifType);
+    assert.equal(isFreshTelegram(entry(MONEY_TELEGRAM_MAX_AGE_MS + 1000, { notifType }), NOW), false);
+  }
+  assert.equal(isFreshTelegram(entry(TELEGRAM_MAX_AGE_MS + 1000, { notifType: 'checkin' }), NOW), false, 'заселение — по-прежнему 12 ч');
+  const late = delayedTelegramText(entry(3 * 3600_000, { text: 'Расход 50 000' }), NOW);
+  assert.match(late, /с задержкой/);
+  assert.match(late, /Расход 50 000$/);
+  assert.equal(delayedTelegramText(entry(30_000, { text: 'Расход' }), NOW), 'Расход', 'ушло почти сразу — без пометки');
+});

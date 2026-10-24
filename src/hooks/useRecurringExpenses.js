@@ -18,7 +18,8 @@
  * в lastFiredMonth → добавляем расход в коллекцию expenses.
  */
 import { useEffect, useCallback, useRef } from 'react';
-import { collection, doc, addDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc } from 'firebase/firestore';
+import { addDoc, setDoc, updateDoc, deleteDoc } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';

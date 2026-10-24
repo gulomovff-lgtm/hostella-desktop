@@ -1,7 +1,8 @@
 /**
  * useCadastreActions — кадастр-регистрация гостей в частных домах.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+import { collection, doc, increment } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';

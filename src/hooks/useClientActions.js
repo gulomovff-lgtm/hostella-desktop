@@ -1,7 +1,8 @@
 /**
  * useClientActions — операции с базой клиентов.
  */
-import { collection, doc, addDoc, updateDoc, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment } from 'firebase/firestore';
+import { addDoc, updateDoc, commitNow } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { getNormalizedCountry } from '../utils/helpers';
@@ -49,7 +50,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
           created++;
         }
       });
-      await batch.commit();
+      await commitNow(batch);
       showNotification(`Success! New: ${created}, Merged: ${updated}`, 'success');
     } catch (e) {
       console.error(e);
@@ -75,7 +76,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
         });
         batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', duplicate.id));
       });
-      await batch.commit();
+      await commitNow(batch);
       showNotification(`Merged ${duplicates.length} duplicates!`, 'success');
     } catch (e) {
       console.error(e);
@@ -105,7 +106,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
       const batch = writeBatch(db);
       batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', main.id), { ...merged, ...patch });
       others.forEach(c => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id)));
-      await batch.commit();
+      await commitNow(batch);
 
       // Снимок удалённых записей — чтобы слияние было прослеживаемым.
       logAction(currentUser, 'clients_merge', {
@@ -129,7 +130,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     try {
       const batch = writeBatch(db);
       ids.forEach(id => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', id)));
-      await batch.commit();
+      await commitNow(batch);
       showNotification(`Deleted ${ids.length} clients`, 'success');
     } catch (e) {
       showNotification('Bulk delete failed', 'error');
@@ -147,7 +148,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
           count++;
         }
       });
-      if (count > 0) { await batch.commit(); showNotification(`Normalized ${count} countries`, 'success'); }
+      if (count > 0) { await commitNow(batch); showNotification(`Normalized ${count} countries`, 'success'); }
       else showNotification('All normalized');
     } catch (e) {
       showNotification('Normalization failed', 'error');
@@ -207,7 +208,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
         }
       }
 
-      if (created + updated > 0) await batch.commit();
+      if (created + updated > 0) await commitNow(batch);
       showNotification(
         `✅ Готово: ${created} добавлено, ${updated} обновлено${skipped ? `, ${skipped} без изменений` : ''}`,
         'success'

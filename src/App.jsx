@@ -4,7 +4,8 @@ import {
   signInAnonymously,
   onAuthStateChanged
 } from 'firebase/auth';
-import { collection, doc, addDoc, updateDoc, deleteDoc, setDoc, increment, deleteField, arrayUnion } from 'firebase/firestore';
+import { collection, doc, increment, deleteField, arrayUnion } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc, setDoc, setWriteErrorHandler } from './utils/fsWrite';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions, PUBLIC_DATA_PATH } from './firebase';
 import { useAppData } from './hooks/useAppData';
@@ -327,6 +328,14 @@ function App() {
     const id = Date.now() + Math.random();
     setNotifications(prev => [...prev.slice(-2), { id, message, type }]);
   }, []);
+  // Записи кассы не ждут сервер (utils/fsWrite.js): его отказ приходит позже —
+  // показываем кассиру, иначе пропавшая из базы запись осталась бы незамеченной.
+  useEffect(() => {
+    setWriteErrorHandler((e) => {
+      console.error('[fsWrite]', e);
+      showNotification((TRANSLATIONS[lang]?.writeRejected || 'Сервер не принял запись: ') + (e?.code || e?.message || e), 'error');
+    });
+  }, [showNotification, lang]);
 
   // ─── Тема навигации ────────────────────────────────────────────────────────
   useEffect(() => {
