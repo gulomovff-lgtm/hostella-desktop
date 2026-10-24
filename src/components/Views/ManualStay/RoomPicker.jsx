@@ -31,7 +31,7 @@ const RoomPicker = ({ rooms, selected, onChange, lang = 'ru' }) => {
     const handleOpen = () => {
         if (!open && btnRef.current) {
             const r = btnRef.current.getBoundingClientRect();
-            setDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX });
+            setDropPos({ top: r.bottom + 4, left: r.left }); // fixed — координаты окна, без scroll
         }
         setOpen(v => !v);
     };
@@ -42,13 +42,13 @@ const RoomPicker = ({ rooms, selected, onChange, lang = 'ru' }) => {
                 ref={btnRef}
                 type="button"
                 onClick={handleOpen}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-xl border transition-all ${open ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
+                className={`w-full flex items-center justify-between gap-1.5 px-3 py-2 text-sm rounded-xl border transition-all ${open ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
             >
-                <span className="max-w-[120px] truncate font-semibold">{label}</span>
-                <ChevronDown size={11} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+                <span className={`truncate font-semibold ${selected.length === 0 ? 'text-slate-400' : ''}`}>{selected.length === 0 ? t('mslChooseRooms') : label}</span>
+                <ChevronDown size={14} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
             {open && (
-                <div className="fixed z-[200] bg-white border border-slate-200 rounded-xl shadow-xl p-2 min-w-[170px] max-h-52 overflow-y-auto" style={{ top: dropPos.top, left: dropPos.left }}>
+                <div className="fixed z-[230] bg-white border border-slate-200 rounded-xl shadow-xl p-2 min-w-[190px] max-h-60 overflow-y-auto" style={{ top: dropPos.top, left: dropPos.left }}>
                     {rooms.length === 0
                         ? <div className="text-xs text-slate-400 px-2 py-1.5">{t('msmNoRooms')}</div>
                         : rooms.map(room => {
@@ -58,10 +58,10 @@ const RoomPicker = ({ rooms, selected, onChange, lang = 'ru' }) => {
                                     key={room.id}
                                     type="button"
                                     onClick={() => toggle(room.id)}
-                                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs transition-colors ${checked ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'}`}
+                                    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-sm transition-colors ${checked ? 'bg-teal-50 text-teal-900' : 'hover:bg-slate-50 text-slate-700'}`}
                                 >
-                                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'border-indigo-500 bg-indigo-500' : 'border-slate-300'}`}>
-                                        {checked && <Check size={8} className="text-white" strokeWidth={3} />}
+                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'border-teal-500 bg-teal-500' : 'border-slate-300'}`}>
+                                        {checked && <Check size={10} className="text-white" strokeWidth={3} />}
                                     </div>
                                     <span className="font-semibold">№{room.number}</span>
                                     {room.name ? <span className="text-slate-400 truncate">{room.name}</span> : null}

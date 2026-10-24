@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { CreditCard, DollarSign, Shuffle, X } from 'lucide-react';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '../../../firebase';
-import { INP, PAYMENTS_COLLECTION, TRANSFER_ENTITIES, fmt } from './shared';
+import { INP, OVERLAY_STYLE, PAYMENTS_COLLECTION, TRANSFER_ENTITIES, fmt } from './shared';
 import TRANSLATIONS from '../../../constants/translations';
 
 const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
@@ -55,11 +55,11 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
     const needsTransferTo = method === 'transfer' || method === 'mix';
 
     return (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.6)' }}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={OVERLAY_STYLE} onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                     <h3 className="text-base font-black text-slate-800">{allGroups.length > 1 ? t('msmMergedPayment').replace('{n}', allGroups.length) : t('msmPayByContract')}</h3>
-                    <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors"><X size={15}/></button>
+                    <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors"><X size={16}/></button>
                 </div>
                 <div className="text-sm font-semibold text-slate-600 bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
                     {allGroups.length > 1
@@ -79,7 +79,7 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                         ].map(opt => (
                             <button key={opt.id} type="button"
                                 onClick={() => setMethod(opt.id)}
-                                className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border-2 text-xs font-bold transition-all ${method === opt.id ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-500 hover:border-indigo-300'}`}
+                                className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-bold transition-all ${method === opt.id ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-500 hover:border-orange-300'}`}
                             >
                                 {opt.icon}
                                 {opt.label}
@@ -91,7 +91,15 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                 {/* Суммы */}
                 {method !== 'mix' ? (
                     <div>
-                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">{t('amount')}</div>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">{t('amount')}</div>
+                            {combinedDebt > 0 && (
+                                <button type="button" onClick={() => setAmount(String(combinedDebt))}
+                                    className="text-xs font-bold text-orange-600 hover:text-orange-700 px-2 py-0.5 rounded-md hover:bg-orange-50">
+                                    {t('mslWholeDebt')} · {fmt(combinedDebt)}
+                                </button>
+                            )}
+                        </div>
                         <input
                             autoFocus
                             type="number" min="0"
@@ -130,7 +138,7 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                             {TRANSFER_ENTITIES.map(ent => (
                                 <button key={ent} type="button"
                                     onClick={() => setTransferTo(ent)}
-                                    className={`px-3 py-2 rounded-xl border-2 text-xs font-bold transition-all text-left ${transferTo === ent ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-slate-200 text-slate-600 hover:border-teal-300'}`}
+                                    className={`px-3 py-2 rounded-xl border-2 text-xs font-bold transition-all text-left ${transferTo === ent ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-600 hover:border-orange-300'}`}
                                 >
                                     {ent}
                                 </button>
@@ -143,8 +151,8 @@ const PaymentModal = ({ group, groups, currentUser, onClose, lang = 'ru' }) => {
                     <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
                         {t('cancel')}
                     </button>
-                    <button onClick={handlePay} disabled={saving} className="flex-2 flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-                        {saving ? t('rrSaving') : t('msPay')}
+                    <button onClick={handlePay} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white font-bold text-sm hover:bg-orange-600 disabled:opacity-60 transition-colors">
+                        {saving ? t('rrSaving') : t('rpmAccept')}
                     </button>
                 </div>
             </div>

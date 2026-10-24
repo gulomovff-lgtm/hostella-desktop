@@ -1,6 +1,6 @@
-import { pmcFmtISO } from './shared';
+import { pmcFmtISO, OVERLAY_STYLE } from './shared';
 import React, { useMemo, useRef, useState } from 'react';
-import { ChevronRight, Plus, X } from 'lucide-react';
+import { ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import TRANSLATIONS from '../../../constants/translations';
 
 const pmcSd = (iso) => { if (!iso) return ''; const [, m, d] = iso.split('-'); return `${parseInt(d)}.${m}`; };
@@ -51,34 +51,34 @@ const PeriodMiniCalendar = ({ entries = [], onAddPeriod, onEditPeriod, onDeleteP
     const popupInfo = dayPopup ? (dayMap[dayPopup] || { people: 0, periods: [] }) : null;
 
     return (
-        <div className="px-3 pb-2">
-            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(94,234,212,0.15)', background: 'rgba(94,234,212,0.03)' }}>
-                <div className="flex items-center justify-between px-2 py-1.5" style={{ borderBottom: '1px solid rgba(94,234,212,0.12)' }}>
-                    <button onClick={prevMonth} className="w-6 h-6 flex items-center justify-center rounded-lg" style={{ color: '#5eead4' }}><ChevronRight size={13} style={{ transform: 'rotate(180deg)' }} /></button>
-                    <span className="text-[11px] font-bold" style={{ color: '#e2f7f8' }}>{t('monthsFull')[ym.m]} {ym.y}</span>
-                    <button onClick={nextMonth} className="w-6 h-6 flex items-center justify-center rounded-lg" style={{ color: '#5eead4' }}><ChevronRight size={13} /></button>
+        <div className="px-4 pb-3">
+            <div className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                <div className="flex items-center justify-between px-2 py-2 border-b border-slate-100">
+                    <button onClick={prevMonth} title={t('mslPrevMonth')} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"><ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} /></button>
+                    <span className="text-sm font-bold text-slate-700">{t('monthsFull')[ym.m]} {ym.y}</span>
+                    <button onClick={nextMonth} title={t('mslNextMonth')} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"><ChevronRight size={16} /></button>
                 </div>
-                <div className="grid grid-cols-7 gap-1 px-1 pt-1">
+                <div className="grid grid-cols-7 gap-1 px-1.5 pt-1.5">
                     {t('msmWeekdaysMon').split(',').map((w, i) => (
-                        <div key={w} className="text-center text-[9px] font-bold py-0.5" style={{ color: i >= 5 ? 'rgba(248,113,113,0.6)' : 'rgba(94,234,212,0.4)' }}>{w}</div>
+                        <div key={w} className={`text-center text-[10px] font-bold py-0.5 ${i >= 5 ? 'text-rose-400' : 'text-slate-400'}`}>{w}</div>
                     ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1 p-1">
+                <div className="grid grid-cols-7 gap-1 p-1.5">
                     {cells.map((d, i) => {
                         const iso = pmcFmtISO(d);
                         const inMonth = d.getMonth() === ym.m;
                         const info = dayMap[iso];
                         const isToday = iso === todayIso;
-                        const intensity = info ? 0.18 + 0.55 * (info.people / maxPeople) : 0;
+                        const intensity = info ? 0.12 + 0.38 * (info.people / maxPeople) : 0;
                         return (
                             <button key={i} onClick={() => setDayPopup(iso)}
-                                className="relative flex flex-col items-center justify-center rounded-lg transition-colors hover:brightness-110"
-                                style={{ height: 40, opacity: inMonth ? 1 : 0.3,
-                                    background: info ? `rgba(15,150,136,${intensity})` : 'rgba(94,234,212,0.04)',
-                                    border: `1px solid ${info ? 'rgba(94,234,212,0.4)' : 'rgba(94,234,212,0.08)'}`,
-                                    boxShadow: isToday ? 'inset 0 0 0 2px #5eead4' : 'none' }}>
-                                <span className="text-[11px] font-bold leading-none" style={{ color: inMonth ? '#e2f7f8' : 'rgba(94,234,212,0.4)' }}>{d.getDate()}</span>
-                                {info && info.people > 0 && <span className="text-[9px] font-black leading-none mt-0.5" style={{ color: '#5eead4' }}>{info.people}</span>}
+                                title={info ? `${info.people} ${t('msPeopleWord')}` : t('mslDayAddHint')}
+                                className={`relative flex flex-col items-center justify-center rounded-lg border transition-colors ${info ? 'border-teal-300' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'}`}
+                                style={{ height: 42, opacity: inMonth ? 1 : 0.35,
+                                    background: info ? `rgba(20,184,166,${intensity})` : undefined,
+                                    boxShadow: isToday ? 'inset 0 0 0 2px #e88c40' : 'none' }}>
+                                <span className={`text-xs font-bold leading-none tabular-nums ${info ? 'text-teal-900' : 'text-slate-600'}`}>{d.getDate()}</span>
+                                {info && info.people > 0 && <span className="text-[10px] font-black leading-none mt-0.5 text-teal-900 tabular-nums">{info.people} {t('msPeopleWord')}</span>}
                             </button>
                         );
                     })}
@@ -86,30 +86,33 @@ const PeriodMiniCalendar = ({ entries = [], onAddPeriod, onEditPeriod, onDeleteP
             </div>
 
             {dayPopup && (
-                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4" style={{ background: 'rgba(8,20,22,0.6)' }} onClick={() => setDayPopup(null)}>
-                    <div className="w-full max-w-xs rounded-2xl overflow-hidden" style={{ background: '#0d2532', border: '1px solid rgba(94,234,212,0.25)' }} onClick={e => e.stopPropagation()}>
-                        <div className="px-4 py-2.5 flex items-center justify-between" style={{ background: 'linear-gradient(135deg,#0f9688,#0d7a6e)' }}>
-                            <div className="text-white font-black text-sm">{pmcSd(dayPopup)} · {popupInfo.people} {t('msPeopleWord')}</div>
-                            <button onClick={() => setDayPopup(null)} className="w-6 h-6 rounded-full flex items-center justify-center bg-white/20 text-white"><X size={12} /></button>
+                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4" style={OVERLAY_STYLE} onClick={() => setDayPopup(null)}>
+                    <div className="w-full max-w-sm rounded-2xl overflow-hidden bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="px-4 py-3 flex items-center justify-between border-b border-slate-100">
+                            <div>
+                                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('mslDay')}</div>
+                                <div className="text-base font-black text-slate-800 tabular-nums">{pmcSd(dayPopup)} · {popupInfo.people} {t('msPeopleWord')}</div>
+                            </div>
+                            <button onClick={() => setDayPopup(null)} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100"><X size={16} /></button>
                         </div>
-                        <div className="p-3 space-y-1.5 max-h-[55vh] overflow-y-auto">
-                            {popupInfo.periods.length === 0 && <div className="text-[11px] text-center py-2" style={{ color: 'rgba(94,234,212,0.4)' }}>{t('msmNoPeriodsThisDay')}</div>}
+                        <div className="p-3 space-y-2 max-h-[55vh] overflow-y-auto">
+                            {popupInfo.periods.length === 0 && <div className="text-sm text-center py-2 text-slate-400">{t('msmNoPeriodsThisDay')}</div>}
                             {popupInfo.periods.map(p => {
                                 const wgCount = (p.workerGroups || []).filter(wg => wg.specialty).length;
                                 return (
-                                    <div key={p.id} className="flex items-center gap-2 px-2.5 py-2 rounded-lg" style={{ background: 'rgba(94,234,212,0.06)', border: '1px solid rgba(94,234,212,0.12)' }}>
+                                    <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
                                         <div className="flex-1 min-w-0">
-                                            <div className="text-[11px] font-semibold" style={{ color: '#e2f7f8' }}>{pmcSd(p.checkIn)} → {pmcSd(p.checkOut)}</div>
-                                            <div className="text-[9px]" style={{ color: 'rgba(94,234,212,0.5)' }}>{p.people > 0 ? `${p.people} ${t('msPeopleWord')}` : ''}{p.nights > 0 ? ` · ${p.nights}${t('msNightShort')}` : ''}{wgCount > 0 ? ` · ${t('msBrigShort')}${wgCount}` : ''}</div>
+                                            <div className="text-sm font-bold text-slate-700 tabular-nums">{pmcSd(p.checkIn)} → {pmcSd(p.checkOut)}</div>
+                                            <div className="text-xs text-slate-500">{p.people > 0 ? `${p.people} ${t('msPeopleWord')}` : t('mslPeopleNotSet')}{p.nights > 0 ? ` · ${p.nights} ${t('ormNochShort')}.` : ''}{wgCount > 0 ? ` · ${t('msBrigShort')} ${wgCount}` : ''}</div>
                                         </div>
-                                        <button onClick={() => { onEditPeriod?.(p.id); setDayPopup(null); }} className="px-2 py-1 rounded-lg text-[10px] font-bold" style={{ color: '#5eead4', background: 'rgba(94,234,212,0.1)', border: '1px solid rgba(94,234,212,0.25)' }}>{t('changeTitle')}</button>
-                                        <button onClick={() => onDeletePeriod?.(p.id)} className="p-1 rounded-lg" style={{ color: 'rgba(94,234,212,0.4)' }}><X size={12} /></button>
+                                        <button onClick={() => { onEditPeriod?.(p.id); setDayPopup(null); }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:border-slate-300">{t('changeTitle')}</button>
+                                        <button onClick={() => onDeletePeriod?.(p.id)} title={t('msmDeletePeriod')} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50"><Trash2 size={14} /></button>
                                     </div>
                                 );
                             })}
                             <button onClick={() => { const co = pmcFmtISO(new Date(new Date(dayPopup + 'T12:00:00').getTime() + 86400000)); onAddPeriod?.(dayPopup, co); setDayPopup(null); }}
-                                className="w-full inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-dashed text-[10px] font-semibold" style={{ borderColor: 'rgba(94,234,212,0.3)', color: '#0f9688' }}>
-                                <Plus size={9} /> {t('msmNewPeriodFrom').replace('{n}', pmcSd(dayPopup))}
+                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold transition-colors">
+                                <Plus size={15} /> {t('msmNewPeriodFrom').replace('{n}', pmcSd(dayPopup))}
                             </button>
                         </div>
                     </div>
@@ -118,7 +121,5 @@ const PeriodMiniCalendar = ({ entries = [], onAddPeriod, onEditPeriod, onDeleteP
         </div>
     );
 };
-
-// ── Попап редактирования периода ─────────────────────────────────────────
 
 export default PeriodMiniCalendar;
