@@ -41,12 +41,17 @@ export function useOfflineQueue({ isOnline, showNotification }) {
   // после удачной отправки: раньше очередь чистилась сразу, и уведомление,
   // отправленное в ещё неустойчивую сеть, терялось. Пока очередь не пуста и
   // связь есть — пробуем снова раз в 2 минуты.
+  //
+  // Флаг isOnline здесь только ускоряет досылку, но не запрещает её: он мог
+  // застрять в «нет сети» при живом интернете, и очередь не уходила до
+  // перезапуска программы (25.10.2026). Сеть проверяет сама отправка.
   useEffect(() => {
-    if (!isOnline || !queueLoaded) return undefined;
+    if (!queueLoaded) return undefined;
     let cancelled = false;
     let busy = false;
     const flush = async () => {
       if (busy || cancelled) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       busy = true;
       try {
         const q = getQueue();
@@ -80,6 +85,7 @@ export function useOfflineQueue({ isOnline, showNotification }) {
     };
     flush();
     const iv = setInterval(flush, 2 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(iv); };
+    window.addEventListener('online', flush);
+    return () => { cancelled = true; clearInterval(iv); window.removeEventListener('online', flush); };
   }, [isOnline, queueLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 }

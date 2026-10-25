@@ -25,7 +25,7 @@ import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { findExistingClient } from '../utils/clientMatch';
 import { getStayDetails, getTotalPaid } from '../utils/helpers';
-import { enqueuePayment, enqueueTelegram } from '../utils/offlineQueue';
+import { enqueuePayment } from '../utils/offlineQueue';
 import { notifySiteBooking } from '../utils/siteCallback';
 import TRANSLATIONS from '../constants/translations';
 import { assessKpp } from '../utils/kppRules';
@@ -395,11 +395,7 @@ export function useGuestActions(ctx) {
       if (newGuest.status === 'active') {
         const hostelLabel = targetHostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
         const checkinMsg = `🏨 <b>${t('gaTgCheckinTitle')}</b>\n👤 ${escapeTg(newGuest.fullName)}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${newGuest.roomNumber || '—'}, ${t('gaPlace')} ${newGuest.bedId || '—'}\n📅 ${new Date(newGuest.checkInDate).toLocaleDateString('ru')} → ${new Date(newGuest.checkOutDate).toLocaleDateString('ru')} (${newGuest.days || 1} ${t('gaDaysShort')})\n💰 ${t('gaPaid')}: ${totalPaid.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-        if (isOnline) {
-          sendTelegramMessage(checkinMsg, 'checkin');
-        } else {
-          enqueueTelegram(checkinMsg, 'checkin');
-        }
+        sendTelegramMessage(checkinMsg, 'checkin');
         pushUndo({
           type: 'checkin',
           label: `${newGuest.fullName} — комн. ${newGuest.roomNumber}, место ${newGuest.bedId}`,
@@ -508,11 +504,7 @@ export function useGuestActions(ctx) {
 
       const hostelLabel = guest.hostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
       const checkoutMsg = `🚪 <b>${t('gaTgCheckoutTitle')}</b>\n👤 ${escapeTg(guest.fullName)}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${guest.roomNumber || '—'}\n📅 ${t('gaCheckedInDate')}: ${new Date(guest.checkInDate).toLocaleDateString('ru')}\n💰 ${t('gaTotal')}: ${(final.totalPrice || 0).toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-      if (isOnline) {
-        sendTelegramMessage(checkoutMsg, 'checkout');
-      } else {
-        enqueueTelegram(checkoutMsg, 'checkout');
-      }
+      sendTelegramMessage(checkoutMsg, 'checkout');
 
       if (balancePart > 0) {
         const clientRec = clients.find(c => c.passport && guest.passport &&
@@ -533,11 +525,7 @@ export function useGuestActions(ctx) {
           hostelId: currentUser.hostelId || guest.hostelId,
         });
         const refundMsg = `💸 <b>${t('gaTgRefundTitle')}</b>\n👤 ${escapeTg(guest.fullName)}\n💵 ${t('gaAmount')}: ${cashPart.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-        if (isOnline) {
-          sendTelegramMessage(refundMsg, 'refund');
-        } else {
-          enqueueTelegram(refundMsg, 'refund');
-        }
+        sendTelegramMessage(refundMsg, 'refund');
       }
 
       // Fix 10: логируем выселение в auditLog
@@ -637,11 +625,7 @@ export function useGuestActions(ctx) {
         if (g) {
           const hostelLabel = g.hostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
           const payMsg = `💵 <b>${t('gaPaymentAccepted')}</b>\n👤 ${escapeTg(g.fullName)}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${g.roomNumber || '—'}\n💰 ${total.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-          if (isOnline) {
-            sendTelegramMessage(payMsg, 'paymentAdded');
-          } else {
-            enqueueTelegram(payMsg, 'paymentAdded');
-          }
+          sendTelegramMessage(payMsg, 'paymentAdded');
         }
         // Авто-регистрация e-mehmon (граждане Узбекистана) — по факту первой оплаты
         // (заселение было в долг → регистрируем сейчас). emehmonSkip уважаем.
@@ -786,11 +770,7 @@ export function useGuestActions(ctx) {
       pushUndo({ type: 'extend', label: `+${extendDays} дн. — ${g?.fullName || guestId}`, guestId, prevDays, prevTotalPrice, prevCheckOut, prevBonusCheckOut, prevStatus, paymentIds, payCash, payCard, payQR });
       if (g) {
         const extMsg = `📅 <b>${t('gaTgExtendTitle')}</b>\n👤 ${escapeTg(g.fullName)}\n➕ +${extendDays} ${t('gaDaysShort')} → ${new Date(newCheckOut).toLocaleDateString('ru')}\n💵 ${t('gaSurcharged')}: ${payTotal.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-        if (isOnline) {
-          sendTelegramMessage(extMsg, 'guestExtended');
-        } else {
-          enqueueTelegram(extMsg, 'guestExtended');
-        }
+        sendTelegramMessage(extMsg, 'guestExtended');
       }
       setGuestDetailsModal({ open: false, guest: null });
       showNotification(t('extendedByDays').replace('{days}', extendDays), 'success');
@@ -872,11 +852,7 @@ export function useGuestActions(ctx) {
         hostelId: currentUser.role === 'admin' ? selectedHostelFilter : currentUser.hostelId,
       });
       const debtMsg = `⚠️ <b>${t('gaTgDebtTitle')}</b>\n👤 ${escapeTg(client.fullName)}\n💰 ${t('gaAmount')}: ${amount.toLocaleString()} ${t('gaSum')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-      if (isOnline) {
-        sendTelegramMessage(debtMsg, 'debtAlert');
-      } else {
-        enqueueTelegram(debtMsg, 'debtAlert');
-      }
+      sendTelegramMessage(debtMsg, 'debtAlert');
       showNotification(t('gaDebtCreated'));
     } catch (e) {
       showNotification(t('gaDebtCreateError'), 'error');
@@ -1311,11 +1287,7 @@ export function useGuestActions(ctx) {
         const notifIcon = guestData.status === 'booking' ? '🗑️' : '🚫';
         const notifLabel = guestData.status === 'booking' ? t('gaTgDelBookingTitle') : t('gaTgDelGuestTitle');
         const delMsg = `${notifIcon} <b>${notifLabel}</b>\n👤 ${escapeTg(guestData.fullName || '—')}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${guestData.roomNumber || '—'}\n📅 ${guestData.checkInDate ? new Date(guestData.checkInDate).toLocaleDateString('ru') : '—'} → ${guestData.checkOutDate ? new Date(guestData.checkOutDate).toLocaleDateString('ru') : '—'}\n👤 ${t('gaDeletedBy')}: ${escapeTg(currentUser?.name || currentUser?.login || '—')}`;
-        if (isOnline) {
-          sendTelegramMessage(delMsg, notifType);
-        } else {
-          enqueueTelegram(delMsg, notifType);
-        }
+        sendTelegramMessage(delMsg, notifType);
       }
       setGuestDetailsModal({ open: false, guest: null });
       showNotification(t('gaDeleted'));

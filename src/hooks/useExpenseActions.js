@@ -7,7 +7,6 @@ import { addDoc, updateDoc } from '../utils/fsWrite';
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
-import { enqueueTelegram } from '../utils/offlineQueue';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
@@ -36,7 +35,7 @@ export function useExpenseActions({
   expenses, usersList, lang,
   clients = [],
   setExpenseModal, setUndoStack,
-  showNotification, isOnline = true,
+  showNotification,
 }) {
 
   const t = k => TRANSLATIONS[lang]?.[k] || k;
@@ -84,11 +83,7 @@ export function useExpenseActions({
       if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
         const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
         const tgMsg = `💳 <b>${t('expense')}</b>\n🏨 ${hostelLabel}\n📂 ${escapeTg(d.category)}\n💰 ${(+d.amount).toLocaleString()} ${t('sum')}${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-        if (isOnline) {
-          await sendTelegramMessage(tgMsg, 'expenseAdded');
-        } else {
-          enqueueTelegram(tgMsg, 'expenseAdded');
-        }
+        await sendTelegramMessage(tgMsg, 'expenseAdded');
       }
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
@@ -149,8 +144,7 @@ export function useExpenseActions({
         const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
         const lines = list.map(i => `• ${escapeTg(i.category)}: ${i.amount.toLocaleString()} ${t('sum')}${i.comment ? ' — ' + escapeTg(i.comment) : ''}`).join('\n');
         const tgMsg = `💳 <b>${t('exaExpensesTitle')} (${ids.length})</b>\n🏨 ${hostelLabel}\n📅 ${new Date(date).toLocaleDateString('ru')}\n${lines}\n\n<b>${t('exaTotal')}: ${total.toLocaleString()} ${t('sum')}</b>\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-        if (isOnline) await sendTelegramMessage(tgMsg, 'expenseAdded');
-        else enqueueTelegram(tgMsg, 'expenseAdded');
+        await sendTelegramMessage(tgMsg, 'expenseAdded');
       }
     }
     showNotification(

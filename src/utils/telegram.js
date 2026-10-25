@@ -25,6 +25,15 @@ export const escapeTg = (s = '') =>
 export const sendTelegramMessage = async (text, notificationType = null, chatIds = null, throwOnError = false) => {
     if (!text) return;
 
+    // Решает сама отправка, а не флаг isOnline программы: флаг мог застрять в
+    // «нет сети» при живом интернете, и уведомления о расходах одной кассы
+    // молча копились в очереди до перезапуска (жалоба 25.10.2026). Теперь
+    // пробуем всегда; явно нет сети — сразу в очередь, без минутного ожидания.
+    if (!chatIds && !throwOnError && typeof navigator !== 'undefined' && navigator.onLine === false) {
+        enqueueTelegram(text, notificationType);
+        return null;
+    }
+
     try {
         const sendMessage = httpsCallable(functions, 'sendTelegramMessage');
         const payload = { text };
