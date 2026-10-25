@@ -6,6 +6,7 @@ import { addDoc, updateDoc, deleteDoc } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
+import { notifyExpense } from '../utils/expenseNotify';
 import TRANSLATIONS from '../constants/translations';
 
 const HOSTEL_LABEL = { hostel1: 'Хостел №1', hostel2: 'Хостел №2' };
@@ -195,6 +196,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     new Date().toISOString(),
         });
+        notifyExpense({ currentUser, lang, hostelId, category: 'Регистрация', amount: regAmount,
+          comment: `Кадастр: ${data.cadastreAddress} — ${data.guestName}` });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', regRef.id), {
           expenseAdded: true,
           expenseId: expRef.id,
@@ -261,6 +264,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     new Date().toISOString(),
         });
+        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: costNum,
+          comment: `Кадастр продление: ${reg.cadastreAddress} — ${reg.guestName} (+${extData.days} дн.)` });
         const expensedByMonth = addMonthAmount(
           getExpensedByMonthMap(reg, expenseByMonth),
           extMonth,
@@ -302,6 +307,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     reg.createdAt || new Date().toISOString(),
         });
+        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: Number(reg.amount),
+          comment: `Кадастр завершение: ${reg.cadastreAddress} — ${reg.guestName}` });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
           expenseAdded: true,
           expenseId: expRef.id,
@@ -386,6 +393,8 @@ export function useCadastreActions({
         source:   'cadastre',
         date:     reg.createdAt || new Date().toISOString(),
       });
+      notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: toAdd,
+        comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName}` });
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
         expenseAdded:  true,
         expenseId:     expRef.id,
@@ -437,6 +446,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     reg.createdAt || now,
         });
+        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: diff,
+          comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName}` });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
           expenseAdded:  true,
           expenseId:     expRef.id,

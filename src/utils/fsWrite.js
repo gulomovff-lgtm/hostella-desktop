@@ -31,7 +31,38 @@ export function setWriteErrorHandler(fn) {
   onError = typeof fn === 'function' ? fn : onError;
 }
 
-const background = (p) => { p.catch((e) => { try { onError(e); } catch (_) { /* не мешаем */ } }); };
+/*
+ * Неотправленные записи. Кассир видит запись сразу, и залипшая связь с базой
+ * (интернет есть, а поток Firestore молчит) часами оставалась незаметной:
+ * расход был у кассира, но не в отчётах и не в группе (25.10.2026). Здесь
+ * учитываем, что ещё не подтвердил сервер; useSyncWatchdog по этому учёту
+ * переподключает базу и показывает кассиру полоску.
+ */
+const pending = new Map();
+let seq = 0;
+const pendingListeners = new Set();
+const emitPending = () => pendingListeners.forEach((fn) => { try { fn(); } catch (_) { /* не мешаем */ } });
+
+/** { count, oldestAt } — сколько записей ждут сервер и с какого момента самая старая. */
+export function pendingWrites() {
+  let oldestAt = 0;
+  for (const at of pending.values()) if (!oldestAt || at < oldestAt) oldestAt = at;
+  return { count: pending.size, oldestAt };
+}
+
+/** Подписка на изменение очереди неотправленного; возвращает отписку. */
+export function onPendingChange(fn) {
+  pendingListeners.add(fn);
+  return () => pendingListeners.delete(fn);
+}
+
+const background = (p) => {
+  const id = ++seq;
+  pending.set(id, Date.now());
+  emitPending();
+  p.catch((e) => { try { onError(e); } catch (_) { /* не мешаем */ } })
+    .finally(() => { pending.delete(id); emitPending(); });
+};
 
 /** addDoc без ожидания сервера: id документа известен сразу (doc() создаёт его локально). */
 export function addDoc(colRef, data) {

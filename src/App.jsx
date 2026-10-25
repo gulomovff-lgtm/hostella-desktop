@@ -22,6 +22,8 @@ import {
   Flag
 } from './utils/helpers';
 import { sendTelegramMessage, escapeTg } from './utils/telegram';
+import { notifyExpense } from './utils/expenseNotify';
+import { useSyncWatchdog } from './hooks/useSyncWatchdog';
 import { checkAndMarkAlert } from './utils/alertsLog';
 
 import { 
@@ -95,7 +97,8 @@ import {
   TrendingDown,
   Phone,
   Minus,
-  ArrowUp
+  ArrowUp,
+  RefreshCw
 } from 'lucide-react';
 
 // --- Вынесенные компоненты ---
@@ -433,6 +436,7 @@ function App() {
 
   // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
   useOfflineQueue({ isOnline, showNotification });
+  const unsyncedCount = useSyncWatchdog();
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
@@ -1134,6 +1138,7 @@ function App() {
         date: new Date().toISOString(),
         linkedSalaryId: staffExpense.id,
       });
+      notifyExpense({ currentUser, lang, hostelId, category: 'Аванс', amount: Number(amount), comment: staffExpense.comment || '' });
       showNotification('Аванс зафиксирован', 'success');
     } catch (err) {
       console.error('Ошибка аванса:', err);
@@ -1158,6 +1163,7 @@ function App() {
         date: new Date().toISOString(),
         recurringId: template.id,
       });
+      notifyExpense({ currentUser, lang, hostelId, category: 'Аванс', amount: Number(amount), comment: template.name });
       showNotification(`Аванс выдан: ${Number(amount).toLocaleString()} сум`, 'success');
     } catch (err) {
       console.error('Ошибка аванса:', err);
@@ -1887,6 +1893,13 @@ return (
         {!isOnline && !permissionError && (
           <div className="flex items-center justify-between px-4 py-2 bg-amber-600 text-white text-sm z-50">
             <span className="flex items-center gap-2"><WifiOff size={15} className="shrink-0"/><span><strong>Нет подключения к интернету.</strong> Данные сохраняются локально и синхронизируются при восстановлении связи. Telegram-уведомления будут отправлены автоматически.</span></span>
+          </div>
+        )}
+
+        {/* Записи не дошли до сервера: связь с базой залипла при живом интернете */}
+        {isOnline && !permissionError && unsyncedCount > 0 && (
+          <div className="flex items-center justify-between px-4 py-2 bg-amber-600 text-white text-sm z-50">
+            <span className="flex items-center gap-2"><RefreshCw size={15} className="shrink-0"/><span><strong>Не отправлено на сервер: {unsyncedCount}.</strong> Записи сохранены в программе, но в отчётах их пока нет. Программа переподключается сама; если полоска не уходит — проверьте интернет.</span></span>
           </div>
         )}
 

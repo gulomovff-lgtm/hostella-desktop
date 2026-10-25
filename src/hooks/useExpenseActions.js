@@ -7,6 +7,7 @@ import { addDoc, updateDoc } from '../utils/fsWrite';
 import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
+import { notifyExpense } from '../utils/expenseNotify';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
@@ -80,11 +81,7 @@ export function useExpenseActions({
       showNotification(t('alExpenseAdd'), 'success');
       logAction(currentUser, 'expense_add', { amount: d.amount, category: d.category, comment: d.comment });
 
-      if (d.category !== 'Возврат' && !skipCashbox && currentUser.role !== 'admin' && currentUser.role !== 'super') {
-        const hostelLabel = hostelId === 'hostel1' ? t('expHostel1') : hostelId === 'hostel2' ? t('expHostel2') : hostelId || '—';
-        const tgMsg = `💳 <b>${t('expense')}</b>\n🏨 ${hostelLabel}\n📂 ${escapeTg(d.category)}\n💰 ${(+d.amount).toLocaleString()} ${t('sum')}${d.comment ? '\n💬 ' + escapeTg(d.comment) : ''}\n👤 ${t('cashier')}: ${escapeTg(currentUser.name || currentUser.login)}`;
-        await sendTelegramMessage(tgMsg, 'expenseAdded');
-      }
+      await notifyExpense({ currentUser, lang, hostelId, category: d.category, amount: d.amount, comment: d.comment, skipCashbox });
     } catch (err) {
       console.error('Ошибка добавления расхода:', err);
       showNotification(`${t('exaError')}: ` + (err.message || t('exaSaveFailed')), 'error');
