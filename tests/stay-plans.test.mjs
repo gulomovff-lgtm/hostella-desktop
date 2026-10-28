@@ -4,7 +4,7 @@ import {
     planConfig, planPrice, isLocal, planOf, breakfastGuests, breakfastWriteOff, writeOffDelta,
     includedUsed, applyPlanAllowance, stayNightsBefore, splitPaid, recipeOf, DEFAULT_PLANS, ymd,
     buildPlanSwitch, newPriceCandidates, nightPromoOffer, buildPromoContinuation,
-    buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, paidOf,
+    buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, paidOf, extensionRate,
 } from '../src/utils/stayPlans.js';
 
 const cfg = { pricing: { plans: DEFAULT_PLANS } };
@@ -275,4 +275,24 @@ test('продолжение не открывается, если прежню�
   assert.equal(auto.activate.length, 1, 'закрыла автопроверка — открываем');
   const live = continuationsDue([{ id: 'p', continuedBy: 'c', status: 'active', checkOutDate: '2026-10-20T12:00:00' }, cont], now);
   assert.equal(live.activate.length, 1); assert.equal(live.close.length, 1);
+});
+
+// Жалоба 28.10.2026: гость с одобрением на 65 000 продлевался по тарифу 70 000
+test('extensionRate: одобренное понижение действует и при продлении по тарифу', () => {
+    assert.equal(extensionRate({ approvedPrice: 65000, tariffRate: 70000, guestRate: 60000 }), 65000);
+    assert.equal(extensionRate({ approvedPrice: 65000, tariffRate: 0, guestRate: 70000 }), 65000);
+    // одобрение не повышает цену: тариф дешевле — остаётся тариф
+    assert.equal(extensionRate({ approvedPrice: 65000, tariffRate: 50000 }), 50000);
+    // без одобрения — как раньше: тариф, иначе цена гостя
+    assert.equal(extensionRate({ approvedPrice: 0, tariffRate: 70000, guestRate: 60000 }), 70000);
+    assert.equal(extensionRate({ approvedPrice: 0, tariffRate: 0, guestRate: 60000 }), 60000);
+});
+
+test('buildContinuation: одобрение переходит в продолжение', () => {
+    const g = { id: 'g1', hostelId: 'hostel2', status: 'active', checkInDate: '2026-10-20T14:00:00.000Z', checkOutDate: '2026-10-25T07:00:00.000Z',
+        days: 5, pricePerNight: 65000, totalPrice: 325000, amountPaid: 325000, priceReductionAllowed: true, approvedPrice: 65000 };
+    const r = buildContinuation(g, { days: 3, price: 65000, now: new Date('2026-10-28T10:00:00') });
+    assert.equal(r.newGuest.pricePerNight, 65000);
+    assert.equal(r.newGuest.priceReductionAllowed, true);
+    assert.equal(r.newGuest.approvedPrice, 65000);
 });

@@ -316,6 +316,20 @@ export function buildPromoContinuation(g, opts = {}) {
 export const paidOf = (g) => Math.max(num(g?.amountPaid), PAY_FIELDS.reduce((s, k) => s + num(g?.[k]), 0));
 
 /**
+ * Цена суток продления. Одобренное понижение (флаг гостя или паспорт в списке
+ * разрешённых) действует и тогда, когда продление идёт по тарифу или по
+ * продолжению: раньше цена тарифа/продолжения стояла выше одобрения, и гость
+ * с одобрением на 65 000 продлевался по 70 000 (жалоба 28.10.2026).
+ * Цена тарифа ниже одобренной остаётся — одобрение не повышает цену.
+ */
+export function extensionRate({ approvedPrice = 0, tariffRate = 0, guestRate = 0 } = {}) {
+  const a = Math.round(num(approvedPrice));
+  const tr = Math.round(num(tariffRate));
+  if (a > 0) return tr > 0 ? Math.min(tr, a) : a;
+  return tr || Math.round(num(guestRate));
+}
+
+/**
  * Продлевается ли гость новым проживанием по тарифу: у филиала действуют
  * тарифы, а гость живёт по старой цене (нет plan или цена сохранена) или
  * пришёл ночным заездом.
@@ -352,7 +366,9 @@ export function buildContinuation(g, { days, price, plan, servicesPaid = 0, chec
     checkInDate: start.toISOString(), checkOutDate: end.toISOString(),
     days: n, pricePerNight: p, totalPrice: p * n,
     plan: plan === PLAN_FULL ? PLAN_FULL : PLAN_ROOM, tariff: 'standard', nonRefundable: false,
-    priceReductionAllowed: false, approvedPrice: 0,
+    // Одобренное понижение переходит в продолжение: гость тот же, и дальнейшие
+    // продления должны идти по одобренной цене, а не сбрасываться на тариф.
+    priceReductionAllowed: !!g.priceReductionAllowed, approvedPrice: Math.round(num(g.approvedPrice)),
     servicesTotal: num(g.servicesTotal),
     servicesPaidCarry: num(g.servicesPaidCarry) + Math.max(0, num(servicesPaid)),
     status: begun ? 'active' : 'booking', checkInDateTime: null, movedWithin: true, continuedFrom: g.id || '',

@@ -654,10 +654,12 @@ export function useGuestActions(ctx) {
    * продлённые сутки идут новым проживанием с конца оплаченных дней по цене
    * тарифа (utils/stayPlans.js buildContinuation). Оплата продления — на него.
    */
-  const extendToNewTariff = async (eg, { extendDays, payCash = 0, payCard = 0, payQR = 0 }) => {
+  const extendToNewTariff = async (eg, { extendDays, payCash = 0, payCard = 0, payQR = 0, rate = 0 }) => {
     const safeStaffId = currentUser.id || currentUser.login;
     const now = new Date();
-    const price = planPrice(eg.hostelId, PLAN_ROOM, eg.country, now, getConfig()) || Number(eg.pricePerNight) || 0;
+    // rate — цена из окна продления (с одобренным понижением); без неё — тариф
+    const price = Number(rate) > 0 ? Math.round(Number(rate))
+      : (planPrice(eg.hostelId, PLAN_ROOM, eg.country, now, getConfig()) || Number(eg.pricePerNight) || 0);
     const r = buildContinuation(eg, { days: extendDays, price, plan: PLAN_ROOM, servicesPaid: servicesPaidOf(eg.id), now });
     if (!r) { showNotification(t('planNothingToSwitch'), 'error'); return; }
     const nowIso = now.toISOString();
@@ -698,7 +700,9 @@ export function useGuestActions(ctx) {
       ...extData, extendDays: d,
       prevDays: Number(target.days) || 0, prevTotalPrice: Number(target.totalPrice) || 0, prevCheckOut: target.checkOutDate,
       prevBonusCheckOut: null, prevStatus: target.status,
-      newDays: (Number(target.days) || 0) + d, newTotalPrice: (Number(target.totalPrice) || 0) + d * (Number(target.pricePerNight) || 0),
+      newDays: (Number(target.days) || 0) + d,
+      // rate — цена из окна (одобренное понижение); без неё — цена продолжения
+      newTotalPrice: (Number(target.totalPrice) || 0) + d * (Number(extData.rate) > 0 ? Number(extData.rate) : (Number(target.pricePerNight) || 0)),
       newCheckOut: co.toISOString(), keepStatus: true,
     });
   };

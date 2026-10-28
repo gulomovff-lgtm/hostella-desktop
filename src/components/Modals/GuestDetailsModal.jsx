@@ -8,7 +8,7 @@ import QRCode from 'qrcode';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
-import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff } from '../../utils/stayPlans';
+import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff, extensionRate } from '../../utils/stayPlans';
 import { cadastreRegFor, cadastreValid } from '../../utils/registrationStatus';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
@@ -494,7 +494,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         : newTariffExt
             ? (planPrice(guest.hostelId, PLAN_ROOM, guest.country, new Date(), getConfig()) || minNightPrice(guest.hostelId, guest.roomNumber, new Date()))
             : 0;
-    const extRate = promoNextRate || ((isPriceApproved && approvedPrice > 0) ? approvedPrice : guestRate);
+    const extRate = extensionRate({ approvedPrice: isPriceApproved ? approvedPrice : 0, tariffRate: promoNextRate, guestRate });
     // Пакет-онли действует, только если понижение НЕ одобрено
     const packageOnly = isBelowMinRate && !isPriceApproved && !plansAtStay;
     // Невозвратный пакетный тариф: при выселении переплата не возвращается (пакет сгорает)
@@ -703,6 +703,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                 prevBonusCheckOut: guest.bonusCheckOutDate || null,
                 prevStatus:        guest.status,
                 newDays, newTotalPrice: newTotal, newCheckOut,
+                // Цена суток, которую видел кассир (с учётом одобренного понижения):
+                // продление по тарифу и по продолжению берут её, а не цену тарифа
+                rate: extRate,
             });
             setIsPaymentSubmitting(false);
         } else {
@@ -1431,7 +1434,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     <span className="shrink-0">☕</span>
                                     <p className="text-xs text-amber-800 font-semibold leading-snug">
                                         {(contTarget ? t('extendContinuationNote') : t('extendNewTariffNote'))
-                                            .replace('{price}', (promoNextRate || 0).toLocaleString())
+                                            .replace('{price}', (extRate || 0).toLocaleString())
                                             .replace('{date}', new Date(contTarget ? contTarget.checkOutDate : guest.checkOutDate).toLocaleDateString('ru-RU'))}
                                     </p>
                                 </div>
