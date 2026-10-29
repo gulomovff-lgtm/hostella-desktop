@@ -24,6 +24,7 @@ import {
 import { sendTelegramMessage, escapeTg } from './utils/telegram';
 import { notifyExpense } from './utils/expenseNotify';
 import { useSyncWatchdog } from './hooks/useSyncWatchdog';
+import { reportError, setErrorLogUser } from './utils/errorLog';
 import { checkAndMarkAlert } from './utils/alertsLog';
 
 import { 
@@ -132,6 +133,7 @@ import CashierTimelineView from './components/Views/CashierTimelineView';
 import { startExpenseCatsSync } from './utils/expenseCats';
 import SessionsView from './components/Views/SessionsView';
 import ClientVersionsView from './components/Views/ClientVersionsView';
+import ErrorsView from './components/Views/ErrorsView';
 import ClientDuplicatesView from './components/Views/ClientDuplicatesView';
 import PricePermissionsView from './components/Views/PricePermissionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
@@ -337,6 +339,7 @@ function App() {
   useEffect(() => {
     setWriteErrorHandler((e) => {
       console.error('[fsWrite]', e);
+      reportError('write', 'firestore.write', e?.code || e?.message || e, { message: String(e?.message || '').slice(0, 200) });
       showNotification((TRANSLATIONS[lang]?.writeRejected || 'Сервер не принял запись: ') + (e?.code || e?.message || e), 'error');
     });
   }, [showNotification, lang]);
@@ -437,6 +440,8 @@ function App() {
   // Отложенные операции без сети (Telegram-уведомления) — см. hooks/useOfflineQueue
   useOfflineQueue({ isOnline, showNotification });
   const unsyncedCount = useSyncWatchdog();
+  // Журнал ошибок подписывает записи тем, кто работает, и до входа копит их в памяти
+  useEffect(() => { setErrorLogUser(currentUser); }, [currentUser?.id, currentUser?.login, currentUser?.role, currentUser?.hostelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeShiftInMyHostel = useMemo(() => {
       if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'super') return null;
@@ -2391,6 +2396,10 @@ return (
 
                 {activeTab === 'sessions' && currentUser.role === 'super' && (
                     <SessionsView sessions={sessions} users={usersList} lang={lang} />
+                )}
+
+                {activeTab === 'errors' && currentUser.role === 'super' && (
+                    <ErrorsView currentUser={currentUser} showNotification={showNotification} />
                 )}
 
                 {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (

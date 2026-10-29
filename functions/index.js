@@ -383,6 +383,13 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
     const errors = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
 
     console.log(`Telegram [${notificationType || 'manual'}]: ${successful}/${sends.length} sent`, failed.length ? { failed } : '');
+    // Получатель недоступен (бота удалили из чата, «chat not found»…) — в журнал ошибок
+    for (const f of failed) {
+        await errorLogLib.logServerError(authDb(), authBase(), {
+            kind: 'telegram', context: 'telegram.recipient',
+            message: `${f.code || ''} — ${f.msg || ''}`, details: { chatId: String(f.chatId || ''), type: notificationType || 'manual' },
+        }, admin.firestore.FieldValue);
+    }
 
     return { success: successful > 0, sent: successful, total: sends.length, failed, errors };
 });
@@ -662,6 +669,7 @@ exports.createWebBooking = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'] }
 const AUTH_APP_ID = 'hostella-multi-v4';
 const authPolicy = require('./lib/authPolicy');
 const passwordLib = require('./lib/password');
+const errorLogLib = require('./lib/errorLog');
 
 const authDb = () => {
     const { getFirestore } = require('firebase-admin/firestore');
@@ -783,6 +791,10 @@ async function authenticateSuper(db, password, now, keys, states) {
  * Дедупликация: одинаковая ошибка не чаще раза в 10 минут (счётчик в authThrottle).
  */
 async function alertOwnerError(context, err, extra = {}) {
+    // В общий журнал ошибок (экран «Ошибки» у супера, вечерняя сводка)
+    await errorLogLib.logServerError(authDb(), authBase(), {
+        kind: 'function', context, message: String(err?.message || err || ''), details: extra, severity: 'critical',
+    }, admin.firestore.FieldValue);
     try {
         const botToken = process.env.TELEGRAM_BOT_TOKEN;
         if (!botToken) return;
@@ -1210,6 +1222,36 @@ exports.scheduledFirestoreBackup = functions
       await alertOwnerError('Автобэкап Firestore не выполнен', err);
       throw err;
     }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Вечерняя сводка ошибок (решение владельца 29.10.2026): сразу в Telegram
+// уходят только важные, остальное — одной сводкой за день в 21:00 по
+// Ташкенту в канал ошибок из настроек. Нет ошибок — сообщения нет.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.dailyErrorDigest = functions
+  .runWith({ memory: '256MB', timeoutSeconds: 120, secrets: ['TELEGRAM_BOT_TOKEN'] })
+  .pubsub.schedule("0 21 * * *")
+  .timeZone("Asia/Tashkent")
+  .onRun(async () => {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) return null;
+    const db = authDb();
+    const cfgSnap = await db.doc(`${authBase()}/settings/appConfig`).get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (cfg.errorAlertsEnabled === false) return null;
+    const chatId = String(cfg.errorAlertChatId || process.env.ERROR_ALERT_CHAT_ID || '').trim();
+    if (!chatId) return null;
+
+    const day = errorLogLib.dayKeyTashkent(new Date());
+    const snap = await db.collection(`${authBase()}/errorLog`).where('day', '==', day).get();
+    const text = errorLogLib.digestText(snap.docs.map((d) => d.data()), day, errorLogLib.ERROR_KINDS);
+    if (!text) return null;
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000) + '\n\nПодробно — «Ошибки» в программе (супер).', parse_mode: 'HTML' }),
+    });
+    return null;
   });
 
 // ─────────────────────────────────────────────────────────────────────────────

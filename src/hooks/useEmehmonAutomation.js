@@ -19,6 +19,7 @@ import { getConfig } from '../utils/appConfig';
 import { departureExtras, departureMarks } from '../utils/emehmonDeparture';
 import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
 import { autoRegisterAllowed, cadastreRegFor } from '../utils/registrationStatus';
+import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
 
 const LOCAL_COUNTRY = 'Узбекистан';
 const isLocal = (g) => g?.country === LOCAL_COUNTRY;
@@ -128,6 +129,8 @@ const handleDepartOutcome = useCallback(async (res, list, opts = {}) => {
     }
     const marks = departureMarks(res, { uploaded });
     ids.forEach(id => handleEmehmonFlag(id, marks));
+    emehmonSuccess();
+    if (marks.emehmonSheetError) emehmonFailure('sheet', list?.[0], { status: marks.emehmonSheetError.code || 'sheet_error', message: marks.emehmonSheetError.message }, { system: false });
     if (marks.emehmonSheet) say(t('emaDepartedSheet'), 'success');
     else if (marks.emehmonSheetError) say(t('emaDepartedNoSheet').replace('{msg}', marks.emehmonSheetError.message || marks.emehmonSheetError.code), 'warning');
     else say(t('emaDepartedCount').replace('{n}', ids.length || 1), 'success');
@@ -140,8 +143,10 @@ const handleDepartOutcome = useCallback(async (res, list, opts = {}) => {
   } else if (status === 'multiple') {
     say(t('emaMultipleMatches'), 'warning');
   } else if (status === 'not_found') {
+    emehmonFailure('depart', list?.[0], res, { system: false });
     say(t('emaNotFoundDepart'), 'error');
   } else {
+    emehmonFailure('depart', list?.[0], res);
     say(t('emaAutoDepartFail'), 'error');
   }
   setEmehmonDepartingIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
@@ -205,6 +210,7 @@ const handleFetchSheet = useCallback(async (guest) => {
   } else if (res?.status === 'not_found') {
     showNotification(t('emsFetchNotFound'), 'warning');
   } else {
+    emehmonFailure('sheet', guest, res);
     showNotification(t('emsFetchFail').replace('{msg}', res?.message || res?.code || res?.status || ''), 'error');
   }
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -423,6 +429,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
       emehmonStayStart: emehmonStayStartOf(guest),
       emehmonAmount: emehmonAmountFor(guest.country),
     });
+    emehmonSuccess();
     if (!quiet) showNotification(t(silent ? 'emaRegisteredAuto' : 'emaRegistered').replace('{name}', name), 'success');
     return true;
   }
@@ -433,6 +440,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
   }
   if (st === 'not_found') {
     await handleEmehmonFlag(guest.id, { emehmonRegError: REG_ERROR_TEXT, emehmonRegErrorAt: now });
+    emehmonFailure('arrival', guest, res, { system: false });
     if (!isLocal(guest) && !quiet) setKppFixPrompt({ guest, notFoundText: res?.notFoundText || '' });
     if (!quiet) showNotification(t(silent ? 'emaNotInGovDb' : 'emaNotInGovDbManual').replace('{name}', name), 'warning');
     return false;
@@ -454,11 +462,13 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
           .replace('{n}', rec.plan.occupiedAfter + rec.plan.unknown.length).replace('{cap}', rec.plan.capacity || '?')
           .replace('{who}', namesOf([...rec.plan.keep, ...rec.plan.unknown]) || '—');
         await handleEmehmonFlag(guest.id, { emehmonNoRoomAt: now, emehmonRegNote: note });
+        emehmonFailure('arrival', guest, { status: 'room_full', message: note }, { system: false });
         if (!quiet) showNotification(note, 'warning');
         return false;
       }
     }
     await handleEmehmonFlag(guest.id, { emehmonNoRoomAt: now });
+    emehmonFailure('arrival', guest, res?.status ? res : { status: 'no_room' });
     if (!silent) showNotification(t('emaRoomMismatch').replace('{name}', name), 'warning');
     return false;
   }
@@ -481,11 +491,13 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
       emehmonStayStart: emehmonStayStartOf(guest),
           emehmonAmount: emehmonAmountFor(guest.country),
         });
+        emehmonSuccess();
         if (!quiet) showNotification(t('emaAlreadyInPortal').replace('{name}', name), 'success');
         return true;
       }
     }
     await handleEmehmonFlag(guest.id, { emehmonRegError: 'e-mehmon: ' + String(res?.message || '').slice(0, 140), emehmonRegErrorAt: now });
+    emehmonFailure('arrival', guest, res);
     if (!quiet) showNotification(t('emaPortalError').replace('{name}', name).replace('{msg}', String(res?.message || '').slice(0, 90)), 'error');
     return false;
   }
@@ -496,6 +508,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
   // никакой отметки: молча лежал в «Оформить» и каждые 5 минут занимал
   // попытку добора у остальных. Теперь — след на госте и пауза (kppRules).
   await handleEmehmonFlag(guest.id, { emehmonLastTry: lastTryMark(guest, st, res, now) });
+  emehmonFailure('arrival', guest, res, { system: st !== 'no_citizen' });
   if (st === 'no_citizen') {
     if (!silent) { showNotification(t('emaNoCitizenOption').replace('{country}', guest.country || ''), 'warning'); if (!isLocal(guest)) setEmehmonArrivalPrompt(guest); }
     return false;
@@ -879,6 +892,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
       if (manual) showNotification(t('emaLoginRepeat'), 'info');
     } else {
       patchEmehmon(hostelId, { status: 'error', at: Date.now() });
+      emehmonFailure('list', null, res, { hostelId });
       if (manual) showNotification(t('emaListFail'), 'error');
       // Список не пришёл, но сам портал жив (не need_login): добор по свежим
       // заездам всё равно делаем — иначе одна ошибка списка стопорила регистрацию.
@@ -991,8 +1005,9 @@ const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = nul
       if (res.failed > 0) showNotification(t('emaAmountsPartFail').replace('{n}', res.failed), 'warning');
     } else if (res?.status === 'need_login' && manual) {
       showNotification(t('emaLoginRecalc'), 'info');
-    } else if (manual) {
-      showNotification(t('emaRecalcFail') + (res?.message || res?.status || t('error')), 'error');
+    } else if (res?.status !== 'need_login') {
+      emehmonFailure('recalc', null, res, { hostelId });
+      if (manual) showNotification(t('emaRecalcFail') + (res?.message || res?.status || t('error')), 'error');
     }
   } finally {
     emehmonRecalcBusy.current.delete(hostelId);

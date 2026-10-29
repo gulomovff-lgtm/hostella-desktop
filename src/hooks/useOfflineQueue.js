@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { loadFromElectron, getQueue, dequeuePayment, isFreshTelegram, delayedTelegramText } from '../utils/offlineQueue';
 import { closeSession } from '../utils/session';
 import { sendTelegramMessage, isNetworkFailure } from '../utils/telegram';
+import { reportError } from '../utils/errorLog';
 
 /**
  * useOfflineQueue — отложенные операции, накопленные без сети.
@@ -71,9 +72,11 @@ export function useOfflineQueue({ isOnline, showNotification }) {
           } catch (err) {
             if (isNetworkFailure(err)) break;       // сеть снова пропала — дошлём позже
             console.warn('[offlineQueue] уведомление отклонено сервером:', err?.message);
+            reportError('telegram', 'telegram.queue', err?.code || err?.message || err, { type: e.notifType || '' });
             dequeuePayment(e._id);                  // отказ по существу — повтор не поможет
           }
         }
+        if (dropped > 0) reportError('telegram', 'telegram.queue.expired', 'Отложенные уведомления устарели и не отправлены', { dropped }, { severity: 'warning' });
         if (dropped > 0) console.info(`[offlineQueue] отброшено устаревших уведомлений: ${dropped}`);
         const parts = [];
         if (payments.length > 0) parts.push(`${payments.length} оплат`);

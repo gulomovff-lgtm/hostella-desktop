@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { noteServerLink } from '../utils/serverLink';
 import { visibleAuditFor } from '../utils/auditScope';
 import { collection, doc, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
@@ -141,6 +142,7 @@ export const useAppData = (firebaseUser, currentUser) => {
       (snap) => {
         setPermissionError(false);
         if (!snap.metadata.fromCache) setIsOnline(true);
+        noteServerLink(!snap.metadata.fromCache);
         // Метаданные (fromCache/pending) меняются часто: массив комнат
         // пересобираем только при настоящих изменениях документов.
         if (snap.docChanges().length || !roomsSeen) {

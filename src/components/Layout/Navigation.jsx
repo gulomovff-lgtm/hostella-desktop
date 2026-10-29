@@ -7,7 +7,7 @@ import {
     Settings, Users2, Building2, ClipboardCheck, BarChart3, Monitor, History, Home,
     Eye, EyeOff, GripVertical, PanelLeft, PanelRight, PanelTop, PanelBottom,
     SlidersHorizontal, RotateCcw, FolderOpen, Folder, ChevronDown, ChevronRight,
-    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon, Merge, ShoppingBag, Activity } from 'lucide-react';
+    FolderPlus, FolderMinus, Pencil, Check, ShieldCheck, Sun, Moon, Merge, ShoppingBag, Activity, AlertOctagon } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { DEFAULT_FOLDERS, DEFAULT_CASHIER_FOLDERS, DEFAULT_CASHIER_ORDER } from '../../hooks/useNavPrefs';
 
@@ -39,6 +39,7 @@ const ALL_NAV_ITEMS = (t, pendingBookingsCount, pendingTasksCount, registrations
     { id: 'hostelconfig',   icon: Settings,          label: t('hostelSettings'), adminOnly: true                        },
     { id: 'auditlog',       icon: ClipboardList,     label: t('auditHistory'),   adminOnly: true                        },
     { id: 'sessions',       icon: Monitor,           label: t('sessions2'),      superOnly: true                        },
+    { id: 'errors',         icon: AlertOctagon,      label: t('navErrors'),      superOnly: true                        },
     { id: 'versions',       icon: ClipboardCheck,    label: t('navClientVersions'),adminOnly: true                      },
 ];
 

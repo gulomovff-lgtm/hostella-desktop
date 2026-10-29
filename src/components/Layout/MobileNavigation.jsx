@@ -3,7 +3,7 @@ import {
     LayoutDashboard, BedDouble, Calendar, Globe, AlertCircle, CheckSquare,
     Wallet, Users, UserCog, Clock, Tag, ClipboardList, Settings, BellRing,
     LogOut, MoreHorizontal, UserPlus, X, Building2, Users2, FileText, Lock,
-    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge, ShoppingBag, Activity } from 'lucide-react';
+    ClipboardCheck, BarChart3, MapPin, ShieldCheck, Merge, ShoppingBag, Activity, AlertOctagon } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 
 // ─── Primary tabs always shown in the bottom bar ─────────────────────────────
@@ -61,6 +61,7 @@ const MORE_GROUPS_ADMIN = (t) => [
             { id: 'promos',       icon: Tag,            label: t('promos2'),        adminOnly: true },
             { id: 'hostelconfig', icon: Settings,       label: t('hostelSettings'), adminOnly: true },
             { id: 'auditlog',     icon: ClipboardList,  label: t('auditHistory'),   adminOnly: true },
+            { id: 'errors',       icon: AlertOctagon,   label: t('navErrors'),      superOnly: true },
         ],
     },
 ];

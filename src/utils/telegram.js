@@ -1,6 +1,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
 import { enqueueTelegram } from './offlineQueue';
+import { reportError } from './errorLog';
 
 // API токен не хранится на фронте — всё через Cloud Functions
 
@@ -53,6 +54,8 @@ export const sendTelegramMessage = async (text, notificationType = null, chatIds
         }
         // Ошибку не пробрасываем — фоновые уведомления не должны ломать UX
         console.error('Telegram notification failed:', error?.message);
+        reportError('telegram', 'telegram.send', error?.code || error?.message || error,
+            { type: notificationType || (chatIds ? 'direct' : 'manual'), message: String(error?.message || '').slice(0, 200) });
         return null;
     }
 };

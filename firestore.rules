@@ -213,6 +213,18 @@ service cloud.firestore {
         allow update, delete: if isSuper();
       }
 
+      // ── errorLog ──────────────────────────────────────────────────────────
+      // Журнал ошибок (utils/errorLog.js, 29.10.2026). Пишет любой сотрудник:
+      // строка на ошибку за день, повторы — счётчиком (update). Читает и
+      // отмечает «разобрано» только супер (решение владельца); сотрудник
+      // отметку снять или поставить не может.
+      match /errorLog/{doc} {
+        allow read, delete: if isSuper();
+        allow create: if isStaff() && !request.resource.data.keys().hasAny(['resolved', 'resolvedAt', 'resolvedBy']);
+        allow update: if isSuper() || (isStaff()
+                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['resolved', 'resolvedAt', 'resolvedBy']));
+      }
+
       // Закрытые коллекции — только Admin SDK (функции).
       match /userSecrets/{doc}  { allow read, write: if false; }
       match /authThrottle/{doc} { allow read, write: if false; }

@@ -5,6 +5,7 @@ import { APP_VERSION } from '../constants/config';
 import { getDeviceId } from './clientTelemetry';
 import { getConfig } from './appConfig';
 import { auditCollectionFor } from './auditScope';
+import { reportError } from './errorLog';
 
 /**
  * Write an audit log entry to Firestore.
@@ -44,7 +45,7 @@ const escapeHtml = (s = '') =>
     String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Шлёт алерт об ошибке в Telegram, если не превышены лимиты. Никогда не бросает. */
-const maybeAlertTelegram = (context, message, details = {}) => {
+export const maybeAlertTelegram = (context, message, details = {}) => {
     try {
         // В режиме разработки не спамим — только прод-сборка.
         if (!import.meta?.env?.PROD) return;
@@ -99,17 +100,7 @@ export const logSystemError = async (context, error, details = {}) => {
     // Проактивный алерт — не дожидаясь записи в БД.
     maybeAlertTelegram(context, message, details);
 
-    try {
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'), {
-            action:    'system_error',
-            details:   { context, message, stack, ...details },
-            userId:    'system',
-            userName:  'System',
-            userRole:  'system',
-            hostelId:  null,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (e) {
-        console.error('[audit:system_error]', e.message);
-    }
+    // Падения — в общий журнал ошибок (utils/errorLog.js; раньше — в auditLog
+    // вперемешку с действиями кассиров). Telegram-тревога уже ушла выше.
+    reportError('crash', context, message, { stack, ...details });
 };

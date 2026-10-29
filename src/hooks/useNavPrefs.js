@@ -25,7 +25,7 @@ export const DEFAULT_FOLDERS = [
         id: 'management',
         label: 'Управление',
         emoji: '⚙️',
-        items: ['staff', 'shifts', 'telegram', 'promos', 'hostelconfig', 'auditlog', 'sessions'],
+        items: ['staff', 'shifts', 'telegram', 'promos', 'hostelconfig', 'auditlog', 'sessions', 'errors'],
         open: false,
     },
 ];
