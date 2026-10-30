@@ -94,6 +94,12 @@ export async function checkPassportInGov(guest) {
   }
 }
 
+// Вход в портал (кнопка «Вход» на вкладке e-mehmon): окно на /listok, логин и
+// пароль филиала подставлены — капчу и «Войти» кассир делает сам.
+export function openEmehmonLogin(hostelId) {
+  return openWith({ hostelId, mode: 'login', path: '/listok' });
+}
+
 // Убытие/печать — окно на /listok, скрипт найдёт и выделит гостя
 export function openEmehmonDeparture(guest) {
   return openWith({ ...buildEmehmonPayload(guest), mode: 'departure', path: '/listok' });

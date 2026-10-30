@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import RoomPicker from './RoomPicker';
 import WorkerGroupRow from './WorkerGroupRow';
@@ -14,6 +14,22 @@ const PeriodEditModal = ({ group, entry, rooms, savedSpecialties, onUpdate, onRe
     // Если бригада заполнена — кол-во людей берётся из неё (read-only)
     const brigTotal = (entry.workerGroups || []).reduce((s, wg) => s + (wg.specialty ? (parseInt(wg.count) || 0) : 0), 0);
     const shownPeople = brigTotal > 0 ? brigTotal : (parseInt(people) || 0);
+    // Даты пишутся в базу при уходе из поля и при закрытии окна, а не на каждое
+    // изменение: запись переписывает весь список периодов договора и пересчитывает
+    // экран договоров — ввод даты по цифрам заметно подвисал.
+    const pending = useRef({});
+    const onUpdateRef = useRef(onUpdate);
+    onUpdateRef.current = onUpdate;
+    const flushDates = () => {
+        const patch = pending.current;
+        pending.current = {};
+        if (Object.keys(patch).length) onUpdateRef.current(patch);
+    };
+    const setDate = (key, value) => {
+        if (key === 'checkIn') setCheckIn(value); else setCheckOut(value);
+        pending.current = { ...pending.current, [key]: value };
+    };
+    useEffect(() => flushDates, []); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         const onKey = (e) => { if (e.key === 'Escape') onClose(); };
         document.addEventListener('keydown', onKey);
@@ -33,12 +49,12 @@ const PeriodEditModal = ({ group, entry, rooms, savedSpecialties, onUpdate, onRe
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className={LBL}>{t('checkinShort')}</label>
-                            <input type="date" value={checkIn} onChange={e => { setCheckIn(e.target.value); onUpdate({ checkIn: e.target.value }); }}
+                            <input type="date" value={checkIn} onChange={e => setDate('checkIn', e.target.value)} onBlur={flushDates}
                                 className={INP + ' w-full'} />
                         </div>
                         <div>
                             <label className={LBL}>{t('checkoutDate')}</label>
-                            <input type="date" value={checkOut} onChange={e => { setCheckOut(e.target.value); onUpdate({ checkOut: e.target.value }); }}
+                            <input type="date" value={checkOut} onChange={e => setDate('checkOut', e.target.value)} onBlur={flushDates}
                                 className={INP + ' w-full'} />
                         </div>
                     </div>
@@ -84,7 +100,7 @@ const PeriodEditModal = ({ group, entry, rooms, savedSpecialties, onUpdate, onRe
                 </div>
                 <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-slate-100 shrink-0">
                     {/* removeEntry сам спрашивает подтверждение */}
-                    <button onClick={async () => { if (await onRemove() !== false) onClose(); }}
+                    <button onClick={async () => { if (await onRemove() !== false) { pending.current = {}; onClose(); } }}
                         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-bold text-rose-500 hover:bg-rose-50 transition-colors">
                         <Trash2 size={14} /> {t('msmDeletePeriod')}
                     </button>

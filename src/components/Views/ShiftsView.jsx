@@ -104,6 +104,18 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
         return list.sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
     }, [shifts, cashierIds, hostelId, isAdmin, currentUser.id, dateRange, filterCashierId]);
 
+    // Оплаты по кассиру с разобранным временем — один раз на список. Раньше
+    // каждая строка смены перебирала все оплаты и разбирала их даты заново.
+    const payTimesByStaff = useMemo(() => {
+        const m = new Map();
+        for (const p of payments) {
+            if (p.type === 'cash_to_terminal') continue;
+            if (!m.has(p.staffId)) m.set(p.staffId, []);
+            m.get(p.staffId).push({ t: new Date(p.date).getTime(), p });
+        }
+        return m;
+    }, [payments]);
+
     const kpi = useMemo(() => {
         // Считаем закрытые + активные старше 3ч (как полные отработанные сутки),
         // половинки (50/50) дают по 0.5 суток и половину ставки каждому
@@ -719,13 +731,10 @@ const ShiftsView = ({ shifts, users, allUsers, currentUser, onStartShift, onEndS
                                 const effR   = effShiftRange(s);
                                 const salary = effR ? shiftSalary(s) : null;
                                 const partnerName = s.handedToName || s.handedFromName || s.sharedWithName || null;
-                                        const shiftPay = payments.filter(p => {
-                                                if (p.type === 'cash_to_terminal') return false;
-                                                const t = new Date(p.date).getTime();
-                                                const st = new Date(s.startTime).getTime();
-                                                const en = s.endTime ? new Date(s.endTime).getTime() : Date.now();
-                                                return (p.staffId === s.staffId) && t >= st && t <= en;
-                                            });
+                                        const st = new Date(s.startTime).getTime();
+                                            const en = s.endTime ? new Date(s.endTime).getTime() : Date.now();
+                                            const shiftPay = (payTimesByStaff.get(s.staffId) || [])
+                                                .filter(x => x.t >= st && x.t <= en).map(x => x.p);
                                             const sCash = shiftPay.reduce((a,p)=>a+(p.cash!==undefined?parseInt(p.cash)||0:p.method==='cash'?parseInt(p.amount)||0:0),0);
                                             const sCard = shiftPay.reduce((a,p)=>a+(p.card!==undefined?parseInt(p.card)||0:p.method==='card'?parseInt(p.amount)||0:0),0);
                                             const sQR   = shiftPay.reduce((a,p)=>a+(p.qr!==undefined?parseInt(p.qr)||0:p.method==='qr'?parseInt(p.amount)||0:0),0);

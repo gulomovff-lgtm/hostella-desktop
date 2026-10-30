@@ -466,7 +466,8 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
     const SUCCESS_CHECK = "(function(){try{var ic=document.querySelector('.swal2-popup .swal2-icon.swal2-success')||document.querySelector('.swal2-success.swal2-icon-show');var t=document.querySelector('.swal2-title');var ok=t&&/saqland|muvaffaqiyat|success|\\u0441\\u043e\\u0445\\u0440\\u0430\\u043d/i.test(t.textContent||'');return !!(ic&&ok);}catch(e){return false;}})()";
     const arrivalTimer = setInterval(() => {
       if (!emehmonWindow || emehmonWindow.isDestroyed()) { clearInterval(arrivalTimer); return; }
-      if (((arrivalPayload && arrivalPayload.mode) || '') === 'departure') return; // только прибытие
+      const mode = (arrivalPayload && arrivalPayload.mode) || '';
+      if (mode === 'departure' || mode === 'login') return; // только прибытие
       emehmonWindow.webContents.executeJavaScript(SUCCESS_CHECK, true)
         .then((done) => { if (done) { clearInterval(arrivalTimer); finishArrival(); } })
         .catch(() => {});

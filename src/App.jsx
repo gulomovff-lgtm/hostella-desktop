@@ -144,7 +144,7 @@ import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction } from './utils/auditLog';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
-import { openEmehmonArrival } from './utils/emehmon';
+import { openEmehmonArrival, openEmehmonLogin } from './utils/emehmon';
 import { minNightPrice } from './utils/pricing';
 import { useGuestActions }        from './hooks/useGuestActions';
 
@@ -155,6 +155,8 @@ import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { hasRegistration, isLivingNow } from './utils/registrationStatus';
 import { HISTORY_TABS } from './utils/historyWindow';
+// Экраны, которым нужен журнал действий (подписка только пока они открыты)
+const AUDIT_TABS = new Set(['auditlog', 'timeline', 'guesthistory']);
 import { useExpenseActions }      from './hooks/useExpenseActions';
 import { useShopActions }         from './hooks/useShopActions';
 import { useRecurringExpenses }   from './hooks/useRecurringExpenses';
@@ -364,20 +366,27 @@ function App() {
     manualStayGroups,
     priceWhitelist,
     clientVersions,
-    isOnline, permissionError, isDataReady, isAllDataReady, historyReady, requestHistory,
-  } = useAppData(firebaseUser, currentUser);
+    isOnline, permissionError, isDataReady, isAllDataReady, historyReady, requestHistory, releaseHistory,
+  } = useAppData(firebaseUser, currentUser, { wantAudit: AUDIT_TABS.has(activeTab) });
 
-  // Полная история — когда она нужна (utils/historyWindow): экран отчётов,
-  // долгов, истории… А админу и суперу — фоном через полминуты после входа,
-  // чтобы у владельца цифры везде были полными, а касса входила быстро.
-  const needsHistoryTab = HISTORY_TABS.has(activeTab);
+  // Полная история — только когда она нужна (utils/historyWindow): экран
+  // отчётов, долгов, истории… или «за всё время» на панели. Раньше админ и
+  // супер грузили её фоном через полминуты после входа и держали до выхода:
+  // все экраны пересчитывались по тысячам старых записей на каждое действие
+  // любой кассы, и админка висла (жалоба 30.10.2026). Ушли с таких экранов —
+  // через 25 минут история отпускается, приложение снова лёгкое. Не раньше:
+  // Firestore берёт деньги за ВСЕ документы заново, если подписку открыть
+  // позже чем через 30 минут, а в пределах 30 минут — только за изменения.
+  const [dashAllTime, setDashAllTime] = useState(false);
+  const needsHistoryTab = HISTORY_TABS.has(activeTab) || (activeTab === 'dashboard' && dashAllTime);
   useEffect(() => { if (needsHistoryTab) requestHistory(); }, [needsHistoryTab, requestHistory]);
-  const historyInBackground = currentUser?.role === 'admin' || currentUser?.role === 'super' || currentUser?.permissions?.viewStats === true;
   useEffect(() => {
-    if (!isAllDataReady || !historyInBackground) return undefined;
-    const tm = setTimeout(requestHistory, 30 * 1000);
+    if (needsHistoryTab) return undefined;
+    const tm = setTimeout(releaseHistory, 25 * 60 * 1000);
     return () => clearTimeout(tm);
-  }, [isAllDataReady, historyInBackground, requestHistory]);
+  }, [needsHistoryTab, releaseHistory]);
+  useEffect(() => { if (activeTab !== 'dashboard') setDashAllTime(false); }, [activeTab]);
+  const loadDashAllTime = useCallback(() => setDashAllTime(true), []);
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
   const [groupCheckInModal,  setGroupCheckInModal ] = useState(false);
@@ -2044,6 +2053,8 @@ return (
                         onMarkEmehmonOut={(id) => handleEmehmonFlag(id, { emehmonOut: true, emehmonOutAt: new Date().toISOString() })}
                         catalog={catalog}
                         onServeBreakfast={handleServeBreakfast}
+                        historyFull={historyReady}
+                        onLoadAllTime={loadDashAllTime}
                     />
                 )}
 
@@ -2273,7 +2284,7 @@ return (
                                 showNotification('Вход в e-mehmon доступен только в десктоп-приложении', 'info');
                                 return;
                             }
-                            window.electronAPI.openEmehmon({ hostelId: emehmonHostelId });
+                            openEmehmonLogin(emehmonHostelId);
                             showNotification('Открываю e-mehmon — войдите и нажмите «Обновить»', 'info');
                         }}
                         onRegisterEmehmon={(g) => { openEmehmonArrival(g); showNotification('Открываю e-mehmon — нажмите «Заполнить из Hostella»', 'info'); }}

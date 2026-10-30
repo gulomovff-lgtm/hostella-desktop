@@ -205,6 +205,98 @@ const ExpenseEditForm = ({ expense, onSave, onCancel, saving, t }) => {
     );
 };
 
+
+// ─── Окно «Массовое добавление расходов одним числом» ─────────────────────────
+// Своё состояние строк: ввод описания не перерисовывает экран расходов.
+function BulkAddExpensesModal({ t, allCatNames, onClose, onSubmit }) {
+    const [bulkDate, setBulkDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [bulkRows, setBulkRows] = useState([{ id: 1, category: '', amount: '', comment: '' }]);
+    const [bulkAddBusy, setBulkAddBusy] = useState(false);
+    const bulkRowId = useRef(1);
+
+    const addBulkRow = () => setBulkRows(r => [...r, { id: ++bulkRowId.current, category: '', amount: '', comment: '' }]);
+    const updBulkRow = (id, patch) => setBulkRows(r => r.map(x => x.id === id ? { ...x, ...patch } : x));
+    const delBulkRow = (id) => setBulkRows(r => r.length > 1 ? r.filter(x => x.id !== id) : r);
+    const bulkAddTotal = useMemo(
+        () => bulkRows.reduce((s, r) => s + (parseInt(r.amount, 10) || 0), 0), [bulkRows]);
+    const bulkAddValid = bulkRows.filter(r => r.category && (parseInt(r.amount, 10) || 0) > 0);
+
+    const submitBulkAdd = async () => {
+        if (!bulkAddValid.length || bulkAddBusy) return;
+        setBulkAddBusy(true);
+        try {
+            // Дата одна на все записи — «одним числом»
+            const d = new Date(bulkDate + 'T12:00:00');
+            await onSubmit?.(
+                bulkAddValid.map(r => ({ category: r.category, amount: parseInt(r.amount, 10), comment: r.comment })),
+                isNaN(d.getTime()) ? undefined : d.toISOString());
+            onClose();
+        } finally {
+            setBulkAddBusy(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => !bulkAddBusy && onClose()}>
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+                    <div className="flex items-center gap-2 font-black text-slate-800">
+                        <ClipboardList size={18} className="text-rose-500" /> {t('expBulkAddModalTitle')}
+                    </div>
+                    <button onClick={() => onClose()} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
+                </div>
+
+                <div className="px-5 py-3 border-b border-slate-100 shrink-0 flex items-center gap-3 flex-wrap">
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">{t('expDateForAll')}</label>
+                        <input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)}
+                            className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400" />
+                    </div>
+                    <div className="ml-auto text-right">
+                        <div className="text-[10px] font-black text-slate-400 uppercase">{t('total')}</div>
+                        <div className="text-xl font-black text-rose-600 tabular-nums">{fmt(bulkAddTotal)} {t('expSumWord')}</div>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+                    {bulkRows.map((r, i) => (
+                        <div key={r.id} className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-300 w-5 shrink-0 text-right">{i + 1}</span>
+                            <select value={r.category} onChange={e => updBulkRow(r.id, { category: e.target.value })}
+                                className="w-[34%] px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400">
+                                <option value="">{t('expCategoryOption')}</option>
+                                {allCatNames.map(c => <option key={c} value={c}>{getCat(c).icon} {c}</option>)}
+                            </select>
+                            <input value={r.amount} inputMode="numeric" placeholder={t('amount')}
+                                onChange={e => updBulkRow(r.id, { amount: e.target.value.replace(/\D/g, '') })}
+                                onKeyDown={e => { if (e.key === 'Enter' && i === bulkRows.length - 1) addBulkRow(); }}
+                                className="w-[22%] px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-black text-right tabular-nums text-slate-800 outline-none focus:border-rose-400" />
+                            <input value={r.comment} placeholder={t('expCommentOptional')}
+                                onChange={e => updBulkRow(r.id, { comment: e.target.value })}
+                                className="flex-1 min-w-0 px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm text-slate-700 outline-none focus:border-rose-400" />
+                            <button onClick={() => delBulkRow(r.id)} disabled={bulkRows.length === 1}
+                                className="p-2 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 disabled:opacity-30 shrink-0"><Trash2 size={14} /></button>
+                        </div>
+                    ))}
+                    <button onClick={addBulkRow}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 text-sm font-bold hover:border-rose-400 hover:text-rose-500 transition-colors">
+                        <Plus size={14} /> {t('expMoreRow')}
+                    </button>
+                </div>
+
+                <div className="flex gap-2 px-5 py-4 border-t border-slate-100 shrink-0">
+                    <button onClick={() => onClose()} disabled={bulkAddBusy}
+                        className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
+                    <button onClick={submitBulkAdd} disabled={!bulkAddValid.length || bulkAddBusy}
+                        className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
+                        <Check size={16} /> {bulkAddBusy ? t('expSaving') : t('expAddCount').replace('{n}', bulkAddValid.length)}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function ExpensesView({
     filteredExpenses = [],
     expenseCatFilter,
@@ -449,36 +541,11 @@ function ExpensesView({
         }
         setMovingId(null); setMoveTarget(''); setMoveStaff('');
     }, [moveTarget, moveStaff, onEditExpenseCategory, onUpdateExpense]);
-
     // ── Массовое добавление расходов одним числом ─────────────────────────────
+    // Строки живут в самом окне (BulkAddExpensesModal): раньше каждая буква
+    // описания перерисовывала весь экран расходов со списками и итогами.
     const [bulkAddOpen, setBulkAddOpen] = useState(false);
-    const [bulkDate, setBulkDate] = useState(() => new Date().toISOString().slice(0, 10));
-    const [bulkRows, setBulkRows] = useState([{ id: 1, category: '', amount: '', comment: '' }]);
-    const [bulkAddBusy, setBulkAddBusy] = useState(false);
-    const bulkRowId = useRef(1);
-
-    const addBulkRow = () => setBulkRows(r => [...r, { id: ++bulkRowId.current, category: '', amount: '', comment: '' }]);
-    const updBulkRow = (id, patch) => setBulkRows(r => r.map(x => x.id === id ? { ...x, ...patch } : x));
-    const delBulkRow = (id) => setBulkRows(r => r.length > 1 ? r.filter(x => x.id !== id) : r);
-    const bulkAddTotal = useMemo(
-        () => bulkRows.reduce((s, r) => s + (parseInt(r.amount, 10) || 0), 0), [bulkRows]);
-    const bulkAddValid = bulkRows.filter(r => r.category && (parseInt(r.amount, 10) || 0) > 0);
-
-    const submitBulkAdd = async () => {
-        if (!bulkAddValid.length || bulkAddBusy) return;
-        setBulkAddBusy(true);
-        try {
-            // Дата одна на все записи — «одним числом»
-            const d = new Date(bulkDate + 'T12:00:00');
-            await onAddExpensesBulk?.(
-                bulkAddValid.map(r => ({ category: r.category, amount: parseInt(r.amount, 10), comment: r.comment })),
-                isNaN(d.getTime()) ? undefined : d.toISOString());
-            setBulkRows([{ id: ++bulkRowId.current, category: '', amount: '', comment: '' }]);
-            setBulkAddOpen(false);
-        } finally {
-            setBulkAddBusy(false);
-        }
-    };
+    const closeBulkAdd = useCallback(() => setBulkAddOpen(false), []);
 
     // ── Массовое выделение и перенос ──────────────────────────────────────────
     const [selectMode, setSelectMode] = useState(false);
@@ -1470,66 +1537,10 @@ function ExpensesView({
                     </div>
                 </div>
             )}
-
             {/* ── Массовое добавление расходов одним числом ── */}
             {bulkAddOpen && (
-                <div className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => !bulkAddBusy && setBulkAddOpen(false)}>
-                    <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
-                            <div className="flex items-center gap-2 font-black text-slate-800">
-                                <ClipboardList size={18} className="text-rose-500" /> {t('expBulkAddModalTitle')}
-                            </div>
-                            <button onClick={() => setBulkAddOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
-                        </div>
-
-                        <div className="px-5 py-3 border-b border-slate-100 shrink-0 flex items-center gap-3 flex-wrap">
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">{t('expDateForAll')}</label>
-                                <input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)}
-                                    className="px-3 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400" />
-                            </div>
-                            <div className="ml-auto text-right">
-                                <div className="text-[10px] font-black text-slate-400 uppercase">{t('total')}</div>
-                                <div className="text-xl font-black text-rose-600 tabular-nums">{fmt(bulkAddTotal)} {t('expSumWord')}</div>
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
-                            {bulkRows.map((r, i) => (
-                                <div key={r.id} className="flex items-center gap-2">
-                                    <span className="text-xs font-black text-slate-300 w-5 shrink-0 text-right">{i + 1}</span>
-                                    <select value={r.category} onChange={e => updBulkRow(r.id, { category: e.target.value })}
-                                        className="w-[34%] px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-rose-400">
-                                        <option value="">{t('expCategoryOption')}</option>
-                                        {allCatNames.map(c => <option key={c} value={c}>{getCat(c).icon} {c}</option>)}
-                                    </select>
-                                    <input value={r.amount} inputMode="numeric" placeholder={t('amount')}
-                                        onChange={e => updBulkRow(r.id, { amount: e.target.value.replace(/\D/g, '') })}
-                                        onKeyDown={e => { if (e.key === 'Enter' && i === bulkRows.length - 1) addBulkRow(); }}
-                                        className="w-[22%] px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm font-black text-right tabular-nums text-slate-800 outline-none focus:border-rose-400" />
-                                    <input value={r.comment} placeholder={t('expCommentOptional')}
-                                        onChange={e => updBulkRow(r.id, { comment: e.target.value })}
-                                        className="flex-1 min-w-0 px-2.5 py-2 bg-white border-2 border-slate-200 rounded-xl text-sm text-slate-700 outline-none focus:border-rose-400" />
-                                    <button onClick={() => delBulkRow(r.id)} disabled={bulkRows.length === 1}
-                                        className="p-2 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 disabled:opacity-30 shrink-0"><Trash2 size={14} /></button>
-                                </div>
-                            ))}
-                            <button onClick={addBulkRow}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 text-sm font-bold hover:border-rose-400 hover:text-rose-500 transition-colors">
-                                <Plus size={14} /> {t('expMoreRow')}
-                            </button>
-                        </div>
-
-                        <div className="flex gap-2 px-5 py-4 border-t border-slate-100 shrink-0">
-                            <button onClick={() => setBulkAddOpen(false)} disabled={bulkAddBusy}
-                                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50">{t('cancel')}</button>
-                            <button onClick={submitBulkAdd} disabled={!bulkAddValid.length || bulkAddBusy}
-                                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
-                                <Check size={16} /> {bulkAddBusy ? t('expSaving') : t('expAddCount').replace('{n}', bulkAddValid.length)}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <BulkAddExpensesModal t={t} allCatNames={allCatNames}
+                    onClose={closeBulkAdd} onSubmit={onAddExpensesBulk} />
             )}
 
             {confirmDeleteExp && (

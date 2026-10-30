@@ -48,7 +48,7 @@ const AUDIT_LOG_LIMIT = 5000;
  *   isOnline: boolean, permissionError: boolean, isDataReady: boolean
  * }}
  */
-export const useAppData = (firebaseUser, currentUser) => {
+export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}) => {
   const [rooms,       setRooms      ] = useState([]);
   // Гости, оплаты и расходы — окном (utils/historyWindow): живущие, брони и
   // долговые записи + последние HISTORY_WINDOW_DAYS дней + участники и оплаты
@@ -177,17 +177,9 @@ export const useAppData = (firebaseUser, currentUser) => {
 
       if (isAdmin) {
         listen(query(col('sessions'), orderBy('loginAt', 'desc'), limit(300)), setSessions, newestFirst('loginAt'), () => setSessions([]));
-        // Журнал — последние записи: он пишется на каждое действие и растёт
-        // бесконечно; зачёты и ручные оплаты супера — в auditLogSuper.
-        listen(query(col('auditLog'), orderBy('timestamp', 'desc'), limit(AUDIT_LOG_LIMIT)), setAuditLogCommon,
-          { order: newestFirst('timestamp'), extra: { _col: 'auditLog' } }, () => setAuditLogCommon([]));
         listen(query(col('stockMoves'), orderBy('date', 'desc'), limit(300)), setStockMoves, newestFirst('date'), () => setStockMoves([]));
         listen(col('recurringExpenses'), setRecurringExpenses, {}, () => setRecurringExpenses([]));
         listen(col('clientVersions'), setClientVersions, newestFirst('lastSeenAt'), () => setClientVersions([]));
-      }
-      if (role === 'super') {
-        listen(query(col('auditLogSuper'), orderBy('timestamp', 'desc'), limit(AUDIT_LOG_LIMIT)), setAuditLogSuper,
-          { order: newestFirst('timestamp'), extra: { _col: 'auditLogSuper' } }, () => setAuditLogSuper([]));
       }
     };
     let phase2Started = false;
@@ -224,6 +216,23 @@ export const useAppData = (firebaseUser, currentUser) => {
       setIsAllDataReady(false);
     };
   }, [firebaseUser, userKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Журнал действий — только пока открыт экран, которому он нужен ────────
+  // Журнал пишется на каждое действие любой кассы: живая подписка на 5000
+  // записей у админа перерисовывала всё приложение на каждый чих (жалоба
+  // 30.10.2026 «админка виснет»). Зачёты и ручные оплаты супера — в auditLogSuper.
+  useEffect(() => {
+    const isAdmin = role === 'admin' || role === 'super';
+    if (!firebaseUser || !userKey || !isAdmin || !wantAudit) return undefined;
+    const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
+    const unsubs = [listenLive(query(col('auditLog'), orderBy('timestamp', 'desc'), limit(AUDIT_LOG_LIMIT)), setAuditLogCommon,
+      { order: newestFirst('timestamp'), extra: { _col: 'auditLog' } }, () => setAuditLogCommon([]))];
+    if (role === 'super') {
+      unsubs.push(listenLive(query(col('auditLogSuper'), orderBy('timestamp', 'desc'), limit(AUDIT_LOG_LIMIT)), setAuditLogSuper,
+        { order: newestFirst('timestamp'), extra: { _col: 'auditLogSuper' } }, () => setAuditLogSuper([])));
+    }
+    return () => { unsubs.forEach(u => u()); setAuditLogCommon([]); setAuditLogSuper([]); };
+  }, [firebaseUser, userKey, wantAudit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Открытые договоры: участники и оплаты любой давности ─────────────────
   // Суммы договора считаются по всей его длине (utils/contractFinancials), а
@@ -264,6 +273,8 @@ export const useAppData = (firebaseUser, currentUser) => {
   useEffect(() => { setHistoryWanted(false); }, [userKey]);
 
   const requestHistory = useCallback(() => setHistoryWanted(true), []);
+  // Экраны с историей закрыты — отпускаем полные списки (App, через 3 минуты).
+  const releaseHistory = useCallback(() => setHistoryWanted(false), []);
 
   // Итоговые списки: полная история, когда загружена, иначе окно + договоры.
   const guests = useMemo(() => (historyReady && guestsAll) ? guestsAll
@@ -310,5 +321,6 @@ export const useAppData = (firebaseUser, currentUser) => {
     isAllDataReady,
     historyReady,
     requestHistory,
+    releaseHistory,
   };
 };

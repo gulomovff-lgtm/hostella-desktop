@@ -116,7 +116,7 @@ const formatMoney = (amount) => amount ? amount.toLocaleString() : '0';
 
 // ---------------------------------------------------------------------------
 
-const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [], onOpenGuest, onMarkEmehmonOut, catalog = [], onServeBreakfast }) => {
+const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelId, users, onBulkExtend, clients = [], onGuestClick, registrations = [], onOpenGuest, onMarkEmehmonOut, catalog = [], onServeBreakfast, historyFull = true, onLoadAllTime }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [tab, setTab] = useState('overview');
     const [chartMode, setChartMode] = useState('income');
@@ -174,25 +174,30 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         const occupancyPct = Math.min(100, occupancyRaw);
         const isOverCapacity = occupancyRaw > 100;
 
+        // Суммы по дням — один проход по оплатам и расходам. Раньше на каждый из
+        // 30 дней графика весь список перебирался заново с разбором каждой даты:
+        // при полной истории — миллионы разборов на любую новую оплату.
+        const incByDay = new Map(), expByDay = new Map();
+        for (const p of relPayments) { const k = ymd(p.date); incByDay.set(k, (incByDay.get(k) || 0) + (parseInt(p.amount) || 0)); }
+        for (const e of relExpenses) { const k = ymd(e.date); expByDay.set(k, (expByDay.get(k) || 0) + (parseInt(e.amount) || 0)); }
+        const sumMonth = (m, prefix) => { let s = 0; for (const [k, v] of m) if (k.slice(0, 7) === prefix) s += v; return s; };
         const pay30 = [];
         for (let i = 29; i >= 0; i--) {
             const d = new Date(now); d.setDate(d.getDate() - i);
             const ds = getLocalDateString(d);
-            const inc = relPayments.filter(p => ymd(p.date) === ds).reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
-            const exp = relExpenses.filter(e => ymd(e.date) === ds).reduce((s, e) => s + (parseInt(e.amount) || 0), 0);
-            pay30.push({ ds, day: d.getDate(), inc, exp });
+            pay30.push({ ds, day: d.getDate(), inc: incByDay.get(ds) || 0, exp: expByDay.get(ds) || 0 });
         }
         const last7 = pay30.slice(-7);
 
         const totalIncome = relPayments.reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
         const totalExpense = relExpenses.reduce((s, e) => s + (parseInt(e.amount) || 0), 0);
-        const incomeToday = relPayments.filter(p => ymd(p.date) === todayStr).reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
+        const incomeToday = incByDay.get(todayStr) || 0;
         const incomeWeek = last7.reduce((s, d) => s + d.inc, 0);
         const incomeMonth = pay30.reduce((s, d) => s + d.inc, 0); // скользящие 30 дней (для графика)
         // Текущий календарный месяц
         const monthPrefix = todayStr.slice(0, 7); // 'YYYY-MM'
-        const incomeThisMonth  = relPayments.filter(p => ymd(p.date).slice(0, 7) === monthPrefix).reduce((s, p) => s + (parseInt(p.amount) || 0), 0);
-        const expenseThisMonth = relExpenses.filter(e => ymd(e.date).slice(0, 7) === monthPrefix).reduce((s, e) => s + (parseInt(e.amount) || 0), 0);
+        const incomeThisMonth  = sumMonth(incByDay, monthPrefix);
+        const expenseThisMonth = sumMonth(expByDay, monthPrefix);
 
         const byCash = relPayments.reduce((s, p) => s + (p.cash !== undefined ? parseInt(p.cash)||0 : p.method==='cash' ? parseInt(p.amount)||0 : 0), 0);
         const byCard = relPayments.reduce((s, p) => s + (p.card !== undefined ? parseInt(p.card)||0 : p.method==='card' ? parseInt(p.amount)||0 : 0), 0);
@@ -231,11 +236,13 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         });
         const topCountries = Object.entries(countryMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
-        const recentPayments = [...relPayments]
-            .sort((a, b) => new Date(b.date) - new Date(a.date))
+        const guestById = new Map(relGuests.map(g => [g.id, g]));
+        const recentPayments = relPayments
+            .map(p => [new Date(p.date).getTime() || 0, p])
+            .sort((a, b) => b[0] - a[0])
             .slice(0, 10)
-            .map(p => {
-                const g = relGuests.find(g => g.id === p.guestId);
+            .map(([, p]) => {
+                const g = guestById.get(p.guestId);
                 return { ...p, fullName: g?.fullName || p.comment || '' };
             });
 
@@ -746,7 +753,14 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                         </div>
 
                         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                            <div className="font-bold text-slate-800 mb-4">{t('paymentMethodsAllTime')}</div>
+                            {/* Без полной истории (она грузится по запросу) — цифры за последние 2 месяца */}
+                            <div className="flex items-baseline gap-2 mb-4">
+                                <div className="font-bold text-slate-800">{historyFull ? t('paymentMethodsAllTime') : t('paymentMethodsWindow')}</div>
+                                {!historyFull && onLoadAllTime && (
+                                    <button type="button" onClick={onLoadAllTime}
+                                        className="ml-auto text-xs font-bold text-indigo-600 hover:underline">{t('loadAllTime')}</button>
+                                )}
+                            </div>
                             <div className="space-y-3">
                                 {[
                                     { label: t('cash'),     value: data.byCash,     icon: DollarSign,     color: 'emerald' },
@@ -773,11 +787,11 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             </div>
                             <div className="mt-4 pt-3 border-t border-slate-100">
                                 <div className="flex justify-between text-xs font-bold text-slate-500">
-                                    <span>{t('totalAllTime')}</span>
+                                    <span>{historyFull ? t('totalAllTime') : t('totalWindow')}</span>
                                     <span className="text-emerald-600 text-sm">{data.totalIncome.toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between text-xs font-bold text-slate-500 mt-1">
-                                    <span>{t('expensesAllTime')}</span>
+                                    <span>{historyFull ? t('expensesAllTime') : t('expensesWindow')}</span>
                                     <span className="text-rose-600 text-sm">{data.totalExpense.toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between text-xs font-black mt-2 pt-2 border-t border-slate-100">

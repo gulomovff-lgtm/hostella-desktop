@@ -760,7 +760,13 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     };
 
     const handleSaveInfo    = () => {
-        const updates = { 
+        // Иностранец без даты выдачи паспорта — e-mehmon его не примет: не даём
+        // ни сохранить анкету иностранца, ни сменить страну с Узбекистана.
+        if (editForm.country && editForm.country !== 'Узбекистан' && !editForm.passportIssueDate) {
+            notify(t('foreignNeedIssueDate'), 'error');
+            return;
+        }
+        const updates = {
             ...editForm, 
             fullName: (editForm.fullName || '').toUpperCase(),
             passport: (editForm.passport || '').toUpperCase(),
@@ -1097,7 +1103,12 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         const passOk = (guest.passport || '').replace(/\s/g, '').length >= 5;
                                         if (!passOk || !guest.birthDate) {
                                             notify(t('bookingNeedData'), 'error');
-                                            setCurrentView('edit');
+                                            openEdit();
+                                            return;
+                                        }
+                                        if (guest.country && guest.country !== 'Узбекистан' && !guest.passportIssueDate) {
+                                            notify(t('foreignNeedIssueDate'), 'error');
+                                            openEdit();
                                             return;
                                         }
                                         onActivateBooking(guest);

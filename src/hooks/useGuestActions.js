@@ -884,11 +884,19 @@ export function useGuestActions(ctx) {
       showNotification(t('gaBookingNeedPassport'), 'error');
       return false;
     }
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { status: 'active' });
+    // Иностранцу e-mehmon требует дату выдачи паспорта — как в окне заселения.
+    if (guest.country && guest.country !== 'Узбекистан' && !guest.passportIssueDate) {
+      showNotification(t('foreignNeedIssueDate'), 'error');
+      return false;
+    }
+    // Бронь с сайта/бота приходит без страны: на экранах она читалась как
+    // Узбекистан, но без флага и вне статистики. Записываем явно.
+    const activate = { status: 'active', ...(guest.country ? {} : { country: 'Узбекистан' }) };
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), activate);
     const r = rooms.find(i => i.id === guest.roomId);
     logAction(currentUser, 'booking_activate', { guestId: guest.id, guestName: guest.fullName || '', roomNumber: guest.roomNumber || '', bedId: guest.bedId || '', days: Number(guest.days) || 0, checkOutDate: guest.checkOutDate || '' });
     if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(1) });
-    await upsertClient(guest);
+    await upsertClient({ ...guest, ...activate });
     // Отмена действия: вернуть статус «бронь» и счётчик занятости комнаты
     pushUndo({
       type: 'activate_booking',

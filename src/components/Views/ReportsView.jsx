@@ -383,7 +383,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             hostel: HOSTEL_LIST.find(h => h.id === item.hostelId)?.name || item.hostelId || '—',
             amount: parseInt(item.amount) || 0,
             method: item.method || '-',
-            comment: item._detail || item.comment || (item.guestId ? guests.find(g => g.id === item.guestId)?.fullName : null) || '—',
+            comment: item._detail || item.comment || (item.guestId ? guestsById.get(item.guestId)?.fullName : null) || '—',
         }));
         const dateFrom = new Date(filters.start).toLocaleDateString('ru').replace(/\./g, '-');
         const dateTo   = new Date(filters.end).toLocaleDateString('ru').replace(/\./g, '-');
@@ -561,7 +561,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                     <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-400">{t('noData')}</div>
                 ) : filteredData.map((item, i) => {
                     const staffName = users.find(u=>u.id===item.staffId||u.login===item.staffId)?.name||'—';
-                    const detail = item._detail||item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
+                    const detail = item._detail||item.comment||(item.guestId?guestsById.get(item.guestId)?.fullName:null)||'—';
                     const hostelName = HOSTEL_LIST.find(h=>h.id===item.hostelId)?.name||item.hostelId||'—';
                     const isIncome = item.type==='income';
                     const isCTT = item.type === 'cash_to_terminal';
@@ -648,7 +648,7 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
                                 <tr><td colSpan={8} className="p-8 text-center text-slate-400">{t('noData')}</td></tr>
                             ) : filteredData.map((item,i) => {
                                 const staffName = users.find(u=>u.id===item.staffId||u.login===item.staffId)?.name||'—';
-                                const detail = item._detail||item.comment||(item.guestId?guests.find(g=>g.id===item.guestId)?.fullName:null)||'—';
+                                const detail = item._detail||item.comment||(item.guestId?guestsById.get(item.guestId)?.fullName:null)||'—';
                                 const hostelName = HOSTEL_LIST.find(h=>h.id===item.hostelId)?.name||'—';
                                 const isIncome = item.type==='income';
                                 const isCTT = item.type === 'cash_to_terminal';

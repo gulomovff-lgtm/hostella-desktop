@@ -296,8 +296,9 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
     // ─── 5. Доходность комнат ────────────────────────────────────────────────
     const roomRevenueData = useMemo(() => {
         const map = {};
+        const byId = new Map(guests.map(g => [g.id, g]));
         filteredPayments.forEach(p => {
-            const g = guests.find(x => x.id === p.guestId);
+            const g = byId.get(p.guestId);
             if (!g) return;
             const key = g.roomNumber || g.roomId || '';
             if (!key || key === '—') return;

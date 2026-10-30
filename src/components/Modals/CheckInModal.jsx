@@ -264,13 +264,15 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate, undefined, _planOpts);
     // Ночной заезд (решение владельца 2026-09-30): второй хостел, граждане
     // Узбекистана, пришёл с 23:00 до 07:00 — место 50 000 до 07:00 утра.
-    // Предлагается сам, кассир может отключить. Бронь — не ночной заезд.
-    const [nightOff, setNightOff] = useState(false);
+    // Предлагается, но включает кассир сам (решение владельца 30.10.2026: раньше
+    // включался сам после 23:00 и ставил ночную цену тем, кто ночным не был).
+    // Бронь — не ночной заезд.
+    const [nightPicked, setNightPicked] = useState(false);
     const _todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
     const _todayOrEve = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
     const nightOffer = (!isFromBooking && (formData.checkInDate === _todayStr || formData.checkInDate === _todayOrEve))
         ? nightPromoOffer(_roomHostel, formData.country, new Date(), getConfig()) : null;
-    const nightOn = !!nightOffer && !nightOff;
+    const nightOn = !!nightOffer && nightPicked;
     const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
 
@@ -1511,8 +1513,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 <div className={`ci-notice ${nightOn ? 'ci-info' : ''} flex items-center gap-2`}>
                                     <span className="flex-1">🌙 {nightOn
                                         ? t('nightPromoOn').replace('{price}', nightOffer.price.toLocaleString())
-                                        : t('nightPromoOff')}</span>
-                                    <button type="button" className="text-[11px] font-bold underline shrink-0" onClick={() => setNightOff(v => !v)}>
+                                        : t('nightPromoOff').replace('{price}', nightOffer.price.toLocaleString())}</span>
+                                    <button type="button" className="text-[11px] font-bold underline shrink-0" onClick={() => setNightPicked(v => !v)}>
                                         {nightOn ? t('nightPromoDisable') : t('nightPromoEnable')}</button>
                                 </div>
                             )}

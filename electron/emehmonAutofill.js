@@ -13,8 +13,11 @@ function buildAutofillScript(guest) {
     // Прибытие: если мы УЖЕ были на create-page и теперь ушли с неё (после
     // сохранения нажали OK → /listok, или закрыли) — регистрация завершена,
     // закрываем окно и НЕ возвращаемся на создание.
+    // Вход (кнопка «Вход» на вкладке e-mehmon) — только подставить логин и
+    // пароль: без редиректа на создание листка, кнопки мастера и автозакрытия.
+    var LOGIN_ONLY = GUEST.mode === 'login';
     try {
-      if (GUEST.mode !== 'departure') {
+      if (GUEST.mode !== 'departure' && !LOGIN_ONLY) {
         var _arr = sessionStorage.getItem('hostellaArrivedTarget') === '1';
         var _onCreateNow = (location.pathname || '').indexOf('create-page') !== -1;
         var _onLoginNow = (location.pathname || '').indexOf('login') !== -1;
@@ -47,7 +50,7 @@ function buildAutofillScript(guest) {
         sessionStorage.setItem('hostellaTarget', _target);
       }
       if (_onTarget) sessionStorage.setItem('hostellaArrivedTarget', '1');
-      if (_p.indexOf('login') === -1 && !_onTarget && !sessionStorage.getItem('hostellaArrivedTarget')) {
+      if (!LOGIN_ONLY && _p.indexOf('login') === -1 && !_onTarget && !sessionStorage.getItem('hostellaArrivedTarget')) {
         location.href = 'https://emehmon.uz' + _target;
         return;
       }
@@ -226,7 +229,7 @@ function buildAutofillScript(guest) {
 
     if (GUEST.mode === 'departure') {
       setupDeparture();
-    } else if (!byId('__hostella_fill_btn')) {
+    } else if (!LOGIN_ONLY && !byId('__hostella_fill_btn')) {
       // Плавающая кнопка для шагов мастера прибытия (idempotent)
       var btn = document.createElement('button');
       btn.id = '__hostella_fill_btn';
@@ -242,7 +245,7 @@ function buildAutofillScript(guest) {
     // Прибытие: авто-закрытие окна после успешного сохранения листка.
     // e-mehmon показывает swal2-success «Muvaffaqiyatli saqlandi» — ловим его и
     // закрываем окно (сигналим main через document.title + пробуем window.close()).
-    if (GUEST.mode !== 'departure' && !window.__hostellaRegWatch) {
+    if (GUEST.mode !== 'departure' && !LOGIN_ONLY && !window.__hostellaRegWatch) {
       window.__hostellaRegWatch = true;
       var _regWatch = setInterval(function(){
         var okIcon = document.querySelector('.swal2-popup .swal2-icon.swal2-success, .swal2-success.swal2-icon-show');

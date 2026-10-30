@@ -630,10 +630,11 @@ html, body, #root {
 .ci-r-v.ci-err { border-bottom-color: var(--ci-danger); border-bottom-style: dashed; }
 .ci-errmsg { font-size: 11px; font-weight: 600; color: var(--ci-danger-ink); }
 
-.ci-pick { display: flex; gap: 4px; }
+/* Переносится, а не вылезает за колонку: «Без завтрака / ☕ С завтраком» шире узкой колонки. */
+.ci-pick { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .ci-pick button { border: 0; background: transparent; cursor: pointer;
                   font: 700 13px system-ui, sans-serif; color: var(--ci-ink-3);
-                  padding: 5px 10px; border-radius: 8px; white-space: nowrap; }
+                  padding: 5px 9px; border-radius: 8px; white-space: nowrap; }
 .ci-pick button:hover { background: rgba(15, 150, 136, .1); }
 .ci-pick button.ci-on { background: var(--ci-accent); color: #ffffff; }
 .ci-pick button.ci-on:hover { background: var(--ci-accent); }
