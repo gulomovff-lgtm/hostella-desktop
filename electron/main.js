@@ -123,6 +123,27 @@ const autoArrivalWindows = {}; // partition -> скрытое окно авто-
 const PORTAL_IDLE_MS = 10 * 60 * 1000;
 const portalLastUse = new WeakMap();
 const touchPortal = (win) => { portalLastUse.set(win, Date.now()); return win; };
+
+// Сетевой сбой загрузки портала (нет интернета, e-mehmon не отвечает).
+const isNetworkError = (e) => /ERR_(CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|TIMED_OUT|NETWORK|ADDRESS_UNREACHABLE|PROXY|SSL|CERT)/i
+  .test(String((e && e.message) || e || ''));
+
+// Окно портала, которое видел кассир, закрыли — возвращаем Hostella наверх.
+// Windows отдаёт фокус не владельцу, а следующему окну в стопке: программа
+// пряталась за другие окна, и кассиру казалось, что она закрылась (02.11.2026).
+const returnFocusOnClose = (win) => {
+  let wasVisible = false;
+  win.on('close', () => { try { wasVisible = win.isVisible(); } catch (_) { wasVisible = false; } });
+  win.on('closed', () => {
+    if (!wasVisible || !mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    } catch (_) { /* программа закрывается */ }
+  });
+  return win;
+};
 setInterval(() => {
   const now = Date.now();
   for (const pool of [departureWindows, autoArrivalWindows]) {
@@ -436,6 +457,7 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
       },
     });
     emehmonWindow.setMenuBarVisibility(false);
+    returnFocusOnClose(emehmonWindow);
     hardenEmehmonWindow(emehmonWindow, part);
     // Прибытие → create-page, убытие → /listok. Если не залогинен, портал уведёт
     // на /login, после входа скрипт авто-редиректит на нужную страницу.
@@ -511,6 +533,7 @@ function ensureDepartureWindow(hostelId) {
   });
   win.setMenuBarVisibility(false);
   win.on('closed', () => { delete departureWindows[part]; });
+  returnFocusOnClose(win);
   // Запираем окно на emehmon.uz. Лист печати (window.open с портала) — только на
   // emehmon.uz и с полным hardening в дочернем окне, см. hardenEmehmonWindow.
   hardenEmehmonWindow(win, part);
@@ -684,6 +707,7 @@ function ensureAutoArrivalWindow(hostelId) {
   });
   win.setMenuBarVisibility(false);
   win.on('closed', () => { delete autoArrivalWindows[part]; });
+  returnFocusOnClose(win);
   hardenEmehmonWindow(win, part);
   autoArrivalWindows[part] = win;
   return touchPortal(win);
@@ -753,6 +777,12 @@ ipcMain.handle('emehmon-arrival-auto', (_event, guest) => {
   const run = autoArrivalChain.then(() => runAutoArrival(payload).catch((e) => {
     log.error('[emehmon] auto-arrival failed:', e.message);
     const w = autoArrivalWindows[emehmonPartition(payload.hostelId)];
+    // Портал не открылся (нет связи) — кассиру в окне делать нечего: раньше
+    // пустое окно всплывало на каждой попытке, раз в минуту (02.11.2026).
+    if (isNetworkError(e)) {
+      if (w && !w.isDestroyed()) w.hide();
+      return { status: 'network', message: e.message };
+    }
     if (w && !w.isDestroyed()) w.show();
     return { status: 'error', message: e.message };
   }));

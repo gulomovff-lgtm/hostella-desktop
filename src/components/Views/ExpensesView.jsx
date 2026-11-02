@@ -6,11 +6,12 @@ import {
     ArrowRightLeft, FileText, Save, Loader2, Archive, ArchiveRestore, Wallet,
     Home, Lightbulb, Briefcase, Coins, ShoppingCart, Landmark, ClipboardList,
     Globe, Megaphone, Flame, Zap, Droplets, Wrench, Package, RotateCcw,
-    Calendar, CalendarDays, Banknote,
+    Calendar, CalendarDays, Banknote, Wand2,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { getConfig } from '../../utils/appConfig';
 import { stableView } from '../UI/stableView';
+import ExpenseSortModal from '../Modals/ExpenseSortModal';
 
 // ─── Category metadata ────────────────────────────────────────────────────────
 const CAT_META = [
@@ -27,8 +28,14 @@ const CAT_META = [
     { key: 'Электричество',       icon: '⚡', bg: '#fefce8', text: '#ca8a04', bar: '#eab308', darkBg: 'rgba(234,179,8,0.2)',   darkText: '#fde047' },
     { key: 'Вода',                icon: '💧', bg: '#eff6ff', text: '#1d4ed8', bar: '#3b82f6', darkBg: 'rgba(59,130,246,0.2)',  darkText: '#93c5fd' },
     { key: 'Ремонт',              icon: '🔧', bg: '#f8fafc', text: '#475569', bar: '#64748b', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
+    { key: 'Завтрак',             icon: '☕', bg: '#fef3c7', text: '#b45309', bar: '#d97706', darkBg: 'rgba(217,119,6,0.2)',   darkText: '#fcd34d' },
+    { key: 'Яндекс (рабочие)',    icon: '🚕', bg: '#fef9c3', text: '#a16207', bar: '#eab308', darkBg: 'rgba(234,179,8,0.2)',   darkText: '#fde047' },
+    { key: 'Хозтовары',           icon: '🧴', bg: '#e0f2fe', text: '#0369a1', bar: '#0ea5e9', darkBg: 'rgba(14,165,233,0.2)',  darkText: '#7dd3fc' },
     { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b', bar: '#94a3b8', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
 ];
+// Разделы, которые кассиры раньше писали в «Другое» (02.11.2026): видны всегда,
+// даже пока в них нет ни одного расхода.
+const NEW_BUILTIN_CATS = ['Завтрак', 'Яндекс (рабочие)', 'Хозтовары'];
 const CAT_FALLBACK = { icon: '📦', bg: '#f8fafc', text: '#64748b', bar: '#94a3b8', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' };
 
 const ymdLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -434,7 +441,7 @@ function ExpensesView({
     // ── Dashboard cards ───────────────────────────────────────────────────────
     const allCatNames = useMemo(() => {
         const fromData = [...new Set(mainExpenses.map(e => e.category).filter(Boolean))];
-        const all = [...new Set([...fromData, ...customCategories, ...centralCats.map(c => c.name)])];
+        const all = [...new Set([...fromData, ...NEW_BUILTIN_CATS, ...customCategories, ...centralCats.map(c => c.name)])];
         return all.filter(c => !archivedCategories.includes(c));
     }, [mainExpenses, customCategories, archivedCategories, centralCats]);
 
@@ -546,6 +553,10 @@ function ExpensesView({
     // описания перерисовывала весь экран расходов со списками и итогами.
     const [bulkAddOpen, setBulkAddOpen] = useState(false);
     const closeBulkAdd = useCallback(() => setBulkAddOpen(false), []);
+    // Разбор «Другое» по разделам (ExpenseSortModal) — только админ
+    const [sortOpen, setSortOpen] = useState(false);
+    const closeSort = useCallback(() => setSortOpen(false), []);
+    const applySort = useCallback((id, patch) => onUpdateExpense(id, patch, { silent: true }), [onUpdateExpense]);
 
     // ── Массовое выделение и перенос ──────────────────────────────────────────
     const [selectMode, setSelectMode] = useState(false);
@@ -841,6 +852,12 @@ function ExpensesView({
                     <button onClick={onDownloadCSV} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors">
                         <Download size={15} /> CSV
                     </button>
+                    {isAdmin && onUpdateExpense && (
+                        <button onClick={() => setSortOpen(true)} title="Разложить расходы из «Другое» по разделам по описанию"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors">
+                            <Wand2 size={15} /> Разложить «Другое»
+                        </button>
+                    )}
                     {isAdmin && (
                         <button onClick={() => onBackfillComments?.()} title={t('expBackfillTitle')}
                             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors">
@@ -1536,6 +1553,10 @@ function ExpensesView({
                         <button onClick={exitSelectMode} className="p-2.5 rounded-xl text-slate-400 hover:bg-slate-100"><X size={18} /></button>
                     </div>
                 </div>
+            )}
+            {sortOpen && (
+                <ExpenseSortModal expenses={filteredExpenses} users={usersList} staffOptions={cashierList}
+                    categories={allCatNames} onApply={applySort} onClose={closeSort} notify={notify} />
             )}
             {/* ── Массовое добавление расходов одним числом ── */}
             {bulkAddOpen && (

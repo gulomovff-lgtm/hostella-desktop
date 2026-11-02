@@ -23,6 +23,10 @@ const BUILTIN_CATS = [
     { key: 'Электричество',       icon: '⚡', bg: '#fefce8', text: '#ca8a04' },
     { key: 'Вода',                icon: '💧', bg: '#eff6ff', text: '#1d4ed8' },
     { key: 'Ремонт',              icon: '🔧', bg: '#f8fafc', text: '#475569' },
+    // Раньше всё это кассиры писали в «Другое» (02.11.2026)
+    { key: 'Завтрак',             icon: '☕', bg: '#fef3c7', text: '#b45309' },
+    { key: 'Яндекс (рабочие)',    icon: '🚕', bg: '#fef9c3', text: '#a16207' },
+    { key: 'Хозтовары',           icon: '🧴', bg: '#e0f2fe', text: '#0369a1' },
     { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b' },
 ];
 
@@ -42,6 +46,9 @@ const CAT_LABEL_KEY = {
     'Электричество': 'emCatElectricity',
     'Вода': 'emCatWater',
     'Ремонт': 'emCatRepair',
+    'Завтрак': 'emCatBreakfast',
+    'Яндекс (рабочие)': 'emCatTaxi',
+    'Хозтовары': 'emCatHousehold',
     'Другое': 'other',
 };
 

@@ -501,8 +501,10 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
     if (!quiet) showNotification(t('emaPortalError').replace('{name}', name).replace('{msg}', String(res?.message || '').slice(0, 90)), 'error');
     return false;
   }
-  // До портала не дошли или решает человек — следа не оставляем.
+  // До портала не дошли (нет связи) или решает человек — следа не оставляем:
+  // при обрыве интернета это не ошибка гостя, следующий цикл попробует снова.
   if (st === 'no_electron' || st === 'busy' || st === 'claimed' || st === 'needs_decision') return false;
+  if (st === 'network') { if (!silent) showNotification(t('emaNoNetwork'), 'warning'); return false; }
   // Попытка была, а итога нет (таймаут, форма не открылась, «сохранено» не
   // подтвердилось, страны нет в списке…). Раньше такой гость не получал
   // никакой отметки: молча лежал в «Оформить» и каждые 5 минут занимал
@@ -539,7 +541,7 @@ const runForeignRegistration = useCallback(async (guest, opts = {}) => {
     const gateStays = !opts.force && (!guest.kppDate || dayNumber > win);
     if (!silent) showNotification(t('emaRegistering').replace('{name}', guest.fullName), 'info');
     let res = await autoRegisterArrival(guest, { silent, gateStays, force: !!opts.force, quietFail: true });
-    if (res?.status === 'need_login') await releasePortalClaim(guest.id);
+    if (res?.status === 'need_login' || res?.status === 'network') await releasePortalClaim(guest.id);
     if (res?.status === 'needs_decision') {
       const { parsed, assessment, kppDate } = await applyProbeToGuest(guest, res);
       if (assessment?.ok) {
@@ -696,7 +698,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
       emehmonAutoBusy.current.add(g.id); trips++;
       try {
         const reg = await autoRegisterArrival(g, { silent: true });
-        if (reg?.status === 'need_login') { await releasePortalClaim(g.id); break; }
+        if (reg?.status === 'need_login' || reg?.status === 'network') { await releasePortalClaim(g.id); break; }
         await finishAutoArrival(g, reg, { silent: true, quiet, again: () => autoRegisterArrival(g, { silent: true }) });
       } catch (_) { /* пропускаем */ } finally { emehmonAutoBusy.current.delete(g.id); }
       continue;

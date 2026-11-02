@@ -11,6 +11,7 @@ import React from 'react';
 import {
     Home, Lightbulb, Briefcase, Coins, ShoppingCart, Landmark, ClipboardList,
     Globe, Megaphone, Flame, Zap, Droplet, Wrench, Package, RotateCcw,
+    Coffee, CarTaxiFront, SprayCan,
 } from 'lucide-react';
 
 const norm = (s) => (s || '').toLowerCase().replace(/ё/g, 'е').trim();
@@ -29,6 +30,9 @@ export const CATEGORY_ICONS = {
     'электричество':       Zap,
     'вода':                Droplet,
     'ремонт':              Wrench,
+    'завтрак':             Coffee,
+    'яндекс (рабочие)':    CarTaxiFront,
+    'хозтовары':           SprayCan,
     'другое':              Package,
     'возврат':             RotateCcw,
 };

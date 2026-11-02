@@ -463,11 +463,14 @@ export function useExpenseActions({
   };
 
   /** Редактирует поля расхода (для админа) */
-  const handleUpdateExpense = async (expenseId, patch) => {
+  // opts.silent — для пачки (разбор «Другое»): без тоста на каждую запись,
+  // ошибка уходит вызывающему, он считает итог сам.
+  const handleUpdateExpense = async (expenseId, patch, opts = {}) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), patch);
-      showNotification(t('exaExpenseUpdated'), 'success');
+      if (!opts.silent) showNotification(t('exaExpenseUpdated'), 'success');
     } catch (err) {
+      if (opts.silent) throw err;
       showNotification(`${t('exaError')}: ` + (err.message || t('exaUpdateFailed')), 'error');
     }
   };

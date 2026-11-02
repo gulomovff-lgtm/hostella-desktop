@@ -1,0 +1,64 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { suggestCategory, matchStaff, planOtherExpenses, CAT_BREAKFAST, CAT_TAXI, CAT_HOUSEHOLD } from '../src/utils/expenseSort.js';
+
+test('зарплата: зп, з/п, аванс, оклад', () => {
+  for (const s of ['зп Мухайё', 'З/П за октябрь', 'аванс Дилноза', 'оклад уборщице', 'ZP Oybek']) {
+    assert.equal(suggestCategory(s), 'Зарплата', s);
+  }
+});
+
+test('завтрак: слово и состав', () => {
+  for (const s of ['завтрак 12 чел', 'яйца 3 лотка', 'хлеб, лепешки', 'молоко и масло', 'чай кофе сахар', 'nonushta']) {
+    assert.equal(suggestCategory(s), CAT_BREAKFAST, s);
+  }
+});
+
+test('яндекс и такси для рабочих', () => {
+  for (const s of ['Яндекс рабочим', 'yandex go', 'такси для мастера']) {
+    assert.equal(suggestCategory(s), CAT_TAXI, s);
+  }
+});
+
+test('коммунальные, ремонт, хозтовары', () => {
+  assert.equal(suggestCategory('за газ'), 'Газ');
+  assert.equal(suggestCategory('свет за месяц'), 'Электричество');
+  assert.equal(suggestCategory('вода'), 'Вода');
+  assert.equal(suggestCategory('сантехник кран'), 'Ремонт');
+  assert.equal(suggestCategory('порошок, туалетная бумага'), CAT_HOUSEHOLD);
+});
+
+test('похожие слова не путаются', () => {
+  assert.equal(suggestCategory('газета'), null);
+  assert.equal(suggestCategory('водитель'), null);
+  assert.equal(suggestCategory('светильник'), null);
+  assert.equal(suggestCategory('сутки доплата'), null);
+  assert.equal(suggestCategory(''), null);
+  assert.equal(suggestCategory('просто так'), null);
+});
+
+test('явное слово сильнее состава: «зп повару за завтраки» — зарплата', () => {
+  assert.equal(suggestCategory('зп повару за завтраки'), 'Зарплата');
+  assert.equal(suggestCategory('такси за хлебом'), CAT_TAXI);
+});
+
+test('получатель зарплаты по имени, двое подходят — никого', () => {
+  const users = [{ id: 'u1', name: 'Мухайё Каримова', login: 'muhayo' }, { id: 'u2', name: 'Дилноза', login: 'dilnoza' }, { id: 'u3', name: 'Дилноза Б.', login: 'dil2' }];
+  assert.equal(matchStaff('зп Мухайё', users), 'u1');
+  assert.equal(matchStaff('аванс muhayo', users), 'u1');
+  assert.equal(matchStaff('зп Дилноза', users), null);
+  assert.equal(matchStaff('зп уборщице', users), null);
+});
+
+test('план: только «Другое», зарплате — получатель', () => {
+  const users = [{ id: 'u1', name: 'Мухайё', login: 'muhayo' }];
+  const plan = planOtherExpenses([
+    { id: 'a', category: 'Другое', comment: 'зп Мухайё' },
+    { id: 'b', category: 'Другое', comment: 'яйца' },
+    { id: 'c', category: 'Газ', comment: 'зп' },
+    { id: 'd', category: '', comment: 'непонятно' },
+  ], users);
+  assert.deepEqual(plan.map(p => [p.expense.id, p.category, p.staffId]), [
+    ['a', 'Зарплата', 'u1'], ['b', CAT_BREAKFAST, null], ['d', null, null],
+  ]);
+});
