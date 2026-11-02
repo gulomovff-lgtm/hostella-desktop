@@ -20,6 +20,19 @@ test('яндекс и такси для рабочих', () => {
   }
 });
 
+test('латиницей и как слышится: zaftrak, yandeks ustalar', () => {
+  assert.equal(suggestCategory('yandeks ustala'), CAT_TAXI);
+  assert.equal(suggestCategory('Yandeks ustalarga'), CAT_TAXI);
+  assert.equal(suggestCategory('яндэкс'), CAT_TAXI);
+  assert.equal(suggestCategory('zaftrak'), CAT_BREAKFAST);
+  assert.equal(suggestCategory('Zavtrak 10 kishi'), CAT_BREAKFAST);
+  assert.equal(suggestCategory('зафтрак'), CAT_BREAKFAST);
+  assert.equal(suggestCategory('tuxum, non'), CAT_BREAKFAST);
+  assert.equal(suggestCategory('zp Dilnoza'), 'Зарплата');
+  assert.equal(suggestCategory('ustaga'), 'Ремонт');
+  assert.equal(suggestCategory('устав'), null);
+});
+
 test('коммунальные, ремонт, хозтовары', () => {
   assert.equal(suggestCategory('за газ'), 'Газ');
   assert.equal(suggestCategory('свет за месяц'), 'Электричество');
