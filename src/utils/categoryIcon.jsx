@@ -11,7 +11,7 @@ import React from 'react';
 import {
     Home, Lightbulb, Briefcase, Coins, ShoppingCart, Landmark, ClipboardList,
     Globe, Megaphone, Flame, Zap, Droplet, Wrench, Package, RotateCcw,
-    Coffee, CarTaxiFront, SprayCan, GlassWater,
+    Coffee, CarTaxiFront, SprayCan, GlassWater, Luggage, Shield, MonitorSmartphone,
 } from 'lucide-react';
 
 const norm = (s) => (s || '').toLowerCase().replace(/ё/g, 'е').trim();
@@ -34,6 +34,9 @@ export const CATEGORY_ICONS = {
     'яндекс (рабочие)':    CarTaxiFront,
     'хозтовары':           SprayCan,
     'вода для кулера':     GlassWater,
+    'турсбор':             Luggage,
+    'охрана':              Shield,
+    'сервисы':             MonitorSmartphone,
     'другое':              Package,
     'возврат':             RotateCcw,
 };

@@ -47,6 +47,33 @@ test('латиницей и как слышится: zaftrak, yandeks ustalar', 
   assert.equal(suggestCategory('zavtrikga non olindi'), CAT_BREAKFAST);
 });
 
+test('прошлые месяцы: турсбор, охрана, банк→налоги, сервисы, возвраты, бухгалтер', () => {
+  assert.equal(suggestCategory('ТУРСБОР ИНОСТРАНЦЫ'), 'Турсбор');
+  assert.equal(suggestCategory('Тур сбор 01,02-28,2026'), 'Турсбор');
+  assert.equal(suggestCategory('Миллий гвардия'), 'Охрана');
+  assert.equal(suggestCategory('Е-mehmon депозит'), 'Регистрация');
+  assert.equal(suggestCategory('3 TA URIS 8 KUN REGISTRASIYA'), 'Регистрация');
+  assert.equal(suggestCategory('YANDEKIS'), CAT_TAXI);
+  assert.equal(suggestCategory('2 ХОСТЕЛ УЧУН КОМУНАЛ ГА ОПЛАТА'), 'Коммунальные услуги');
+  assert.equal(suggestCategory('банк услуги'), 'Налоги');
+  assert.equal(suggestCategory('Терминал абонентский'), 'Налоги');
+  assert.equal(suggestCategory('ккм ARCA GROUP" MCHJ'), 'Налоги');
+  assert.equal(suggestCategory('Оплата GitHUB'), 'Сервисы');
+  assert.equal(suggestCategory('google servis'), 'Сервисы');
+  assert.equal(suggestCategory('Телефон номер'), 'Сервисы');
+  assert.equal(suggestCategory('38 ЯТМФ'), 'Сервисы');
+  assert.equal(suggestCategory('Янги техналогиялари'), 'Сервисы');
+  assert.equal(suggestCategory('pragrama'), 'Сервисы');
+  for (const s of ['VOZVRAT', 'BOZVRAT', 'BOZBRAT BOBUR OKA', 'возврат', 'Ayollar chiqib ketdi qaytarib berildi']) assert.equal(suggestCategory(s), 'Возврат', s);
+  assert.equal(suggestCategory('Бухгалтерские услуги'), 'Зарплата');
+  assert.equal(suggestCategory('НАЛОГ+БУГАРТЕР ОЙЛИК'), 'Зарплата');
+  assert.equal(matchStaff('бухгалтер ойлик', []), '__accountant__');
+  assert.equal(matchStaff('НАЛОГ+БУГАРТЕР ОЙЛИК', []), '__accountant__');
+  for (const s of ['Кондиционер 18', 'ELEKTIRIK', 'santexnik', 'LAMPOCHKA', 'Кабели, короб, автоматы', 'усталага иш хаки', 'usta xaqqi berildi', 'unitazga kley', 'Обогреватель']) assert.equal(suggestCategory(s), 'Ремонт', s);
+  for (const s of ['Курпача', 'Идиш тавок чойнай', 'Иссырык', '1-2 xostelga stirkaga gelga', 'PULTGA BATAREYGA']) assert.equal(suggestCategory(s), CAT_HOUSEHOLD, s);
+  for (const s of ['Собирова карта', 'Азизака', 'Yolanma Hodim uchun', 'shtraf mib e mexmon']) assert.notEqual(suggestCategory(s), 'Налоги', s);
+});
+
 test('коммунальные, ремонт, хозтовары', () => {
   assert.equal(suggestCategory('за газ'), 'Газ');
   assert.equal(suggestCategory('свет за месяц'), 'Электричество');

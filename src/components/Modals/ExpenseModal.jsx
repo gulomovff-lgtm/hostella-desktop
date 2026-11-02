@@ -28,6 +28,10 @@ const BUILTIN_CATS = [
     { key: 'Яндекс (рабочие)',    icon: '🚕', bg: '#fef9c3', text: '#a16207' },
     { key: 'Хозтовары',           icon: '🧴', bg: '#e0f2fe', text: '#0369a1' },
     { key: 'Вода для кулера',     icon: '🚰', bg: '#eff6ff', text: '#1d4ed8' },
+    // Платит админ, не касса — кассиру в плитках не показываем
+    { key: 'Турсбор',             icon: '🧳', bg: '#ede9fe', text: '#6d28d9', adminOnly: true },
+    { key: 'Охрана',              icon: '🛡️', bg: '#f1f5f9', text: '#475569', adminOnly: true },
+    { key: 'Сервисы',             icon: '💻', bg: '#ecfeff', text: '#0e7490', adminOnly: true },
     { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b' },
 ];
 
@@ -142,8 +146,8 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
             icon: icons[n] || (central.find(c => c.name === n)?.icon) || guessIcon(n),
             ...CUSTOM_PALETTE[i % CUSTOM_PALETTE.length],
         }));
-        return [...BUILTIN_CATS, ...extraCats].filter(c => !archived.includes(c.key));
-    }, [hostelKey]);
+        return [...BUILTIN_CATS.filter(c => isAdmin || !c.adminOnly), ...extraCats].filter(c => !archived.includes(c.key));
+    }, [hostelKey, isAdmin]);
     const getLocalDateTimeValue = () => {
         const now = new Date();
         const y = now.getFullYear();
@@ -470,7 +474,7 @@ const ExpenseModal = ({ onClose, onSubmit, lang = 'ru', currentUser, initialCate
                                 <div>
                                     <label style={lbl}>{t('employee')}</label>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
-                                        {[...usersList.filter(u => u.role !== 'super'), { id: '__cleaning__', name: t('expCleaning') }].map(u => {
+                                        {[...usersList.filter(u => u.role !== 'super'), { id: '__cleaning__', name: t('expCleaning') }, { id: '__accountant__', name: t('expAccountant') }].map(u => {
                                             const sel = targetStaffId === (u.id || u.login);
                                             return (
                                                 <button key={u.id || u.login} type="button" className="exp-chip"

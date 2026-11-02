@@ -6,7 +6,7 @@ import {
     ArrowRightLeft, FileText, Save, Loader2, Archive, ArchiveRestore, Wallet,
     Home, Lightbulb, Briefcase, Coins, ShoppingCart, Landmark, ClipboardList,
     Globe, Megaphone, Flame, Zap, Droplets, Wrench, Package, RotateCcw,
-    Calendar, CalendarDays, Banknote, Wand2,
+    Calendar, CalendarDays, Banknote, Wand2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { getConfig } from '../../utils/appConfig';
@@ -30,6 +30,9 @@ const CAT_META = [
     { key: 'Ремонт',              icon: '🔧', bg: '#f8fafc', text: '#475569', bar: '#64748b', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
     { key: 'Завтрак',             icon: '☕', bg: '#fef3c7', text: '#b45309', bar: '#d97706', darkBg: 'rgba(217,119,6,0.2)',   darkText: '#fcd34d' },
     { key: 'Яндекс (рабочие)',    icon: '🚕', bg: '#fef9c3', text: '#a16207', bar: '#eab308', darkBg: 'rgba(234,179,8,0.2)',   darkText: '#fde047' },
+    { key: 'Турсбор',             icon: '🧳', bg: '#ede9fe', text: '#6d28d9', bar: '#8b5cf6', darkBg: 'rgba(139,92,246,0.2)',  darkText: '#c4b5fd' },
+    { key: 'Охрана',              icon: '🛡️', bg: '#f1f5f9', text: '#475569', bar: '#64748b', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
+    { key: 'Сервисы',             icon: '💻', bg: '#ecfeff', text: '#0e7490', bar: '#06b6d4', darkBg: 'rgba(6,182,212,0.2)',   darkText: '#67e8f9' },
     { key: 'Вода для кулера',     icon: '🚰', bg: '#eff6ff', text: '#1d4ed8', bar: '#60a5fa', darkBg: 'rgba(96,165,250,0.2)',  darkText: '#93c5fd' },
     { key: 'Хозтовары',           icon: '🧴', bg: '#e0f2fe', text: '#0369a1', bar: '#0ea5e9', darkBg: 'rgba(14,165,233,0.2)',  darkText: '#7dd3fc' },
     { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b', bar: '#94a3b8', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
@@ -419,15 +422,23 @@ function ExpensesView({
     const amtFn = e => e.category === 'Аванс' ? -(Number(e.amount) || 0) : (Number(e.amount) || 0);
     const mainExpenses = useMemo(() => filteredExpenses.filter(e => e.category !== 'Возврат' && e.category !== 'Аванс'), [filteredExpenses]);
     const refunds = useMemo(() => filteredExpenses.filter(e => e.category === 'Возврат'), [filteredExpenses]);
-    const prevMonthDate = useMemo(() => new Date(now.getFullYear(), now.getMonth() - 1, 1), []);
+    // Месяц, за который считаются итоги и карточки разделов (просьба владельца
+    // 02.11.2026 — смотреть расходы по месяцам). По умолчанию — текущий.
+    const [viewYm, setViewYm] = useState(() => ({ y: now.getFullYear(), m: now.getMonth() }));
+    const viewDate = useMemo(() => new Date(viewYm.y, viewYm.m, 1), [viewYm.y, viewYm.m]);
+    const isCurMonth = viewYm.y === now.getFullYear() && viewYm.m === now.getMonth();
+    const shiftMonth = (k) => setViewYm(({ y, m }) => { const d = new Date(y, m + k, 1); return { y: d.getFullYear(), m: d.getMonth() }; });
+    const monthName = (d) => { const s = d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }).replace(/\s?г\.?$/, ''); return s.charAt(0).toUpperCase() + s.slice(1); };
+    const prevMonthDate = useMemo(() => new Date(viewYm.y, viewYm.m - 1, 1), [viewYm.y, viewYm.m]);
+    const inMonth = (iso, d0) => { const d = new Date(iso); return d.getMonth() === d0.getMonth() && d.getFullYear() === d0.getFullYear(); };
 
     const thisMonth = useMemo(() =>
-        filteredExpenses.filter(e => { const d = new Date(e.date); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && e.category !== 'Возврат'; })
-            .reduce((s, e) => s + amtFn(e), 0), [filteredExpenses]);
+        filteredExpenses.filter(e => inMonth(e.date, viewDate) && e.category !== 'Возврат')
+            .reduce((s, e) => s + amtFn(e), 0), [filteredExpenses, viewDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const prevMonthExp = useMemo(() =>
-        filteredExpenses.filter(e => { const d = new Date(e.date); return d.getMonth() === prevMonthDate.getMonth() && d.getFullYear() === prevMonthDate.getFullYear() && e.category !== 'Возврат'; }),
-        [filteredExpenses]);
+        filteredExpenses.filter(e => inMonth(e.date, prevMonthDate) && e.category !== 'Возврат'),
+        [filteredExpenses, prevMonthDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const prevMonth = useMemo(() => prevMonthExp.reduce((s, e) => s + amtFn(e), 0), [prevMonthExp]);
     const monthDiff = prevMonth ? Math.round((thisMonth - prevMonth) / prevMonth * 100) : null;
@@ -452,6 +463,7 @@ function ExpensesView({
         () => [
             ...usersList.filter(u => u.role === 'cashier' || u.role === 'admin').map(u => ({ id: u.id || u.login, name: u.name || u.login })),
             { id: '__cleaning__', name: t('expCleaning') },
+            { id: '__accountant__', name: t('expAccountant') },
         ],
         [usersList]
     );
@@ -459,14 +471,16 @@ function ExpensesView({
     const cardData = useMemo(() => {
         const pm = prevMonthDate;
         return allCatNames.map(cat => {
-            const thisMonthItems = mainExpenses.filter(e => { const d = new Date(e.date); return e.category === cat && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); });
+            const thisMonthItems = mainExpenses.filter(e => e.category === cat && inMonth(e.date, viewDate));
             const lastMonthItems = mainExpenses.filter(e => { const d = new Date(e.date); return e.category === cat && d.getFullYear() === pm.getFullYear() && d.getMonth() === pm.getMonth(); });
             const thisMonthTotal = thisMonthItems.reduce((s, e) => s + (Number(e.amount) || 0), 0);
             const lastMonthTotal = lastMonthItems.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const allRecent = mainExpenses.filter(e => e.category === cat).sort((a, b) => new Date(b.date) - new Date(a.date));
+            // Текущий месяц — последние расходы раздела, как раньше; прошлый — только его расходы
+            const allRecent = (isCurMonth ? mainExpenses.filter(e => e.category === cat) : thisMonthItems)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
             return { cat, thisMonthTotal, lastMonthTotal, allRecent };
         }).sort((a, b) => b.thisMonthTotal - a.thisMonthTotal);
-    }, [allCatNames, mainExpenses, prevMonthDate]);
+    }, [allCatNames, mainExpenses, prevMonthDate, viewDate, isCurMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const orderedCardData = useMemo(() => {
         if (!cardOrder || cardOrder.length === 0) return cardData;
@@ -884,12 +898,27 @@ function ExpensesView({
                 </div>
             </div>
 
+            {/* ── Месяц итогов ── */}
+            <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl shadow-sm">
+                    <button type="button" onClick={() => shiftMonth(-1)} title={t('expMonthBack')}
+                        className="p-2 rounded-l-xl text-slate-500 hover:bg-slate-50"><ChevronLeft size={16} /></button>
+                    <span className="px-3 text-sm font-black text-slate-800 tabular-nums min-w-[140px] text-center">{monthName(viewDate)}</span>
+                    <button type="button" onClick={() => shiftMonth(1)} disabled={isCurMonth} title={t('expMonthForward')}
+                        className="p-2 rounded-r-xl text-slate-500 hover:bg-slate-50 disabled:opacity-30"><ChevronRight size={16} /></button>
+                </div>
+                {!isCurMonth && (
+                    <button type="button" onClick={() => setViewYm({ y: now.getFullYear(), m: now.getMonth() })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-500 hover:border-slate-300">{t('thisMonth')}</button>
+                )}
+            </div>
+
             {/* ── KPI row (модерн) ── */}
             <div className="grid grid-cols-3 gap-3">
                 {[
-                    { Icon: Calendar, iconClr: '#b45309', label: t('thisMonth'), value: thisMonth, valColor: '#b45309', chipBg: '#fef3c7', circle: 'rgba(245,158,11,0.12)',
+                    { Icon: Calendar, iconClr: '#b45309', label: isCurMonth ? t('thisMonth') : monthName(viewDate), value: thisMonth, valColor: '#b45309', chipBg: '#fef3c7', circle: 'rgba(245,158,11,0.12)',
                       badge: monthDiff !== null ? { up: monthDiff > 0, pct: Math.abs(monthDiff) } : null, sub: null },
-                    { Icon: CalendarDays, iconClr: '#475569', label: t('lastMonth'), value: prevMonth, valColor: '#334155', chipBg: '#f1f5f9', circle: 'rgba(148,163,184,0.14)',
+                    { Icon: CalendarDays, iconClr: '#475569', label: isCurMonth ? t('lastMonth') : monthName(prevMonthDate), value: prevMonth, valColor: '#334155', chipBg: '#f1f5f9', circle: 'rgba(148,163,184,0.14)',
                       badge: null, sub: `${prevMonthExp.length} ${t('expRecordsWord')}` },
                     { Icon: Banknote, iconClr: '#e11d48', label: t('total2'), value: totalAll, valColor: '#e11d48', chipBg: '#ffe4e6', circle: 'rgba(244,63,94,0.12)',
                       badge: null, sub: `${cats.length} ${t('expCategoriesWord')}` },
@@ -1003,7 +1032,7 @@ function ExpensesView({
                                     <div className="px-4 pt-3 pb-2">
                                         <div className="flex items-end justify-between mb-2">
                                             <div>
-                                                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{t('thisMonth')}</div>
+                                                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{isCurMonth ? t('thisMonth') : monthName(viewDate)}</div>
                                                 <div className="text-2xl font-black" style={{ color: catClr(m) }}>{fmt(thisMonthTotal)}</div>
                                             </div>
                                             {delta !== null && (
@@ -1045,7 +1074,7 @@ function ExpensesView({
                                                                 <div className="bg-indigo-50 divide-y divide-indigo-100">
                                                                     {staffEntries.map(({ sid, total: amt }) => {
                                                                         const staff = usersList.find(u => u.id === sid || u.login === sid);
-                                                                        const name = sid === '__unknown__' ? t('expNoStaff') : sid === '__cleaning__' ? t('expCleaning') : (staff?.name || staff?.login || sid);
+                                                                        const name = sid === '__unknown__' ? t('expNoStaff') : sid === '__cleaning__' ? t('expCleaning') : sid === '__accountant__' ? t('expAccountant') : (staff?.name || staff?.login || sid);
                                                                         const initial = name.charAt(0).toUpperCase();
                                                                         return (
                                                                             <div key={sid} className="flex items-center gap-2 px-4 py-2">
