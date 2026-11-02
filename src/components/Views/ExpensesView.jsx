@@ -30,12 +30,13 @@ const CAT_META = [
     { key: 'Ремонт',              icon: '🔧', bg: '#f8fafc', text: '#475569', bar: '#64748b', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
     { key: 'Завтрак',             icon: '☕', bg: '#fef3c7', text: '#b45309', bar: '#d97706', darkBg: 'rgba(217,119,6,0.2)',   darkText: '#fcd34d' },
     { key: 'Яндекс (рабочие)',    icon: '🚕', bg: '#fef9c3', text: '#a16207', bar: '#eab308', darkBg: 'rgba(234,179,8,0.2)',   darkText: '#fde047' },
+    { key: 'Вода для кулера',     icon: '🚰', bg: '#eff6ff', text: '#1d4ed8', bar: '#60a5fa', darkBg: 'rgba(96,165,250,0.2)',  darkText: '#93c5fd' },
     { key: 'Хозтовары',           icon: '🧴', bg: '#e0f2fe', text: '#0369a1', bar: '#0ea5e9', darkBg: 'rgba(14,165,233,0.2)',  darkText: '#7dd3fc' },
     { key: 'Другое',              icon: '📦', bg: '#f8fafc', text: '#64748b', bar: '#94a3b8', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' },
 ];
 // Разделы, которые кассиры раньше писали в «Другое» (02.11.2026): видны всегда,
 // даже пока в них нет ни одного расхода.
-const NEW_BUILTIN_CATS = ['Завтрак', 'Яндекс (рабочие)', 'Хозтовары'];
+const NEW_BUILTIN_CATS = ['Завтрак', 'Яндекс (рабочие)', 'Хозтовары', 'Вода для кулера'];
 const CAT_FALLBACK = { icon: '📦', bg: '#f8fafc', text: '#64748b', bar: '#94a3b8', darkBg: 'rgba(100,116,139,0.2)', darkText: '#94a3b8' };
 
 const ymdLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

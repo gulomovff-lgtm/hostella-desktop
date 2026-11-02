@@ -29,8 +29,22 @@ test('латиницей и как слышится: zaftrak, yandeks ustalar', 
   assert.equal(suggestCategory('зафтрак'), CAT_BREAKFAST);
   assert.equal(suggestCategory('tuxum, non'), CAT_BREAKFAST);
   assert.equal(suggestCategory('zp Dilnoza'), 'Зарплата');
-  assert.equal(suggestCategory('ustaga'), 'Ремонт');
-  assert.equal(suggestCategory('устав'), null);
+  // «usta» — кому, а не на что: хлеб мастерам — завтрак, такси мастерам — яндекс
+  assert.equal(suggestCategory('ustalaga non'), CAT_BREAKFAST);
+  assert.equal(suggestCategory('ustalarga nono olindi'), CAT_BREAKFAST);
+  assert.equal(suggestCategory('YADEKS USTALA'), CAT_TAXI);
+  assert.equal(suggestCategory('Remontga ishlatildi'), 'Ремонт');
+  assert.equal(suggestCategory('xoz tovar'), CAT_HOUSEHOLD);
+  assert.equal(suggestCategory('XOSTAVAR'), CAT_HOUSEHOLD);
+  assert.equal(suggestCategory('Kir yuvish uchun gel olindi'), CAT_HOUSEHOLD);
+  assert.equal(suggestCategory('oqqogoz'), CAT_HOUSEHOLD);
+  assert.equal(suggestCategory('GAZGA TULANDI'), 'Газ');
+  assert.equal(suggestCategory('kuler suv'), 'Вода для кулера');
+  assert.equal(suggestCategory('KULLERGA SUV'), 'Вода для кулера');
+  assert.equal(suggestCategory('SUVGA TOLOV'), 'Вода');
+  assert.equal(suggestCategory('MUSURGA'), 'Коммунальные услуги');
+  assert.equal(suggestCategory('KADASTIR TOJIYLAGA'), 'Регистрация');
+  assert.equal(suggestCategory('zavtrikga non olindi'), CAT_BREAKFAST);
 });
 
 test('коммунальные, ремонт, хозтовары', () => {
@@ -60,7 +74,9 @@ test('получатель зарплаты по имени, двое подхо
   assert.equal(matchStaff('зп Мухайё', users), 'u1');
   assert.equal(matchStaff('аванс muhayo', users), 'u1');
   assert.equal(matchStaff('зп Дилноза', users), null);
-  assert.equal(matchStaff('зп уборщице', users), null);
+  assert.equal(matchStaff('зп уборщице', users), '__cleaning__');
+  assert.equal(matchStaff('Oylik farrosh opaga', users), '__cleaning__');
+  assert.equal(matchStaff('зп кому-то', users), null);
 });
 
 test('план: только «Другое», зарплате — получатель', () => {
