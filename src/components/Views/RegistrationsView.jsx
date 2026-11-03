@@ -1,13 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     ClipboardCheck, Search, CheckCircle2,
     Trash2, RefreshCw, Plus, X,
-    UserX, Plane, ChevronLeft, ChevronRight, Calculator, FileText,
+    UserX, Plane, ChevronLeft, ChevronRight, Calculator, FileText, EyeOff, Undo2,
 } from 'lucide-react';
 import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 import TRANSLATIONS from '../../constants/translations';
 import { stableView } from '../UI/stableView';
 import { validCadastreFor } from '../../utils/registrationStatus';
+import { watchEmehmonIgnore, ignoreEmehmonRow, unignoreEmehmonRow, ignoreKey } from '../../utils/emehmonIgnore';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -520,12 +521,18 @@ const RegistrationsView = ({
 }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+    const isSuper = currentUser?.role === 'super';
     const canEmehmon = !!window.electronAPI?.openEmehmon;
     const isDeparting = (g) => emehmonDepartingIds && typeof emehmonDepartingIds.has === 'function' && g.id && emehmonDepartingIds.has(g.id);
 
     const [screen, setScreen] = useState('home'); // home | remove | register | expiring | all | ok
     const [search, setSearch] = useState('');
     const [extendModal, setExtendModal] = useState(null);
+    // Исключённые супером из «Есть в E-mehmon, но нет в программе» (utils/emehmonIgnore)
+    const [ignoreDoc, setIgnoreDoc] = useState({});
+    const [showIgnored, setShowIgnored] = useState(false);
+    useEffect(() => watchEmehmonIgnore(setIgnoreDoc), []);
+    const ignoredHere = ignoreDoc?.[emehmonHostelId] || {};
 
     // ── Данные ──
     const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
@@ -580,7 +587,10 @@ const RegistrationsView = ({
         })), [portalLoaded, emehmonList, guests, livingByPassport, livingByName, emehmonHostelId]);
 
     const departedInPortal = useMemo(() => inPortalToRemove.filter(g => !g._orphan), [inPortalToRemove]);
-    const orphans          = useMemo(() => inPortalToRemove.filter(g =>  g._orphan), [inPortalToRemove]);
+    const orphansAll       = useMemo(() => inPortalToRemove.filter(g =>  g._orphan), [inPortalToRemove]);
+    const orphans          = useMemo(() => orphansAll.filter(g => !ignoredHere[ignoreKey(g)]), [orphansAll, ignoredHere]);
+    const ignoredList      = useMemo(() => Object.entries(ignoredHere).map(([key, v]) => ({ key, ...v }))
+        .sort((a, b) => String(b.at).localeCompare(String(a.at))), [ignoredHere]);
 
     // Запасной список — когда портал недоступен (веб-версия, нет сессии e-mehmon):
     // судим по своим отметкам. Записи старше STALE_TASK_DAYS не показываем, иначе
@@ -926,12 +936,45 @@ const RegistrationsView = ({
                                                     flag={<Flag country={g.country} />}
                                                     name={g.fullName}
                                                     line2={guestLine(g)}
-                                                    actions={departBtn(g)} />
+                                                    actions={<>
+                                                        {departBtn(g)}
+                                                        {isSuper && canAct && (
+                                                            <BigBtn color="gray" onClick={() => ignoreEmehmonRow(emehmonHostelId, g, currentUser?.login || currentUser?.name).catch(e => console.warn('[emehmonIgnore]', e.message))}>
+                                                                <EyeOff size={15} /> {t('emIgnoreBtn')}
+                                                            </BigBtn>
+                                                        )}
+                                                    </>} />
                                             ))}
                                         </div>
                                     </>
                                 )}
                             </>
+                        )}
+
+                        {/* Исключённые супером: в задачах их нет, вернуть может только он */}
+                        {isSuper && ignoredList.length > 0 && (
+                            <div className="mt-6">
+                                <button type="button" onClick={() => setShowIgnored(v => !v)}
+                                    className="text-sm font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5">
+                                    <EyeOff size={14} /> {t('emIgnoredTitle').replace('{n}', ignoredList.length)}
+                                    <ChevronRight size={14} className={showIgnored ? 'rotate-90 transition-transform' : 'transition-transform'} />
+                                </button>
+                                {showIgnored && (
+                                    <div className="space-y-2 mt-2">
+                                        {ignoredList.map(r => (
+                                            <PersonRow key={r.key} tone="white" lang={lang}
+                                                flag={<span className="text-xl">🙈</span>}
+                                                name={r.name || r.passport}
+                                                line2={[r.passport, r.at ? new Date(r.at).toLocaleDateString('ru-RU') : '', r.by].filter(Boolean).join(' · ')}
+                                                actions={canAct && (
+                                                    <BigBtn color="gray" onClick={() => unignoreEmehmonRow(emehmonHostelId, r.key).catch(e => console.warn('[emehmonIgnore]', e.message))}>
+                                                        <Undo2 size={15} /> {t('emUnignoreBtn')}
+                                                    </BigBtn>
+                                                )} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </>
                 )}

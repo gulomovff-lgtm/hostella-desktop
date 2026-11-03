@@ -41,7 +41,7 @@ service cloud.firestore {
       // отключение аудита (auditEnabled), подмену минимальной цены.
       match /settings/{doc} {
         allow read:  if signedIn();
-        allow write: if isAdmin();
+        allow write: if isAdmin() && doc != 'emehmonIgnore';
       }
 
       // Замок смен — координация «кто на смене в этом хостеле», а не настройка.
@@ -71,6 +71,13 @@ service cloud.firestore {
       match /settings/expenseCats {
         allow read:  if signedIn();
         allow write: if isStaff();
+      }
+
+      // Кого из портала e-mehmon не показывать в «нет в программе»
+      // (utils/emehmonIgnore.js). Исключает только супер — решение владельца.
+      match /settings/emehmonIgnore {
+        allow read:  if signedIn();
+        allow write: if isSuper();
       }
 
       // ── Реферальная программа (functions/referralFunctions.js) ─────────────
