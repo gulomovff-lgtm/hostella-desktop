@@ -493,7 +493,10 @@ exports.getPublicAvailability = functions.https.onRequest(async (req, res) => {
         const base = `artifacts/hostella-multi-v4/public/data`;
         const [roomsSnap, guestsSnap, promosSnap] = await Promise.all([
             hostellaDb.collection(`${base}/rooms`).get(),
-            hostellaDb.collection(`${base}/guests`).get(),
+            // Только незакрытые записи и только нужные поля: чтение всех гостей занимало до 15 с
+            // на каждого посетителя сайта и загружало в функцию паспорта и телефоны без нужды.
+            hostellaDb.collection(`${base}/guests`).where('status', '!=', 'checked_out')
+                .select('status', 'roomId', 'checkInDate', 'checkInDateTime', 'checkOutDate').get(),
             hostellaDb.collection(`${base}/promos`).get(),
         ]);
         const rooms = roomsSnap.docs.map(d => {
