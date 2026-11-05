@@ -208,6 +208,10 @@ function startIdleInstallWatcher() {
 
 const isDev = !app.isPackaged;
 
+// Без этого Windows не связывает окно с ярлыком установщика (appId в package.json),
+// и в панели задач значок мог браться не из программы.
+if (process.platform === 'win32' && !isDev) app.setAppUserModelId('com.hostella.app');
+
 // Disable HTTP cache in dev so stale responses from Vite never cause MIME errors
 if (isDev) {
   app.commandLine.appendSwitch('disable-http-cache');
@@ -218,6 +222,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     frame: false,
+    icon: path.join(__dirname, isDev ? '../public/ic.ico' : '../dist/ic.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
