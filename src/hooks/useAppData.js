@@ -4,8 +4,9 @@ import { visibleAuditFor } from '../utils/auditScope';
 import { collection, doc, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_USERS } from '../constants/config';
-import { createLiveList, newestFirst, alphabetical, mergeLists } from '../utils/liveList';
+import { createLiveList, newestFirst, mergeLists } from '../utils/liveList';
 import { historyCutoffIso, LIVE_GUEST_STATUSES, openContractKeys, chunk } from '../utils/historyWindow';
+import { startClientsSync } from '../utils/clientsStore';
 
 /**
  * Живой список по изменениям снимка (utils/liveList.js): неизменённые документы
@@ -68,7 +69,9 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   const [clients,     setClients    ] = useState([]);
   const [usersList,   setUsersList  ] = useState([]);
   const [tasks,       setTasks      ] = useState([]);
-  const [shifts,         setShifts        ] = useState([]);
+  const [shiftsRecent,   setShiftsRecent  ] = useState([]);
+  const [shiftsOpen,     setShiftsOpen    ] = useState([]);
+  const [shiftsAll,      setShiftsAll     ] = useState(null);
   const [tgSettings,    setTgSettings   ] = useState(null);
   const [auditLogCommon, setAuditLogCommon] = useState([]);
   const [catalog,        setCatalog       ] = useState([]);
@@ -168,7 +171,8 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
     const phase2 = () => {
       if (cancelled) return;
       listen(query(col('payments'), where('date', '>=', cutoff)), setPaymentsRecent, {}, undefined, coreDone);
-      listen(col('clients'), setClients, alphabetical('fullName'), undefined, coreDone);
+      // Клиенты: полный список, но без подписки на всю коллекцию (utils/clientsStore)
+      unsubs.push(startClientsSync({ onList: setClients, onReady: coreDone }));
       listen(query(col('expenses'), where('date', '>=', cutoff)), setExpensesRecent, newestFirst('date'), undefined, coreDone);
       listen(col('tasks'), setTasks);
       listen(col('promos'), setPromos, {}, () => setPromos([]));
@@ -199,7 +203,9 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
     listen(query(col('guests'), where('checkOutDate', '>=', cutoff)), setGuestsRecent, newestFirst('checkInDate'));
     listenDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'telegram'), setTgSettings, {});
     listenDoc(doc(db, ...PUBLIC_DATA_PATH, 'settings', 'hostelConfig'), setHostelConfig, {});
-    listen(col('shifts'), setShifts);
+    // Смены окном: открытые любой давности и начатые за окно дней; все — с полной историей
+    listen(query(col('shifts'), where('endTime', '==', null)), setShiftsOpen);
+    listen(query(col('shifts'), where('startTime', '>=', cutoff)), setShiftsRecent);
     listen(col('registrations'), setRegistrations, newestFirst('createdAt'), () => setRegistrations([]));
     listen(col('cadastreRegistrations'), setCadastreRegs, newestFirst('createdAt'), (err) => {
       console.error('[cadastreRegs] onSnapshot error:', err.code, err.message);
@@ -253,18 +259,19 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   useEffect(() => {
     if (!firebaseUser || !userKey || !historyWanted) return undefined;
     const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
-    let pending = 3;
+    let pending = 4;
     let cancelled = false;
     const done = () => { pending -= 1; if (pending === 0 && !cancelled) setHistoryReady(true); };
     const unsubs = [
       listenLive(col('guests'), setGuestsAll, newestFirst('checkInDate'), undefined, done),
       listenLive(col('payments'), setPaymentsAll, {}, undefined, done),
       listenLive(col('expenses'), setExpensesAll, newestFirst('date'), undefined, done),
+      listenLive(col('shifts'), setShiftsAll, {}, undefined, done),
     ];
     return () => {
       cancelled = true;
       unsubs.forEach(u => u());
-      setGuestsAll(null); setPaymentsAll(null); setExpensesAll(null);
+      setGuestsAll(null); setPaymentsAll(null); setExpensesAll(null); setShiftsAll(null);
       setHistoryReady(false);
     };
   }, [firebaseUser, userKey, historyWanted]);
@@ -285,6 +292,8 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
     [historyReady, paymentsAll, paymentsRecent, paymentsContract]);
   const expenses = useMemo(() => (historyReady && expensesAll) ? expensesAll : expensesRecent,
     [historyReady, expensesAll, expensesRecent]);
+  const shifts = useMemo(() => (historyReady && shiftsAll) ? shiftsAll : mergeLists([shiftsOpen, shiftsRecent]),
+    [historyReady, shiftsAll, shiftsOpen, shiftsRecent]);
 
   // Журнал для роли: супер — оба по времени, админ — общий без зачётов.
   const auditLog = useMemo(

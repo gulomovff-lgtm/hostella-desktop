@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { historyCutoffIso, openContractKeys, chunk, HISTORY_TABS, LIVE_GUEST_STATUSES, HISTORY_WINDOW_DAYS } from '../src/utils/historyWindow.js';
+import { isBeforeWindow, historyCutoffIso, openContractKeys, chunk, HISTORY_TABS, LIVE_GUEST_STATUSES, HISTORY_WINDOW_DAYS } from '../src/utils/historyWindow.js';
 import { mergeLists, newestFirst } from '../src/utils/liveList.js';
 import { cadastrePersonGone } from '../src/utils/registrationStatus.js';
 
@@ -16,8 +16,8 @@ test('живущие, брони и долговые записи грузятс
 });
 
 test('экраны отчётов, долгов и истории просят полную историю; «Номера» — нет', () => {
-  for (const tab of ['reports', 'debts', 'guesthistory', 'analytics', 'shifts', 'registrations']) assert.ok(HISTORY_TABS.has(tab), tab);
-  for (const tab of ['rooms', 'dashboard', 'shop', 'manualstay']) assert.ok(!HISTORY_TABS.has(tab), tab);
+  for (const tab of ['reports', 'debts', 'guesthistory', 'analytics', 'shifts', 'expenses']) assert.ok(HISTORY_TABS.has(tab), tab);
+  for (const tab of ['rooms', 'dashboard', 'shop', 'manualstay', 'calendar', 'registrations']) assert.ok(!HISTORY_TABS.has(tab), tab);
 });
 
 test('открытые договоры: id и ФИО участников; закрытые не грузим; части по 30', () => {
@@ -50,4 +50,12 @@ test('визиты одного человека: паспорт как введ
   assert.deepEqual(personQueryKeys({ passport: 'AC1234567', fullName: 'X' }), { passports: ['AC1234567'], name: '' });
   assert.deepEqual(personQueryKeys({ passport: 'AC1', fullName: ' Ali Valiyev ' }), { passports: [], name: 'Ali Valiyev' });
   assert.deepEqual(personQueryKeys({}), { passports: [], name: '' });
+});
+
+test('дата раньше окна: граница с запасом в день', () => {
+  const now = new Date('2026-11-05T12:00:00');
+  assert.equal(isBeforeWindow(new Date('2026-11-01T00:00:00'), now), false);
+  assert.equal(isBeforeWindow(new Date('2026-09-20T00:00:00'), now), false);
+  assert.equal(isBeforeWindow(new Date('2026-09-01T00:00:00'), now), true);
+  assert.equal(isBeforeWindow('мусор', now), false);
 });

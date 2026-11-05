@@ -13,6 +13,7 @@ import TRANSLATIONS from '../constants/translations';
 import { HOSTELS } from '../utils/helpers';
 import { paymentSplit, buildPaymentFields, guestDeltas, editableReason, validatePaymentInput } from '../utils/paymentEdit';
 import { collection as fsCollection } from 'firebase/firestore';
+import { clientStamp } from '../utils/clientsStore';
 
 /**
  * Генерирует автоописание расхода для отчётов.
@@ -207,7 +208,7 @@ export function useExpenseActions({
               const norm = s2 => (s2 || '').replace(/\s/g, '').toUpperCase();
               const cli = (g.passport && clients.find(c => c.passport && norm(c.passport) === norm(g.passport))) || null;
               if (cli) {
-                tx.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', cli.id), { balance: increment(-clawback) });
+                tx.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', cli.id), { ...clientStamp(), balance: increment(-clawback) });
                 patch.balanceCredited = increment(-clawback);
               } else {
                 clawback = 0;

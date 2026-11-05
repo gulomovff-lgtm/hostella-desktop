@@ -35,6 +35,7 @@ import { getConfig } from '../utils/appConfig';
 import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, PLAN_ROOM } from '../utils/stayPlans';
 import { cadastreMatches, NEW_STAY_RESET_KEYS } from '../utils/registrationStatus';
 import { emehmonStayStartOf } from '../utils/emehmonAmount';
+import { clientStamp } from '../utils/clientsStore';
 
 export function useGuestActions(ctx) {
   const {
@@ -118,7 +119,7 @@ export function useGuestActions(ctx) {
     // «AC 1234567» и «AC1234567» считались разными людьми и заводился второй клиент.
     const ec = findExistingClient(clients, data);
     if (ec) {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), { ...clientStamp(), 
         lastVisit: new Date().toISOString(),
         ...(opts.incrementVisits !== false ? { visits: (ec.visits || 0) + 1 } : {}),
         fullName: ec.fullName || data.fullName || '',
@@ -128,7 +129,7 @@ export function useGuestActions(ctx) {
         ...(data.phone && !ec.phone ? { phone: data.phone } : {}),
       });
     } else {
-      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
+      await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), { ...clientStamp(), 
         fullName: data.fullName || '',
         passport: data.passport || '',
         birthDate: data.birthDate || '',
@@ -164,11 +165,11 @@ export function useGuestActions(ctx) {
           ...(item.overpay > 0 ? { balanceCredited: increment(-item.overpay) } : {}),
         });
         if (item.overpay > 0 && item.overpayClientId) {
-          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { balance: increment(-item.overpay) });
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { ...clientStamp(), balance: increment(-item.overpay) });
         }
         // Баланс, потраченный этой оплатой, возвращаем клиенту
         if (item.balanceUsed > 0 && item.overpayClientId) {
-          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { balance: increment(item.balanceUsed) });
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { ...clientStamp(), balance: increment(item.balanceUsed) });
           fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { paidBalance: increment(-item.balanceUsed) });
         }
       } else if (item.type === 'extend') {
@@ -224,7 +225,7 @@ export function useGuestActions(ctx) {
         }
       } else if (item.type === 'balance_topup') {
         // Откатываем пополнение баланса: уменьшаем balance клиента, удаляем запись в кассе
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.clientId), { balance: increment(-item.amount) });
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.clientId), { ...clientStamp(), balance: increment(-item.amount) });
         if (item.paymentId) fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', item.paymentId));
       } else if (item.type === 'debtPayment') {
         // Откатываем погашение долга: удаляем платёжные документы и уменьшаем amountPaid
@@ -341,7 +342,7 @@ export function useGuestActions(ctx) {
         const clientRec = clients.find(c => c.passport && formData.passport &&
           c.passport.replace(/\s/g,'').toUpperCase() === formData.passport.replace(/\s/g,'').toUpperCase());
         if (clientRec) {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { ...clientStamp(), 
             balance: increment(-paidBalance),
           });
         }
@@ -510,7 +511,7 @@ export function useGuestActions(ctx) {
         const clientRec = clients.find(c => c.passport && guest.passport &&
           c.passport.replace(/\s/g,'').toUpperCase() === guest.passport.replace(/\s/g,'').toUpperCase());
         if (clientRec) {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), {
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { ...clientStamp(), 
             balance: increment(balancePart),
           });
         }
@@ -605,7 +606,7 @@ export function useGuestActions(ctx) {
         { purpose, guestName: g?.fullName, roomNumber: g?.roomNumber }, payDate);
       batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...guestUpdate, ...(paymentIds.length ? { lastPaymentAt: payDate } : {}) });
       if (balanceUsed > 0 && clientRec) {
-        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { balance: increment(-balanceUsed) });
+        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { ...clientStamp(), balance: increment(-balanceUsed) });
       }
       commitInBackground(batch);
       if (total > 0) {

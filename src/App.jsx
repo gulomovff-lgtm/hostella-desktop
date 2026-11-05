@@ -378,9 +378,13 @@ function App() {
   // Firestore берёт деньги за ВСЕ документы заново, если подписку открыть
   // позже чем через 30 минут, а в пределах 30 минут — только за изменения.
   const [dashAllTime, setDashAllTime] = useState(false);
-  // «Ручной учёт» просит историю сам: открыт архив договоров или выбор участника
-  const [manualStayHistory, setManualStayHistory] = useState(false);
-  const needsHistoryTab = HISTORY_TABS.has(activeTab) || (activeTab === 'dashboard' && dashAllTime) || (activeTab === 'manualstay' && manualStayHistory);
+  // Экран, который просит историю сам, когда она ему понадобилась (архив договоров,
+  // давняя дата в календаре, налоговые итоги e-mehmon). Держим имя экрана, а не флаг:
+  // эффект экрана при открытии срабатывает раньше эффекта App.
+  const [historyAskedBy, setHistoryAskedBy] = useState(null);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const needsHistoryTab = HISTORY_TABS.has(activeTab) || (activeTab === 'dashboard' && dashAllTime) || historyAskedBy === activeTab;
   useEffect(() => { if (needsHistoryTab) requestHistory(); }, [needsHistoryTab, requestHistory]);
   useEffect(() => {
     if (needsHistoryTab) return undefined;
@@ -388,14 +392,14 @@ function App() {
     return () => clearTimeout(tm);
   }, [needsHistoryTab, releaseHistory]);
   useEffect(() => { if (activeTab !== 'dashboard') setDashAllTime(false); }, [activeTab]);
-  useEffect(() => { if (activeTab !== 'manualstay') setManualStayHistory(false); }, [activeTab]);
-  const loadManualStayHistory = useCallback(() => setManualStayHistory(true), []);
+  useEffect(() => { setHistoryAskedBy(asked => (asked === activeTab ? asked : null)); }, [activeTab]);
+  const askTabHistory = useCallback(() => setHistoryAskedBy(activeTabRef.current), []);
   // С открытой подпиской на всю историю каждая запись договора занимает секунды
   // вместо десятков мс (замер 05.11.2026), поэтому пришли с «Отчётов» — отпускаем
   // сразу, а не через 25 минут.
   useEffect(() => {
-    if (activeTab === 'manualstay' && !manualStayHistory) releaseHistory();
-  }, [activeTab, manualStayHistory, releaseHistory]);
+    if (activeTab === 'manualstay' && historyAskedBy !== 'manualstay') releaseHistory();
+  }, [activeTab, historyAskedBy, releaseHistory]);
   const loadDashAllTime = useCallback(() => setDashAllTime(true), []);
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
@@ -2100,6 +2104,7 @@ return (
                 {activeTab === 'calendar' && (
                     <div className="h-full flex flex-col bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
                         <CalendarView
+                            onNeedHistory={askTabHistory}
                             rooms={filteredRooms}
                             guests={filteredGuests}
                             clients={clients}
@@ -2269,6 +2274,7 @@ return (
 
                 {activeTab === 'registrations' && (
                     <RegistrationsView
+                        onNeedHistory={askTabHistory}
                         registrations={filteredRegistrations}
                         guests={filteredGuests}
                         cadastreRegs={filteredCadastreRegs}
@@ -2452,7 +2458,7 @@ return (
                     <ManualStayView
                         guests={guests}
                         groups={manualStayGroups}
-                        onNeedHistory={loadManualStayHistory}
+                        onNeedHistory={askTabHistory}
                         rooms={filteredRooms}
                         currentUser={currentUser}
                         payments={filteredPayments}
@@ -2478,12 +2484,6 @@ return (
                     <HostelSettingsView
                         currentUser={currentUser}
                         guests={guests}
-                        rooms={rooms}
-                        payments={payments}
-                        expenses={filteredExpenses}
-                        users={usersList}
-                        tasks={tasks}
-                        shifts={shifts}
                         lang={lang}
                         notify={showNotification}
                         onOpenTemplateEditor={() => setTemplateEditorModal(true)}

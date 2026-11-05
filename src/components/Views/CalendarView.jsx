@@ -10,6 +10,7 @@ import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { computeContractFinancials } from '../../utils/contractFinancials';
 import { chargeOf } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
+import { isBeforeWindow } from '../../utils/historyWindow';
 
 // --- Utilities ---
 const getTotalPaid = (g) => {
@@ -48,7 +49,7 @@ const Flag = ({ code, size = 20 }) => {
 };
 
 // --- RentalInfoPopup ---
-const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], payments = [], onClose, onEdit, onPayRental, canEdit, lang = 'ru' }) => {
+const RentalInfoPopup = ({ onNeedHistory, room, rental, historical = false, pos, guests = [], payments = [], onClose, onEdit, onPayRental, canEdit, lang = 'ru' }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const r = rental || room?.rental;
     const [group, setGroup] = useState(null);
@@ -68,6 +69,8 @@ const RentalInfoPopup = ({ room, rental, historical = false, pos, guests = [], p
             try {
                 const snap = await getDoc(doc(db, ...PUBLIC_DATA_PATH, 'manualStayGroups', r.contractGroupId));
                 setGroup(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+                // Суммы закрытого договора считаются по старым записям, их нет в окне
+                if (snap.exists() && snap.data().closed) onNeedHistory?.();
             } catch (e) { console.error('[RentalPopup]', e); setGroup(null); }
             setLoadingContract(false);
         })();
@@ -317,7 +320,7 @@ const GuestTooltip = ({ guest, room, mousePos, lang, clients = [] }) => {
 };
 
 // --- CalendarView ---
-const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [], onRentalClick, onPayRental, payments = [] }) => {
+const CalendarView = ({ onNeedHistory, rooms, guests, onSlotClick, lang, currentUser, onDeleteGuest, onRescheduleGuest, clients = [], onRentalClick, onPayRental, payments = [] }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const [startDate, setStartDate]   = useState(() => { const d = new Date(); d.setHours(0,0,0,0); return d; });
@@ -379,6 +382,8 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
         return () => window.removeEventListener('keydown', onKey);
     }, []);
 
+    // Гости раньше окна грузятся только когда на них смотрят
+    useEffect(() => { if (isBeforeWindow(startDate)) onNeedHistory?.(); }, [startDate]); // eslint-disable-line react-hooks/exhaustive-deps
     const goToday  = useCallback(() => { const d = new Date(); d.setHours(0,0,0,0); setStartDate(d); }, []);
     const shift    = useCallback((n) => setStartDate(p => { const d = new Date(p); d.setDate(d.getDate() + n); return d; }), []);
 
@@ -870,6 +875,7 @@ const CalendarView = ({ rooms, guests, onSlotClick, lang, currentUser, onDeleteG
                     rental={rentalPopup.rental}
                     historical={rentalPopup.historical}
                     pos={rentalPopup.pos}
+                    onNeedHistory={onNeedHistory}
                     guests={guests}
                     payments={payments}
                     onClose={() => setRentalPopup(null)}

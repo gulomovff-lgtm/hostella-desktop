@@ -7,7 +7,8 @@
  *
  * Всегда (на всех устройствах, сразу):
  *   • гости со статусом живёт / бронь / долговая запись — любой давности;
- *   • гости, оплаты и расходы за последние HISTORY_WINDOW_DAYS дней;
+ *   • гости, оплаты, расходы и смены за последние HISTORY_WINDOW_DAYS дней;
+ *   • открытые смены любой давности;
  *   • участники и оплаты открытых договоров — любой давности (их суммы
  *     считаются по всей длине договора, а договор виден в «Номерах»).
  * По запросу (вся коллекция): экраны HISTORY_TABS; админ и супер — фоном.
@@ -26,11 +27,19 @@ export const LIVE_GUEST_STATUSES = ['active', 'booking', 'debt'];
  */
 export const HISTORY_TABS = new Set([
   'reports', 'analytics', 'shifts', 'debts', 'guesthistory', 'clients', 'clientdupes',
-  'calendar', 'expenses', 'registrations', 'referrals',
+  'expenses', 'referrals',
 ]);
 
-// «Ручной учёт» здесь нет: участники и оплаты открытых договоров грузятся всегда
-// (openContractKeys), историю он просит сам — архив договоров и выбор участника.
+// «Ручной учёт», «Календарь» и «E-mehmon» просят историю сами, когда она нужна: архив
+// договоров и выбор участника; дата раньше окна и закрытый договор в аренде; налоговые
+// итоги и незнакомые строки портала. С подпиской на всю историю каждая запись в
+// базу занимает на порядки дольше, а кассиры открывают эти экраны постоянно.
+
+/** Дата раньше окна (с запасом в день: граница считается при входе, а программа живёт днями). */
+export function isBeforeWindow(date, now = new Date()) {
+  const d = new Date(date);
+  return !Number.isNaN(d.getTime()) && d.getTime() <= new Date(historyCutoffIso(now, HISTORY_WINDOW_DAYS - 1)).getTime();
+}
 
 /** Граница окна — ISO-строка (даты в базе — ISO, сравнение строк корректно). */
 export function historyCutoffIso(now = new Date(), days = HISTORY_WINDOW_DAYS) {

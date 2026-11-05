@@ -5,6 +5,7 @@ import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import TRANSLATIONS from '../../constants/translations';
 import { logAction } from '../../utils/auditLog';
 import { refNightsOf, refBonusFor, refStayState, newRefCode, normPhone9 } from '../../utils/referral';
+import { clientStamp } from '../../utils/clientsStore';
 
 /**
  * «Бонусы» — реферальная программа (владелец 2026-09-28).
@@ -144,7 +145,7 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
     const giveCode = async (c) => {
         const code = newRefCode(clients);
         if (!code) return;
-        try { await updateDoc(doc(db, ...P('clients', c.id)), { refCode: code }); showNotification?.(t('rfCodeGiven').replace('{code}', code), 'success'); }
+        try { await updateDoc(doc(db, ...P('clients', c.id)), { ...clientStamp(), refCode: code }); showNotification?.(t('rfCodeGiven').replace('{code}', code), 'success'); }
         catch (e) { showNotification?.(t('rfErr') + e.message, 'error'); }
     };
 
@@ -161,8 +162,8 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
             const d = s.data();
             if (new Date(d.expiresAt).getTime() < Date.now()) { await deleteDoc(ref).catch(() => {}); showNotification?.(t('rfLinkExpired'), 'error'); return; }
             const other = clients.find(x => x.tgChatId === d.chatId && x.id !== c.id);
-            if (other) await updateDoc(doc(db, ...P('clients', other.id)), { tgChatId: null });
-            await updateDoc(doc(db, ...P('clients', c.id)), {
+            if (other) await updateDoc(doc(db, ...P('clients', other.id)), { ...clientStamp(), tgChatId: null });
+            await updateDoc(doc(db, ...P('clients', c.id)), { ...clientStamp(), 
                 tgChatId: d.chatId, tgLinkedAt: new Date().toISOString(), tgLinkedBy: staffId,
                 ...(c.refCode ? {} : { refCode: newRefCode(clients) }),
             });
@@ -186,7 +187,7 @@ const ReferralView = ({ clients = [], guests = [], currentUser, showNotification
                 type: 'adjust', referrerClientId: c.id, amount: amt, note: adj.note.trim().slice(0, 200),
                 balanceBefore: Number(c.balance) || 0, staffId, date: new Date().toISOString(),
             });
-            b.update(doc(db, ...P('clients', c.id)), { balance: increment(amt), refBonusTotal: increment(amt) });
+            b.update(doc(db, ...P('clients', c.id)), { ...clientStamp(), balance: increment(amt), refBonusTotal: increment(amt) });
             await b.commit();
             logAction(currentUser, 'referral_adjust', { clientId: c.id, clientName: c.fullName, amount: amt, note: adj.note.trim() });
             showNotification?.(t('rfAdjDone'), 'success');

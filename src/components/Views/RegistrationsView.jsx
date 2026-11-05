@@ -200,10 +200,13 @@ const AllDone = ({ text, lang }) => {
 // Считаем по гостям, у которых есть дата регистрации в e-mehmon. Сумма берётся
 // из emehmonAmount (что реально указали в портале). У старых записей поля нет —
 // тогда там стояла 1, показываем их отдельной строкой, чтобы итог был честным.
-const TaxTotals = ({ guests = [], lang }) => {
+const TaxTotals = ({ guests = [], lang, onNeedHistory }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const [offset, setOffset] = useState(0); // 0 — текущий месяц, -1 — прошлый…
     const [open, setOpen] = useState(false);
+    // Итог виден и в свёрнутом виде. Текущий и прошлый месяц окно истории покрывает
+    // (начало прошлого месяца — не больше 61 дня назад), месяцам раньше нужна вся история.
+    useEffect(() => { if (offset <= -2) onNeedHistory?.(); }, [offset]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const period = useMemo(() => {
         const d = new Date();
@@ -496,6 +499,7 @@ const TursborPanel = ({ hostelId, lang }) => {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const RegistrationsView = ({
+    onNeedHistory,
     registrations = [],
     guests = [],
     cadastreRegs = [],
@@ -589,6 +593,9 @@ const RegistrationsView = ({
     const departedInPortal = useMemo(() => inPortalToRemove.filter(g => !g._orphan), [inPortalToRemove]);
     const orphansAll       = useMemo(() => inPortalToRemove.filter(g =>  g._orphan), [inPortalToRemove]);
     const orphans          = useMemo(() => orphansAll.filter(g => !ignoredHere[ignoreKey(g)]), [orphansAll, ignoredHere]);
+    // Незнакомая строка портала может оказаться давно выехавшим гостем: без истории
+    // он выглядел бы «нет в программе». Проверяем по всей истории, только когда такие есть.
+    useEffect(() => { if (orphans.length > 0) onNeedHistory?.(); }, [orphans.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
     const ignoredList      = useMemo(() => Object.entries(ignoredHere).map(([key, v]) => ({ key, ...v }))
         .sort((a, b) => String(b.at).localeCompare(String(a.at))), [ignoredHere]);
 
@@ -800,7 +807,7 @@ const RegistrationsView = ({
                         )}
 
                         {/* Итог задекларированных сумм — сверка с налоговой */}
-                        <TaxTotals guests={guests} lang={lang} />
+                        <TaxTotals guests={guests} lang={lang} onNeedHistory={onNeedHistory} />
 
                         {/* Турсбор к оплате — с портала e-mehmon (сессия своего филиала) */}
                         {/* key по филиалу: при переключении панель перемонтируется, иначе

@@ -8,6 +8,7 @@ import { logAction } from '../utils/auditLog';
 import { getNormalizedCountry } from '../utils/helpers';
 import { computeMergedClient } from '../utils/clientDuplicates';
 import { findExistingClient, createPendingIndex } from '../utils/clientMatch';
+import { clientStamp, bumpClientsRev } from '../utils/clientsStore';
 
 export function useClientActions({ currentUser, clients, showNotification, setUndoStack }) {
 
@@ -20,7 +21,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
   };
 
   const handleUpdateClient = async (id, d) => {
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', id), d);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', id), { ...d, ...clientStamp() });
     showNotification('Updated');
   };
 
@@ -37,7 +38,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
         const existing = findExistingClient(clients, nc);
         if (!existing && pending.has(nc)) return;
         if (existing) {
-          batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), {
+          batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), { ...clientStamp(), 
             fullName: existing.fullName || nc.fullName,
             passport: existing.passport || nc.passport,
             birthDate: existing.birthDate || nc.birthDate,
@@ -46,7 +47,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
           updated++;
         } else {
           pending.add(nc);
-          batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), { ...nc, visits: 0, lastVisit: new Date().toISOString() });
+          batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), { ...clientStamp(), ...nc, visits: 0, lastVisit: new Date().toISOString() });
           created++;
         }
       });
@@ -70,13 +71,14 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
       if (duplicates.length === 0) return showNotification('No duplicates found!');
       const batch = writeBatch(db);
       duplicates.forEach(({ original, duplicate }) => {
-        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', original.id), {
+        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', original.id), { ...clientStamp(), 
           visits: (original.visits || 0) + (duplicate.visits || 0),
           lastVisit: new Date(original.lastVisit) > new Date(duplicate.lastVisit) ? original.lastVisit : duplicate.lastVisit,
         });
         batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', duplicate.id));
       });
       await commitNow(batch);
+      bumpClientsRev();
       showNotification(`Merged ${duplicates.length} duplicates!`, 'success');
     } catch (e) {
       console.error(e);
@@ -104,9 +106,10 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     try {
       const merged = computeMergedClient(main, others);
       const batch = writeBatch(db);
-      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', main.id), { ...merged, ...patch });
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', main.id), { ...merged, ...patch, ...clientStamp() });
       others.forEach(c => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id)));
       await commitNow(batch);
+      bumpClientsRev();
 
       // Снимок удалённых записей — чтобы слияние было прослеживаемым.
       logAction(currentUser, 'clients_merge', {
@@ -131,6 +134,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
       const batch = writeBatch(db);
       ids.forEach(id => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'clients', id)));
       await commitNow(batch);
+      bumpClientsRev();
       showNotification(`Deleted ${ids.length} clients`, 'success');
     } catch (e) {
       showNotification('Bulk delete failed', 'error');
@@ -144,7 +148,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
       clients.forEach(c => {
         const normalized = getNormalizedCountry(c.country);
         if (normalized !== c.country) {
-          batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id), { country: normalized });
+          batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', c.id), { ...clientStamp(), country: normalized });
           count++;
         }
       });
@@ -186,14 +190,14 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
             updates.lastVisit = gDate;
           }
           if (Object.keys(updates).length > 0) {
-            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), updates);
+            batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', ec.id), { ...updates, ...clientStamp() });
             updated++;
           } else {
             skipped++;
           }
         } else {
           pending.add(g);
-          batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), {
+          batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'clients')), { ...clientStamp(), 
             fullName: g.fullName || '',
             passport: g.passport || '',
             birthDate: g.birthDate || '',
@@ -227,7 +231,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     const skip = skipCashbox || currentUser?.role === 'super';
 
     // 1. Обновляем баланс клиента
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { balance: increment(amt) });
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { ...clientStamp(), balance: increment(amt) });
 
     let paymentId = null;
     // 2. Создаём запись в кассе (payments) — только если не обход кассы
@@ -266,7 +270,7 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
     if (!clientId || !delta || isNaN(delta) || delta === 0) return;
     const amt = Number(delta);
     const client = clients.find(c => c.id === clientId);
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { balance: increment(amt) });
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientId), { ...clientStamp(), balance: increment(amt) });
     logAction(currentUser, 'balance_adjust', { clientId, delta: amt, clientName: client?.fullName || '' });
     showNotification(amt > 0
       ? `✅ Баланс пополнен: +${amt.toLocaleString()} сум`
@@ -284,12 +288,12 @@ export function useClientActions({ currentUser, clients, showNotification, setUn
         if (!existing[f] && data[f]) updates[f] = data[f];
       }
       if (Object.keys(updates).length) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), updates);
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'clients', existing.id), { ...updates, ...clientStamp() });
       }
       showNotification(`Клиент уже есть в базе: ${existing.fullName || existing.passport}`, 'info');
       return;
     }
-    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), {
+    await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'clients'), { ...clientStamp(), 
       fullName: data.fullName || '',
       passport: data.passport || '',
       birthDate: data.birthDate || '',
