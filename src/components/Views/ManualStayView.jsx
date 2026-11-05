@@ -1,14 +1,14 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, X, Loader2, Check, Users, Shuffle, FileText, ArrowLeftRight } from 'lucide-react';
-import { collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { Plus, X, Check, Users, Shuffle, FileText, ArrowLeftRight } from 'lucide-react';
+import { doc } from 'firebase/firestore';
 // Записи — без ожидания сервера (см. utils/fsWrite.js): окно не висит, пока сеть думает
-import { setDoc, updateDoc, deleteDoc, commitNow } from '../../utils/fsWrite';
+import { setDoc, updateDoc, deleteDoc } from '../../utils/fsWrite';
 import { db } from '../../firebase';
 import { sumCharges } from '../../utils/contractFinancials';
 import { logAction } from '../../utils/auditLog';
 
 import TRANSLATIONS from '../../constants/translations';
-import { CONTRACT_GROUPS_KEY, COLLECTION, INP, LBL, OVERLAY_STYLE, fmt, getStayNights, pluralGroups, computeEntry } from './ManualStay/shared';
+import { COLLECTION, INP, LBL, OVERLAY_STYLE, fmt, getStayNights, pluralGroups, computeEntry } from './ManualStay/shared';
 import PaymentModal from './ManualStay/PaymentModal';
 import GroupCard from './ManualStay/GroupCard';
 import PeriodEditModal from './ManualStay/PeriodEditModal';
@@ -16,10 +16,21 @@ import OverallReportModal from './ManualStay/OverallReportModal';
 import BrigadeReportModal from './ManualStay/BrigadeReportModal';
 import { stableView } from '../UI/stableView';
 
-const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], hostelFilter = 'all', lang = 'ru' }) => {
+const ruCollator = new Intl.Collator('ru');
+const NO_GUESTS = [];
+// Сколько ждём снимок базы после записи периодов, прежде чем поверить базе
+const ENTRY_OVERLAY_MS = 15000;
+// Номер версии документа договора: неизменённый договор сохраняет объект (utils/liveList),
+// поэтому карточке не нужно каждый раз сравнивать его содержимое целиком.
+const groupVersions = new WeakMap();
+let groupVersionSeq = 0;
+const groupVersion = (g) => {
+    if (!groupVersions.has(g)) groupVersions.set(g, ++groupVersionSeq);
+    return groupVersions.get(g);
+};
+
+const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], currentUser, payments = [], hostelFilter = 'all', lang = 'ru' }) => {
     const t = k => TRANSLATIONS[lang]?.[k] || k;
-    const [contractGroups, setContractGroups] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
     const [newGroupName, setNewGroupName] = useState('');
     const [justCreatedId, setJustCreatedId] = useState(null); // новой группе сразу открыть выбор участников
@@ -33,44 +44,50 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const [groupFilter, setGroupFilter] = useState('active'); // active | closed | all
     const [reportOpen, setReportOpen] = useState(false);
     const [confirmComplete, setConfirmComplete] = useState(null); // группа для подтверждения завершения
+    const [pickerIds, setPickerIds] = useState(() => new Set()); // карточки с открытым выбором участников
 
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
 
+    // Договоры приходят из общей подписки App (useAppData): своя вторая подписка
+    // на ту же коллекцию пересобирала все договоры на каждую запись.
+    const hostelIdOfUser = currentUser?.hostelId || '';
+    const contractGroups = useMemo(() => groups
+        .filter(g => isAdmin || !g.hostelId || g.hostelId === hostelIdOfUser)
+        .sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0)),
+    [groups, isAdmin, hostelIdOfUser]);
+
+    // Периоды договора пишутся в базу целым списком. Снимок приходит с задержкой
+    // (на слабой кассе заметной), а новая запись, собранная из старого снимка,
+    // затирала предыдущую: добавил специальность и сразу отметил комнату — одно
+    // пропало. Поэтому последний записанный список держим здесь: по нему собираются
+    // следующие записи и сразу рисуется окно периода. Снимок догнал — запись убираем;
+    // не догнал за ENTRY_OVERLAY_MS (сервер отказал) — верим базе.
+    const [entryOverlay, setEntryOverlay] = useState({});
+    const overlayRef = useRef(entryOverlay);
+    const setOverlay = (next) => { overlayRef.current = next; setEntryOverlay(next); };
+    const entriesOf = (group) => overlayRef.current[group.id] || group.manualEntries || [];
+    const writeEntries = (groupId, manualEntries) => {
+        setOverlay({ ...overlayRef.current, [groupId]: manualEntries });
+        setTimeout(() => {
+            if (overlayRef.current[groupId] !== manualEntries) return;
+            const { [groupId]: _gone, ...rest } = overlayRef.current;
+            setOverlay(rest);
+        }, ENTRY_OVERLAY_MS);
+        return updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+    };
     useEffect(() => {
-        const colRef = collection(db, ...COLLECTION);
-        const unsub = onSnapshot(colRef, (snap) => {
-            const hostelId = currentUser?.hostelId || '';
-            const groups = snap.docs
-                .map(d => ({ id: d.id, ...d.data() }))
-                .filter(g => isAdmin || !g.hostelId || g.hostelId === hostelId)
-                .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-            setContractGroups(groups);
-            setLoading(false);
-            if (!snap.metadata.fromCache && snap.empty) {
-                try {
-                    const raw = localStorage.getItem(CONTRACT_GROUPS_KEY);
-                    if (raw) {
-                        const parsed = JSON.parse(raw);
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            const batch = writeBatch(db);
-                            parsed.forEach(g => {
-                                if (!g.id) return;
-                                batch.set(doc(db, ...COLLECTION, g.id), {
-                                    name: g.name || '', memberKeys: g.memberKeys || [],
-                                    contractRate: g.contractRate || '', amountPaid: 0,
-                                    manualEntries: g.manualEntries || [], createdAt: Date.now(),
-                                });
-                            });
-                            commitNow(batch).then(() => localStorage.removeItem(CONTRACT_GROUPS_KEY));
-                        }
-                    }
-                } catch { }
-            }
-        }, (err) => { console.error('[ManualStay]', err); setLoading(false); });
-        return () => unsub();
-        // Фильтр внутри подписки читает филиал и роль — при их смене нужна новая подписка,
-        // иначе список договоров остаётся отфильтрованным по прежнему пользователю.
-    }, [currentUser?.hostelId, isAdmin]);
+        const ids = Object.keys(overlayRef.current);
+        if (!ids.length) return;
+        const next = { ...overlayRef.current };
+        for (const id of ids) {
+            const g = contractGroups.find(x => x.id === id);
+            if (!g || JSON.stringify(g.manualEntries || []) === JSON.stringify(next[id])) delete next[id];
+        }
+        if (Object.keys(next).length !== ids.length) setOverlay(next);
+    }, [contractGroups]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Архив считается по старым оплатам и проживаниям: их подгружаем, только когда открыт
+    useEffect(() => { if (groupFilter !== 'active') onNeedHistory?.(); }, [groupFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const createGroup = async () => {
         const name = newGroupName.trim();
@@ -138,21 +155,20 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
         if (!group) return;
         const id = `e-${Date.now()}`;
         const entry = { id, checkIn, checkOut, roomIds: [], people: '' };
-        await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries: [...(group.manualEntries || []), entry] });
-        setEditEntryModal({ groupId, entryId: id });
+        writeEntries(groupId, [...entriesOf(group), entry]);
+        setEditEntryModal({ groupId, entryId: id }); // окно — сразу, не дожидаясь снимка базы
     };
 
     const updateEntry = async (groupId, entryId, patch) => {
         const group = contractGroups.find(g => g.id === groupId);
         if (!group) return;
-        const manualEntries = (group.manualEntries || []).map(e => e.id === entryId ? { ...e, ...patch } : e);
-        await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+        await writeEntries(groupId, entriesOf(group).map(e => e.id === entryId ? { ...e, ...patch } : e));
     };
 
     const removeEntry = async (groupId, entryId) => {
         const group = contractGroups.find(g => g.id === groupId);
         if (!group) return;
-        const entry = (group.manualEntries || []).find(e => e.id === entryId);
+        const entry = entriesOf(group).find(e => e.id === entryId);
         if (!entry) return;
         // Подтверждение: период влияет на начисление (чел-ночи × ставка)
         const fmtD = (iso) => { if (!iso) return '?'; const [, m, d] = iso.split('-'); return `${parseInt(d)}.${m}`; };
@@ -163,8 +179,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             || parseInt(entry.people, 10) || 0;
         const peopleStr = people > 0 ? t('msPeopleParen').replace('{n}', people) : '';
         if (!window.confirm(t('msDeletePeriodConfirm').replace('{period}', period).replace('{people}', peopleStr))) return false;
-        const manualEntries = (group.manualEntries || []).filter(e => e.id !== entryId);
-        await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+        await writeEntries(groupId, entriesOf(group).filter(e => e.id !== entryId));
     };
 
     // ── Доп. расходы договора: произвольные позиции (название + цена) ──
@@ -280,10 +295,9 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const addWorkerGroup = async (groupId, entryId) => {
         const group = contractGroups.find(g => g.id === groupId);
         if (!group) return;
-        const manualEntries = (group.manualEntries || []).map(e =>
+        await writeEntries(groupId, entriesOf(group).map(e =>
             e.id !== entryId ? e : { ...e, workerGroups: [...(e.workerGroups || []), { id: `wg-${Date.now()}`, specialty: '', count: '' }] }
-        );
-        await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+        ));
     };
 
     // Сумма людей по бригаде (специальности с кол-вом). Если бригада заполнена —
@@ -293,44 +307,53 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
     const updateWorkerGroup = async (groupId, entryId, wgId, patch) => {
         const group = contractGroups.find(g => g.id === groupId);
         if (!group) return;
-        const manualEntries = (group.manualEntries || []).map(e => {
+        await writeEntries(groupId, entriesOf(group).map(e => {
             if (e.id !== entryId) return e;
             const workerGroups = (e.workerGroups || []).map(wg => wg.id === wgId ? { ...wg, ...patch } : wg);
             const bt = brigadeTotal(workerGroups);
             return { ...e, workerGroups, ...(bt > 0 ? { people: String(bt) } : {}) };
-        });
-        await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+        }));
     };
 
     const removeWorkerGroup = async (groupId, entryId, wgId) => {
         const group = contractGroups.find(g => g.id === groupId);
         if (!group) return;
-        const manualEntries = (group.manualEntries || []).map(e => {
+        await writeEntries(groupId, entriesOf(group).map(e => {
             if (e.id !== entryId) return e;
             const workerGroups = (e.workerGroups || []).filter(wg => wg.id !== wgId);
             const bt = brigadeTotal(workerGroups);
             return { ...e, workerGroups, ...(bt > 0 ? { people: String(bt) } : {}) };
-        });
-        await updateDoc(doc(db, ...COLLECTION, groupId), { manualEntries });
+        }));
     };
 
-    const groupedGuests = useMemo(() => {
+    // Группировка гостей по имени: один проход без сортировки. Весь список с
+    // алфавитом нужен только выбору участников — считаем его, пока выбор открыт;
+    // иначе правка любого гостя на любой кассе пересчитывала и перерисовывала все карточки.
+    const summarizeGuests = (keep) => {
         const map = new Map();
-        guests.filter(g => g.status !== 'booking').forEach(g => {
+        for (const g of guests) {
+            if (g.status === 'booking') continue;
             const key = (g.fullName || '—').trim();
-            if (!map.has(key)) map.set(key, { key, name: key, stays: [] });
-            map.get(key).stays.push(g);
-        });
-        return Array.from(map.values())
-            .map(g => ({
-                ...g,
-                stayCount: g.stays.length,
-                totalNights: g.stays.reduce((s, stay) => s + getStayNights(stay), 0),
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-    }, [guests]);
+            if (keep && !keep.has(key)) continue;
+            let row = map.get(key);
+            if (!row) { row = { key, name: key, stays: [], stayCount: 0, totalNights: 0 }; map.set(key, row); }
+            row.stays.push(g);
+            row.stayCount += 1;
+            row.totalNights += getStayNights(g);
+        }
+        return map;
+    };
+    const anyPicker = pickerIds.size > 0;
+    const groupedGuests = useMemo(() => (!anyPicker ? NO_GUESTS
+        : Array.from(summarizeGuests(null).values()).sort((a, b) => ruCollator.compare(a.name, b.name))),
+    [guests, anyPicker]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const guestMap = useMemo(() => new Map(groupedGuests.map(g => [g.key, g])), [groupedGuests]);
+    const memberSig = useMemo(() => {
+        const keys = new Set();
+        contractGroups.forEach(g => (g.memberKeys || []).forEach(k => keys.add(k)));
+        return JSON.stringify([...keys].sort());
+    }, [contractGroups]);
+    const guestMap = useMemo(() => summarizeGuests(new Set(JSON.parse(memberSig))), [guests, memberSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Оплаты по договорам — один проход вместо фильтра всех оплат на каждый договор
     const paymentsByGroup = useMemo(() => {
@@ -369,7 +392,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             const amountPaid = paidFromRecords > 0 ? paidFromRecords : (parseInt(group.amountPaid, 10) || 0);
             const debt = contractTotal > 0 ? contractTotal - amountPaid : 0;
             // Подпись данных карточки: карточка перерисовывается, только когда она поменялась
-            const sig = JSON.stringify([group, members.map(m => m.key + ':' + m.totalNights), amountPaid]);
+            const sig = `${groupVersion(group)}|${amountPaid}|${members.map(m => m.key + ':' + m.totalNights).join(',')}`;
             return {
                 ...group, sig, members, manualEntries: entries,
                 autoPersonNights, manualPersonNights, manualRoomNights, totalPersonNights,
@@ -429,18 +452,16 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             setTransferModal({ group: g, targetId: '', amount: String(Math.abs(balance)), toArchive: true });
         },
         openEntry: (groupId, entryId) => setEditEntryModal({ groupId, entryId }),
+        setPicker: (id, open) => {
+            if (open) onNeedHistory?.();   // участника ищут и среди давних гостей
+            setPickerIds(prev => { const n = new Set(prev); if (open) n.add(id); else n.delete(id); return n; });
+        },
         renameGroup, deleteGroup, updateGroup, toggleGroupClosed, toggleMember,
         addEntryDates, removeEntry, addExtraCharge, removeExtraCharge, addWriteOff, removeWriteOff,
     };
     const cardActions = useMemo(() => Object.fromEntries(
         Object.keys(actionsRef.current).map(key => [key, (...args) => actionsRef.current[key](...args)])
     ), []);
-
-    if (loading) return (
-        <div className="flex items-center justify-center py-24">
-            <Loader2 size={28} className="animate-spin text-slate-400" />
-        </div>
-    );
 
     const paidPct = globalStats.charged > 0 ? Math.min(100, (globalStats.paid / globalStats.charged) * 100) : 0;
     const chipCls = (on) => `px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`;
@@ -558,7 +579,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
             })()}
             {editEntryModal && (() => {
                 const g = contractGroups.find(x => x.id === editEntryModal.groupId);
-                const en = g?.manualEntries?.find(e => e.id === editEntryModal.entryId);
+                const en = g && entriesOf(g).find(e => e.id === editEntryModal.entryId);
                 if (!g || !en) return null;
                 return (
                     <PeriodEditModal
@@ -694,7 +715,7 @@ const ManualStayView = ({ guests = [], rooms = [], currentUser, payments = [], h
                 {visibleGroups.map((group, idx) => (
                     <GroupCard key={group.id} group={group} idx={idx} lang={lang} rooms={rooms} isAdmin={isAdmin}
                         mergeMode={mergeMode} isSelected={selectedGroupIds.has(group.id)}
-                        groupedGuests={groupedGuests} autoOpenMembers={justCreatedId === group.id}
+                        groupedGuests={pickerIds.has(group.id) ? groupedGuests : NO_GUESTS} autoOpenMembers={justCreatedId === group.id}
                         actions={cardActions} />
                 ))}
             </div>

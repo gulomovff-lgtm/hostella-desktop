@@ -17,7 +17,7 @@ test('живущие, брони и долговые записи грузятс
 
 test('экраны отчётов, долгов и истории просят полную историю; «Номера» — нет', () => {
   for (const tab of ['reports', 'debts', 'guesthistory', 'analytics', 'shifts', 'registrations']) assert.ok(HISTORY_TABS.has(tab), tab);
-  for (const tab of ['rooms', 'dashboard', 'shop']) assert.ok(!HISTORY_TABS.has(tab), tab);
+  for (const tab of ['rooms', 'dashboard', 'shop', 'manualstay']) assert.ok(!HISTORY_TABS.has(tab), tab);
 });
 
 test('открытые договоры: id и ФИО участников; закрытые не грузим; части по 30', () => {

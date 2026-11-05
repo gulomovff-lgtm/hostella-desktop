@@ -45,6 +45,12 @@ const GroupCard = ({ group, idx, lang, rooms, isAdmin, mergeMode, isSelected, gr
 
     // Только что созданная группа — сразу открыть выбор участников
     useEffect(() => { if (autoOpenMembers) { setMembersOpen(true); setPickerOpen(true); } }, [autoOpenMembers]);
+    // Список гостей экран считает и передаёт, только пока выбор открыт
+    useEffect(() => {
+        if (!pickerOpen) return undefined;
+        actions.setPicker(group.id, true);
+        return () => actions.setPicker(group.id, false);
+    }, [pickerOpen, group.id, actions]);
 
     const memberKeySet = useMemo(() => new Set(group.memberKeys || []), [group.memberKeys]);
     const pickerList = useMemo(() => {

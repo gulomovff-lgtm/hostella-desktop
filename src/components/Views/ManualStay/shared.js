@@ -3,7 +3,6 @@
 // друг друга ради одной формулы.
 import { PUBLIC_DATA_PATH } from '../../../firebase';
 
-export const CONTRACT_GROUPS_KEY = 'hostella_contract_groups';
 export const COLLECTION = [...PUBLIC_DATA_PATH, 'manualStayGroups'];
 export const PAYMENTS_COLLECTION = [...PUBLIC_DATA_PATH, 'payments'];
 export const TRANSFER_ENTITIES = ['YATT SOBIROVA', 'YATT YULDASHEV'];
@@ -12,8 +11,9 @@ export const INP = 'px-3 py-2 text-sm border border-slate-200 rounded-xl focus:o
 export const LBL = 'block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5';
 // Вторичная кнопка-призрак (карточки договоров, окна)
 export const GHOST_BTN = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors';
-// Затемнение под модалками экрана
-export const OVERLAY_STYLE = { background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' };
+// Затемнение под модалками экрана. Без размытия: blur за окном удваивал время
+// каждого кадра (замер 05.11.2026), на слабых кассах окно периода запиналось.
+export const OVERLAY_STYLE = { background: 'rgba(8,18,20,0.55)' };
 
 export const fmt = n => (parseInt(n) || 0).toLocaleString('ru');
 

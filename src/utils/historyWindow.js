@@ -26,8 +26,11 @@ export const LIVE_GUEST_STATUSES = ['active', 'booking', 'debt'];
  */
 export const HISTORY_TABS = new Set([
   'reports', 'analytics', 'shifts', 'debts', 'guesthistory', 'clients', 'clientdupes',
-  'calendar', 'expenses', 'registrations', 'referrals', 'manualstay',
+  'calendar', 'expenses', 'registrations', 'referrals',
 ]);
+
+// «Ручной учёт» здесь нет: участники и оплаты открытых договоров грузятся всегда
+// (openContractKeys), историю он просит сам — архив договоров и выбор участника.
 
 /** Граница окна — ISO-строка (даты в базе — ISO, сравнение строк корректно). */
 export function historyCutoffIso(now = new Date(), days = HISTORY_WINDOW_DAYS) {

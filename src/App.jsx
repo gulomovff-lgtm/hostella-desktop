@@ -378,7 +378,9 @@ function App() {
   // Firestore берёт деньги за ВСЕ документы заново, если подписку открыть
   // позже чем через 30 минут, а в пределах 30 минут — только за изменения.
   const [dashAllTime, setDashAllTime] = useState(false);
-  const needsHistoryTab = HISTORY_TABS.has(activeTab) || (activeTab === 'dashboard' && dashAllTime);
+  // «Ручной учёт» просит историю сам: открыт архив договоров или выбор участника
+  const [manualStayHistory, setManualStayHistory] = useState(false);
+  const needsHistoryTab = HISTORY_TABS.has(activeTab) || (activeTab === 'dashboard' && dashAllTime) || (activeTab === 'manualstay' && manualStayHistory);
   useEffect(() => { if (needsHistoryTab) requestHistory(); }, [needsHistoryTab, requestHistory]);
   useEffect(() => {
     if (needsHistoryTab) return undefined;
@@ -386,6 +388,14 @@ function App() {
     return () => clearTimeout(tm);
   }, [needsHistoryTab, releaseHistory]);
   useEffect(() => { if (activeTab !== 'dashboard') setDashAllTime(false); }, [activeTab]);
+  useEffect(() => { if (activeTab !== 'manualstay') setManualStayHistory(false); }, [activeTab]);
+  const loadManualStayHistory = useCallback(() => setManualStayHistory(true), []);
+  // С открытой подпиской на всю историю каждая запись договора занимает секунды
+  // вместо десятков мс (замер 05.11.2026), поэтому пришли с «Отчётов» — отпускаем
+  // сразу, а не через 25 минут.
+  useEffect(() => {
+    if (activeTab === 'manualstay' && !manualStayHistory) releaseHistory();
+  }, [activeTab, manualStayHistory, releaseHistory]);
   const loadDashAllTime = useCallback(() => setDashAllTime(true), []);
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
@@ -2441,6 +2451,8 @@ return (
                 {activeTab === 'manualstay' && (
                     <ManualStayView
                         guests={guests}
+                        groups={manualStayGroups}
+                        onNeedHistory={loadManualStayHistory}
                         rooms={filteredRooms}
                         currentUser={currentUser}
                         payments={filteredPayments}
