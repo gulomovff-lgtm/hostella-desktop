@@ -7,8 +7,9 @@ import {
     Tags, Wallet, Receipt, CreditCard, Banknote, HardDriveUpload, Signpost
 } from 'lucide-react';
 import { doc, setDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { collection as liteCollection, getDocs as liteGetDocs, getFirestore as getLiteFirestore } from 'firebase/firestore/lite';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage, PUBLIC_DATA_PATH } from '../../firebase';
+import { app, db, storage, PUBLIC_DATA_PATH } from '../../firebase';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { getConfig, saveAppConfig, DEFAULT_APP_CONFIG } from '../../utils/appConfig';
 import { sendTelegramMessage } from '../../utils/telegram';
@@ -16,6 +17,7 @@ import { APP_VERSION } from '../../constants/config';
 import { getDeviceId } from '../../utils/clientTelemetry';
 import PricingSettingsPanel from './PricingSettingsPanel';
 import { normalizeSources, makeSourceId, BUILTIN_LABELS } from '../../utils/guestSource';
+import { BACKUP_COLLS, collectBackup, isCompleteBackup } from '../../utils/backupExport';
 import TRANSLATIONS from '../../constants/translations';
 
 const inputClass = "w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-sm font-medium text-slate-700";
@@ -23,6 +25,14 @@ const labelClass = "block text-xs font-bold text-slate-500 mb-1.5 uppercase trac
 
 // Фирменный зелёный приложения
 const BRAND = '#0f9688';
+
+// Lite-версия SDK: прямой запрос к серверу мимо локального кэша. Обычный getDocs
+// без связи молча вернул бы кэш (то же окно истории), а getDocsFromServer гонит
+// весь ответ через очередь и IndexedDB: на 13 тыс. записей запись ждала больше минуты.
+const readWholeCollection = async (name) => {
+    const snap = await liteGetDocs(liteCollection(getLiteFirestore(app, 'hostella'), ...PUBLIC_DATA_PATH, name));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+};
 
 // Переключатель в фирменном стиле
 const Toggle = ({ on, onClick }) => (
@@ -195,7 +205,7 @@ const CurrencyCard = ({ code, data, bg, text, t }) => {
 };
 
 // --- Main ---
-const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, users, tasks, shifts, lang = 'ru', notify, onOpenTemplateEditor, catalog = [], onApplyNewPrices }) => {
+const HostelSettingsView = ({ currentUser, guests, lang = 'ru', notify, onOpenTemplateEditor, catalog = [], onApplyNewPrices }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const { rates, loading: ratesLoading, updatedAt, error: ratesError, refresh: refreshRates } = useExchangeRate();
 
@@ -211,6 +221,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
     const [loadingSettings, setLoadingSettings] = useState(true);
     const [uploadingLogo, setUploadingLogo] = useState({ hostel1: false, hostel2: false });
     const [backupLoading, setBackupLoading] = useState(false);
+    const [backupProgress, setBackupProgress] = useState(null);
     const [tab, setTab] = useState('hostels');
     const [appCfg, setAppCfg] = useState(() => ({ ...DEFAULT_APP_CONFIG, ...getConfig() }));
     const [testingAlert, setTestingAlert] = useState(false);
@@ -273,7 +284,7 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                 const data = parsed.data || parsed;
                 const stats = {};
                 RESTORE_COLLS.forEach(c => { stats[c] = Array.isArray(data[c]) ? data[c].length : 0; });
-                setRestoreData({ data, stats, exportedAt: parsed.exportedAt, exportedBy: parsed.exportedBy });
+                setRestoreData({ data, stats, exportedAt: parsed.exportedAt, exportedBy: parsed.exportedBy, complete: isCompleteBackup(parsed) });
                 setRestoreText('');
             } catch (e) {
                 notify && notify(t('hsBadBackupFile') + e.message, 'error');
@@ -422,30 +433,16 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
     };
 
     // ── Backup Export ──────────────────────────────────────────────────────
-    const handleBackup = () => {
+    const handleBackup = async () => {
         setBackupLoading(true);
+        setBackupProgress({ done: 0, total: BACKUP_COLLS.length, counts: {} });
         try {
-            const backup = {
-                exportedAt: new Date().toISOString(),
+            const backup = await collectBackup(readWholeCollection, {
                 exportedBy: currentUser?.name || currentUser?.login,
-                version: '1.0',
-                data: {
-                    rooms:    rooms    || [],
-                    guests:   guests   || [],
-                    expenses: expenses || [],
-                    payments: payments || [],
-                    users:    (users || []).map(u => ({ ...u, pass: '***' })), // skip passwords
-                    tasks:    tasks    || [],
-                    shifts:   shifts   || [],
-                },
-                stats: {
-                    rooms:    (rooms    || []).length,
-                    guests:   (guests   || []).length,
-                    expenses: (expenses || []).length,
-                    payments: (payments || []).length,
-                    users:    (users    || []).length,
-                },
-            };
+                onProgress: setBackupProgress,
+            });
+            // Дать экрану показать «Собираю файл»: сборка большого JSON занимает поток
+            await new Promise(resolve => setTimeout(resolve, 30));
             const json  = JSON.stringify(backup, null, 2);
             const blob  = new Blob([json], { type: 'application/json' });
             const url   = URL.createObjectURL(blob);
@@ -458,7 +455,8 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             URL.revokeObjectURL(url);
             notify && notify(t('hsBackupDownloaded'), 'success');
         } catch (e) {
-            notify && notify(t('hsError') + e.message, 'error');
+            setBackupProgress(null);
+            notify && notify(`${t('hsBackupFailed')} (${e.message})`, 'error');
         } finally {
             setBackupLoading(false);
         }
@@ -798,35 +796,52 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
             {tab === 'data' && (
             <div className="space-y-4 max-w-2xl">
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center"><Database size={18} className="text-emerald-600"/></div>
-                    <div>
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <div className="w-10 h-10 shrink-0 rounded-xl bg-emerald-100 flex items-center justify-center"><Database size={18} className="text-emerald-600"/></div>
+                    <div className="flex-1 min-w-[180px]">
                         <div className="font-black text-slate-800">{t('hsBackup')}</div>
                         <div className="text-xs text-slate-400">{t('hsBackupDesc')}</div>
                     </div>
                     <button
                         onClick={handleBackup}
                         disabled={backupLoading}
-                        className="ml-auto flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition-colors disabled:opacity-60 text-sm"
+                        className="ml-auto shrink-0 whitespace-nowrap flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition-colors disabled:opacity-60 text-sm"
                     >
                         <Download size={15}/>
                         {backupLoading ? t('hsExporting') : t('hsDownloadBackup')}
                     </button>
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                {backupProgress && (
+                    <div className="mb-3" role="status">
+                        <div className="text-xs font-bold text-slate-500 mb-1.5 tabular-nums">
+                            {!backupLoading ? t('hsBackupDone')
+                                : backupProgress.done < backupProgress.total
+                                    ? t('hsBackupReading').replace('{n}', backupProgress.done).replace('{total}', backupProgress.total)
+                                    : t('hsBackupBuilding')}
+                        </div>
+                        {backupLoading && (
+                            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.round(backupProgress.done / backupProgress.total * 100)}%` }}/>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {backupProgress && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                        { label: t('hsStatGuests'),   val: (guests   || []).length, emoji: '👤', color: 'bg-blue-50 text-blue-700' },
-                        { label: t('hsStatRooms'),   val: (rooms    || []).length, emoji: '🛏️', color: 'bg-purple-50 text-purple-700' },
-                        { label: t('hsStatExpenses'), val: (expenses || []).length, emoji: '💸', color: 'bg-rose-50 text-rose-700' },
-                        { label: t('hsStatPayments'), val: (payments || []).length, emoji: '💰', color: 'bg-emerald-50 text-emerald-700' },
+                        { label: t('hsStatGuests'),   coll: 'guests',   emoji: '👤', color: 'bg-blue-50 text-blue-700' },
+                        { label: t('hsStatRooms'),    coll: 'rooms',    emoji: '🛏️', color: 'bg-purple-50 text-purple-700' },
+                        { label: t('hsStatExpenses'), coll: 'expenses', emoji: '💸', color: 'bg-rose-50 text-rose-700' },
+                        { label: t('hsStatPayments'), coll: 'payments', emoji: '💰', color: 'bg-emerald-50 text-emerald-700' },
                     ].map(d => (
                         <div key={d.label} className={`rounded-xl p-3 text-center ${d.color}`}>
                             <div className="text-xl mb-1">{d.emoji}</div>
-                            <div className="font-black text-lg">{d.val}</div>
+                            <div className="font-black text-lg tabular-nums">{backupProgress.counts[d.coll] ?? '…'}</div>
                             <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{d.label}</div>
                         </div>
                     ))}
                 </div>
+                )}
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
                     <Info size={12}/>
                     <span>{t('hsBackupPassNote')}</span>
@@ -1081,6 +1096,12 @@ const HostelSettingsView = ({ currentUser, guests, rooms, payments, expenses, us
                                 </div>
                             ))}
                         </div>
+                        {!restoreData.complete && (
+                            <div className="flex items-start gap-2 text-xs text-rose-600 bg-rose-50 rounded-xl p-3 mb-3">
+                                <AlertTriangle size={14} className="mt-0.5 shrink-0"/>
+                                <span>{t('hsRestorePartialWarn')}</span>
+                            </div>
+                        )}
                         <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-50 rounded-xl p-3 mb-3">
                             <AlertTriangle size={14} className="mt-0.5 shrink-0"/>
                             <span>{t('hsRestoreConfirmWarn')} <b>{t('hsRestoreWord')}</b>.</span>
