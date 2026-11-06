@@ -7,8 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { Monitor, Smartphone, Globe, Clock, UserX, RefreshCw, Wifi, WifiOff, Trash2, MapPin } from 'lucide-react';
 import { doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
-
-const HOSTELS = { hostel1: 'Хостел №1', hostel2: 'Хостел №2', all: 'Оба' };
+import TRANSLATIONS from '../../constants/translations';
 
 const getDeviceIcon = (deviceInfo) => {
   if (!deviceInfo) return Globe;
@@ -35,7 +34,9 @@ const isAbandoned = (lastSeen) => {
   return Date.now() - new Date(lastSeen).getTime() > 10 * 60 * 1000;
 };
 
-const SessionsView = ({ sessions = [], users = [] }) => {
+const SessionsView = ({ sessions = [], users = [], lang = 'ru' }) => {
+  const t = (k) => TRANSLATIONS[lang]?.[k] || k;
+  const HOSTELS = { hostel1: t('svHostel1'), hostel2: t('svHostel2'), all: t('svBoth') };
   const [forcingOut, setForcingOut] = useState(null);
   const [filterActive, setFilterActive] = useState(true);
   const [filterHostel, setFilterHostel] = useState('');
@@ -106,14 +107,14 @@ const SessionsView = ({ sessions = [], users = [] }) => {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-            <Monitor size={20} className="text-indigo-500" /> Активные сессии
+            <Monitor size={20} className="text-indigo-500" /> {t('svTitle')}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            <span className="font-bold text-emerald-600">{onlineCount}</span> онлайн
+            <span className="font-bold text-emerald-600">{onlineCount}</span> {t('svOnline')}
             &nbsp;·&nbsp;
-            <span className="font-bold text-slate-700">{activeCount}</span> активных
+            <span className="font-bold text-slate-700">{activeCount}</span> {t('svActiveLower')}
             &nbsp;·&nbsp;
-            {sessions.length} всего записей
+            {t('svTotalRecords').replace('{n}', sessions.length)}
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -122,12 +123,12 @@ const SessionsView = ({ sessions = [], users = [] }) => {
               onClick={handleCloseStale}
               disabled={closingStale}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 transition-colors"
-              title="Закрыть все сессии без активности более 10 минут"
+              title={t('svCloseStaleTitle')}
             >
               {closingStale
                 ? <RefreshCw size={12} className="animate-spin" />
                 : <Trash2 size={12} />}
-              Закрыть зависшие ({staleCount})
+              {t('svCloseStale').replace('{n}', staleCount)}
             </button>
           )}
           <select
@@ -135,9 +136,9 @@ const SessionsView = ({ sessions = [], users = [] }) => {
             onChange={e => setFilterHostel(e.target.value)}
             className="px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           >
-            <option value="">Все хостелы</option>
-            <option value="hostel1">Хостел №1</option>
-            <option value="hostel2">Хостел №2</option>
+            <option value="">{t('expAllHostels')}</option>
+            <option value="hostel1">{t('svHostel1')}</option>
+            <option value="hostel2">{t('svHostel2')}</option>
           </select>
           <label className="flex items-center gap-2 text-sm font-semibold text-slate-600 cursor-pointer select-none">
             <input
@@ -146,7 +147,7 @@ const SessionsView = ({ sessions = [], users = [] }) => {
               onChange={e => setFilterActive(e.target.checked)}
               className="rounded accent-indigo-600"
             />
-            Только активные
+            {t('cadOnlyActive')}
           </label>
         </div>
       </div>
@@ -156,7 +157,7 @@ const SessionsView = ({ sessions = [], users = [] }) => {
         {displayed.length === 0 ? (
           <div className="py-16 text-center">
             <div className="text-4xl mb-2">📱</div>
-            <div className="text-slate-400 font-semibold">Нет сессий по выбранным фильтрам</div>
+            <div className="text-slate-400 font-semibold">{t('svNoSessions')}</div>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -164,9 +165,9 @@ const SessionsView = ({ sessions = [], users = [] }) => {
               const DevIcon = getDeviceIcon(s.deviceInfo);
               const stale   = isStale(s.lastSeen);
               const online  = s.active && !stale;
-              const role    = s.role === 'admin' ? 'Администратор'
-                            : s.role === 'cashier' ? 'Кассир'
-                            : s.role === 'super' ? 'Супер' : s.role;
+              const role    = s.role === 'admin' ? t('admin')
+                            : s.role === 'cashier' ? t('cashier')
+                            : s.role === 'super' ? t('svSuper') : s.role;
 
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/40 transition-colors">
@@ -185,15 +186,15 @@ const SessionsView = ({ sessions = [], users = [] }) => {
                       <span className="text-[11px] text-slate-400 font-medium">{role}</span>
                       {online ? (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
-                          <Wifi size={10} /> онлайн
+                          <Wifi size={10} /> {t('svOnline')}
                         </span>
                       ) : s.active ? (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-100 flex items-center gap-1">
-                          <WifiOff size={10} /> нет активности
+                          <WifiOff size={10} /> {t('svNoActivity')}
                         </span>
                       ) : (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">
-                          ⚫ вышел
+                          ⚫ {t('svLoggedOut')}
                         </span>
                       )}
                       {s.hostelId && HOSTELS[s.hostelId] && (
@@ -220,13 +221,13 @@ const SessionsView = ({ sessions = [], users = [] }) => {
                         </span>
                       )}
                       <span className="flex items-center gap-1">
-                        <Clock size={11} /> Вход: {formatTime(s.loginAt)}
+                        <Clock size={11} /> {t('svLoginLabel')}: {formatTime(s.loginAt)}
                       </span>
                       {s.lastSeen && (
-                        <span>Активность: {formatTime(s.lastSeen)}</span>
+                        <span>{t('svActivityLabel')}: {formatTime(s.lastSeen)}</span>
                       )}
                       {s.logoutAt && (
-                        <span>Выход: {formatTime(s.logoutAt)}</span>
+                        <span>{t('svLogoutLabel')}: {formatTime(s.logoutAt)}</span>
                       )}
                     </div>
                   </div>
@@ -236,13 +237,13 @@ const SessionsView = ({ sessions = [], users = [] }) => {
                     <button
                       onClick={() => handleForceLogout(s)}
                       disabled={forcingOut === s.id}
-                      title="Принудительно завершить сессию"
+                      title={t('svForceEndTitle')}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 transition-colors shrink-0"
                     >
                       {forcingOut === s.id
                         ? <RefreshCw size={12} className="animate-spin" />
                         : <UserX size={12} />}
-                      Выгнать
+                      {t('svKick')}
                     </button>
                   )}
                 </div>
@@ -253,8 +254,7 @@ const SessionsView = ({ sessions = [], users = [] }) => {
       </div>
 
       <p className="text-xs text-slate-400 text-center">
-        Статус «онлайн» обновляется каждые 30 секунд. «Нет активности» — если хартбит не поступал более 2 минут.
-        Зависшие сессии (без активности более 15 минут) закрываются автоматически.
+        {t('svFooterNote')}
       </p>
     </div>
   );

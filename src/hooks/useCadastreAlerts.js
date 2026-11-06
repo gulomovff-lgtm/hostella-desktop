@@ -4,8 +4,10 @@
  * Атомарный Firestore-трекинг через alertsLog — не дублируется с нескольких устройств.
  */
 import { useEffect, useRef } from 'react';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { checkAndMarkAlert, maybeCleanupAlerts } from '../utils/alertsLog';
+import TRANSLATIONS from '../constants/translations';
+import { cadastrePersonGone } from '../utils/registrationStatus';
 
 const ALERT_DAYS = 3;
 
@@ -31,7 +33,8 @@ const fmtDate = (iso) => {
   return `${d}.${m}.${y}`;
 };
 
-export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline }) {
+export function useCadastreAlerts({ cadastreRegs, guests, clients, tgSettings, isOnline, lang }) {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const cleanupDoneRef = useRef(false);
 
   useEffect(() => {
@@ -42,15 +45,22 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline 
       maybeCleanupAlerts();
     }
 
-    if (!cadastreRegs?.length) return;
+    // Гости ещё не загрузились — не судим, кто уехал: иначе сводка дня уйдёт
+    // со всеми уехавшими (ключ дня одноразовый, исправить её будет нельзя).
+    if (!cadastreRegs?.length || !guests?.length || !clients?.length) return;   // и клиенты — см. cadastrePersonGone
 
     const disabledTypes = new Set(tgSettings?.disabledTypes || []);
     if (disabledTypes.has('cadastreExpiring')) return;
 
     const today = getLocalDateStr();
 
+    // Уехавших не напоминаем: регистрация кадастра остаётся «действующей», пока
+    // её не снимут, а выселение снимает её не всегда (переезд, продолжение,
+    // запись закрыта автоматом). Судим по самому человеку — живёт ли он у нас.
+    const now = new Date();
     const expiring = cadastreRegs.filter(r => {
       if (r.status === 'removed') return false;
+      if (cadastrePersonGone(r, guests, now, clients)) return false;
       const d = getDaysLeft(r.endDate);
       return d >= 0 && d <= ALERT_DAYS;
     });
@@ -69,19 +79,19 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline 
         if (d >= 0 && d <= ALERT_DAYS) groups[d].push(reg);
       }
 
-      const lines = ['⚠️ <b>Кадастр-регистрации истекают</b>'];
+      const lines = [`⚠️ <b>${t('cdaTgExpiringTitle')}</b>`];
 
       // ── Раздел 1: сводка — кто и когда ──
       for (let d = 0; d <= ALERT_DAYS; d++) {
         for (const reg of groups[d]) {
           let label;
-          if      (d === 0) label = `🔴 <b>Сегодня последний день</b> (${fmtDate(reg.endDate)})`;
-          else if (d === 1) label = `🟠 <b>Завтра последний день</b> (${fmtDate(reg.endDate)})`;
-          else              label = `🟡 Осталось ${d} дн. (до ${fmtDate(reg.endDate)})`;
+          if      (d === 0) label = `🔴 <b>${t('cdaLastDayToday')}</b> (${fmtDate(reg.endDate)})`;
+          else if (d === 1) label = `🟠 <b>${t('cdaLastDayTomorrow')}</b> (${fmtDate(reg.endDate)})`;
+          else              label = `🟡 ${t('cdaDaysLeftUntil').replace('{n}', d).replace('{date}', fmtDate(reg.endDate))}`;
           lines.push('');
           lines.push(label);
-          lines.push(`👤 ${reg.guestName}`);
-          lines.push(`📍 ${reg.cadastreAddress}`);
+          lines.push(`👤 ${escapeTg(reg.guestName)}`);
+          lines.push(`📍 ${escapeTg(reg.cadastreAddress)}`);
         }
       }
 
@@ -89,7 +99,7 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline 
       if (groups[0].length > 0) {
         lines.push('');
         lines.push('━━━━━━━━━━━━━━━━━━━━');
-        lines.push('📋 <b>Данные для продления:</b>');
+        lines.push(`📋 <b>${t('cdaExtendData')}</b>`);
 
         for (const reg of groups[0]) {
           const client = reg.guestId ? (clients || []).find(c => c.id === reg.guestId) : null;
@@ -98,15 +108,15 @@ export function useCadastreAlerts({ cadastreRegs, clients, tgSettings, isOnline 
           const ctry = reg.country           || client?.country           || '';
 
           lines.push('');
-          lines.push(`<code>${reg.guestName}</code>`);
-          if (bdt)          lines.push(`Дата рожд.: <code>${fmtDate(bdt)}</code>`);
-          if (reg.passport) lines.push(`Паспорт: <code>${reg.passport}</code>`);
-          if (pid)          lines.push(`Выдан: <code>${fmtDate(pid)}</code>`);
-          if (ctry)         lines.push(`Страна: <code>${ctry}</code>`);
+          lines.push(`<code>${escapeTg(reg.guestName)}</code>`);
+          if (bdt)          lines.push(`${t('birthDateShort')}: <code>${fmtDate(bdt)}</code>`);
+          if (reg.passport) lines.push(`${t('passport')}: <code>${escapeTg(reg.passport)}</code>`);
+          if (pid)          lines.push(`${t('issuedLabel')}: <code>${fmtDate(pid)}</code>`);
+          if (ctry)         lines.push(`${t('country')}: <code>${escapeTg(ctry)}</code>`);
         }
       }
 
       sendTelegramMessage(lines.join('\n'), 'cadastreExpiring');
     });
-  }, [cadastreRegs, clients, tgSettings, isOnline]);
+  }, [cadastreRegs, guests, clients, tgSettings, isOnline, lang]);
 }

@@ -1,27 +1,28 @@
 import React, { useState, useMemo } from 'react';
 import { Trash2, Plus, Eye, EyeOff, Edit, X, Check, Users, ShieldCheck, Search, Copy, RefreshCw, AlertTriangle, UserCog, Building2, CreditCard, LayoutDashboard, Globe, AlertCircle, FileText, Wallet, ClipboardCheck, MapPin, CheckSquare, Gift } from 'lucide-react';
 import { getConfig } from '../../utils/appConfig';
+import TRANSLATIONS from '../../constants/translations';
 
 // Проверка пароля по политике из Настроек (#9)
-const passwordError = (p) => {
+const passwordError = (p, t = (k) => k) => {
     if (!p) return '';
     const cfg = getConfig();
     const minLen = Number(cfg.passwordMinLength) || 4;
-    if (p.length < minLen) return `Минимум ${minLen} символов`;
-    if (cfg.passwordRequireMix && !(/[a-zA-Zа-яА-ЯёЁ]/.test(p) && /\d/.test(p))) return 'Нужны буквы и цифры';
+    if (p.length < minLen) return t('staffPassMin').replace('{n}', minLen);
+    if (cfg.passwordRequireMix && !(/[a-zA-Zа-яА-ЯёЁ]/.test(p) && /\d/.test(p))) return t('staffPassMix');
     return '';
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const ROLE_META = {
-    admin:   { label: 'Администратор', bg: 'bg-indigo-100',  text: 'text-indigo-700',  border: 'border-indigo-200' },
-    cashier: { label: 'Кассир',        bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' },
-    super:   { label: 'Супер',          bg: 'bg-rose-100',    text: 'text-rose-700',    border: 'border-rose-200'   },
+    admin:   { labelKey: 'admin',          bg: 'bg-indigo-100',  text: 'text-indigo-700',  border: 'border-indigo-200' },
+    cashier: { labelKey: 'cashier',        bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' },
+    super:   { labelKey: 'staffRoleSuper', bg: 'bg-rose-100',    text: 'text-rose-700',    border: 'border-rose-200'   },
 };
 const HOSTEL_META = {
-    hostel1: { label: 'Хостел №1',   bg: 'bg-violet-100', text: 'text-violet-700' },
-    hostel2: { label: 'Хостел №2',   bg: 'bg-sky-100',    text: 'text-sky-700'    },
-    all:     { label: 'Все хостелы', bg: 'bg-slate-100',   text: 'text-slate-600'  },
+    hostel1: { labelKey: 'staffHostel1',    bg: 'bg-violet-100', text: 'text-violet-700' },
+    hostel2: { labelKey: 'staffHostel2',    bg: 'bg-sky-100',    text: 'text-sky-700'    },
+    all:     { labelKey: 'staffHostelAll',  bg: 'bg-slate-100',   text: 'text-slate-600'  },
 };
 const AV_COLORS = ['bg-indigo-500','bg-emerald-500','bg-violet-500','bg-sky-500','bg-rose-500','bg-amber-500'];
 const avColor  = (s = '') => AV_COLORS[(s.charCodeAt(0) || 0) % AV_COLORS.length];
@@ -31,19 +32,19 @@ const INP  = "w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl tex
 
 // ─── Permissions ─────────────────────────────────────────────────────────────
 const PERM_DEFS = [
-    { key: 'canPayInHostel1', label: 'Оплата — Хостел №1',  group: 'payment', icon: CreditCard },
-    { key: 'canPayInHostel2', label: 'Оплата — Хостел №2',  group: 'payment', icon: CreditCard },
-    { key: 'viewStats',       label: 'Дашборд / статистика', group: 'view', icon: LayoutDashboard },
-    { key: 'viewBookings',    label: 'Онлайн-брони',         group: 'view', icon: Globe },
-    { key: 'viewDebts',       label: 'Долги',                group: 'view', icon: AlertCircle },
-    { key: 'viewClients',     label: 'База клиентов',        group: 'view', icon: Users },
-    { key: 'viewRegistrations', label: 'E-mehmon (регистрации)', group: 'view', icon: ClipboardCheck },
-    { key: 'viewCadastre',    label: 'Кадастр',              group: 'view', icon: MapPin },
-    { key: 'viewManualStay',  label: 'Ручной учёт',          group: 'view', icon: Building2 },
-    { key: 'viewTasks',       label: 'Задачи',               group: 'view', icon: CheckSquare },
-    { key: 'viewReferrals',   label: 'Бонусы / рефералы',    group: 'view', icon: Gift },
-    { key: 'viewReports',     label: 'Отчёты',               group: 'finance', icon: FileText },
-    { key: 'viewExpenses',    label: 'Расходы',              group: 'finance', icon: Wallet },
+    { key: 'canPayInHostel1', labelKey: 'staffPermPayH1',  group: 'payment', icon: CreditCard },
+    { key: 'canPayInHostel2', labelKey: 'staffPermPayH2',  group: 'payment', icon: CreditCard },
+    { key: 'viewStats',       labelKey: 'staffPermStats', group: 'view', icon: LayoutDashboard },
+    { key: 'viewBookings',    labelKey: 'staffPermBookings',         group: 'view', icon: Globe },
+    { key: 'viewDebts',       labelKey: 'debts',                group: 'view', icon: AlertCircle },
+    { key: 'viewClients',     labelKey: 'staffPermClients',        group: 'view', icon: Users },
+    { key: 'viewRegistrations', labelKey: 'staffPermRegistrations', group: 'view', icon: ClipboardCheck },
+    { key: 'viewCadastre',    labelKey: 'staffPermCadastre',              group: 'view', icon: MapPin },
+    { key: 'viewManualStay',  labelKey: 'staffPermManualStay',          group: 'view', icon: Building2 },
+    { key: 'viewTasks',       labelKey: 'tasks',               group: 'view', icon: CheckSquare },
+    { key: 'viewReferrals',   labelKey: 'staffPermReferrals',    group: 'view', icon: Gift },
+    { key: 'viewReports',     labelKey: 'reports',               group: 'finance', icon: FileText },
+    { key: 'viewExpenses',    labelKey: 'expenses',              group: 'finance', icon: Wallet },
 ];
 
 const defaultPerms = (role) => ({
@@ -78,12 +79,12 @@ const Toggle = ({ on, onClick }) => (
 
 // ─── PermissionsModal (попап) ──────────────────────────────────────────────────
 const SECTIONS = [
-    { group: 'payment', title: 'Приём оплаты', emoji: '💳', cashierOnly: true },
-    { group: 'view',    title: 'Разделы',      emoji: '👁' },
-    { group: 'finance', title: 'Финансы',      emoji: '💰' },
+    { group: 'payment', titleKey: 'staffSecPayment', emoji: '💳', cashierOnly: true },
+    { group: 'view',    titleKey: 'staffSecView',    emoji: '👁' },
+    { group: 'finance', titleKey: 'staffSecFinance',  emoji: '💰' },
 ];
 
-const PermissionsModal = ({ role, perms, onChange, onClose }) => {
+const PermissionsModal = ({ role, perms, onChange, onClose, t = (k) => k }) => {
     const p = perms || defaultPerms(role);
     const toggle = (key) => onChange({ ...p, [key]: !p[key] });
     const setAll = (defs, val) => { const np = { ...p }; defs.forEach(d => { np[d.key] = val; }); onChange(np); };
@@ -97,8 +98,8 @@ const PermissionsModal = ({ role, perms, onChange, onClose }) => {
                         <ShieldCheck size={20} style={{ color: BRAND }} />
                     </div>
                     <div className="flex-1">
-                        <h3 className="font-black text-slate-800 leading-tight">Права доступа</h3>
-                        <p className="text-xs text-slate-400">Включено {enabledCount(p)} из {PERM_DEFS.length}</p>
+                        <h3 className="font-black text-slate-800 leading-tight">{t('staffPermsTitle')}</h3>
+                        <p className="text-xs text-slate-400">{t('staffEnabledOf').replace('{a}', enabledCount(p)).replace('{b}', PERM_DEFS.length)}</p>
                     </div>
                     <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"><X size={18} /></button>
                 </div>
@@ -112,9 +113,9 @@ const PermissionsModal = ({ role, perms, onChange, onClose }) => {
                         return (
                             <div key={sec.group}>
                                 <div className="flex items-center justify-between mb-1.5 px-1">
-                                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-wide">{sec.emoji} {sec.title}</span>
+                                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-wide">{sec.emoji} {t(sec.titleKey)}</span>
                                     <button type="button" onClick={() => setAll(defs, !allOn)}
-                                        className="text-[10px] font-bold hover:opacity-80" style={{ color: BRAND }}>{allOn ? 'Снять все' : 'Включить все'}</button>
+                                        className="text-[10px] font-bold hover:opacity-80" style={{ color: BRAND }}>{allOn ? t('staffDisableAll') : t('staffEnableAll')}</button>
                                 </div>
                                 <div className="rounded-2xl border border-slate-100 overflow-hidden divide-y divide-slate-50">
                                     {defs.map(d => {
@@ -127,7 +128,7 @@ const PermissionsModal = ({ role, perms, onChange, onClose }) => {
                                                     style={on ? { background: 'rgba(15,150,136,0.12)', color: BRAND } : { background: '#f1f5f9', color: '#94a3b8' }}>
                                                     <Icon size={16} />
                                                 </div>
-                                                <span className={`flex-1 text-sm font-semibold ${on ? 'text-slate-800' : 'text-slate-400'}`}>{d.label}</span>
+                                                <span className={`flex-1 text-sm font-semibold ${on ? 'text-slate-800' : 'text-slate-400'}`}>{t(d.labelKey)}</span>
                                                 <Toggle on={on} onClick={() => toggle(d.key)} />
                                             </div>
                                         );
@@ -139,7 +140,7 @@ const PermissionsModal = ({ role, perms, onChange, onClose }) => {
                 </div>
                 {/* Footer */}
                 <div className="px-4 py-3 border-t border-slate-100">
-                    <button onClick={onClose} className="w-full py-3 rounded-2xl text-white font-bold text-sm transition-opacity hover:opacity-90" style={{ background: BRAND }}>Готово</button>
+                    <button onClick={onClose} className="w-full py-3 rounded-2xl text-white font-bold text-sm transition-opacity hover:opacity-90" style={{ background: BRAND }}>{t('done')}</button>
                 </div>
             </div>
         </div>
@@ -147,11 +148,11 @@ const PermissionsModal = ({ role, perms, onChange, onClose }) => {
 };
 
 // ─── Кнопка-триггер прав ───────────────────────────────────────────────────────
-const PermsButton = ({ perms, role, onClick }) => (
+const PermsButton = ({ perms, role, onClick, t = (k) => k }) => (
     <button type="button" onClick={onClick}
         className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-left">
         <ShieldCheck size={16} className="shrink-0" style={{ color: BRAND }} />
-        <span className="text-xs font-bold text-slate-600 flex-1">Права доступа</span>
+        <span className="text-xs font-bold text-slate-600 flex-1">{t('staffPermsTitle')}</span>
         <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: 'rgba(15,150,136,0.12)', color: BRAND }}>{enabledCount(perms || defaultPerms(role))} / {PERM_DEFS.length}</span>
     </button>
 );
@@ -159,7 +160,8 @@ const PermsButton = ({ perms, role, onClick }) => (
 const EMPTY = { name: '', login: '', pass: '', role: 'cashier', hostelId: 'hostel1', allowedHostels: ['hostel1'], canViewHostel1: false, permissions: defaultPerms('cashier') };
 
 // ─── Component ──────────────────────────────────────────────────────────────
-const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang }) => {
+const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [addForm,     setAddForm]     = useState(EMPTY);
     const [showAddPwd,  setShowAddPwd]  = useState(false);
     const [editId,      setEditId]      = useState(null);
@@ -199,8 +201,8 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
     }, [visible, search, roleFilter]);
 
     const addLoginDup = addForm.login.trim() && loginExists(addForm.login);
-    const addPassErr  = passwordError(addForm.pass);
-    const editPassErr = passwordError(editForm.pass);
+    const addPassErr  = passwordError(addForm.pass, t);
+    const editPassErr = passwordError(editForm.pass, t);
 
     const handleAdd = () => {
         if (!addForm.name.trim() || !addForm.login.trim() || !addForm.pass.trim()) return;
@@ -222,7 +224,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
         setShowEditPwd(false);
     };
     const cancelEdit = () => { setEditId(null); setEditForm({}); };
-    const saveEdit   = () => { if (passwordError(editForm.pass)) return; if (onUpdate) onUpdate(editId, editForm); cancelEdit(); };
+    const saveEdit   = () => { if (passwordError(editForm.pass, t)) return; if (onUpdate) onUpdate(editId, editForm); cancelEdit(); };
 
     return (
         <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-300">
@@ -234,23 +236,23 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                         <Users size={20} className="text-teal-600" />
                     </div>
                     <div>
-                        <h2 className="font-black text-xl text-slate-800">Персонал</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">{stats.total} сотрудников</p>
+                        <h2 className="font-black text-xl text-slate-800">{t('staff')}</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">{t('staffCount').replace('{n}', stats.total)}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100">
                         <UserCog size={14} className="text-emerald-600" />
-                        <span className="text-xs font-bold text-emerald-700">{stats.cashiers} кассиров</span>
+                        <span className="text-xs font-bold text-emerald-700">{t('staffCashiersCount').replace('{n}', stats.cashiers)}</span>
                     </div>
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100">
                         <ShieldCheck size={14} className="text-indigo-600" />
-                        <span className="text-xs font-bold text-indigo-700">{stats.admins} админов</span>
+                        <span className="text-xs font-bold text-indigo-700">{t('staffAdminsCount').replace('{n}', stats.admins)}</span>
                     </div>
                     {stats.multi > 0 && (
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
                             <Building2 size={14} className="text-violet-600" />
-                            <span className="text-xs font-bold text-violet-700">{stats.multi} мульти-хостел</span>
+                            <span className="text-xs font-bold text-violet-700">{t('staffMultiCount').replace('{n}', stats.multi)}</span>
                         </div>
                     )}
                 </div>
@@ -260,12 +262,12 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
             <div className="flex items-center gap-2 flex-wrap">
                 <div className="relative flex-1 min-w-[200px]">
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по имени или логину…"
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('staffSearchPlaceholder')}
                         className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none transition-all" />
                     {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"><X size={15} /></button>}
                 </div>
                 <div className="flex items-center gap-1.5">
-                    {[['all', 'Все'], ['cashier', 'Кассиры'], ['admin', 'Админы']].map(([k, l]) => (
+                    {[['all', t('all')], ['cashier', t('staffFilterCashiers')], ['admin', t('staffFilterAdmins')]].map(([k, l]) => (
                         <button key={k} onClick={() => setRoleFilter(k)}
                             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${roleFilter === k ? 'bg-teal-600 text-white shadow-sm shadow-teal-200' : 'bg-white border border-slate-200 text-slate-600 hover:border-teal-300 hover:text-teal-700'}`}>
                             {l}
@@ -281,7 +283,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                     {filtered.length === 0 && (
                         <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 py-16 text-center">
                             <Users size={32} className="text-slate-300 mx-auto mb-3" />
-                            <p className="text-slate-400 font-medium">{visible.length === 0 ? 'Нет сотрудников' : 'Ничего не найдено'}</p>
+                            <p className="text-slate-400 font-medium">{visible.length === 0 ? t('staffEmpty') : t('nothingFound')}</p>
                         </div>
                     )}
 
@@ -306,27 +308,27 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="font-bold text-slate-800 text-[15px]">{u.name}</span>
-                                                {isSelf(u) && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Вы</span>}
+                                                {isSelf(u) && <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{t('staffYou')}</span>}
                                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${role.bg} ${role.text} ${role.border}`}>
-                                                    {role.label}
+                                                    {t(role.labelKey)}
                                                 </span>
                                                 {(u.role === 'cashier' && (u.allowedHostels || []).length > 1) ? (
                                                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">
-                                                        🏨 Оба хостела
+                                                        {t('staffBothHostels')}
                                                     </span>
                                                 ) : (
                                                     <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${hostel.bg} ${hostel.text}`}>
-                                                        {u.canViewHostel1 ? `${hostel.label} + №1` : hostel.label}
+                                                        {u.canViewHostel1 ? `${t(hostel.labelKey)} + №1` : t(hostel.labelKey)}
                                                     </span>
                                                 )}
                                                 {u.role === 'cashier' && u.permissions?.canPayInHostel1 === false && (
                                                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-500 border border-rose-200">
-                                                        🚫 Хостел №1
+                                                        {t('staffNoPayH1')}
                                                     </span>
                                                 )}
                                                 {u.role === 'cashier' && u.permissions?.canPayInHostel2 === false && (
                                                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-500 border border-rose-200">
-                                                        🚫 Хостел №2
+                                                        {t('staffNoPayH2')}
                                                     </span>
                                                 )}
                                             </div>
@@ -334,7 +336,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                                 <span className="text-xs font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200">
                                                     {u.login}
                                                 </span>
-                                                <button onClick={() => copyLogin(u.login)} title="Копировать логин"
+                                                <button onClick={() => copyLogin(u.login)} title={t('staffCopyLogin')}
                                                     className="text-slate-300 hover:text-teal-500 transition-colors">
                                                     {copied === u.login ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
                                                 </button>
@@ -343,12 +345,12 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                         <div className="flex items-center gap-1 shrink-0">
                                             <button onClick={() => startEdit(u)}
                                                 className="p-2 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
-                                                title="Редактировать">
+                                                title={t('edit')}>
                                                 <Edit size={16} />
                                             </button>
                                             <button onClick={() => setConfirmDel(u)} disabled={isSelf(u)}
                                                 className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                                                title={isSelf(u) ? 'Нельзя удалить себя' : 'Удалить'}>
+                                                title={isSelf(u) ? t('staffCantDeleteSelf') : t('delete')}>
                                                 <Trash2 size={16} />
                                             </button>
                                         </div>
@@ -363,7 +365,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                                 {avInit(u.name)}
                                             </div>
                                             <div>
-                                                <p className="font-black text-slate-700 text-sm leading-tight">Редактирование</p>
+                                                <p className="font-black text-slate-700 text-sm leading-tight">{t('editingTitle')}</p>
                                                 <p className="text-[11px] text-slate-400 font-mono">{u.login}</p>
                                             </div>
                                             <button onClick={cancelEdit} className="ml-auto p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">
@@ -372,23 +374,23 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                         </div>
                                         <div className="grid grid-cols-2 gap-2.5">
                                             <div className="col-span-2">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">ФИО</label>
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('fullNameLabel')}</label>
                                                 <input className={INP} value={editForm.name}
                                                     onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Логин</label>
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('login')}</label>
                                                 <input className={INP} value={editForm.login}
                                                     onChange={e => setEditForm({ ...editForm, login: e.target.value })} />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Пароль</label>
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('pass')}</label>
                                                 <div className="relative">
                                                     <input type={showEditPwd ? 'text' : 'password'} className={INP + ' pr-16'}
-                                                        placeholder="не менять"
+                                                        placeholder={t('staffDontChange')}
                                                         value={editForm.pass}
                                                         onChange={e => setEditForm({ ...editForm, pass: e.target.value })} />
-                                                    <button type="button" onClick={() => { setEditForm(f => ({ ...f, pass: genPassword() })); setShowEditPwd(true); }} title="Сгенерировать пароль"
+                                                    <button type="button" onClick={() => { setEditForm(f => ({ ...f, pass: genPassword() })); setShowEditPwd(true); }} title={t('staffGenPassword')}
                                                         className="absolute right-9 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-600">
                                                         <RefreshCw size={15} />
                                                     </button>
@@ -400,21 +402,21 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                                 {editPassErr && <p className="text-[10px] text-rose-500 font-semibold mt-1 flex items-center gap-1"><AlertCircle size={11}/>{editPassErr}</p>}
                                             </div>
                                             <div>
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Роль</label>
+                                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('role')}</label>
                                                 <select className={INP} value={editForm.role}
                                                     onChange={e => {
                                                         const r = e.target.value;
                                                         setEditForm(f => ({ ...f, role: r, allowedHostels: r === 'cashier' ? (f.allowedHostels || [f.hostelId || 'hostel1']) : [f.hostelId || 'hostel1'], permissions: { ...defaultPerms(r), ...(f.permissions || {}) } }));
                                                     }}>
-                                                    <option value="cashier">Кассир</option>
-                                                    <option value="admin">Администратор</option>
+                                                    <option value="cashier">{t('cashier')}</option>
+                                                    <option value="admin">{t('admin')}</option>
                                                 </select>
                                             </div>
                                             {editForm.role === 'cashier' ? (
                                                 <div className="col-span-2">
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостелы для работы</label>
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffWorkHostels')}</label>
                                                     <div className="space-y-1.5 mt-1">
-                                                        {[{id:'hostel1',label:'Хостел №1'},{id:'hostel2',label:'Хостел №2'}].map(h => {
+                                                        {[{id:'hostel1',labelKey:'staffHostel1'},{id:'hostel2',labelKey:'staffHostel2'}].map(h => {
                                                             const checked = (editForm.allowedHostels || []).includes(h.id);
                                                             return (
                                                                 <label key={h.id} className="flex items-center gap-2.5 cursor-pointer group py-0.5">
@@ -431,23 +433,23 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                                                     >
                                                                         {checked && <Check size={10} className="text-white" strokeWidth={3}/>}
                                                                     </div>
-                                                                    <span className="text-xs text-slate-600 select-none">{h.label}</span>
+                                                                    <span className="text-xs text-slate-600 select-none">{t(h.labelKey)}</span>
                                                                 </label>
                                                             );
                                                         })}
                                                         {(editForm.allowedHostels || []).length > 1 && (
-                                                            <p className="text-[10px] text-teal-600 font-semibold mt-0.5">✓ При входе кассир выбирает хостел</p>
+                                                            <p className="text-[10px] text-teal-600 font-semibold mt-0.5">{t('staffCashierPicksHostel')}</p>
                                                         )}
                                                     </div>
                                                 </div>
                                             ) : (
                                                 <div>
-                                                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостел</label>
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffHostelLabel')}</label>
                                                     <select className={INP} value={editForm.hostelId}
                                                         onChange={e => setEditForm({ ...editForm, hostelId: e.target.value })}>
-                                                        <option value="hostel1">Хостел №1</option>
-                                                        <option value="hostel2">Хостел №2</option>
-                                                        <option value="all">Все</option>
+                                                        <option value="hostel1">{t('staffHostel1')}</option>
+                                                        <option value="hostel2">{t('staffHostel2')}</option>
+                                                        <option value="all">{t('all')}</option>
                                                     </select>
                                                 </div>
                                             )}
@@ -462,19 +464,19 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                                         }`}>
                                                         {editForm.canViewHostel1 && <Check size={10} className="text-white" strokeWidth={3}/>}
                                                     </div>
-                                                    <span className="text-xs text-slate-600 select-none">Просмотр обоих хостелов (только читать)</span>
+                                                    <span className="text-xs text-slate-600 select-none">{t('staffViewBothReadonly')}</span>
                                                 </label>
                                             </div>
                                         </div>
-                                        <PermsButton role={editForm.role} perms={editForm.permissions} onClick={() => setPermModal('edit')} />
+                                        <PermsButton role={editForm.role} perms={editForm.permissions} onClick={() => setPermModal('edit')} t={t} />
                                         <div className="flex gap-2 pt-1">
                                             <button onClick={saveEdit} disabled={!!editPassErr}
                                                 className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 transition-colors shadow-sm shadow-teal-200">
-                                                <Check size={15} /> Сохранить
+                                                <Check size={15} /> {t('save')}
                                             </button>
                                             <button onClick={cancelEdit}
                                                 className="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-colors">
-                                                Отмена
+                                                {t('cancel')}
                                             </button>
                                         </div>
                                     </div>
@@ -490,27 +492,27 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                         <div className="w-8 h-8 bg-emerald-100 rounded-xl flex items-center justify-center">
                             <Plus size={16} className="text-emerald-600" />
                         </div>
-                        <span className="font-black text-slate-800">Новый сотрудник</span>
+                        <span className="font-black text-slate-800">{t('staffNewEmployee')}</span>
                     </div>
                     <div className="space-y-3">
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">ФИО *</label>
-                            <input className={INP} placeholder="Иванов Иван" value={addForm.name}
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffFullNameReq')}</label>
+                            <input className={INP} placeholder={t('staffNamePlaceholder')} value={addForm.name}
                                 onChange={e => setAddForm({ ...addForm, name: e.target.value })} />
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Логин *</label>
-                            <input className={`${INP} ${addLoginDup ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20' : ''}`} placeholder="ivan" value={addForm.login}
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffLoginReq')}</label>
+                            <input className={`${INP} ${addLoginDup ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20' : ''}`} placeholder={t('staffLoginPlaceholder')} value={addForm.login}
                                 onChange={e => setAddForm({ ...addForm, login: e.target.value })} />
-                            {addLoginDup && <p className="text-[10px] text-rose-500 font-semibold mt-1">Такой логин уже занят</p>}
+                            {addLoginDup && <p className="text-[10px] text-rose-500 font-semibold mt-1">{t('staffLoginTaken')}</p>}
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Пароль *</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffPasswordReq')}</label>
                             <div className="relative">
                                 <input type={showAddPwd ? 'text' : 'password'} className={INP + ' pr-16'}
                                     placeholder="••••••" value={addForm.pass}
                                     onChange={e => setAddForm({ ...addForm, pass: e.target.value })} />
-                                <button type="button" onClick={() => { setAddForm(f => ({ ...f, pass: genPassword() })); setShowAddPwd(true); }} title="Сгенерировать пароль"
+                                <button type="button" onClick={() => { setAddForm(f => ({ ...f, pass: genPassword() })); setShowAddPwd(true); }} title={t('staffGenPassword')}
                                     className="absolute right-9 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-600">
                                     <RefreshCw size={15} />
                                 </button>
@@ -522,21 +524,21 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                             {addPassErr && <p className="text-[10px] text-rose-500 font-semibold mt-1 flex items-center gap-1"><AlertCircle size={11}/>{addPassErr}</p>}
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Роль</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('role')}</label>
                             <select className={INP} value={addForm.role}
                                 onChange={e => {
                                     const r = e.target.value;
                                     setAddForm(f => ({ ...f, role: r, allowedHostels: r === 'cashier' ? (f.allowedHostels || [f.hostelId || 'hostel1']) : [f.hostelId || 'hostel1'], permissions: defaultPerms(r) }));
                                 }}>
-                                <option value="cashier">Кассир</option>
-                                <option value="admin">Администратор</option>
+                                <option value="cashier">{t('cashier')}</option>
+                                <option value="admin">{t('admin')}</option>
                             </select>
                         </div>
                         {addForm.role === 'cashier' ? (
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостелы для работы</label>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffWorkHostels')}</label>
                                 <div className="space-y-1.5 mt-1">
-                                    {[{id:'hostel1',label:'Хостел №1'},{id:'hostel2',label:'Хостел №2'}].map(h => {
+                                    {[{id:'hostel1',labelKey:'staffHostel1'},{id:'hostel2',labelKey:'staffHostel2'}].map(h => {
                                         const checked = (addForm.allowedHostels || ['hostel1']).includes(h.id);
                                         return (
                                             <label key={h.id} className="flex items-center gap-2.5 cursor-pointer group py-0.5">
@@ -553,23 +555,23 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                                 >
                                                     {checked && <Check size={10} className="text-white" strokeWidth={3}/>}
                                                 </div>
-                                                <span className="text-xs text-slate-600 select-none">{h.label}</span>
+                                                <span className="text-xs text-slate-600 select-none">{t(h.labelKey)}</span>
                                             </label>
                                         );
                                     })}
                                     {(addForm.allowedHostels || []).length > 1 && (
-                                        <p className="text-[10px] text-teal-600 font-semibold mt-0.5">✓ При входе кассир выбирает хостел</p>
+                                        <p className="text-[10px] text-teal-600 font-semibold mt-0.5">{t('staffCashierPicksHostel')}</p>
                                     )}
                                 </div>
                             </div>
                         ) : (
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Хостел</label>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{t('staffHostelLabel')}</label>
                                 <select className={INP} value={addForm.hostelId}
                                     onChange={e => setAddForm({ ...addForm, hostelId: e.target.value })}>
-                                    <option value="hostel1">Хостел №1</option>
-                                    <option value="hostel2">Хостел №2</option>
-                                    <option value="all">Все</option>
+                                    <option value="hostel1">{t('staffHostel1')}</option>
+                                    <option value="hostel2">{t('staffHostel2')}</option>
+                                    <option value="all">{t('all')}</option>
                                 </select>
                             </div>
                         )}
@@ -584,27 +586,27 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                     }`}>
                                     {addForm.canViewHostel1 && <Check size={10} className="text-white" strokeWidth={3}/>}
                                 </div>
-                                <span className="text-xs text-slate-600 select-none">Просмотр обоих хостелов (только читать)</span>
+                                <span className="text-xs text-slate-600 select-none">{t('staffViewBothReadonly')}</span>
                             </label>
                         </div>
-                        <PermsButton role={addForm.role} perms={addForm.permissions} onClick={() => setPermModal('add')} />
+                        <PermsButton role={addForm.role} perms={addForm.permissions} onClick={() => setPermModal('add')} t={t} />
                         <button onClick={handleAdd}
                             disabled={!addForm.name.trim() || !addForm.login.trim() || !addForm.pass.trim() || addLoginDup || !!addPassErr}
                             className="w-full py-3 mt-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-sm shadow-teal-200">
-                            <Plus size={16} /> Добавить
+                            <Plus size={16} /> {t('add')}
                         </button>
                     </div>
 
                     {/* Legend */}
                     <div className="mt-5 pt-4 border-t border-slate-100 space-y-2">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Роли</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">{t('staffRolesLegend')}</p>
                         {Object.entries(ROLE_META).filter(([k]) => k !== 'super').map(([k, v]) => (
                             <div key={k} className="flex items-center gap-2">
                                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${v.bg} ${v.text} ${v.border}`}>
-                                    {v.label}
+                                    {t(v.labelKey)}
                                 </span>
                                 <span className="text-[10px] text-slate-400 leading-tight">
-                                    {k === 'admin' ? 'просмотр, без заселения' : 'заселение, оплата, смены'}
+                                    {k === 'admin' ? t('staffRoleAdminDesc') : t('staffRoleCashierDesc')}
                                 </span>
                             </div>
                         ))}
@@ -621,19 +623,19 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                                 <AlertTriangle size={18} className="text-rose-500" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-800">Удалить сотрудника?</h3>
+                                <h3 className="font-bold text-slate-800">{t('staffDeleteTitle')}</h3>
                                 <p className="text-sm text-slate-500">{confirmDel.name} · {confirmDel.login}</p>
                             </div>
                         </div>
-                        <p className="text-sm text-slate-500 mb-5">Действие нельзя отменить. Открытые смены сотрудника будут закрыты.</p>
+                        <p className="text-sm text-slate-500 mb-5">{t('staffDeleteWarn')}</p>
                         <div className="flex gap-3">
                             <button onClick={() => setConfirmDel(null)}
                                 className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                                Отмена
+                                {t('cancel')}
                             </button>
                             <button onClick={() => { onDelete(confirmDel.id); setConfirmDel(null); }}
                                 className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold transition-colors">
-                                Удалить
+                                {t('delete')}
                             </button>
                         </div>
                     </div>
@@ -646,6 +648,7 @@ const StaffView = ({ users = [], onAdd, onDelete, onUpdate, currentUser, lang })
                     perms={permModal === 'add' ? (addForm.permissions || defaultPerms(addForm.role)) : (editForm.permissions || defaultPerms(editForm.role))}
                     onChange={p => permModal === 'add' ? setAddForm(f => ({ ...f, permissions: p })) : setEditForm(f => ({ ...f, permissions: p }))}
                     onClose={() => setPermModal(null)}
+                    t={t}
                 />
             )}
         </div>

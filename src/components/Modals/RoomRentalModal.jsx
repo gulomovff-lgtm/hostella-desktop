@@ -52,7 +52,7 @@ const Section = ({ icon: Icon, title, right }) => (
 );
 
 // --- Payment row ---
-const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent }) => (
+const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent, magnetTitle }) => (
     <div className="flex items-center gap-2">
         <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${accent}`}>
             <Icon size={13} className="text-white" />
@@ -61,7 +61,7 @@ const PayRow = ({ icon: Icon, label, value, onChange, onMagnet, accent }) => (
         <div className="relative flex-1">
             <input type="text" inputMode="numeric" className="pos-input pr-9 text-right" placeholder="0"
                 value={fmtSum(value)} onChange={e => onChange(parseSum(e.target.value))} />
-            <button onClick={onMagnet} title="Заполнить остаток"
+            <button onClick={onMagnet} title={magnetTitle}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-teal-500 transition-colors">
                 <Magnet size={13} />
             </button>
@@ -86,7 +86,7 @@ const RoomRentalModal = ({
     lang         = 'ru',
     currentUser,
 }) => {
-    const t     = (k) => TRANSLATIONS[lang]?.[k] || k;
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const today = new Date().toISOString().split('T')[0];
     const isEdit = mode === 'edit';
 
@@ -221,9 +221,9 @@ const RoomRentalModal = ({
 
     // payMode: 'debt' (оставить долг) | 'paid' (дозаполнить остаток наличными → без долга)
     const handleSubmit = async (payMode = 'debt') => {
-        if (!fullName.trim()) { notify?.('Введите ФИО арендатора', 'error'); return; }
+        if (!fullName.trim()) { notify?.(t('rrEnterTenantName'), 'error'); return; }
         if (!isEdit && activeGuestsCount > 0) {
-            notify?.(`В комнате ${activeGuestsCount} активных гостей — сначала выселите`, 'error');
+            notify?.(t('rrRoomHasActiveGuests').replace('{n}', activeGuestsCount), 'error');
             return;
         }
         setSubmitting(true);
@@ -236,7 +236,7 @@ const RoomRentalModal = ({
                 await onRent?.(roomId, data);
             }
         } catch (e) {
-            notify?.('Ошибка: ' + e.message, 'error');
+            notify?.(t('rrErrorPrefix').replace('{msg}', e.message), 'error');
             setSubmitting(false);
         }
     };
@@ -249,20 +249,20 @@ const RoomRentalModal = ({
     const rentalHistory = (initialRoom?.rentalHistory || []).slice().reverse();
     const tabs = !isEdit
         ? [
-            { id: 'info',  label: 'Арендатор', icon: User },
-            { id: 'dates', label: 'Период',    icon: CalendarDays },
-            { id: 'pay',   label: 'Оплата',    icon: Receipt },
+            { id: 'info',  label: t('rrTenant'), icon: User },
+            { id: 'dates', label: t('period'),   icon: CalendarDays },
+            { id: 'pay',   label: t('payment'),  icon: Receipt },
         ]
         : canEditFull
         ? [
-            { id: 'info',    label: 'Арендатор', icon: User },
-            { id: 'dates',   label: 'Период',    icon: CalendarDays },
-            { id: 'pay',     label: 'Оплата',    icon: Receipt },
-            { id: 'history', label: 'История',   icon: Clock },
+            { id: 'info',    label: t('rrTenant'), icon: User },
+            { id: 'dates',   label: t('period'),   icon: CalendarDays },
+            { id: 'pay',     label: t('payment'),  icon: Receipt },
+            { id: 'history', label: t('history'),  icon: Clock },
         ]
         : [
-            { id: 'info',    label: 'Арендатор', icon: User },
-            { id: 'history', label: 'История',   icon: Clock },
+            { id: 'info',    label: t('rrTenant'), icon: User },
+            { id: 'history', label: t('history'),  icon: Clock },
         ];
 
     return (
@@ -284,12 +284,12 @@ const RoomRentalModal = ({
                             </div>
                             <div>
                                 <div className="text-white font-black text-sm leading-tight">
-                                    {isEdit ? 'Редактировать аренду' : 'Аренда комнаты'}
+                                    {isEdit ? t('rrEditTitle') : t('rrTitle')}
                                 </div>
                                 <div className="text-slate-500 text-[10px]">
                                     {isEdit
-                                        ? `Комната №${room?.number} · ${existingRental?.tenantName || ''}`
-                                        : 'Вся комната — один арендатор'
+                                        ? `${t('rrRoomShort').replace('{n}', room?.number)} · ${existingRental?.tenantName || ''}`
+                                        : t('rrSubtitle')
                                     }
                                 </div>
                             </div>
@@ -305,7 +305,7 @@ const RoomRentalModal = ({
                         style={{ background: '#0e2428', border: '1px solid rgba(94,234,212,0.1)' }}>
                         <div>
                             <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">
-                                Итого к оплате
+                                {t('rrTotalDue')}
                             </div>
                             <div className="font-mono font-black leading-none" style={{
                                 fontSize: '26px',
@@ -313,18 +313,18 @@ const RoomRentalModal = ({
                                 textShadow: totalAmount > 0 ? '0 0 12px rgba(94,234,212,0.4)' : 'none',
                             }}>
                                 {totalAmount > 0 ? totalAmount.toLocaleString() : '0'}
-                                <span className="ml-1.5" style={{ color: 'rgba(94,234,212,0.45)', fontSize: '11px' }}>СУМ</span>
+                                <span className="ml-1.5" style={{ color: 'rgba(94,234,212,0.45)', fontSize: '11px' }}>{t('rrSumCaps')}</span>
                             </div>
                             {pricePerDay > 0 && (
                                 <div className="text-[10px] text-slate-600 mt-0.5 font-mono">
-                                    {pricePerDay.toLocaleString()} × {daysNum} дн.
+                                    {pricePerDay.toLocaleString()} × {daysNum} {t('daysShort')}
                                 </div>
                             )}
                         </div>
                         <div className="text-right">
                             {debt > 0 && (
                                 <div>
-                                    <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Долг</div>
+                                    <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{t('debt')}</div>
                                     <div className="font-mono font-black text-rose-400 text-lg leading-tight">
                                         {debt.toLocaleString()}
                                     </div>
@@ -332,7 +332,7 @@ const RoomRentalModal = ({
                             )}
                             {debt === 0 && totalPaid > 0 && (
                                 <div className="flex items-center gap-1 text-emerald-400 text-xs font-bold">
-                                    <CheckCircle2 size={14} /> Оплачено
+                                    <CheckCircle2 size={14} /> {t('paid')}
                                 </div>
                             )}
                         </div>
@@ -364,14 +364,14 @@ const RoomRentalModal = ({
                         <div className="px-5 py-4 space-y-3">
                             {!isEdit && (
                                 <>
-                                    <Section icon={Building2} title="Комната" />
+                                    <Section icon={Building2} title={t('room')} />
                                     <select className="pos-input" value={roomId} onChange={e => setRoomId(e.target.value)}
                                         disabled={availableRooms.length === 0}>
                                         {availableRooms.length === 0
-                                            ? <option>Нет свободных комнат</option>
+                                            ? <option>{t('rrNoFreeRooms')}</option>
                                             : availableRooms.map(r => (
                                                 <option key={r.id} value={r.id}>
-                                                    №{r.number} · {r.capacity} мест{r.price ? ` · ${parseInt(r.price).toLocaleString()} сум/дн.` : ''}
+                                                    №{r.number} · {r.capacity} {t('rrSeats')}{r.price ? ` · ${parseInt(r.price).toLocaleString()} ${t('rrSumPerDay')}` : ''}
                                                 </option>
                                             ))
                                         }
@@ -380,7 +380,7 @@ const RoomRentalModal = ({
                                         <div className="flex items-center gap-2 px-3 py-2 bg-rose-50 border border-rose-200 rounded-xl">
                                             <AlertTriangle size={14} className="text-rose-500 shrink-0" />
                                             <p className="text-xs text-rose-600 font-semibold">
-                                                {activeGuestsCount} гостей — сначала выселите
+                                                {t('rrGuestsEvictFirst').replace('{n}', activeGuestsCount)}
                                             </p>
                                         </div>
                                     )}
@@ -388,33 +388,33 @@ const RoomRentalModal = ({
                                 </>
                             )}
 
-                            <Section icon={User} title="Данные арендатора" />
+                            <Section icon={User} title={t('rrTenantData')} />
                             <div>
-                                <label className="pos-label text-slate-400 mb-1 block">ФИО *</label>
-                                <input className="pos-input" placeholder="ИВАНОВ ИВАН ИВАНОВИЧ"
+                                <label className="pos-label text-slate-400 mb-1 block">{t('fullNameRequired')}</label>
+                                <input className="pos-input" placeholder={t('placeholderFullName')}
                                     value={fullName} onChange={e => setFullName(e.target.value.toUpperCase())} />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="pos-label text-slate-400 mb-1 block">Паспорт</label>
+                                    <label className="pos-label text-slate-400 mb-1 block">{t('passport')}</label>
                                     <input className="pos-input" placeholder="AA1234567"
                                         value={passport} onChange={e => setPassport(e.target.value.toUpperCase())} />
                                 </div>
                                 <div>
-                                    <label className="pos-label text-slate-400 mb-1 block">Телефон</label>
+                                    <label className="pos-label text-slate-400 mb-1 block">{t('phone')}</label>
                                     <input className="pos-input" placeholder="+998 90 000-00-00"
                                         value={phone} onChange={e => setPhone(e.target.value)} />
                                 </div>
                             </div>
                             <div>
-                                <label className="pos-label text-slate-400 mb-1 block">Комментарий</label>
-                                <input className="pos-input" placeholder="Корпоратив, группа..."
+                                <label className="pos-label text-slate-400 mb-1 block">{t('comment')}</label>
+                                <input className="pos-input" placeholder={t('rrCommentPlaceholder')}
                                     value={comment} onChange={e => setComment(e.target.value)} />
                             </div>
                             <hr className="receipt-divider" />
                             <label className="flex items-center justify-between gap-2 cursor-pointer select-none py-1">
                                 <span className="flex items-center gap-1.5 pos-label text-slate-500">
-                                    <Link2 size={11} /> Привязать к договору
+                                    <Link2 size={11} /> {t('rrLinkContract')}
                                 </span>
                                 <button type="button" role="switch" aria-checked={useContract}
                                     onClick={() => {
@@ -429,7 +429,7 @@ const RoomRentalModal = ({
                             {useContract && (
                                 <>
                                     <div>
-                                        <label className="pos-label text-slate-400 mb-1 block">Договор</label>
+                                        <label className="pos-label text-slate-400 mb-1 block">{t('rrContract')}</label>
                                         <select className="pos-input"
                                             value={contractGroupId}
                                             onChange={e => {
@@ -437,15 +437,15 @@ const RoomRentalModal = ({
                                                 setContractGroupId(e.target.value);
                                                 setContractGroupName(sel?.name || '');
                                             }}>
-                                            <option value="">— Выберите договор —</option>
+                                            <option value="">{t('rrSelectContract')}</option>
                                             {contractsList.map(c => (
                                                 <option key={c.id} value={c.id}>{c.name}</option>
                                             ))}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="pos-label text-slate-400 mb-1 block">Заметка по договору (опц.)</label>
-                                        <input className="pos-input" placeholder="Доп. инфо, номер доп. соглашения..."
+                                        <label className="pos-label text-slate-400 mb-1 block">{t('rrContractNote')}</label>
+                                        <input className="pos-input" placeholder={t('rrContractNotePlaceholder')}
                                             value={contractNote} onChange={e => setContractNote(e.target.value)} />
                                     </div>
                                 </>
@@ -456,16 +456,16 @@ const RoomRentalModal = ({
                     {/* TAB: ПЕРИОД */}
                     {tab === 'dates' && (
                         <div className="px-5 py-4 space-y-3">
-                            <Section icon={CalendarDays} title="Период аренды" />
+                            <Section icon={CalendarDays} title={t('rentalPeriod')} />
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="pos-label text-slate-400 mb-1 block">Дата заезда</label>
+                                    <label className="pos-label text-slate-400 mb-1 block">{t('rrCheckInDate')}</label>
                                     <input type="date" className="pos-input"
                                         value={checkInDate} onChange={e => setCheckInDate(e.target.value)} />
                                 </div>
                                 <div>
-                                    <label className="pos-label text-slate-400 mb-1 block">Дата выезда</label>
+                                    <label className="pos-label text-slate-400 mb-1 block">{t('rrCheckOutDate')}</label>
                                     <input type="date" className="pos-input" readOnly
                                         value={checkOutStr}
                                         style={{ background: '#f1f5f9', cursor: 'default' }} />
@@ -473,7 +473,7 @@ const RoomRentalModal = ({
                             </div>
 
                             <div>
-                                <label className="pos-label text-slate-400 mb-1 block">Количество дней</label>
+                                <label className="pos-label text-slate-400 mb-1 block">{t('rrDaysCount')}</label>
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => setDays(d => Math.max(1, d - 1))}
                                         className="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 shrink-0 transition-colors">
@@ -489,26 +489,26 @@ const RoomRentalModal = ({
                             </div>
 
                             <div>
-                                <label className="pos-label text-slate-400 mb-1 block">Цена за сутки</label>
+                                <label className="pos-label text-slate-400 mb-1 block">{t('rrPricePerDay')}</label>
                                 <div className="relative">
                                     <input type="text" inputMode="numeric" className="pos-input pr-12"
                                         placeholder={String(parseInt(room?.price) || 0)}
                                         value={fmtSum(manualPrice)} onChange={e => setManualPrice(parseSum(e.target.value))} />
-                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">сум</span>
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">{t('sum')}</span>
                                 </div>
                             </div>
 
                             {pricePerDay > 0 && (
                                 <div className="bg-teal-50 border border-teal-200 rounded-xl px-4 py-3 flex items-center justify-between">
                                     <div>
-                                        <div className="text-[9px] font-bold uppercase text-teal-600 mb-0.5">Итого</div>
+                                        <div className="text-[9px] font-bold uppercase text-teal-600 mb-0.5">{t('total')}</div>
                                         <div className="font-mono font-black text-teal-700 text-lg leading-none">
                                             {totalAmount.toLocaleString()}
-                                            <span className="text-xs ml-1 font-semibold">сум</span>
+                                            <span className="text-xs ml-1 font-semibold">{t('sum')}</span>
                                         </div>
                                     </div>
                                     <div className="text-right text-[10px] text-teal-600">
-                                        {pricePerDay.toLocaleString()} × {daysNum} дн.
+                                        {pricePerDay.toLocaleString()} × {daysNum} {t('daysShort')}
                                     </div>
                                 </div>
                             )}
@@ -521,7 +521,7 @@ const RoomRentalModal = ({
                                             <span className="text-[8px] font-bold text-teal-500">{i + 1}</span>
                                         </div>
                                     ))}
-                                    <span className="text-[11px] text-slate-400 font-semibold ml-1">{room.capacity} мест</span>
+                                    <span className="text-[11px] text-slate-400 font-semibold ml-1">{room.capacity} {t('rrSeats')}</span>
                                 </div>
                             )}
                         </div>
@@ -530,55 +530,55 @@ const RoomRentalModal = ({
                     {/* TAB: ОПЛАТА */}
                     {tab === 'pay' && (
                         <div className="px-5 py-4 space-y-3">
-                            <Section icon={Receipt} title="Оплата"
+                            <Section icon={Receipt} title={t('payment')}
                                 right={debt === 0 && totalPaid > 0
-                                    ? <span className="text-[10px] font-bold text-emerald-600">✓ Полная оплата</span>
+                                    ? <span className="text-[10px] font-bold text-emerald-600">{t('rrFullPayment')}</span>
                                     : debt > 0
-                                        ? <span className="text-[10px] font-bold text-rose-500">Долг: {debt.toLocaleString()}</span>
+                                        ? <span className="text-[10px] font-bold text-rose-500">{t('debt')}: {debt.toLocaleString()}</span>
                                         : null
                                 }
                             />
 
-                            <PayRow icon={DollarSign} label="Нал." value={paidCash}
+                            <PayRow icon={DollarSign} label={t('cashShort')} value={paidCash}
                                 onChange={setPaidCash} onMagnet={() => applyMagnet('paidCash')}
-                                accent="bg-emerald-500" />
-                            <PayRow icon={CreditCard} label="Карта" value={paidCard}
+                                accent="bg-emerald-500" magnetTitle={t('rrFillRemainder')} />
+                            <PayRow icon={CreditCard} label={t('cardShort')} value={paidCard}
                                 onChange={setPaidCard} onMagnet={() => applyMagnet('paidCard')}
-                                accent="bg-blue-500" />
-                            <PayRow icon={QrCode} label="QR" value={paidQR}
+                                accent="bg-blue-500" magnetTitle={t('rrFillRemainder')} />
+                            <PayRow icon={QrCode} label={t('qr')} value={paidQR}
                                 onChange={setPaidQR} onMagnet={() => applyMagnet('paidQR')}
-                                accent="bg-violet-500" />
+                                accent="bg-violet-500" magnetTitle={t('rrFillRemainder')} />
 
                             <hr className="receipt-divider" />
 
                             <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">
                                 {parseInt(paidCash) > 0 && (
                                     <div className="flex justify-between text-[12px]">
-                                        <span className="text-slate-500">Нал.</span>
+                                        <span className="text-slate-500">{t('cashShort')}</span>
                                         <span className="font-bold font-mono text-slate-700">{parseInt(paidCash).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {parseInt(paidCard) > 0 && (
                                     <div className="flex justify-between text-[12px]">
-                                        <span className="text-slate-500">Карта</span>
+                                        <span className="text-slate-500">{t('cardShort')}</span>
                                         <span className="font-bold font-mono text-slate-700">{parseInt(paidCard).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {parseInt(paidQR) > 0 && (
                                     <div className="flex justify-between text-[12px]">
-                                        <span className="text-slate-500">QR</span>
+                                        <span className="text-slate-500">{t('qr')}</span>
                                         <span className="font-bold font-mono text-slate-700">{parseInt(paidQR).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {totalPaid > 0 && (
                                     <div className="flex justify-between text-[12px] pt-1 border-t border-slate-200">
-                                        <span className="font-bold text-slate-700">Внесено</span>
+                                        <span className="font-bold text-slate-700">{t('roomsDeposited')}</span>
                                         <span className="font-black font-mono text-slate-900">{totalPaid.toLocaleString()}</span>
                                     </div>
                                 )}
                                 {debt > 0 && (
                                     <div className="flex justify-between text-[12px]">
-                                        <span className="font-bold text-rose-500">Остаток</span>
+                                        <span className="font-bold text-rose-500">{t('remaining')}</span>
                                         <span className="font-black font-mono text-rose-500">{debt.toLocaleString()}</span>
                                     </div>
                                 )}
@@ -589,9 +589,9 @@ const RoomRentalModal = ({
                     {/* TAB: ИСТОРИЯ */}
                     {tab === 'history' && (
                         <div className="px-5 py-4 space-y-3">
-                            <Section icon={Clock} title="История аренд" right={<span className="text-[10px] text-slate-400">{rentalHistory.length} записей</span>} />
+                            <Section icon={Clock} title={t('rrHistoryTitle')} right={<span className="text-[10px] text-slate-400">{t('rrRecordsCount').replace('{n}', rentalHistory.length)}</span>} />
                             {rentalHistory.length === 0 ? (
-                                <div className="text-center py-8 text-slate-400 text-xs">История пуста</div>
+                                <div className="text-center py-8 text-slate-400 text-xs">{t('rrHistoryEmpty')}</div>
                             ) : rentalHistory.map((h, i) => {
                                 const ciStr = h.checkInDate ? new Date(h.checkInDate).toLocaleDateString('ru', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
                                 const coStr = h.checkOutDate ? new Date(h.checkOutDate).toLocaleDateString('ru', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
@@ -601,23 +601,23 @@ const RoomRentalModal = ({
                                     <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
                                         <div className="px-3 py-2 flex items-center justify-between bg-white border-b border-slate-100">
                                             <span className="font-black text-slate-700 text-xs">{h.tenantName || '—'}</span>
-                                            {closedStr && <span className="text-[9px] text-slate-400 font-semibold">закрыта {closedStr}</span>}
+                                            {closedStr && <span className="text-[9px] text-slate-400 font-semibold">{t('rrClosedAt').replace('{date}', closedStr)}</span>}
                                         </div>
                                         <div className="px-3 py-2 space-y-1">
                                             <div className="flex justify-between text-[11px]">
-                                                <span className="text-slate-400">Период</span>
-                                                <span className="font-bold text-slate-700">{ciStr} — {coStr} ({h.days || '?'} дн.)</span>
+                                                <span className="text-slate-400">{t('period')}</span>
+                                                <span className="font-bold text-slate-700">{ciStr} — {coStr} ({h.days || '?'} {t('daysShort')})</span>
                                             </div>
                                             {h.pricePerDay > 0 && (
                                                 <div className="flex justify-between text-[11px]">
-                                                    <span className="text-slate-400">Сумма</span>
-                                                    <span className="font-bold font-mono text-teal-700">{(h.totalAmount || 0).toLocaleString()} сум</span>
+                                                    <span className="text-slate-400">{t('rrAmountLabel')}</span>
+                                                    <span className="font-bold font-mono text-teal-700">{(h.totalAmount || 0).toLocaleString()} {t('sum')}</span>
                                                 </div>
                                             )}
                                             {paid > 0 && (
                                                 <div className="flex justify-between text-[11px]">
-                                                    <span className="text-slate-400">Оплачено</span>
-                                                    <span className="font-bold font-mono text-emerald-600">{paid.toLocaleString()} сум</span>
+                                                    <span className="text-slate-400">{t('paid')}</span>
+                                                    <span className="font-bold font-mono text-emerald-600">{paid.toLocaleString()} {t('sum')}</span>
                                                 </div>
                                             )}
                                             {h.contractNote && (
@@ -643,12 +643,12 @@ const RoomRentalModal = ({
                     {isEdit ? (
                         <>
                             <button onClick={onClose}
-                                className="px-4 py-2.5 text-slate-500 hover:text-slate-300 font-bold rounded-xl transition-colors text-sm">Отмена</button>
+                                className="px-4 py-2.5 text-slate-500 hover:text-slate-300 font-bold rounded-xl transition-colors text-sm">{t('cancel')}</button>
                             {tab !== 'history' && (
                                 <button onClick={() => handleSubmit('debt')} disabled={!canSubmit || submitting}
                                     className="flex-1 flex items-center justify-center gap-2 py-3 text-white rounded-xl font-black text-sm transition-all active:scale-98 disabled:opacity-40"
                                     style={{ background: canSubmit && !submitting ? 'linear-gradient(135deg,#0f9688,#0d7a6e)' : '#374151' }}>
-                                    <RefreshCw size={15} /> {submitting ? 'Сохранение...' : 'Сохранить изменения'}
+                                    <RefreshCw size={15} /> {submitting ? t('rrSaving') : t('rrSaveChanges')}
                                 </button>
                             )}
                         </>
@@ -658,7 +658,7 @@ const RoomRentalModal = ({
                             <button
                                 onClick={() => { if (stepIdx > 0) setTab(STEP_ORDER[stepIdx - 1]); else onClose(); }}
                                 className="px-4 py-2.5 text-slate-500 hover:text-slate-300 font-bold rounded-xl transition-colors text-sm">
-                                {stepIdx > 0 ? 'Назад' : 'Отмена'}
+                                {stepIdx > 0 ? t('rrBack') : t('cancel')}
                             </button>
 
                             {tab !== 'pay' ? (
@@ -668,7 +668,7 @@ const RoomRentalModal = ({
                                     disabled={tab === 'info' && !canNextFromInfo}
                                     className="flex-1 flex items-center justify-center gap-2 py-3 text-white rounded-xl font-black text-sm transition-all active:scale-98 disabled:opacity-40"
                                     style={{ background: (tab === 'info' && !canNextFromInfo) ? '#374151' : 'linear-gradient(135deg,#0f9688,#0d7a6e)' }}>
-                                    Далее <ChevronRight size={15} />
+                                    {t('rrNext')} <ChevronRight size={15} />
                                 </button>
                             ) : (
                                 /* Финал: в долг / с оплатой */
@@ -676,12 +676,12 @@ const RoomRentalModal = ({
                                     <button onClick={() => handleSubmit('debt')} disabled={!canSubmit || submitting}
                                         className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-black text-sm transition-all active:scale-98 disabled:opacity-40"
                                         style={{ background: 'rgba(245,158,11,0.18)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.4)' }}>
-                                        В долг{debt > 0 ? ` · ${debt.toLocaleString()}` : ''}
+                                        {t('rrToDebt')}{debt > 0 ? ` · ${debt.toLocaleString()}` : ''}
                                     </button>
                                     <button onClick={() => handleSubmit('paid')} disabled={!canSubmit || submitting}
                                         className="flex-1 flex items-center justify-center gap-1.5 py-3 text-white rounded-xl font-black text-sm transition-all active:scale-98 disabled:opacity-40"
                                         style={{ background: canSubmit && !submitting ? 'linear-gradient(135deg,#0f9688,#0d7a6e)' : '#374151' }}>
-                                        <CheckCircle2 size={15} /> С оплатой
+                                        <CheckCircle2 size={15} /> {t('rrWithPayment')}
                                     </button>
                                 </>
                             )}

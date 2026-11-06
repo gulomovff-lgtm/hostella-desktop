@@ -14,8 +14,10 @@ service firebase.storage {
       return request.auth != null;
     }
     function isImageUnder(maxBytes) {
+      // Явный allowlist растровых форматов. image/svg+xml исключён: SVG исполняет
+      // скрипт при открытии из Storage-origin (stored-XSS через «фото» чека).
       return request.resource.size < maxBytes
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(png|jpeg|jpg|webp|gif)');
     }
 
     // Фото к расходам.
@@ -30,7 +32,33 @@ service firebase.storage {
       allow write: if signedIn() && isImageUnder(5 * 1024 * 1024);
     }
 
+    // Логотипы (код грузит в logos/…) — раньше путь не был покрыт и загрузка падала.
+    match /logos/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn() && isImageUnder(5 * 1024 * 1024);
+    }
+
+    // Фото позиций справочника «Услуги и товары»: читают все сессии, пишет
+    // только админ/супер (роль из кастом-токена), картинка до 2 МБ (клиент
+    // заранее ужимает до ~50 КБ, см. utils/imageResize.js).
+    match /catalog/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn()
+                   && request.auth.token.hostellaRole in ['admin', 'super']
+                   && isImageUnder(2 * 1024 * 1024);
+    }
+
     // Всё остальное — запрещено.
+    // Листы убытия e-mehmon: PDF, который автомат снимает при выводе гостя
+    // (electron/emehmonSheet.js) и кладёт сюда копией — открыть с любого
+    // компьютера сети, отдать гостю ссылкой. Только PDF и только небольшой.
+    match /sheets/{file=**} {
+      allow read:  if signedIn();
+      allow write: if signedIn()
+                   && request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType == 'application/pdf';
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

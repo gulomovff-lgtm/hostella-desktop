@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Plane, Check } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 // Глобальный баннер «хвостов» e-mehmon: гости, помеченные как зарегистрированные,
 // выселены, но ещё не выведены из e-mehmon (за последние 30 дней).
 // Виден на любой вкладке всем ролям — чтобы не забыть оформить убытие.
-const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingId = null, departingIds = null }) => {
+const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingId = null, departingIds = null, lang = 'ru' }) => {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
   const isDeparting = (id) => departingIds && typeof departingIds.has === 'function' && departingIds.has(id);
   const [open, setOpen] = useState(true);
 
@@ -23,8 +25,8 @@ const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingI
       <button onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 w-full text-left text-amber-800">
         <Plane size={15} className="shrink-0" />
-        <span className="font-black text-sm">Вывести из e-mehmon ({pending.length})</span>
-        <span className="text-xs text-amber-600 hidden sm:inline">— выселены, но не выведены</span>
+        <span className="font-black text-sm">{t('removeFromEmehmon')} ({pending.length})</span>
+        <span className="text-xs text-amber-600 hidden sm:inline">{t('emmPendingHint')}</span>
         {open ? <ChevronUp size={16} className="ml-auto" /> : <ChevronDown size={16} className="ml-auto" />}
       </button>
 
@@ -34,18 +36,18 @@ const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingI
             <div key={g.id} className="flex items-center gap-2 bg-white rounded-lg border border-amber-100 px-3 py-1.5">
               <button onClick={() => onOpen?.(g)} className="flex-1 min-w-0 text-left">
                 <span className="text-sm font-bold text-slate-800 truncate">{g.fullName}</span>
-                {g.roomNumber && <span className="text-xs text-slate-400"> · ком. {g.roomNumber}</span>}
-                {g.checkOutDate && <span className="text-[11px] text-slate-400"> · выехал {new Date(g.checkOutDate).toLocaleDateString('ru-RU')}</span>}
+                {g.roomNumber && <span className="text-xs text-slate-400"> · {t('roomShortLabel')} {g.roomNumber}</span>}
+                {g.checkOutDate && <span className="text-[11px] text-slate-400"> · {t('emmLeftOn')} {new Date(g.checkOutDate).toLocaleDateString('ru-RU')}</span>}
               </button>
               {window.electronAPI?.openEmehmon && (
                 <button onClick={() => onDepart?.(g)} disabled={isDeparting(g.id)}
                   className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500 text-white text-xs font-bold hover:bg-rose-600 disabled:opacity-50">
-                  <Plane size={11} className={isDeparting(g.id) ? 'animate-pulse' : ''} /> {isDeparting(g.id) ? 'Вывожу…' : 'Вывести'}
+                  <Plane size={11} className={isDeparting(g.id) ? 'animate-pulse' : ''} /> {isDeparting(g.id) ? t('emmDepartingShort') : t('emmDepartShort')}
                 </button>
               )}
               <button onClick={() => onDone?.(g)} disabled={checkingId === g.id}
                 className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 disabled:opacity-50">
-                <Check size={11} /> {checkingId === g.id ? 'Проверка…' : 'Готово'}
+                <Check size={11} /> {checkingId === g.id ? t('emmCheckShort') : t('emmDone')}
               </button>
             </div>
           ))}

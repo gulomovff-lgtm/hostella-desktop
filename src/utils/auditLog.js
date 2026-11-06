@@ -4,6 +4,8 @@ import { sendTelegramMessage } from './telegram';
 import { APP_VERSION } from '../constants/config';
 import { getDeviceId } from './clientTelemetry';
 import { getConfig } from './appConfig';
+import { auditCollectionFor } from './auditScope';
+import { reportError } from './errorLog';
 
 /**
  * Write an audit log entry to Firestore.
@@ -16,7 +18,9 @@ export const logAction = async (user, action, details = {}) => {
     try {
         // Журнал можно выключить в Настройках → Безопасность
         if (getConfig().auditEnabled === false) return;
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'), {
+        // Зачёты и ручные оплаты супера — в журнал, который читает только супер
+        // (админ видит «Историю изменений» без них; см. utils/auditScope.js).
+        await addDoc(collection(db, ...PUBLIC_DATA_PATH, auditCollectionFor(action, user)), {
             action,
             details,
             userId:   user?.id    || user?.login || 'unknown',
@@ -41,7 +45,7 @@ const escapeHtml = (s = '') =>
     String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Шлёт алерт об ошибке в Telegram, если не превышены лимиты. Никогда не бросает. */
-const maybeAlertTelegram = (context, message, details = {}) => {
+export const maybeAlertTelegram = (context, message, details = {}) => {
     try {
         // В режиме разработки не спамим — только прод-сборка.
         if (!import.meta?.env?.PROD) return;
@@ -52,6 +56,11 @@ const maybeAlertTelegram = (context, message, details = {}) => {
         const now = Date.now();
         if (now - (_alertTimes.get(key) || 0) < ALERT_COOLDOWN_MS) return;
         if (_alertCount >= MAX_ALERTS_PER_SESSION) return;
+        // Чистим протухшие записи: кулдаун по ним уже истёк, держать их незачем,
+        // иначе Map растёт на каждый новый текст ошибки и не освобождается.
+        for (const [k, ts] of _alertTimes) {
+            if (now - ts >= ALERT_COOLDOWN_MS) _alertTimes.delete(k);
+        }
         _alertTimes.set(key, now);
         _alertCount++;
 
@@ -66,9 +75,14 @@ const maybeAlertTelegram = (context, message, details = {}) => {
             (details.path ? `🔗 ${escapeHtml(details.path)}\n` : '') +
             `🔖 v${APP_VERSION} · ${platform}${device ? ' · ' + device : ''}`;
 
-        // Шлём напрямую на chatId из настроек (минуя список получателей и фильтры типов)
+        // Шлём напрямую на chatId из настроек (минуя список получателей и фильтры типов).
+        // Одна повторная попытка через 20 с: первая может не пройти как раз из-за
+        // сбоя, о котором мы и сообщаем (обрыв связи, холодный старт функции).
         const chatId = getConfig().errorAlertChatId || ERROR_ALERT_CHAT_ID;
-        sendTelegramMessage(text, null, [chatId]).catch(() => {});
+        const deliver = () => sendTelegramMessage(text, null, [chatId]);
+        deliver()
+            .then((res) => { if (!res) setTimeout(() => { deliver().catch(() => {}); }, 20000); })
+            .catch(() => { setTimeout(() => { deliver().catch(() => {}); }, 20000); });
     } catch { /* алерт никогда не должен ломать UX */ }
 };
 
@@ -86,17 +100,7 @@ export const logSystemError = async (context, error, details = {}) => {
     // Проактивный алерт — не дожидаясь записи в БД.
     maybeAlertTelegram(context, message, details);
 
-    try {
-        await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'auditLog'), {
-            action:    'system_error',
-            details:   { context, message, stack, ...details },
-            userId:    'system',
-            userName:  'System',
-            userRole:  'system',
-            hostelId:  null,
-            timestamp: new Date().toISOString(),
-        });
-    } catch (e) {
-        console.error('[audit:system_error]', e.message);
-    }
+    // Падения — в общий журнал ошибок (utils/errorLog.js; раньше — в auditLog
+    // вперемешку с действиями кассиров). Telegram-тревога уже ушла выше.
+    reportError('crash', context, message, { stack, ...details });
 };
