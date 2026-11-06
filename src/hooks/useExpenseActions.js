@@ -4,7 +4,6 @@
 import { collection, doc, increment, runTransaction } from 'firebase/firestore';
 import { addDoc, updateDoc } from '../utils/fsWrite';
 
-import * as XLSX from 'xlsx';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { notifyExpense } from '../utils/expenseNotify';
@@ -14,6 +13,8 @@ import { HOSTELS } from '../utils/helpers';
 import { paymentSplit, buildPaymentFields, guestDeltas, editableReason, validatePaymentInput } from '../utils/paymentEdit';
 import { collection as fsCollection } from 'firebase/firestore';
 import { clientStamp } from '../utils/clientsStore';
+import { changeStamp, bumpRev } from '../utils/collectionStore';
+import { isOldByDate, historyCutoffIso } from '../utils/historyWindow';
 
 /**
  * Генерирует автоописание расхода для отчётов.
@@ -215,7 +216,7 @@ export function useExpenseActions({
               }
             }
           }
-          tx.update(guestRef, patch);
+          tx.update(guestRef, { ...patch, ...changeStamp() });
         }
 
         tx.delete(ref);
@@ -223,6 +224,8 @@ export function useExpenseActions({
       });
 
       if (res.already) { showNotification(t('exaAlreadyDeleted'), 'info'); return; }
+      // Об удалении старой записи подписка не узнает: просим кассы перечитать базу
+      if (isOldByDate(record || {}, historyCutoffIso())) bumpRev('historyRev', type === 'income' ? 'payments' : 'expenses');
       if (res.clawback > 0)
         showNotification(t('exaClawback').replace('{sum}', res.clawback.toLocaleString()), 'info');
       showNotification(t('exaRecordDeleted'));
@@ -231,7 +234,9 @@ export function useExpenseActions({
     }
   };
 
-  const downloadExpensesCSV = () => {
+  const downloadExpensesCSV = async () => {
+    // Библиотека Excel весит около 1 МБ: грузим её только при выгрузке, а не при запуске
+    const XLSX = await import('xlsx');
     const filtered = currentUser?.role === 'super'
       ? expenses
       : expenses.filter(e => e.hostelId === (currentUser?.role === 'admin' ? selectedHostelFilter : currentUser?.hostelId));
@@ -357,7 +362,7 @@ export function useExpenseActions({
 
   const handleEditExpenseCategory = async (expenseId, newCategory) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), { category: newCategory });
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), { ...changeStamp(), category: newCategory });
       showNotification(t('exaCategoryUpdated'), 'success');
     } catch (err) {
       showNotification(`${t('exaError')}: ` + (err.message || t('exaUpdateFailed')), 'error');
@@ -384,7 +389,7 @@ export function useExpenseActions({
       const newComment = buildExpenseComment(e);
       if (newComment !== (e.comment || '').trim()) {
         try {
-          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', e.id), { comment: newComment });
+          await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', e.id), { ...changeStamp(), comment: newComment });
           updated++;
         } catch (_) { /* skip */ }
       }
@@ -436,7 +441,7 @@ export function useExpenseActions({
         }
 
         // 2) записи
-        if (id) tx.update(ref, fields); else tx.set(ref, fields);
+        if (id) tx.update(ref, { ...fields, ...changeStamp() }); else tx.set(ref, fields);
         for (const [gid, d] of Object.entries(deltas)) {
           if (!snaps[gid]?.exists()) continue;
           const patch = {};
@@ -447,7 +452,7 @@ export function useExpenseActions({
             const last = snaps[gid].data().lastPaymentAt || '';
             if (!last || String(date) > String(last)) patch.lastPaymentAt = date;
           }
-          tx.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', gid), patch);
+          tx.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', gid), { ...patch, ...changeStamp() });
         }
       });
       // След — только в журнале действий, который читает супер (кассирам и
@@ -468,7 +473,7 @@ export function useExpenseActions({
   // ошибка уходит вызывающему, он считает итог сам.
   const handleUpdateExpense = async (expenseId, patch, opts = {}) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), patch);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'expenses', expenseId), { ...patch, ...changeStamp() });
       if (!opts.silent) showNotification(t('exaExpenseUpdated'), 'success');
     } catch (err) {
       if (opts.silent) throw err;

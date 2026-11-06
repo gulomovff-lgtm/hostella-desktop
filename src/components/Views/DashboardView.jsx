@@ -5,7 +5,6 @@ import {
     QrCode, BarChart3, CalendarDays, CheckCircle2, User, Download, ArrowRightLeft, FileText, ChevronRight
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
-import * as XLSX from 'xlsx';
 import { printGroupReceipt } from '../../utils/groupReceipt';
 import GroupReceiptModal from '../Modals/GroupReceiptModal';
 import { chargeOf } from '../../utils/shop';
@@ -17,7 +16,9 @@ import { breakfastGuests, planConfig, addDays } from '../../utils/stayPlans';
 import { getConfig } from '../../utils/appConfig';
 
 // -- Export helpers ----------------------------------------------------------
-const exportGuestsToExcel = (guests) => {
+const exportGuestsToExcel = async (guests) => {
+    // Библиотека Excel весит около 1 МБ: грузим её только при выгрузке, а не при запуске
+    const XLSX = await import('xlsx');
     const rows = guests.map((g, i) => {
         const paid = (parseInt(g.paidCash)||0) + (parseInt(g.paidCard)||0) + (parseInt(g.paidQR)||0) + (parseInt(g.paidTransfer)||0) + (parseInt(g.amountPaid)||0);
         const debt = Math.max(0, chargeOf(g) - paid);

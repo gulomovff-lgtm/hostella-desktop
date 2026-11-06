@@ -36,13 +36,21 @@ const getTotalPaid = g =>
         : (g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0);
 
 // Найти смену кассира, активную в момент платежа
-const findShift = (shifts, staffId, payDate) => {
+// shiftsByStaff — см. indexShifts: перебор всех смен на каждую оплату занимал секунды
+const findShift = (shiftsByStaff, staffId, payDate) => {
     const pt = new Date(payDate).getTime();
-    return shifts.find(s =>
-        s.staffId === staffId &&
-        new Date(s.startTime).getTime() <= pt &&
-        (!s.endTime || new Date(s.endTime).getTime() >= pt)
-    ) || null;
+    const list = shiftsByStaff.get(staffId);
+    if (!list) return null;
+    const hit = list.find(x => x.start <= pt && (!x.end || x.end >= pt));
+    return hit ? hit.shift : null;
+};
+const indexShifts = (shifts) => {
+    const map = new Map();
+    for (const s of shifts) {
+        if (!map.has(s.staffId)) map.set(s.staffId, []);
+        map.get(s.staffId).push({ shift: s, start: new Date(s.startTime).getTime(), end: s.endTime ? new Date(s.endTime).getTime() : 0 });
+    }
+    return map;
 };
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -122,12 +130,18 @@ const GuestHistoryView = ({ guests = [], payments = [], shifts = [], users = [],
 
     // Обогащаем каждое заселение
     const enriched = useMemo(() => {
+        const shiftsByStaff = indexShifts(shifts);
+        const paysByGuest = new Map();
+        for (const p of payments) {
+            if (!paysByGuest.has(p.guestId)) paysByGuest.set(p.guestId, []);
+            paysByGuest.get(p.guestId).push(p);
+        }
         return guests
             .filter(g => g.status !== 'booking')
             .map(g => {
-                const gPays = payments.filter(p => p.guestId === g.id);
+                const gPays = paysByGuest.get(g.id) || [];
                 const enrichedPays = gPays.map(p => {
-                    const shift = findShift(shifts, p.staffId, p.date);
+                    const shift = findShift(shiftsByStaff, p.staffId, p.date);
                     return {
                         ...p,
                         cashierName: resolveUser(p.staffId),

@@ -7,6 +7,7 @@ import TRANSLATIONS from '../constants/translations';
 import { buildLines, linesTotal, linesComment, validateSale, validateItem, canCancelSale, salePaymentFields } from '../utils/shop';
 import { getConfig } from '../utils/appConfig';
 import { recipeOf, breakfastWriteOff, writeOffDelta, applyPlanAllowance } from '../utils/stayPlans';
+import { changeStamp } from '../utils/collectionStore';
 
 /**
  * useShopActions — услуги и товары (стирка, глажка, завтрак, напитки…).
@@ -67,7 +68,7 @@ export function useShopActions({ currentUser, lang, showNotification }) {
             type: 'income', category: 'service', comment: linesComment(lines), saleId: saleRef.id,
           });
         }
-        if (mode === 'account') tx.update(ref('guests', guest.id), { servicesTotal: increment(total) });
+        if (mode === 'account') tx.update(ref('guests', guest.id), { ...changeStamp(), servicesTotal: increment(total) });
         for (const [itemId, n] of need) {
           tx.update(ref('catalog', itemId), { [`stock.${hostelId}`]: increment(-n) });
           tx.set(doc(col('stockMoves')), {
@@ -105,7 +106,7 @@ export function useShopActions({ currentUser, lang, showNotification }) {
         for (const itemId of back.keys()) itemSnaps[itemId] = await tx.get(ref('catalog', itemId));
 
         if (pay && pay.exists()) tx.delete(payRef);
-        if (g && g.exists()) tx.update(gRef, { servicesTotal: increment(-(Number(d.total) || 0)) });
+        if (g && g.exists()) tx.update(gRef, { ...changeStamp(), servicesTotal: increment(-(Number(d.total) || 0)) });
         for (const [itemId, n] of back) {
           if (!itemSnaps[itemId]?.exists()) continue;
           tx.update(ref('catalog', itemId), { [`stock.${d.hostelId}`]: increment(n) });

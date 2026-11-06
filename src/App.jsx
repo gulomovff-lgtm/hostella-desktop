@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense, startTransition } from 'react';
 import ReactDOM from 'react-dom';
 import {
   signInAnonymously,
@@ -129,18 +129,10 @@ import ClientsView from './components/Views/ClientsView';
 import ShiftsView from './components/Views/ShiftsView';
 import TelegramSettingsView from './components/Views/TelegramSettingsView';
 import AuditLogView from './components/Views/AuditLogView';
-import CashierTimelineView from './components/Views/CashierTimelineView';
 import { startExpenseCatsSync } from './utils/expenseCats';
 import SessionsView from './components/Views/SessionsView';
-import ClientVersionsView from './components/Views/ClientVersionsView';
-import ErrorsView from './components/Views/ErrorsView';
-import ClientDuplicatesView from './components/Views/ClientDuplicatesView';
-import PricePermissionsView from './components/Views/PricePermissionsView';
 import PromoCodesView from './components/Views/PromoCodesView';
-import ReferralView from './components/Views/ReferralView';
-import AnalyticsView from './components/Views/AnalyticsView';
 import ManualStayView from './components/Views/ManualStayView';
-import GuestHistoryView from './components/Views/GuestHistoryView';
 import { logAction } from './utils/auditLog';
 import { loadAppConfig, getConfig } from './utils/appConfig';
 import { createSession, closeSession, heartbeatSession, closeAbandonedSessions, getLoginAt, LOGIN_AT_KEY } from './utils/session';
@@ -155,6 +147,8 @@ import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { hasRegistration, isLivingNow } from './utils/registrationStatus';
 import { HISTORY_TABS } from './utils/historyWindow';
+import ScreenLoading from './components/UI/ScreenLoading';
+import { KeepAliveTab, lazyScreen } from './components/UI/screenTabs';
 // Экраны, которым нужен журнал действий (подписка только пока они открыты)
 const AUDIT_TABS = new Set(['auditlog', 'timeline', 'guesthistory']);
 import { useExpenseActions }      from './hooks/useExpenseActions';
@@ -167,7 +161,6 @@ import GuestRegistrationModal from './components/Modals/GuestRegistrationModal';
 import RegistrationsView from './components/Views/RegistrationsView';
 import CadastreView     from './components/Views/CadastreView';
 import ExpenseModal from './components/Modals/ExpenseModal';
-import ReportsView from './components/Views/ReportsView';
 import GuestDetailsModal from './components/Modals/GuestDetailsModal';
 import MoveGuestModal from './components/Modals/MoveGuestModal';
 import BookingAlertModal from './components/Modals/BookingAlertModal';
@@ -184,12 +177,12 @@ import TemplateEditorModal from './components/Modals/TemplateEditorModal';
 import GroupReceiptModal from './components/Modals/GroupReceiptModal';
 import SaleModal from './components/Modals/SaleModal';
 import ShopView from './components/Views/ShopView';
-import HostelSettingsView from './components/Views/HostelSettingsView';
 import OnboardingTour, { LS_KEY as ONBOARDING_KEY } from './components/UI/OnboardingTour';
 import UndoHistoryModal from './components/Modals/UndoHistoryModal';
 import TRANSLATIONS from './constants/translations';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_FLAGS } from './constants/countries';
 import { DAILY_SALARY, DEFAULT_USERS, APP_VERSION, MIN_REQUIRED_VERSION } from './constants/config';
+import { changeStamp } from './utils/collectionStore';
 
 
 // Constants outside component to avoid recreation on every render
@@ -281,6 +274,23 @@ function OutdatedVersionScreen({ currentVersion, minVersion, latestVersion, down
 
 
 // ? ГЛАВНЫЙ КОМПОНЕНТ APP
+// Редкие и тяжёлые экраны — отдельными файлами: кассиру их код не нужен при запуске
+const AnalyticsView = lazyScreen(() => import('./components/Views/AnalyticsView'));
+const ReportsView = lazyScreen(() => import('./components/Views/ReportsView'));
+const GuestHistoryView = lazyScreen(() => import('./components/Views/GuestHistoryView'));
+const ClientDuplicatesView = lazyScreen(() => import('./components/Views/ClientDuplicatesView'));
+const HostelSettingsView = lazyScreen(() => import('./components/Views/HostelSettingsView'));
+const ReferralView = lazyScreen(() => import('./components/Views/ReferralView'));
+const ClientVersionsView = lazyScreen(() => import('./components/Views/ClientVersionsView'));
+const ErrorsView = lazyScreen(() => import('./components/Views/ErrorsView'));
+const CashierTimelineView = lazyScreen(() => import('./components/Views/CashierTimelineView'));
+const PricePermissionsView = lazyScreen(() => import('./components/Views/PricePermissionsView'));
+// Экраны, на которые постоянно возвращаются: остаются построенными (UI/screenTabs)
+const KEEP_ALIVE_TABS = new Set(['rooms', 'dashboard']);
+
+// Сколько экран ждёт полную историю, прежде чем показать то, что уже загружено
+const HISTORY_WAIT_MS = 15000;
+
 function App() {
   // ── Dev preview: вычисляем ДО хуков, но не делаем ранний return — иначе нарушение Rules of Hooks
   const isPreview = new URLSearchParams(window.location.search).get('preview') === 'login-new';
@@ -401,6 +411,36 @@ function App() {
     if (activeTab === 'manualstay' && historyAskedBy !== 'manualstay') releaseHistory();
   }, [activeTab, historyAskedBy, releaseHistory]);
   const loadDashAllTime = useCallback(() => setDashAllTime(true), []);
+
+  // Экран строится после того, как на его месте показана загрузка: иначе окно замирает
+  // ещё до отклика на нажатие. Пункт меню подсвечивается сразу (activeTab), сам экран —
+  // следующим шагом (shownTab). Запасной таймер — на свёрнутое окно, где кадров нет.
+  const [shownTab, setShownTab] = useState(activeTab);
+  useEffect(() => {
+    if (shownTab === activeTab) return undefined;
+    let done = false;
+    let inner = null;
+    // В переходе React строит экран частями и не держит поток: нажатия обрабатываются,
+    // а новое переключение отменяет ненужную постройку.
+    const go = () => { if (!done) { done = true; startTransition(() => setShownTab(activeTab)); } };
+    const frame = requestAnimationFrame(() => { inner = setTimeout(go, 0); });
+    const fallback = setTimeout(go, 150);
+    return () => { done = true; cancelAnimationFrame(frame); clearTimeout(inner); clearTimeout(fallback); };
+  }, [activeTab, shownTab]);
+  // Экран с полной историей ждёт её целиком, а не пересчитывается на каждой порции.
+  // Без связи история может не прийти: тогда через HISTORY_WAIT_MS показываем что есть.
+  const historyPending = HISTORY_TABS.has(activeTab) && !historyReady;
+  const [historyWaitOver, setHistoryWaitOver] = useState(false);
+  useEffect(() => {
+    setHistoryWaitOver(false);
+    if (!historyPending) return undefined;
+    const tm = setTimeout(() => setHistoryWaitOver(true), HISTORY_WAIT_MS);
+    return () => clearTimeout(tm);
+  }, [historyPending, activeTab]);
+  const historyGate = historyPending && !historyWaitOver;
+  const keptTabs = useRef(new Set());
+  if (shownTab === activeTab && KEEP_ALIVE_TABS.has(activeTab)) keptTabs.current.add(activeTab);
+  const viewTab = ((shownTab === activeTab || keptTabs.current.has(activeTab)) && !historyGate) ? activeTab : null;
 
   const [checkInModal, setCheckInModal] = useState({ open: false, room: null, bedId: null, date: null, client: null, bookingId: null }); 
   const [groupCheckInModal,  setGroupCheckInModal ] = useState(false);
@@ -815,7 +855,7 @@ function App() {
 
   const handleKppConfirm = useCallback(async (guestId) => {
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), 
         kppRegistered: true,
         kppRegisteredAt: new Date().toISOString(),
       });
@@ -833,7 +873,7 @@ function App() {
         kppRegisteredAt: deleteField(),
       };
       if (newKppDate) updates.kppDate = newKppDate;
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updates);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...updates, ...changeStamp() });
       logAction(currentUser, 'kpp_reset', { guestId, newKppDate });
       showNotification('Отсчёт КПП сброшен', 'success');
     } catch (e) {
@@ -1753,7 +1793,7 @@ const filterByHostel = (items) => {
     const days = parseInt(guest.days) || 0;
     const newPrice = parseInt(price) || minNightPrice(guest.hostelId, guest.roomNumber, guest.checkInDate ? new Date(guest.checkInDate) : new Date());
     try {
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { ...changeStamp(), 
         pricePerNight: newPrice,
         totalPrice: newPrice * days,
         tariff: 'standard',
@@ -2044,13 +2084,20 @@ return (
                         ? 'py-3 md:py-6 pt-2 pb-32 md:pb-6'
                         : 'p-3 md:p-6 pt-2 pb-32 md:pb-6'
                 }`}>
-                {needsHistoryTab && !historyReady && (
+                {viewTab === null && (
+                    <ScreenLoading text={historyGate
+                        ? (TRANSLATIONS[lang]?.historyLoading || 'Загружаю историю')
+                        : (TRANSLATIONS[lang]?.screenLoading || 'Загрузка…')} />
+                )}
+                <Suspense fallback={<ScreenLoading text={TRANSLATIONS[lang]?.screenLoading || 'Загрузка…'} />}>
+                {viewTab !== null && needsHistoryTab && !historyReady && (
                     <div className="mb-3 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
                         {TRANSLATIONS[lang]?.historyLoading || 'Загружаю историю — цифры за прошлые месяцы появятся через несколько секунд'}
                     </div>
                 )}
-                {activeTab === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.permissions?.viewStats === true) && (
+                <KeepAliveTab active={viewTab === 'dashboard'}>
+                {(currentUser.role === 'admin' || currentUser.role === 'super' || currentUser.permissions?.viewStats === true) && (
                     <DashboardView
                         rooms={filteredRooms}
                         guests={filteredGuests}
@@ -2071,8 +2118,10 @@ return (
                         onLoadAllTime={loadDashAllTime}
                     />
                 )}
+                </KeepAliveTab>
 
-                {activeTab === 'rooms' && (
+                <KeepAliveTab active={viewTab === 'rooms'}>
+                {(
                     <RoomsView
                         filteredRooms={filteredRooms}
                         guestsByRoom={guestsByRoom}
@@ -2100,8 +2149,9 @@ return (
                         onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                     />
                 )}
+                </KeepAliveTab>
                 
-                {activeTab === 'calendar' && (
+                {viewTab === 'calendar' && (
                     <div className="h-full flex flex-col bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
                         <CalendarView
                             onNeedHistory={askTabHistory}
@@ -2131,7 +2181,7 @@ return (
                     </div>
                 )}
                 
-                {activeTab === 'bookings' && currentUser.permissions?.viewBookings !== false && (
+                {viewTab === 'bookings' && currentUser.permissions?.viewBookings !== false && (
                     <BookingsView
                         bookings={websiteBookings}
                         onAccept={handleAcceptBooking}
@@ -2142,7 +2192,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'shop' && currentUser.permissions?.viewShop !== false && (
+                {viewTab === 'shop' && currentUser.permissions?.viewShop !== false && (
                     <ShopView
                         catalog={catalog}
                         sales={sales}
@@ -2161,7 +2211,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'reports' && (
+                {viewTab === 'reports' && (
                     (currentUser.role === 'admin' || currentUser.role === 'super')
                         ? currentUser.permissions?.viewReports !== false
                         : currentUser.permissions?.viewReports === true
@@ -2183,7 +2233,7 @@ return (
                     />
                 )}
                 
-                {activeTab === 'debts' && currentUser.permissions?.viewDebts !== false && (
+                {viewTab === 'debts' && currentUser.permissions?.viewDebts !== false && (
     <DebtsView 
         guests={filteredGuests} 
         users={usersList} 
@@ -2200,7 +2250,7 @@ return (
 )}
 
                 
-                {activeTab === 'tasks' && (
+                {viewTab === 'tasks' && (
                     <TaskManager 
                         tasks={filteredTasks} 
                         users={usersList} 
@@ -2214,7 +2264,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'shifts' && (
+                {viewTab === 'shifts' && (
                     <ShiftsView 
                         shifts={shifts} 
                         users={filteredUsersForReports}
@@ -2239,7 +2289,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'timeline' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
+                {viewTab === 'timeline' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
                     <CashierTimelineView
                         auditLog={auditLog}
                         payments={filteredPayments}
@@ -2254,7 +2304,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'clients' && currentUser.permissions?.viewClients !== false && (
+                {viewTab === 'clients' && currentUser.permissions?.viewClients !== false && (
                     <ClientsView 
                         clients={clients} 
                         onUpdateClient={handleUpdateClient}
@@ -2272,7 +2322,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'registrations' && (
+                {viewTab === 'registrations' && (
                     <RegistrationsView
                         onNeedHistory={askTabHistory}
                         registrations={filteredRegistrations}
@@ -2309,7 +2359,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'cadastre' && (
+                {viewTab === 'cadastre' && (
                     <CadastreView
                         cadastreRegs={currentUser.role === 'admin' || currentUser.role === 'super' ? (cadastreRegs || []) : filteredCadastreRegs}
                         cadastres={currentUser.role === 'admin' || currentUser.role === 'super' ? (cadastres || []) : filteredCadastres}
@@ -2332,7 +2382,7 @@ return (
                     />
                 )}
                 
-                {activeTab === 'staff' && currentUser.role === 'admin' && (
+                {viewTab === 'staff' && currentUser.role === 'admin' && (
                     <StaffView
                         users={usersList}
                         onAdd={handleAddUser}
@@ -2343,7 +2393,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'pricePerms' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'pricePerms' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <PricePermissionsView
                         whitelist={priceWhitelist}
                         clients={clients}
@@ -2354,7 +2404,7 @@ return (
                     />
                 )}
                 
-                {activeTab === 'expenses' && (
+                {viewTab === 'expenses' && (
                     (currentUser.role === 'admin' || currentUser.role === 'super')
                         ? currentUser.permissions?.viewExpenses !== false
                         : currentUser.permissions?.viewExpenses === true
@@ -2389,7 +2439,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'telegram' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'telegram' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <TelegramSettingsView
                         settings={tgSettings}
                         onSaveSettings={handleSaveTgSettings}
@@ -2399,7 +2449,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'promos' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'promos' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <PromoCodesView
                         promos={promos}
                         onSave={handleSavePromo}
@@ -2409,7 +2459,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'auditlog' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
+                {viewTab === 'auditlog' && (currentUser.role === 'super' || currentUser.role === 'admin') && (
                     <AuditLogView auditLog={auditLog} currentUser={currentUser} lang={lang}
                         onEditEntry={currentUser.role === 'super' ? async (entry, patch) => {
                             try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, entry._col || 'auditLog', entry.id), patch); showNotification((TRANSLATIONS[lang]?.alEntrySaved || ''), 'success'); return true; }
@@ -2421,19 +2471,19 @@ return (
                         } : null} />
                 )}
 
-                {activeTab === 'sessions' && currentUser.role === 'super' && (
+                {viewTab === 'sessions' && currentUser.role === 'super' && (
                     <SessionsView sessions={sessions} users={usersList} lang={lang} />
                 )}
 
-                {activeTab === 'errors' && currentUser.role === 'super' && (
+                {viewTab === 'errors' && currentUser.role === 'super' && (
                     <ErrorsView currentUser={currentUser} showNotification={showNotification} />
                 )}
 
-                {activeTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'versions' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <ClientVersionsView clientVersions={clientVersions} lang={lang} />
                 )}
 
-                {activeTab === 'clientdupes' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'clientdupes' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <ClientDuplicatesView
                         clients={clients}
                         onMerge={handleMergeClients}
@@ -2442,7 +2492,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'guesthistory' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <GuestHistoryView
                         guests={guests}
                         payments={payments}
@@ -2454,7 +2504,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'manualstay' && (
+                {viewTab === 'manualstay' && (
                     <ManualStayView
                         guests={guests}
                         groups={manualStayGroups}
@@ -2467,7 +2517,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'analytics' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'analytics' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <AnalyticsView
                         payments={filteredPayments}
                         expenses={filteredExpenses}
@@ -2480,7 +2530,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'hostelconfig' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
+                {viewTab === 'hostelconfig' && (currentUser.role === 'admin' || currentUser.role === 'super') && (
                     <HostelSettingsView
                         currentUser={currentUser}
                         guests={guests}
@@ -2492,7 +2542,7 @@ return (
                     />
                 )}
 
-                {activeTab === 'referrals' && (
+                {viewTab === 'referrals' && (
                     <div className="-m-3 md:-m-6 -mt-2 min-h-full">
                         <ReferralView
                             clients={clients}
@@ -2504,6 +2554,7 @@ return (
                         />
                     </div>
                 )}
+                </Suspense>
             </div>
 
             {/* Кнопка «Наверх» — появляется при прокрутке вниз */}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isBeforeWindow, historyCutoffIso, openContractKeys, chunk, HISTORY_TABS, LIVE_GUEST_STATUSES, HISTORY_WINDOW_DAYS } from '../src/utils/historyWindow.js';
+import { isOldGuest, isOldByDate, isOldShift, isBeforeWindow, historyCutoffIso, openContractKeys, chunk, HISTORY_TABS, LIVE_GUEST_STATUSES, HISTORY_WINDOW_DAYS } from '../src/utils/historyWindow.js';
 import { mergeLists, newestFirst } from '../src/utils/liveList.js';
 import { cadastrePersonGone } from '../src/utils/registrationStatus.js';
 
@@ -58,4 +58,17 @@ test('дата раньше окна: граница с запасом в ден
   assert.equal(isBeforeWindow(new Date('2026-09-20T00:00:00'), now), false);
   assert.equal(isBeforeWindow(new Date('2026-09-01T00:00:00'), now), true);
   assert.equal(isBeforeWindow('мусор', now), false);
+});
+
+test('из сохранённой базы берём только записи старше окна', () => {
+  const c = '2026-09-01T00:00:00.000Z';
+  assert.equal(isOldGuest({ status: 'checked_out', checkOutDate: '2026-05-01T00:00:00.000Z' }, c), true);
+  assert.equal(isOldGuest({ status: 'checked_out', checkOutDate: '2026-10-01T00:00:00.000Z' }, c), false);
+  assert.equal(isOldGuest({ status: 'active', checkOutDate: '2026-05-01T00:00:00.000Z' }, c), false);
+  assert.equal(isOldGuest({ status: 'checked_out' }, c), true);
+  assert.equal(isOldByDate({ date: '2026-05-01' }, c), true);
+  assert.equal(isOldByDate({ date: '2026-10-01' }, c), false);
+  assert.equal(isOldShift({ startTime: '2026-05-01', endTime: '2026-05-02' }, c), true);
+  assert.equal(isOldShift({ startTime: '2026-05-01', endTime: null }, c), false);
+  assert.equal(isOldShift({ startTime: '2026-10-01', endTime: '2026-10-02' }, c), false);
 });

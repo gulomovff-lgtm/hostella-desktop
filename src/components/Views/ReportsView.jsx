@@ -325,7 +325,11 @@ const ReportsView = ({ payments, expenses, users, guests, currentUser, onDeleteP
             }
             return { ...e, type: 'expense', method: 'cash', id: e.id, hostelId: hId };
         });
-        return [...incomes, ...outcomes].sort((a,b) => new Date(b.date) - new Date(a.date));
+        // Время считаем один раз на запись: разбор дат в сравнении был главной тратой экрана
+        const time = new Map();
+        const all = [...incomes, ...outcomes];
+        all.forEach(t => time.set(t, new Date(t.date).getTime()));
+        return all.sort((a, b) => time.get(b) - time.get(a));
     }, [payments, expenses, users, incomeDetail]);
 
     const filteredData = useMemo(() => allTransactions.filter(t => {

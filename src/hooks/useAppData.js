@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, startTransition } from 'react';
 import { noteServerLink } from '../utils/serverLink';
 import { visibleAuditFor } from '../utils/auditScope';
 import { collection, doc, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { DEFAULT_USERS } from '../constants/config';
 import { createLiveList, newestFirst, mergeLists } from '../utils/liveList';
-import { historyCutoffIso, LIVE_GUEST_STATUSES, openContractKeys, chunk } from '../utils/historyWindow';
+import { historyCutoffIso, windowKeep, LIVE_WINDOW_DAYS, LIVE_GUEST_STATUSES, openContractKeys, chunk, isOldGuest, isOldByDate, isOldShift } from '../utils/historyWindow';
+import { startCollectionSync } from '../utils/collectionStore';
 import { startClientsSync } from '../utils/clientsStore';
 
 /**
@@ -33,6 +34,8 @@ function listenChunks(queries, setter, order) {
   if (!queries.length) setter([]);
   return () => unsubs.forEach(u => u());
 }
+
+const NO_RECORDS = [];
 
 // Сколько последних записей журнала держим в памяти (только супер).
 // Журнал растёт бесконечно, поэтому грузим окно, а не всю историю.
@@ -72,6 +75,13 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   const [shiftsRecent,   setShiftsRecent  ] = useState([]);
   const [shiftsOpen,     setShiftsOpen    ] = useState([]);
   const [shiftsAll,      setShiftsAll     ] = useState(null);
+  // Окно от фонового потока: записи старше живой подписки, но в пределах окна
+  const [guestsWindow,   setGuestsWindow  ] = useState(NO_RECORDS);
+  const [paymentsWindow, setPaymentsWindow] = useState(NO_RECORDS);
+  const [expensesWindow, setExpensesWindow] = useState(NO_RECORDS);
+  const [shiftsWindow,   setShiftsWindow  ] = useState(NO_RECORDS);
+  // Граница окна этого входа: по ней отделяем старые записи от живых
+  const cutoffRef = useRef(historyCutoffIso());
   const [tgSettings,    setTgSettings   ] = useState(null);
   const [auditLogCommon, setAuditLogCommon] = useState([]);
   const [catalog,        setCatalog       ] = useState([]);
@@ -127,7 +137,14 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
     if (!userKey) return unsubUsers;
 
     const isAdmin = role === 'admin' || role === 'super';
-    const cutoff = historyCutoffIso();
+    // Живьём — свежие дни; остальное окно читает фоновый поток (utils/collectionStore)
+    const cutoff = historyCutoffIso(new Date(), LIVE_WINDOW_DAYS);
+    cutoffRef.current = cutoff;
+    const keep = windowKeep(historyCutoffIso());
+    const startWindow = (name, order, setter, onReady) => unsubs.push(startCollectionSync({
+      name, order, keep: keep[name], revDoc: 'historyRev', revField: name, onReady,
+      onList: (list) => startTransition(() => setter(list)),
+    }));
     const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
     const unsubs = [unsubUsers];
     let cancelled = false;
@@ -166,13 +183,17 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
     // Оплаты, клиенты и расходы — самые большие коллекции. Автоматика, которой
     // нужны деньги (авто-выселение, пересчёт цен, синхронизация клиентов),
     // ждёт isAllDataReady, а не появления комнат.
-    let pending = 3;
+    let pending = 7;
     const coreDone = () => { pending -= 1; if (pending === 0 && !cancelled) setIsAllDataReady(true); };
     const phase2 = () => {
       if (cancelled) return;
       listen(query(col('payments'), where('date', '>=', cutoff)), setPaymentsRecent, {}, undefined, coreDone);
       // Клиенты: полный список, но без подписки на всю коллекцию (utils/clientsStore)
       unsubs.push(startClientsSync({ onList: setClients, onReady: coreDone }));
+      startWindow('guests', newestFirst('checkInDate'), setGuestsWindow, coreDone);
+      startWindow('payments', null, setPaymentsWindow, coreDone);
+      startWindow('expenses', newestFirst('date'), setExpensesWindow, coreDone);
+      startWindow('shifts', null, setShiftsWindow, coreDone);
       listen(query(col('expenses'), where('date', '>=', cutoff)), setExpensesRecent, newestFirst('date'), undefined, coreDone);
       listen(col('tasks'), setTasks);
       listen(col('promos'), setPromos, {}, () => setPromos([]));
@@ -254,19 +275,24 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   }, [firebaseUser, userKey, contractSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Полная история — по запросу (экраны отчётов, долгов, истории…) ───────
-  // Подключается один раз за вход и дальше живёт: правки старых записей
-  // (погашение давнего долга) видны сразу.
+  // Читается фоновым потоком и лежит на диске, а не живой подпиской (utils/collectionStore):
+  // подписка на всю историю разбирала десятки тысяч документов в главном потоке,
+  // и окно замирало на первом заходе, а записи потом шли секундами. Свежие записи и так
+  // приходят живыми окнами, правки старых — подпиской на изменения.
   useEffect(() => {
     if (!firebaseUser || !userKey || !historyWanted) return undefined;
-    const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
     let pending = 4;
     let cancelled = false;
-    const done = () => { pending -= 1; if (pending === 0 && !cancelled) setHistoryReady(true); };
+    const done = () => { pending -= 1; if (pending === 0 && !cancelled) startTransition(() => setHistoryReady(true)); };
+    const start = (name, order, setter) => startCollectionSync({
+      name, order, revDoc: 'historyRev', revField: name, onReady: done,
+      onList: (list) => startTransition(() => setter(list)),
+    });
     const unsubs = [
-      listenLive(col('guests'), setGuestsAll, newestFirst('checkInDate'), undefined, done),
-      listenLive(col('payments'), setPaymentsAll, {}, undefined, done),
-      listenLive(col('expenses'), setExpensesAll, newestFirst('date'), undefined, done),
-      listenLive(col('shifts'), setShiftsAll, {}, undefined, done),
+      start('guests', newestFirst('checkInDate'), setGuestsAll),
+      start('payments', null, setPaymentsAll),
+      start('expenses', newestFirst('date'), setExpensesAll),
+      start('shifts', null, setShiftsAll),
     ];
     return () => {
       cancelled = true;
@@ -284,16 +310,18 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   const releaseHistory = useCallback(() => setHistoryWanted(false), []);
 
   // Итоговые списки: полная история, когда загружена, иначе окно + договоры.
-  const guests = useMemo(() => (historyReady && guestsAll) ? guestsAll
-    : mergeLists([guestsLive, guestsRecent, guestsContract], newestFirst('checkInDate')),
-    [historyReady, guestsAll, guestsLive, guestsRecent, guestsContract]);
-  const payments = useMemo(() => (historyReady && paymentsAll) ? paymentsAll
-    : mergeLists([paymentsRecent, paymentsContract]),
-    [historyReady, paymentsAll, paymentsRecent, paymentsContract]);
-  const expenses = useMemo(() => (historyReady && expensesAll) ? expensesAll : expensesRecent,
-    [historyReady, expensesAll, expensesRecent]);
-  const shifts = useMemo(() => (historyReady && shiftsAll) ? shiftsAll : mergeLists([shiftsOpen, shiftsRecent]),
-    [historyReady, shiftsAll, shiftsOpen, shiftsRecent]);
+  const guestsOld = useMemo(() => (historyReady && guestsAll ? guestsAll : guestsWindow).filter(g => isOldGuest(g, cutoffRef.current)), [historyReady, guestsAll, guestsWindow]);
+  const paymentsOld = useMemo(() => (historyReady && paymentsAll ? paymentsAll : paymentsWindow).filter(p => isOldByDate(p, cutoffRef.current)), [historyReady, paymentsAll, paymentsWindow]);
+  const expensesOld = useMemo(() => (historyReady && expensesAll ? expensesAll : expensesWindow).filter(e => isOldByDate(e, cutoffRef.current)), [historyReady, expensesAll, expensesWindow]);
+  const shiftsOld = useMemo(() => (historyReady && shiftsAll ? shiftsAll : shiftsWindow).filter(s => isOldShift(s, cutoffRef.current)), [historyReady, shiftsAll, shiftsWindow]);
+  const guests = useMemo(() => mergeLists([guestsLive, guestsRecent, guestsContract, guestsOld], newestFirst('checkInDate')),
+    [guestsLive, guestsRecent, guestsContract, guestsOld]);
+  const payments = useMemo(() => mergeLists([paymentsRecent, paymentsContract, paymentsOld]),
+    [paymentsRecent, paymentsContract, paymentsOld]);
+  const expenses = useMemo(() => mergeLists([expensesRecent, expensesOld], newestFirst('date')),
+    [expensesRecent, expensesOld]);
+  const shifts = useMemo(() => mergeLists([shiftsOpen, shiftsRecent, shiftsOld]),
+    [shiftsOpen, shiftsRecent, shiftsOld]);
 
   // Журнал для роли: супер — оба по времени, админ — общий без зачётов.
   const auditLog = useMemo(

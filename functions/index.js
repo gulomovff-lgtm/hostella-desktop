@@ -1375,6 +1375,7 @@ exports.telegramWebhook = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'T
       await reqRef.update({ status: 'approved', decidedAt: nowIso, approvedBy: approver });
       if (r.guestId) {
         await hostellaDb.doc(`${PRICE_BASE}/guests/${r.guestId}`).update({
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(), // кассы следят за правками по этому полю
           priceReductionAllowed: true,
           approvedPrice: Number(r.requestedPrice) || 0,
           priceRequestId: requestId,

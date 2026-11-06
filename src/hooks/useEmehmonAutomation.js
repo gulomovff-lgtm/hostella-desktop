@@ -20,6 +20,7 @@ import { departureExtras, departureMarks } from '../utils/emehmonDeparture';
 import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
 import { autoRegisterAllowed, cadastreRegFor } from '../utils/registrationStatus';
 import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
+import { changeStamp } from '../utils/collectionStore';
 
 const LOCAL_COUNTRY = 'Узбекистан';
 const isLocal = (g) => g?.country === LOCAL_COUNTRY;
@@ -104,7 +105,7 @@ export function useEmehmonAutomation({
 // e-mehmon: отметки «зарегистрирован/выведен» на госте
 const handleEmehmonFlag = useCallback(async (guestId, updates) => {
   try {
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updates);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...updates, ...changeStamp() });
   } catch (e) {
     showNotification(t('hsError') + e.message, 'error');
   }
@@ -309,11 +310,11 @@ async function commitGuestPatches(patches) {
     const chunk = patches.slice(i, i + 400);
     try {
       const b = writeBatch(db);
-      for (const [id, data] of chunk) b.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), data);
+      for (const [id, data] of chunk) b.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), { ...data, ...changeStamp() });
       await b.commit();
     } catch (_) {
       for (const [id, data] of chunk) {
-        try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), data); } catch (__) { /* пропускаем */ }
+        try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), { ...data, ...changeStamp() }); } catch (__) { /* пропускаем */ }
       }
     }
   }
@@ -838,10 +839,10 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
           moves++;
           const out = await changeEmehmonRoom(g, g.roomNumber);
           if (out?.status === 'done') {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { emehmonRoom: String(g.roomNumber), emehmonRoomAt: now, emehmonRoomChangeError: deleteField() }).catch(() => {});
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), emehmonRoom: String(g.roomNumber), emehmonRoomAt: now, emehmonRoomChangeError: deleteField() }).catch(() => {});
             if (!quietHere) showNotification(t('emaRoomMoved').replace('{name}', g.fullName).replace('{room}', g.roomNumber), 'success');
           } else {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { emehmonRoomChangeError: { status: out?.status || 'error', message: String(out?.message || '').slice(0, 200), at: now, probe: out?.probe || null } }).catch(() => {});
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), emehmonRoomChangeError: { status: out?.status || 'error', message: String(out?.message || '').slice(0, 200), at: now, probe: out?.probe || null } }).catch(() => {});
             if (!quietHere) showNotification(t('emaRoomMoveFail').replace('{name}', g.fullName).replace('{status}', out?.status || 'error'), 'warning');
             if (out?.status === 'need_login') break;
           }

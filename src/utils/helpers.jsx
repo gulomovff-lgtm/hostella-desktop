@@ -1,5 +1,4 @@
 import React from 'react';
-import * as XLSX from 'xlsx';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_ISO3 } from '../constants/countries';
 import { getConfig } from './appConfig';
 import TRANSLATIONS from '../constants/translations';
@@ -190,48 +189,6 @@ export const checkCollision = (existingCheckIn, existingDays, newCheckIn, newDay
 // Зарплата считается по настраиваемой ставке — см. utils/shiftMath.
 
 // ? ИСПРАВЛЕНИЕ: Экспорт в Excel через SheetJS (реальный .xlsx)
-export const exportToExcel = (data, filename, totalIncome = 0, totalExpense = 0) => {
-    const balance = totalIncome - totalExpense;
-    const typeLabel = type => type === 'income' ? 'Приход' : 'Расход';
-    const mLabel = m => ({ cash: 'Наличные', card: 'Терминал', qr: 'QR' }[m] || m || '—');
-    const CATEGORY_RU = { accommodation: 'Проживание' };
-
-    const rows = data.map(row => ({
-        'Дата':       row.date,
-        'Тип':        typeLabel(row.type),
-        'Хостел':     row.hostel,
-        'Кассир':     row.staff,
-        'Сумма':      row.type === 'expense' ? -Math.abs(parseInt(row.amount)) : parseInt(row.amount),
-        'Метод':      mLabel(row.method),
-        'Описание':   CATEGORY_RU[row.comment] || row.comment || '—',
-    }));
-
-    rows.push({});
-    rows.push({ 'Дата': 'ИТОГО ПРИХОД',  'Сумма': totalIncome });
-    rows.push({ 'Дата': 'ИТОГО РАСХОД',  'Сумма': -totalExpense });
-    rows.push({ 'Дата': 'БАЛАНС',        'Сумма': balance });
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [
-        { wch: 20 }, { wch: 10 }, { wch: 14 }, { wch: 18 },
-        { wch: 14 }, { wch: 12 }, { wch: 38 },
-    ];
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-    XLSX.utils.book_append_sheet(wb, ws, 'Операции');
-    const xlsxFilename = filename.replace(/\.xls$/, '.xlsx');
-    XLSX.writeFile(wb, xlsxFilename);
-};
-
-// Escape special HTML characters to prevent XSS in document.write print functions
-const escHtml = (v) => String(v == null ? '' : v)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
-
-// ? ИСПРАВЛЕНИЕ: Улучшенная печать документов (чеки, анкеты, справки)
 export const printDocument = (type, guest, hostel, lang = 'ru') => {
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
     const w = window.open('', '', 'width=800,height=600');

@@ -19,7 +19,7 @@ export const isClientsBaseStale = (readAt, now = Date.now()) => !readAt || now -
  * Накопитель списка. Изменение сильнее базы: база могла быть прочитана раньше него.
  * Неизменённые записи сохраняют объект — кэши экранов не сбрасываются (как в liveList).
  */
-export function createClientsList(order = alphabetical('fullName')) {
+export function createClientsList(order = alphabetical('fullName')) { // null — без сортировки
   let base = new Map();
   const overlay = new Map();
   const gone = new Set();
@@ -30,6 +30,7 @@ export function createClientsList(order = alphabetical('fullName')) {
     for (const [id, o] of overlay) merged.set(id, o);
     for (const id of gone) merged.delete(id);
     const items = Array.from(merged.values());
+    if (!order) return items;
     const keys = new Map(items.map((o) => [o.id, order.key(o)]));
     return items.sort((a, b) => order.compare(keys.get(a.id), keys.get(b.id)));
   };

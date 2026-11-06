@@ -254,14 +254,13 @@ const AnalyticsView = ({ payments = [], expenses = [], guests = [], rooms = [], 
         const cursor = new Date(startDate);
         cursor.setHours(12, 0, 0, 0);
         const endCursor = new Date(endDate);
+        // Даты разбираем один раз, а не на каждый день периода для каждого гостя
+        const stays = filteredGuests
+            .filter(g => g.checkInDate && g.checkOutDate)
+            .map(g => [new Date(g.checkInDate).getTime(), new Date(g.checkOutDate).getTime()]);
         while (cursor <= endCursor) {
             const dayTs = cursor.getTime();
-            const active = filteredGuests.filter(g => {
-                if (!g.checkInDate || !g.checkOutDate) return false;
-                const ci = new Date(g.checkInDate).getTime();
-                const co = new Date(g.checkOutDate).getTime();
-                return ci <= dayTs && dayTs < co;
-            }).length;
+            const active = stays.filter(([ci, co]) => ci <= dayTs && dayTs < co).length;
             result.push({
                 label: toDateStr(cursor),
                 occupancy: Math.min(100, Math.round((active / totalBeds) * 100)),

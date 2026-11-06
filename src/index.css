@@ -743,3 +743,11 @@ html.motion-idle *::before,
 html.motion-idle *::after {
   animation-play-state: paused !important;
 }
+
+/* Загрузка на месте экрана: появляется не сразу, чтобы быстрые переключения не мигали */
+@keyframes screen-loading-in { from { opacity: 0; } to { opacity: 1; } }
+.screen-loading { animation: screen-loading-in .15s ease-out .12s both; }
+
+/* Окна «подробно» на дашборде */
+@keyframes dd-pop-in { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.dd-pop { animation: dd-pop-in .16s ease-out both; }

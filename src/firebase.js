@@ -42,3 +42,5 @@ export const storage = getStorage(app);
 
 export const APP_ID = 'hostella-multi-v4';
 export const PUBLIC_DATA_PATH = ['artifacts', APP_ID, 'public', 'data'];
+// Адрес REST для чтения больших коллекций фоновым потоком (utils/collectionStore)
+export const REST_DOCUMENTS = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/hostella/documents`;

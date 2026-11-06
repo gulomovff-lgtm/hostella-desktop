@@ -3,6 +3,7 @@ import { doc, writeBatch, increment } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction, logSystemError } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
+import { changeStamp } from '../utils/collectionStore';
 
 /**
  * useAutoCheckout — автоматическое выселение просроченных гостей.
@@ -161,7 +162,7 @@ useEffect(() => {
 
       // ✅ Все гейты пройдены → выселяем
       const guestRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id);
-      batch.update(guestRef, {
+      batch.update(guestRef, { ...changeStamp(),
         status:        'checked_out',
         autoCheckedOut: true,
         autoCheckedOutAt: now.toISOString(),

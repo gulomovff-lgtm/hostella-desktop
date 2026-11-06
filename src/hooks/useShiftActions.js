@@ -12,6 +12,7 @@ import { hashPassword } from '../utils/hash';
 import { getConfig } from '../utils/appConfig';
 import { logAction } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
+import { changeStamp, bumpRev } from '../utils/collectionStore';
 
 // Доля суток (и ЗП) у части разделённой смены: передача и админ-деление — всегда 50/50.
 export const SHARE_HALF = 0.5;
@@ -78,7 +79,7 @@ export function useShiftActions({
     if (durH < MIN_SAVE_H && !shiftHadPayment(data)) {
       await deleteDoc(ref);
     } else {
-      await updateDoc(ref, normalizeShiftTimes(data.startTime, now));
+      await updateDoc(ref, { ...normalizeShiftTimes(data.startTime, now), ...changeStamp() });
     }
   };
 
@@ -259,7 +260,7 @@ export function useShiftActions({
       };
       // Наличные на руках = наличные минус расходы из кассы (то, что физически передаётся)
       const handedCash = Math.max(0, carried.cash - carried.expenses);
-      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', currentShiftId), {
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', currentShiftId), { ...changeStamp(), 
         endTime:      now,
         shareRatio:   SHARE_HALF,
         shareGroupId: groupId,
@@ -332,7 +333,7 @@ export function useShiftActions({
     const groupId = shift.shareGroupId || `sh_${shift.id}`;
     try {
       const batch = writeBatch(db);
-      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', shift.id), {
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', shift.id), { ...changeStamp(), 
         shareRatio:     SHARE_HALF,
         shareGroupId:   groupId,
         sharedWithName: partner.name || partner.login || null,
@@ -373,7 +374,7 @@ export function useShiftActions({
     try {
       const batch = writeBatch(db);
       clones.forEach(c => batch.delete(doc(db, ...PUBLIC_DATA_PATH, 'shifts', c.id)));
-      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', base.id), {
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'shifts', base.id), { ...changeStamp(), 
         shareRatio: deleteField(), shareGroupId: deleteField(), sharedWithName: deleteField(),
       });
       await commitNow(batch);
@@ -396,13 +397,14 @@ export function useShiftActions({
     const norm = (data.startTime && data.endTime)
       ? { ...data, ...normalizeShiftTimes(data.startTime, data.endTime) }
       : data;
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id), norm);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id), { ...norm, ...changeStamp() });
     showNotification(t('shaShiftUpdated'));
   };
 
   const handleAdminDeleteShift = async (id) => {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', id));
+      bumpRev('historyRev', 'shifts');
       showNotification(t('shaShiftDeleted'), 'success');
     } catch (e) {
       showNotification(t('shaDeleteError') + e.message, 'error');
@@ -452,7 +454,7 @@ export function useShiftActions({
       // Закрываем все открытые смены перед удалением
       const openShifts = shifts.filter(s => s.staffId === id && !s.endTime);
       for (const s of openShifts) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', s.id), { endTime: now });
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'shifts', s.id), { ...changeStamp(), endTime: now });
       }
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'users', id));
       showNotification(t('shaStaffDeleted'), 'success');

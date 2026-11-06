@@ -75,7 +75,7 @@ exports.referralCredit = functions
         balanceBefore: Number(cd.balance) || 0, date: now,
       });
       tx.update(clientRef, { balance: FieldValue.increment(d.amount), refBonusTotal: FieldValue.increment(d.amount), updatedAt: FieldValue.serverTimestamp() });
-      tx.update(guestRef, { refBonusCredited: d.amount, refBonusAt: now });
+      tx.update(guestRef, { refBonusCredited: d.amount, refBonusAt: now, updatedAt: FieldValue.serverTimestamp() });
       done = { amount: d.amount, nights: d.nights, chatId: cd.tgChatId, balance: (Number(cd.balance) || 0) + d.amount, who: REF.maskName(gd.fullName) };
     });
     if (done) {

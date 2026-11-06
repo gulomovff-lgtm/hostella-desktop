@@ -18,6 +18,14 @@
 
 export const HISTORY_WINDOW_DAYS = 62;
 
+/**
+ * Живая подписка — только на свежие дни. Остальное окно приходит из фонового потока:
+ * подписка на все 62 дня держала главный поток занятым 16–19 с из первых 40 после запуска
+ * (замер 06.11.2026). Новая запись за эти дни видна сразу, даже если её сделала касса
+ * на старой версии, без отметки изменения.
+ */
+export const LIVE_WINDOW_DAYS = 7;
+
 /** Гости этих статусов грузятся всегда, сколько бы им ни было лет. */
 export const LIVE_GUEST_STATUSES = ['active', 'booking', 'debt'];
 
@@ -34,6 +42,22 @@ export const HISTORY_TABS = new Set([
 // договоров и выбор участника; дата раньше окна и закрытый договор в аренде; налоговые
 // итоги и незнакомые строки портала. С подпиской на всю историю каждая запись в
 // базу занимает на порядки дольше, а кассиры открывают эти экраны постоянно.
+
+/**
+ * Запись старше окна: только такие берём из сохранённой базы. Всё, что попадает в окно,
+ * приходит живой подпиской и всегда свежее; иначе удалённая недавно запись вернулась бы из копии.
+ */
+export const isOldGuest = (g, cutoff) => !LIVE_GUEST_STATUSES.includes(g.status) && !(String(g.checkOutDate || '') >= cutoff);
+export const isOldByDate = (r, cutoff) => !(String(r.date || '') >= cutoff);
+export const isOldShift = (s, cutoff) => s.endTime !== null && !(String(s.startTime || '') >= cutoff);
+
+/** Отборы окна для фонового потока: те же условия, что у подписок окна. */
+export const windowKeep = (cutoff) => ({
+  guests: [{ field: 'status', in: LIVE_GUEST_STATUSES }, { field: 'checkOutDate', gte: cutoff }],
+  payments: [{ field: 'date', gte: cutoff }],
+  expenses: [{ field: 'date', gte: cutoff }],
+  shifts: [{ field: 'endTime', isNull: true }, { field: 'startTime', gte: cutoff }],
+});
 
 /** Дата раньше окна (с запасом в день: граница считается при входе, а программа живёт днями). */
 export function isBeforeWindow(date, now = new Date()) {

@@ -70,6 +70,9 @@ test('каждая запись в клиента ставит clientStamp', () 
     lines.forEach((line, i) => {
       const isWrite = /\b(updateDoc|addDoc|setDoc|\w+\.(update|set))\(.*'clients'/.test(line);
       if (isWrite && !lines.slice(i, i + 6).join(' ').includes('clientStamp()')) missing.push(`${file}:${i + 1}`);
+      // Правка старой записи без отметки не дойдёт до других касс и экранов истории
+      const isEdit = /\b(updateDoc|\w+\.update)\(.*'(guests|payments|expenses|shifts)'/.test(line);
+      if (isEdit && !lines.slice(i, i + 4).join(' ').includes('changeStamp()')) missing.push(`${file}:${i + 1}`);
     });
   }
   assert.deepEqual(missing, []);

@@ -8,6 +8,7 @@ import { sendTelegramMessage, escapeTg } from '../utils/telegram';
 import { logAction } from '../utils/auditLog';
 import { openEmehmonArrival } from '../utils/emehmon';
 import TRANSLATIONS from '../constants/translations';
+import { changeStamp } from '../utils/collectionStore';
 
 export function useRegistrationActions({
   currentUser, selectedHostelFilter, lang,
@@ -80,7 +81,7 @@ export function useRegistrationActions({
         );
         for (const mg of matchingGuests) {
           try {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', mg.id), {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', mg.id), { ...changeStamp(), 
               kppRegistered: true,
               kppRegisteredAt: new Date().toISOString(),
             });

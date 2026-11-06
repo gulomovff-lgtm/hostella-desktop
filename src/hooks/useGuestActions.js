@@ -36,6 +36,8 @@ import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildContin
 import { cadastreMatches, NEW_STAY_RESET_KEYS } from '../utils/registrationStatus';
 import { emehmonStayStartOf } from '../utils/emehmonAmount';
 import { clientStamp } from '../utils/clientsStore';
+import { changeStamp, bumpRev } from '../utils/collectionStore';
+import { isOldGuest, historyCutoffIso } from '../utils/historyWindow';
 
 export function useGuestActions(ctx) {
   const {
@@ -101,7 +103,7 @@ export function useGuestActions(ctx) {
     const batch = writeBatch(db);
     const ids = addPaymentDocs(batch, guestId, amounts, staffId, meta, date);
     // Fix 16: храним lastPaymentAt на госте — используется в Gate 4 авто-выселения
-    if (ids.length) batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { lastPaymentAt: date });
+    if (ids.length) batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), lastPaymentAt: date });
     commitInBackground(batch);
     return ids;
   };
@@ -156,7 +158,7 @@ export function useGuestActions(ctx) {
           fb.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', item.roomId), { occupied: increment(-1) });
       } else if (item.type === 'payment') {
         (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { ...changeStamp(), 
           paidCash: increment(-item.cash),
           paidCard: increment(-item.card),
           paidQR:   increment(-item.qr),
@@ -170,10 +172,10 @@ export function useGuestActions(ctx) {
         // Баланс, потраченный этой оплатой, возвращаем клиенту
         if (item.balanceUsed > 0 && item.overpayClientId) {
           fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.overpayClientId), { ...clientStamp(), balance: increment(item.balanceUsed) });
-          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { paidBalance: increment(-item.balanceUsed) });
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { ...changeStamp(), paidBalance: increment(-item.balanceUsed) });
         }
       } else if (item.type === 'extend') {
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { ...changeStamp(), 
           days: item.prevDays, totalPrice: item.prevTotalPrice,
           checkOutDate: item.prevCheckOut, status: item.prevStatus || 'active',
           bonusCheckOutDate: item.prevBonusCheckOut ? item.prevBonusCheckOut : deleteField(),
@@ -181,7 +183,7 @@ export function useGuestActions(ctx) {
         (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
         const rev = (item.payCash || 0) + (item.payCard || 0) + (item.payQR || 0);
         if (rev > 0) {
-          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), {
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { ...changeStamp(), 
             paidCash: increment(-(item.payCash || 0)),
             paidCard: increment(-(item.payCard || 0)),
             paidQR:   increment(-(item.payQR   || 0)),
@@ -190,7 +192,7 @@ export function useGuestActions(ctx) {
         }
       } else if (item.type === 'activate_booking') {
         // Заселение брони: возвращаем статус «бронь» и счётчик занятости комнаты
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { status: 'booking' });
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { ...changeStamp(), status: 'booking' });
         if (item.roomId)
           fb.update(doc(db, ...PUBLIC_DATA_PATH, 'rooms', item.roomId), { occupied: increment(-1) });
       } else if (item.type === 'trim') {
@@ -198,7 +200,7 @@ export function useGuestActions(ctx) {
           days: item.prevDays, totalPrice: item.prevTotalPrice, checkOutDate: item.prevCheckOut,
           bonusCheckOutDate: item.prevBonusCheckOut ? item.prevBonusCheckOut : deleteField(),
         };
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), trimRestore);
+        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', item.guestId), { ...trimRestore, ...changeStamp() });
       } else if (item.type === 'expense') {
         fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
       } else if (item.type === 'expense_bulk') {
@@ -231,7 +233,7 @@ export function useGuestActions(ctx) {
         // Откатываем погашение долга: удаляем платёжные документы и уменьшаем amountPaid
         (item.paymentIds || []).forEach(pid => fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'payments', pid)));
         for (const t of (item.targets || [])) {
-          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', t.id), {
+          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', t.id), { ...changeStamp(), 
             paidCash: increment(-t.cashPay),
             paidCard: increment(-t.cardPay),
             paidQR:   increment(-t.qrPay),
@@ -360,7 +362,7 @@ export function useGuestActions(ctx) {
         const seated = (parseInt(srcBooking?.seatedCount, 10) || 0) + 1;
         if (totalBeds > seated) {
           try {
-            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId), {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', checkInModal.bookingId), { ...changeStamp(), 
               seatedCount: seated,
               // залог перенесён первому заселённому — на брони обнуляем, чтобы не задвоить
               ...(depTotal > 0 ? { paidCash: 0, paidCard: 0, paidQR: 0, amountPaid: 0, depositMoved: true } : {}),
@@ -476,7 +478,7 @@ export function useGuestActions(ctx) {
       const originalCheckOut = new Date(guest.checkOutDate); originalCheckOut.setHours(12, 0, 0, 0);
       const finalCheckOutDate = today < originalCheckOut ? today.toISOString() : guest.checkOutDate;
 
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { ...changeStamp(), 
         totalPrice: final.totalPrice, status: 'checked_out', checkOutDate: finalCheckOutDate,
         bonusCheckOutDate: deleteField(),
         ...(settledNow > 0 ? {
@@ -604,7 +606,7 @@ export function useGuestActions(ctx) {
       const batch = writeBatch(db);
       const { ids: paymentIds, svcTotal, svcItems } = addGuestPaymentDocs(batch, g || { id: guestId }, { cash, card, qr, transfer }, safeStaffId,
         { purpose, guestName: g?.fullName, roomNumber: g?.roomNumber }, payDate);
-      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...guestUpdate, ...(paymentIds.length ? { lastPaymentAt: payDate } : {}) });
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), ...guestUpdate, ...(paymentIds.length ? { lastPaymentAt: payDate } : {}) });
       if (balanceUsed > 0 && clientRec) {
         batch.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', clientRec.id), { ...clientStamp(), balance: increment(-balanceUsed) });
       }
@@ -678,7 +680,7 @@ export function useGuestActions(ctx) {
       newGuest.amountPaid = (Number(newGuest.amountPaid) || 0) + payTotal;
       newGuest.lastPaymentAt = nowIso;
     }
-    batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', eg.id), { ...r.oldPatch, continuedBy: nRef.id });
+    batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', eg.id), { ...changeStamp(), ...r.oldPatch, continuedBy: nRef.id });
     batch.set(nRef, newGuest);
     await commitNow(batch);
     logAction(currentUser, 'extend', {
@@ -753,7 +755,7 @@ export function useGuestActions(ctx) {
         paymentIds = addGuestPaymentDocs(batch, eg || { id: guestId }, { cash: payCash, card: payCard, qr: payQR }, safeStaffId,
           { purpose: 'extend', guestName: eg?.fullName, roomNumber: eg?.roomNumber, extendDays: Number(extendDays) || 0, untilDate: newCheckOut }, nowIso).ids;
       }
-      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), 
         days: newDays, totalPrice: newTotalPrice, checkOutDate: newCheckOut, ...(extData.keepStatus ? {} : { status: 'active' }),
         lastExtendedBy: safeStaffId,
         lastExtendedAt: nowIso,
@@ -787,7 +789,7 @@ export function useGuestActions(ctx) {
   const handleSuperPayment = async (guestId, amount, method = 'cash') => {
     try {
       const methodField = method === 'card' ? 'paidCard' : method === 'qr' ? 'paidQR' : 'paidCash';
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), 
         [methodField]: increment(amount), amountPaid: increment(amount), superAdjusted: increment(amount),
         superAdjustedBy: currentUser.login || currentUser.id || 'unknown',
         superAdjustedAt: new Date().toISOString(),
@@ -829,7 +831,7 @@ export function useGuestActions(ctx) {
         || (parseInt(guest.totalPrice || 0) && actualDays ? Math.round(parseInt(guest.totalPrice) / actualDays) : 0);
       const newTotal = ppn > 0 ? ppn * newDays : parseInt(guest.totalPrice || 0);
       const co = new Date(guest.checkOutDate || Date.now()); co.setDate(co.getDate() + days);
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), 
         days: newDays, totalPrice: newTotal, checkOutDate: co.toISOString(), status: 'active',
       });
       count++;
@@ -893,7 +895,7 @@ export function useGuestActions(ctx) {
     // Бронь с сайта/бота приходит без страны: на экранах она читалась как
     // Узбекистан, но без флага и вне статистики. Записываем явно.
     const activate = { status: 'active', ...(guest.country ? {} : { country: 'Узбекистан' }) };
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), activate);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { ...activate, ...changeStamp() });
     const r = rooms.find(i => i.id === guest.roomId);
     logAction(currentUser, 'booking_activate', { guestId: guest.id, guestName: guest.fullName || '', roomNumber: guest.roomNumber || '', bedId: guest.bedId || '', days: Number(guest.days) || 0, checkOutDate: guest.checkOutDate || '' });
     if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(1) });
@@ -937,7 +939,7 @@ export function useGuestActions(ctx) {
       const b1 = Math.round(sBal  * r1), b2 = sBal  - b1;
       const paid1 = Math.round(totalPaid * r1), paid2 = totalPaid - paid1;
       const stay1 = getStayDetails(orig.checkInDate, firstLegDays);
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', orig.id), { ...changeStamp(), 
         days: firstLegDays, totalPrice: firstLegDays * price,
         amountPaid: paid1,
         paidCash: c1, paidCard: d1, paidQR: q1, paidTransfer: t1, paidBalance: b1,
@@ -990,9 +992,9 @@ export function useGuestActions(ctx) {
     const price = planPrice(g.hostelId, plan, g.country, at, cfg);
     const r = buildPlanSwitch(g, { plan, price, at, servicesPaid: servicesPaidOf(g.id) });
     const gRef = doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id);
-    if (r.mode === 'reprice') batch.update(gRef, r.patch);
+    if (r.mode === 'reprice') batch.update(gRef, { ...r.patch, ...changeStamp() });
     if (r.mode === 'split') {
-      batch.update(gRef, r.oldPatch);
+      batch.update(gRef, { ...r.oldPatch, ...changeStamp() });
       batch.set(doc(collection(db, ...PUBLIC_DATA_PATH, 'guests')), r.newGuest);
     }
     return { ...r, price };
@@ -1052,10 +1054,10 @@ export function useGuestActions(ctx) {
       if (r.mode === 'split') {
         const ex = await tx.get(nRef);
         if (ex.exists()) return null;
-        tx.update(gRef, r.oldPatch);
+        tx.update(gRef, { ...r.oldPatch, ...changeStamp() });
         tx.set(nRef, r.newGuest);
       } else {
-        tx.update(gRef, r.patch);
+        tx.update(gRef, { ...r.patch, ...changeStamp() });
       }
       return { mode: r.mode, price };
     });
@@ -1089,7 +1091,7 @@ export function useGuestActions(ctx) {
     return runTransaction(db, async (tx) => {
       const cur = await tx.get(gRef);
       if (!cur.exists() || cur.data().oldPriceKept) return false;
-      tx.update(gRef, { ...patch, oldPriceRestoredAt: new Date().toISOString() });
+      tx.update(gRef, { ...patch, ...changeStamp(), oldPriceRestoredAt: new Date().toISOString() });
       return true;
     });
   };
@@ -1110,14 +1112,14 @@ export function useGuestActions(ctx) {
     const due = continuationsDue(guests, new Date());
     for (const g of due.close) {
       try {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), 
           status: 'checked_out', closedByContinuation: true,
           ...(g.emehmonReg ? { emehmonOut: true, emehmonOutAt: g.checkOutDate, emehmonMovedOut: true } : {}),
         });
       } catch (e) { console.error('[continue close]', g.id, e); }
     }
     for (const g of due.activate) {
-      try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { status: 'active' }); }
+      try { await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), status: 'active' }); }
       catch (e) { console.error('[continue open]', g.id, e); }
     }
     if (restored) {
@@ -1147,7 +1149,7 @@ export function useGuestActions(ctx) {
 
       // Если гость ещё не заехал (бронь на будущее) — просто переносим комнату
       if (daysPassed <= 0) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), roomId: rid, roomNumber: rnum, bedId: bid });
         setMoveGuestModal({ open: false, guest: null });
         setGuestDetailsModal({ open: false, guest: null });
         logAction(currentUser, 'move', { guestId: g.id, guestName: g.fullName || '', fromRoom: g.roomNumber || '', fromBed: g.bedId || '', toRoom: rnum || '', toBed: bid || '' });
@@ -1160,7 +1162,7 @@ export function useGuestActions(ctx) {
 
       // Если оставшихся дней нет — просто обновляем комнату (гость уже давно выселен)
       if (remainingDays <= 0) {
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { roomId: rid, roomNumber: rnum, bedId: bid });
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), roomId: rid, roomNumber: rnum, bedId: bid });
         setMoveGuestModal({ open: false, guest: null });
         setGuestDetailsModal({ open: false, guest: null });
         logAction(currentUser, 'move', { guestId: g.id, guestName: g.fullName || '', fromRoom: g.roomNumber || '', fromBed: g.bedId || '', toRoom: rnum || '', toBed: bid || '' });
@@ -1200,7 +1202,7 @@ export function useGuestActions(ctx) {
       const newAmountPaid = totalPaid - oldAmountPaid;
 
       // --- 1. Обновляем старую запись: обрезаем до сегодня, выселяем ---
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), 
         days:        daysPassed,
         checkOutDate: todayNoon.toISOString(),
         totalPrice:  daysPassed * price,
@@ -1272,7 +1274,7 @@ export function useGuestActions(ctx) {
       if (g.emehmonReg) {
         try {
           await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id),
-            { emehmonOut: true, emehmonOutAt: new Date().toISOString(), emehmonMovedOut: true });
+            { ...changeStamp(), emehmonOut: true, emehmonOutAt: new Date().toISOString(), emehmonMovedOut: true });
         } catch (_) { /* пропускаем */ }
       }
 
@@ -1290,6 +1292,8 @@ export function useGuestActions(ctx) {
       const guestId   = typeof g === 'string' ? g : g.id;
       const guestData = typeof g === 'object' ? g : guests.find(x => x.id === guestId);
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId));
+      // Об удалении старой записи подписка не узнает: просим кассы перечитать базу
+      if (guestData && isOldGuest(guestData, historyCutoffIso())) bumpRev('historyRev', 'guests');
       if (guestData?.status === 'active' && guestData.roomId !== 'DEBT_ONLY') {
         const r = rooms.find(i => i.id === guestData.roomId);
         if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(-1) });
@@ -1315,7 +1319,7 @@ export function useGuestActions(ctx) {
       const ci = new Date(newCheckIn); ci.setHours(12, 0, 0, 0);
       const co = new Date(newCheckOut); co.setHours(12, 0, 0, 0);
       const newDays = Math.max(1, Math.round((co - ci) / 86400000));
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), 
         checkInDate: newCheckIn,
         checkOutDate: newCheckOut,
         days: newDays,
@@ -1373,7 +1377,7 @@ export function useGuestActions(ctx) {
         oldPaid: Number(g?.amountPaid) || 0, newPaid: d.amountPaid, hostelId: g?.hostelId,
       });
     }
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), d);
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', id), { ...d, ...changeStamp() });
   };
 
   const handleAdminReduceDays = async (g, rd) => {
@@ -1389,7 +1393,7 @@ export function useGuestActions(ctx) {
     const refundFromCash = Math.min(rawRefund, Math.max(0, paidCashCur));
     const stay = getStayDetails(g.checkInDate, newDays);
     // Один updateDoc — атомарно, чтобы избежать несогласованность двух записей
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), 
       days: newDays,
       totalPrice: newDays * ppn,
       amountPaid: increment(-refundFromPaid),
@@ -1406,7 +1410,7 @@ export function useGuestActions(ctx) {
   const handleAdminReduceDaysNoRefund = async (g, rd) => {
     const newDays = parseInt(g.days) - parseInt(rd);
     const stay = getStayDetails(g.checkInDate, newDays);
-    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), {
+    await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), 
       days: newDays,
       totalPrice: newDays * parseInt(g.pricePerNight),
       checkOutDate: stay.end.toISOString(),
@@ -1430,7 +1434,7 @@ export function useGuestActions(ctx) {
         const cashPay = totalMethods > 0 ? Math.floor((methods.cash || 0) / totalMethods * pay) : pay;
         const cardPay = totalMethods > 0 ? Math.floor((methods.card || 0) / totalMethods * pay) : 0;
         const qrPay   = pay - cashPay - cardPay; // остаток обеспечивает целочисленность
-        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), {
+        batch.update(doc(db, ...PUBLIC_DATA_PATH, 'guests', target.id), { ...changeStamp(), 
           paidCash: increment(cashPay), paidCard: increment(cardPay), paidQR: increment(qrPay), amountPaid: increment(pay),
           lastPaymentAt: payDate,
         });
@@ -1466,7 +1470,7 @@ export function useGuestActions(ctx) {
   const handleAdminAdjustDebt = async (guestId, adjustment) => {
     try {
       const g = guests.find(x => x.id === guestId);
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { totalPrice: increment(adjustment) });
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...changeStamp(), totalPrice: increment(adjustment) });
       logAction(currentUser, 'debt_adjust', {
         guestId, guestName: g?.fullName || '', adjustment: parseInt(adjustment) || 0,
       });
@@ -1513,7 +1517,7 @@ export function useGuestActions(ctx) {
         updateData.checkOutDate = newCheckOut.toISOString();
       }
 
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), updateData);
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guestId), { ...updateData, ...changeStamp() });
       pushUndo({
         type: 'trim',
         label: `-${daysToRemove} дн. — ${guest.fullName}`,
