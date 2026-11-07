@@ -11,6 +11,7 @@ import { getKppDayNumber, getRegistrationWindow } from '../../utils/helpers';
 import { buildBedsData } from '../../utils/roomBeds';
 import { stableView } from '../UI/stableView';
 import BreakfastModal from '../Modals/BreakfastModal';
+import NoVacancyToggle from '../UI/NoVacancyToggle';
 import { breakfastGuests, planConfig, addDays, PLAN_FULL } from '../../utils/stayPlans';
 import { getConfig } from '../../utils/appConfig';
 import { cadastreRegFor, cadastreValid } from '../../utils/registrationStatus';
@@ -832,6 +833,7 @@ const RoomsView = ({
             tomorrow: bfHostels.reduce((s, h) => s + breakfastGuests(allGuests, h, addDays(now, 1), now).length, 0),
         };
     }, [bfHostels, allGuests]);
+    const roomHostels = useMemo(() => [...new Set(filteredRooms.map(r => r.hostelId).filter(Boolean))].sort(), [filteredRooms]);
     const [guestSearch, setGuestSearch] = useState('');
     const t = (k) => TRANSLATIONS[lang]?.[k] || k;
 
@@ -977,12 +979,15 @@ const RoomsView = ({
                             <AlertTriangle size={11} />{totals.timeoutCount} {t('overdueBadge')}
                         </span>
                     </>}
+                    <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                    <NoVacancyToggle hostelIds={roomHostels} currentUser={currentUser} t={t} />
                     {bfHostels.length > 0 && (
                         <button onClick={() => setBreakfastOpen(true)}
-                            className="ml-auto flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 hover:bg-amber-100">
+                            className="flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 hover:bg-amber-100">
                             ☕ {t('bfPill').replace('{today}', bfCount.today).replace('{tomorrow}', bfCount.tomorrow)}
                         </button>
                     )}
+                    </div>
                 </div>
                 {breakfastOpen && (
                     <BreakfastModal onClose={() => setBreakfastOpen(false)} t={t} guests={allGuests} hostelIds={bfHostels}

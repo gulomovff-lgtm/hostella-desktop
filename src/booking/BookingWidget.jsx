@@ -202,6 +202,8 @@ export default function BookingWidget({ hostelParam }) {
   const [viewYear, setViewYear]       = useState(() => new Date().getFullYear());
   const [viewMonth, setViewMonth]     = useState(() => new Date().getMonth());
 
+  // «Мест нет» от кассира: { hostel1: { until, night } } — ночь заезда закрыта до 9:00
+  const [noVacancy, setNoVacancy]   = useState({});
   const [selectedDate, setSelectedDate] = useState(null);   // ISO string
   const [step, setStep]               = useState('calendar'); // 'calendar' | 'form' | 'success'
 
@@ -225,6 +227,7 @@ export default function BookingWidget({ hostelParam }) {
         setRooms(d.rooms || []);
         setGuests(d.stays || []);     // только интервалы проживания (roomId + даты), без PII
         setPromos(d.promos || []);
+        setNoVacancy(d.noVacancy || {});
       }).catch((err) => {
         console.error('[Hostella widget] availability error:', err);
         setLoadError(true);
@@ -291,9 +294,10 @@ export default function BookingWidget({ hostelParam }) {
     if (!av) return { iso, past, free: 0, total: 0, pct: 0, status: past ? 'past' : 'unknown' };
     const free = Math.max(0, av.total - av.occupied);
     const pct  = av.total ? Math.round((av.occupied / av.total) * 100) : 0;
-    const status = past ? 'past' : free === 0 ? 'full' : pct >= 75 ? 'tight' : pct >= 40 ? 'moderate' : 'free';
+    const closed = noVacancy[hostelId]?.night === iso;
+    const status = past ? 'past' : (free === 0 || closed) ? 'full' : pct >= 75 ? 'tight' : pct >= 40 ? 'moderate' : 'free';
     return { iso, past, free, total: av.total, pct, status };
-  }, [availability, today]);
+  }, [availability, today, noVacancy, hostelId]);
 
   const statusStyle = (status) => {
     switch (status) {

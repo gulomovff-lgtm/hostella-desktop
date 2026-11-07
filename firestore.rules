@@ -73,6 +73,18 @@ service cloud.firestore {
         allow write: if isStaff();
       }
 
+      // «Мест нет» по филиалу (utils/noVacancy.js): ставит и снимает кассир,
+      // сайт и бот читают через функции. Действует до 9:00 утра — поле until.
+      // Кассир — только свой филиал (владелец 2026-11-07): основной из токена
+      // или из allowedHostels в его документе users (у кого филиалов несколько).
+      match /settings/noVacancy {
+        allow read:  if signedIn();
+        allow write: if request.resource.data.keys().hasOnly(['hostel1', 'hostel2']) && (isAdmin()
+          || (role() == 'cashier' && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
+               .hasOnly([request.auth.token.get('hostellaHostel', '')].concat(
+                 get(/databases/$(database)/documents/artifacts/hostella-multi-v4/public/data/users/$(request.auth.uid)).data.get('allowedHostels', [])))));
+      }
+
       // Кого из портала e-mehmon не показывать в «нет в программе»
       // (utils/emehmonIgnore.js). Исключает только супер — решение владельца.
       match /settings/emehmonIgnore {

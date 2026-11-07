@@ -468,7 +468,9 @@ exports.getAvailability = functions.https.onRequest(async (req, res) => {
             });
         });
 
-        res.json({ ok: true, hostelId, bedType, count: ranges.length, ranges });
+        // «Мест нет» от кассира: закрытая ночь — дата заезда, на которую сайт не берёт брони
+        const closed = (await noVacancyLib.readNoVacancy(hostellaDb, `artifacts/${APP_ID}/public/data`))[hostelId] || null;
+        res.json({ ok: true, hostelId, bedType, count: ranges.length, ranges, noVacancy: closed });
     } catch (e) {
         console.error('getAvailability error:', e);
         res.status(500).json({ ok: false, error: e.message });
@@ -491,13 +493,14 @@ exports.getPublicAvailability = functions.https.onRequest(async (req, res) => {
         const { getFirestore } = require('firebase-admin/firestore');
         const hostellaDb = getFirestore('hostella');
         const base = `artifacts/hostella-multi-v4/public/data`;
-        const [roomsSnap, guestsSnap, promosSnap] = await Promise.all([
+        const [roomsSnap, guestsSnap, promosSnap, noVacancy] = await Promise.all([
             hostellaDb.collection(`${base}/rooms`).get(),
             // Только незакрытые записи и только нужные поля: чтение всех гостей занимало до 15 с
             // на каждого посетителя сайта и загружало в функцию паспорта и телефоны без нужды.
             hostellaDb.collection(`${base}/guests`).where('status', '!=', 'checked_out')
                 .select('status', 'roomId', 'checkInDate', 'checkInDateTime', 'checkOutDate').get(),
             hostellaDb.collection(`${base}/promos`).get(),
+            noVacancyLib.readNoVacancy(hostellaDb, base),
         ]);
         const rooms = roomsSnap.docs.map(d => {
             const x = d.data() || {};
@@ -514,7 +517,8 @@ exports.getPublicAvailability = functions.https.onRequest(async (req, res) => {
             .filter(p => p.active !== false)
             .map(p => ({ id: p.id, code: p.code, discount: p.discount, type: p.type }));
         res.set('Cache-Control', 'public, max-age=60');
-        res.json({ ok: true, rooms, stays, promos });
+        // noVacancy: { hostel1: { until, night } } — кассир отметил «мест нет» до 9:00
+        res.json({ ok: true, rooms, stays, promos, noVacancy });
     } catch (e) {
         console.error('getPublicAvailability', e);
         res.status(500).json({ ok: false });
@@ -673,6 +677,7 @@ const AUTH_APP_ID = 'hostella-multi-v4';
 const authPolicy = require('./lib/authPolicy');
 const passwordLib = require('./lib/password');
 const errorLogLib = require('./lib/errorLog');
+const noVacancyLib = require('./lib/noVacancy');
 
 const authDb = () => {
     const { getFirestore } = require('firebase-admin/firestore');
@@ -1156,10 +1161,19 @@ exports.getFreeBeds = functions
             hostelStats[r.hostelId].free     += free;
         });
 
+        // 3б. «Мест нет» от кассира (до 9:00 утра): свободных мест у филиала ноль
+        const noVacancy = await noVacancyLib.readNoVacancy(hostellaDb, basePath);
+        Object.entries(hostelStats).forEach(([hid, h]) => {
+            if (!noVacancy[hid]) return;
+            h.free = 0;
+            h.noVacancy = true;
+            h.noVacancyUntil = noVacancy[hid].until;
+        });
+
         // 4. Итого
         const totalCapacity = roomList.reduce((s, r) => s + r.capacity, 0);
         const totalOccupied = roomList.reduce((s, r) => s + r.occupied, 0);
-        const totalFree     = Math.max(0, totalCapacity - totalOccupied);
+        const totalFree     = Object.values(hostelStats).reduce((s, h) => s + h.free, 0);
 
         // Сортируем комнаты по хостелу, потом по номеру
         roomList.sort((a, b) => {
@@ -1172,6 +1186,7 @@ exports.getFreeBeds = functions
             updatedAt: now.toISOString(),
             total: { capacity: totalCapacity, occupied: totalOccupied, free: totalFree },
             hostels: hostelStats,
+            noVacancy,
             rooms: roomList,
         });
 
