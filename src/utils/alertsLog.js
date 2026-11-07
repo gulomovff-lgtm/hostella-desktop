@@ -12,7 +12,7 @@
  * по дням и статусу гостя уже не совпадут со старыми ключами).
  */
 
-import { doc, runTransaction, getDoc, updateDoc, setDoc, deleteField } from 'firebase/firestore';
+import { doc, runTransaction, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 
 const getRef = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'alertsLog');
@@ -23,19 +23,37 @@ const getRef = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'alertsLog');
  * Возвращает false — уведомление уже отправлялось (ключ существует).
  * В случае ошибки сети возвращает false (не отправляем, чтобы не дублировать).
  */
+// Ключи, по которым эта касса уже получила ответ (отправлено — нами или другой
+// кассой). Напоминания пересчитываются на каждое изменение базы, и раньше
+// каждый раз шла серверная транзакция на гостя — десятки транзакций в один
+// документ при любой оплате. Ключ уникален на гостя и день, поэтому ответ по
+// нему не меняется: повторно спрашивать сервер незачем.
+const settled = new Set();
+const inFlight = new Map();
+
 export async function checkAndMarkAlert(key) {
-  try {
-    return await runTransaction(db, async (tx) => {
-      const snap = await tx.get(getRef());
-      const data = snap.exists() ? snap.data() : {};
-      if (data[key]) return false;
-      tx.set(getRef(), { [key]: true }, { merge: true });
-      return true;
-    });
-  } catch (e) {
-    console.warn('[alertsLog] checkAndMarkAlert error:', e.message);
-    return false;
-  }
+  if (settled.has(key)) return false;
+  if (inFlight.has(key)) { await inFlight.get(key); return false; }
+  const run = (async () => {
+    try {
+      const fire = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(getRef());
+        const data = snap.exists() ? snap.data() : {};
+        if (data[key]) return false;
+        tx.set(getRef(), { [key]: true }, { merge: true });
+        return true;
+      });
+      settled.add(key);
+      return fire;
+    } catch (e) {
+      console.warn('[alertsLog] checkAndMarkAlert error:', e.message);
+      return false;   // сбой сети — не отправляем; ключ не запоминаем, спросим снова
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+  inFlight.set(key, run);
+  return run;
 }
 
 /**

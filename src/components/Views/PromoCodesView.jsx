@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Tag, Plus, Trash2, Edit2, Check, X, Copy, Percent, Hash } from 'lucide-react';
+import TRANSLATIONS from '../../constants/translations';
 
 // ── PromoCodesView ────────────────────────────────────────────────────────────
-const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
+const PromoCodesView = ({ promos = [], onSave, onDelete, lang = 'ru' }) => {
+    const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [showModal, setShowModal] = useState(false);
     const [editing,   setEditing  ] = useState(null);
     const [copied,    setCopied   ] = useState(null);
@@ -52,15 +54,15 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                        <Tag size={20} className="text-orange-500"/> Промокоды
+                        <Tag size={20} className="text-orange-500"/> {t('promos2')}
                     </h1>
                     <p className="text-sm text-slate-500 mt-0.5">
-                        {promos.filter(isEffective).length} активных · применяются при онлайн-бронировании
+                        {t('pcSubtitle').replace('{n}', promos.filter(isEffective).length)}
                     </p>
                 </div>
                 <button onClick={openNew}
                     className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-xl font-bold text-sm hover:bg-orange-600 transition-colors shadow-sm">
-                    <Plus size={15}/> Добавить
+                    <Plus size={15}/> {t('add')}
                 </button>
             </div>
 
@@ -69,19 +71,19 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                 {promos.length === 0 ? (
                     <div className="py-16 text-center">
                         <div className="text-5xl mb-3">🏷️</div>
-                        <div className="text-slate-500 font-semibold">Нет промокодов</div>
-                        <div className="text-slate-300 text-sm mt-1">Создайте первый код скидки</div>
+                        <div className="text-slate-500 font-semibold">{t('pcEmpty')}</div>
+                        <div className="text-slate-300 text-sm mt-1">{t('pcEmptyHint')}</div>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm min-w-[640px]">
                             <thead>
                                 <tr className="bg-slate-50 text-xs font-black text-slate-400 uppercase tracking-wide">
-                                    <th className="px-4 py-3 text-left">Код</th>
-                                    <th className="px-4 py-3 text-left">Скидка</th>
-                                    <th className="px-4 py-3 text-left">Использований</th>
-                                    <th className="px-4 py-3 text-left">Истекает</th>
-                                    <th className="px-4 py-3 text-left">Статус</th>
+                                    <th className="px-4 py-3 text-left">{t('pcColCode')}</th>
+                                    <th className="px-4 py-3 text-left">{t('pcColDiscount')}</th>
+                                    <th className="px-4 py-3 text-left">{t('pcColUses')}</th>
+                                    <th className="px-4 py-3 text-left">{t('pcColExpires')}</th>
+                                    <th className="px-4 py-3 text-left">{t('status')}</th>
                                     <th className="px-4 py-3 text-right"></th>
                                 </tr>
                             </thead>
@@ -97,7 +99,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                                                     <span className="font-black text-slate-800 tracking-wider text-base">{p.code}</span>
                                                     <button onClick={() => copyCode(p.code)}
                                                         className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
-                                                        title="Скопировать">
+                                                        title={t('pcCopy')}>
                                                         {copied === p.code ? <Check size={13} className="text-emerald-500"/> : <Copy size={13}/>}
                                                     </button>
                                                 </div>
@@ -106,19 +108,19 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                                                 <span className="font-bold text-orange-600 text-base">
                                                     {p.type === 'percent'
                                                         ? `${p.discount}%`
-                                                        : `${(p.discount || 0).toLocaleString()} сум`}
+                                                        : `${(p.discount || 0).toLocaleString()} ${t('sum')}`}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-slate-600">
                                                 <span className="font-semibold">{p.usedCount || 0}</span>
                                                 {p.maxUses && <span className="text-slate-400"> / {p.maxUses}</span>}
-                                                {exhausted && <span className="ml-1.5 text-[10px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full">лимит</span>}
+                                                {exhausted && <span className="ml-1.5 text-[10px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full">{t('pcLimit')}</span>}
                                             </td>
                                             <td className="px-4 py-3 text-slate-500">
                                                 {p.expiresAt
                                                     ? new Date(p.expiresAt).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' })
-                                                    : <span className="text-slate-300">бессрочно</span>}
-                                                {expired && <span className="ml-1.5 text-[10px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full">истёк</span>}
+                                                    : <span className="text-slate-300">{t('pcNoExpiry')}</span>}
+                                                {expired && <span className="ml-1.5 text-[10px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full">{t('pcExpired')}</span>}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
@@ -127,7 +129,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                                                         : 'bg-slate-100 text-slate-400 border-slate-200'
                                                 }`}>
                                                     {eff ? <Check size={10}/> : <X size={10}/>}
-                                                    {eff ? 'Активен' : 'Неактивен'}
+                                                    {eff ? t('pcActive') : t('pcInactive')}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3">
@@ -153,12 +155,12 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
 
             {/* How to use info */}
             <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4">
-                <div className="font-bold text-orange-700 mb-1.5 text-sm">Как работают промокоды</div>
+                <div className="font-bold text-orange-700 mb-1.5 text-sm">{t('pcHowTitle')}</div>
                 <ul className="text-orange-600 space-y-1 text-xs leading-relaxed">
-                    <li>• Гость вводит код при онлайн-бронировании на сайте — скидка применяется автоматически</li>
-                    <li>• Тип «%» — скидка от суммы (например 10% с 150 000 = 135 000 сум)</li>
-                    <li>• Тип «сум» — фиксированная скидка (например 20 000 сум с любой суммы)</li>
-                    <li>• «Макс. использований» — сколько раз можно применить код (пусто = без ограничений)</li>
+                    <li>• {t('pcHow1')}</li>
+                    <li>• {t('pcHow2')}</li>
+                    <li>• {t('pcHow3')}</li>
+                    <li>• {t('pcHow4')}</li>
                 </ul>
             </div>
 
@@ -168,7 +170,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                     <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
                         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-100">
                             <h3 className="font-bold text-lg text-slate-800">
-                                {editing ? 'Редактировать код' : 'Новый промокод'}
+                                {editing ? t('pcEditTitle') : t('pcNewTitle')}
                             </h3>
                             <button onClick={() => setShowModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors">
                                 <X size={18}/>
@@ -177,7 +179,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                         <div className="px-6 py-5 space-y-4">
                             {/* Code */}
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Промокод</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('pcCodeLabel')}</label>
                                 <input
                                     value={form.code}
                                     onChange={e => setForm(f => ({...f, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '')}))}
@@ -188,16 +190,16 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                             {/* Type + Amount */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Тип скидки</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('pcTypeLabel')}</label>
                                     <select value={form.type} onChange={e => setForm(f => ({...f, type: e.target.value}))}
                                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 bg-white text-slate-700">
-                                        <option value="percent">Процент %</option>
-                                        <option value="fixed">Фиксированная (сум)</option>
+                                        <option value="percent">{t('pcTypePercent')}</option>
+                                        <option value="fixed">{t('pcTypeFixed')}</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">
-                                        {form.type === 'percent' ? 'Скидка (%)' : 'Скидка (сум)'}
+                                        {form.type === 'percent' ? t('pcDiscountPercent') : t('pcDiscountSum')}
                                     </label>
                                     <div className="relative">
                                         <input type="number" min="0" max={form.type === 'percent' ? 100 : undefined}
@@ -214,7 +216,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                             {/* Limits */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Макс. использований</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('pcMaxUses')}</label>
                                     <input type="number" min="1"
                                         value={form.maxUses}
                                         onChange={e => setForm(f => ({...f, maxUses: e.target.value}))}
@@ -222,7 +224,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all"/>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Дата истечения</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{t('pcExpiryDate')}</label>
                                     <input type="date"
                                         value={form.expiresAt}
                                         onChange={e => setForm(f => ({...f, expiresAt: e.target.value}))}
@@ -232,7 +234,7 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
 
                             {/* Active toggle */}
                             <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
-                                <span className="text-sm font-semibold text-slate-700">Активен</span>
+                                <span className="text-sm font-semibold text-slate-700">{t('pcActive')}</span>
                                 <button onClick={() => setForm(f => ({...f, active: !f.active}))}
                                     className={`relative w-11 h-6 rounded-full transition-colors ${form.active ? 'bg-emerald-500' : 'bg-slate-300'}`}>
                                     <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.active ? 'left-[22px]' : 'left-0.5'}`}/>
@@ -242,11 +244,11 @@ const PromoCodesView = ({ promos = [], onSave, onDelete }) => {
                             <div className="grid grid-cols-2 gap-3 pt-1">
                                 <button onClick={() => setShowModal(false)}
                                     className="py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-colors">
-                                    Отмена
+                                    {t('cancel')}
                                 </button>
                                 <button onClick={handleSubmit}
                                     className="py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm transition-colors shadow-sm">
-                                    {editing ? 'Сохранить' : 'Создать'}
+                                    {editing ? t('save') : t('pcCreate')}
                                 </button>
                             </div>
                         </div>

@@ -88,7 +88,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
 
     const handleParseMRZ = () => {
         const parsed = parseMRZ(mrzText);
-        if (!parsed) { notify('Не удалось распознать MRZ', 'error'); return; }
+        if (!parsed) { notify(t('grmMrzFail'), 'error'); return; }
         setForm(f => ({
             ...f,
             fullName: parsed.fullName || f.fullName,
@@ -98,37 +98,37 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
         }));
         setMrzOpen(false);
         setMrzText('');
-        notify('Данные из MRZ заполнены', 'success');
+        notify(t('grmMrzFilled'), 'success');
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!form.fullName.trim()) {
-            notify(lang === 'ru' ? 'Заполните ФИО' : 'FIO ni to\'ldiring', 'error');
+            notify(t('grmFillName'), 'error');
             return;
         }
         if (!form.passport.trim()) {
-            notify(lang === 'ru' ? 'Заполните номер паспорта' : 'Pasport raqamini to\'ldiring', 'error');
+            notify(t('grmFillPassport'), 'error');
             return;
         }
         if (!form.birthDate) {
-            notify(lang === 'ru' ? 'Укажите дату рождения' : 'Tug\'ilgan sanani kiriting', 'error');
+            notify(t('grmFillBirthDate'), 'error');
             return;
         }
         if (!form.passportIssueDate) {
-            notify(lang === 'ru' ? 'Укажите дату выдачи паспорта' : 'Pasport berilgan sanani kiriting', 'error');
+            notify(t('grmFillIssueDate'), 'error');
             return;
         }
         if (!(parseInt(form.days) >= 1)) {
-            notify(lang === 'ru' ? 'Введите количество дней' : 'Kunlar sonini kiriting', 'error');
+            notify(t('grmFillDays'), 'error');
             return;
         }
         if (!endDate) {
-            notify(lang === 'ru' ? 'Укажите дату начала и количество дней' : 'Boshlanish sanasi va kunlarni ko\'rsating', 'error');
+            notify(t('grmFillStartDays'), 'error');
             return;
         }
         if (totalPaid <= 0) {
-            notify(lang === 'ru' ? 'Укажите оплату — сумма не может быть 0' : 'To\'lovni kiriting — summa 0 bo\'lishi mumkin emas', 'error');
+            notify(t('grmPaymentRequired'), 'error');
             return;
         }
         onSubmit({
@@ -153,10 +153,10 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                 <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
                     <div>
                         <h2 className="font-black text-lg text-slate-800 flex items-center gap-2">
-                            🪪 {lang === 'ru' ? 'Регистрация гостя' : 'Mehmonni ro\'yxatga olish'}
+                            🪪 {t('grmTitle')}
                         </h2>
                         <p className="text-xs text-slate-400 mt-0.5">
-                            {lang === 'ru' ? 'E-mehmon / Учёт оплаты за регистрацию' : 'E-mehmon / Ro\'yxatga olish to\'lovi'}
+                            {t('grmSubtitle')}
                         </p>
                     </div>
                     <button
@@ -176,7 +176,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                         onClick={() => setMrzOpen(o => !o)}
                         className="w-full flex items-center justify-between px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-200 text-sm font-semibold text-indigo-700 transition-colors"
                     >
-                        <span className="flex items-center gap-2"><ScanLine size={16} /> Сканировать MRZ паспорт</span>
+                        <span className="flex items-center gap-2"><ScanLine size={16} /> {t('grmScanMrz')}</span>
                         <ChevronDown size={16} className={`transition-transform ${mrzOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {mrzOpen && (
@@ -195,7 +195,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                                 onClick={handleParseMRZ}
                                 className="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors"
                             >
-                                Распознать
+                                {t('grmRecognize')}
                             </button>
                         </div>
                     )}
@@ -203,15 +203,15 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                     {/* ── Данные гостя ── */}
                     <div className="space-y-3">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                            {lang === 'ru' ? 'Данные гостя' : 'Mehmon ma\'lumotlari'}
+                            {t('grmGuestData')}
                         </p>
                         <div>
-                            <label className={lbl}>ФИО *</label>
+                            <label className={lbl}>{t('fullNameRequired')}</label>
                             <input
                                 className={inp}
                                 value={form.fullName}
                                 onChange={e => set('fullName', e.target.value.toUpperCase())}
-                                placeholder="ИВАНОВ ИВАН ИВАНОВИЧ"
+                                placeholder={t('placeholderFullName')}
                             />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -234,7 +234,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                                 />
                             </div>
                             <div>
-                                <label className={lbl}>{lang === 'ru' ? 'Дата выдачи паспорта' : 'Pasport berilgan sana'} *</label>
+                                <label className={lbl}>{t('passportIssueDateLabel')} *</label>
                                 <input
                                     type="date"
                                     className={inp}
@@ -267,12 +267,12 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                     {/* ── Период регистрации ── */}
                     <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100 space-y-3">
                         <p className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide">
-                            {lang === 'ru' ? 'Период регистрации (E-mehmon)' : 'Ro\'yxatga olish muddati (E-mehmon)'}
+                            {t('grmRegPeriod')}
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                             <div>
                                 <label className={lbl.replace('slate-400', 'indigo-500')}>
-                                    {lang === 'ru' ? 'С даты' : 'Boshlanish'}
+                                    {t('grmFromDate')}
                                 </label>
                                 <input
                                     type="date"
@@ -283,7 +283,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                             </div>
                             <div>
                                 <label className={lbl.replace('slate-400', 'indigo-500')}>
-                                    {lang === 'ru' ? 'Дней' : 'Kun'} *
+                                    {t('days')} *
                                 </label>
                                 <input
                                     type="number"
@@ -292,12 +292,12 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                                     onChange={e => set('days', e.target.value)}
                                     min="1"
                                     max="365"
-                                    placeholder={lang === 'ru' ? 'введите' : 'kiriting'}
+                                    placeholder={t('grmEnterPlaceholder')}
                                 />
                             </div>
                             <div>
                                 <label className={lbl.replace('slate-400', 'indigo-500')}>
-                                    {lang === 'ru' ? 'До даты' : 'Tugash'}
+                                    {t('grmToDate')}
                                 </label>
                                 <div className={`px-3 py-2 rounded-xl text-sm font-bold border ${
                                     daysRemaining !== null && daysRemaining < 0
@@ -313,10 +313,10 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                         {daysRemaining !== null && (
                             <p className="text-xs font-semibold text-indigo-600">
                                 {daysRemaining > 0
-                                    ? `📅 Осталось: ${daysRemaining} дн.`
+                                    ? t('grmDaysLeft').replace('{n}', daysRemaining)
                                     : daysRemaining === 0
-                                    ? '⚠️ Последний день регистрации'
-                                    : `❌ Истекло ${Math.abs(daysRemaining)} дн. назад`
+                                    ? t('grmLastDay')
+                                    : t('grmExpiredAgo').replace('{n}', Math.abs(daysRemaining))
                                 }
                             </p>
                         )}
@@ -325,7 +325,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                     {/* ── Оплата ── */}
                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                            {lang === 'ru' ? 'Оплата в кассу * (обязательно, не 0)' : 'Kassa to\'lovi * (majburiy, 0 emas)'}
+                            {t('grmCashPayment')}
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                             <div>
@@ -367,10 +367,10 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                         </div>
                         <div className="flex items-center justify-between bg-white rounded-lg p-3 border border-slate-200">
                             <span className="text-xs text-slate-500 font-semibold">
-                                {lang === 'ru' ? 'Итого оплачено:' : 'Jami to\'langan:'}
+                                {t('grmTotalPaid')}
                             </span>
                             <span className="text-lg font-black text-emerald-600">
-                                {totalPaid.toLocaleString()} <span className="text-sm font-semibold">сум</span>
+                                {totalPaid.toLocaleString()} <span className="text-sm font-semibold">{t('sum')}</span>
                             </span>
                         </div>
                     </div>
@@ -382,7 +382,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                             className={inp}
                             value={form.note}
                             onChange={e => set('note', e.target.value)}
-                            placeholder={lang === 'ru' ? 'Необязательно...' : 'Ixtiyoriy...'}
+                            placeholder={t('grmOptionalPlaceholder')}
                         />
                     </div>
                 </div>
@@ -400,7 +400,7 @@ const GuestRegistrationModal = ({ onClose, onSubmit, lang, currentUser, notify }
                         className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                     >
                         <CheckCircle2 size={16} />
-                        {lang === 'ru' ? 'Зарегистрировать' : 'Ro\'yxatga olish'}
+                        {t('registerGuest')}
                     </button>
                 </div>
             </div>

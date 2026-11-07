@@ -1,18 +1,22 @@
 /**
  * useCadastreActions — кадастр-регистрация гостей в частных домах.
  */
-import { collection, doc, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
+import { collection, doc, increment } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc } from '../utils/fsWrite';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction } from '../utils/auditLog';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage, escapeTg } from '../utils/telegram';
+import { notifyExpense } from '../utils/expenseNotify';
+import TRANSLATIONS from '../constants/translations';
 
 const HOSTEL_LABEL = { hostel1: 'Хостел №1', hostel2: 'Хостел №2' };
 
 export function useCadastreActions({
-  currentUser, selectedHostelFilter,
+  currentUser, selectedHostelFilter, lang,
   showNotification, tgSettings, isOnline,
   setUndoStack,
 }) {
+  const t = k => TRANSLATIONS[lang]?.[k] || k;
 
   const monthKey = (dateLike) => {
     if (!dateLike) return '';
@@ -114,20 +118,20 @@ export function useCadastreActions({
         createdAt: new Date().toISOString(),
         createdBy: currentUser.login,
       });
-      showNotification('Кадастр добавлен', 'success');
+      showNotification(t('cdaCadastreAdded'), 'success');
       logAction(currentUser, 'cadastre_add', { name: data.name, address: data.address });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
   const handleUpdateCadastre = async (id, data) => {
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastres', id), data);
-      showNotification('Кадастр обновлён', 'success');
+      showNotification(t('cdaCadastreUpdated'), 'success');
       logAction(currentUser, 'cadastre_update', { id });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -135,10 +139,10 @@ export function useCadastreActions({
   const handleDeleteCadastre = async (id) => {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastres', id));
-      showNotification('Кадастр удалён', 'success');
+      showNotification(t('cdaCadastreDeleted'), 'success');
       logAction(currentUser, 'cadastre_delete', { id });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -192,6 +196,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     new Date().toISOString(),
         });
+        notifyExpense({ currentUser, lang, hostelId, category: 'Регистрация', amount: regAmount,
+          comment: `Кадастр: ${data.cadastreAddress} — ${data.guestName}` });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', regRef.id), {
           expenseAdded: true,
           expenseId: expRef.id,
@@ -200,7 +206,7 @@ export function useCadastreActions({
         });
       }
 
-      showNotification('Регистрация добавлена', 'success');
+      showNotification(t('cdaRegAdded'), 'success');
       logAction(currentUser, 'cadastre_reg_add', {
         guestName: data.guestName, cadastreAddress: data.cadastreAddress, days: data.days,
       });
@@ -208,20 +214,20 @@ export function useCadastreActions({
       const disabledTypes = new Set(tgSettings?.disabledTypes || []);
       if (!disabledTypes.has('cadastreNew') && isOnline) {
         const msg = [
-          `🏠 <b>Кадастр-регистрация добавлена</b>`,
-          `👤 ${data.guestName}`,
-          data.passport ? `🪪 ${data.passport}` : null,
-          `📍 ${data.cadastreAddress}`,
-          `📅 ${data.startDate} → ${data.endDate} (${data.days} дн.)`,
-          Number(data.amount) > 0 ? `💰 ${Number(data.amount).toLocaleString()} сум` : null,
+          `🏠 <b>${t('cdaTgNewTitle')}</b>`,
+          `👤 ${escapeTg(data.guestName)}`,
+          data.passport ? `🪪 ${escapeTg(data.passport)}` : null,
+          `📍 ${escapeTg(data.cadastreAddress)}`,
+          `📅 ${data.startDate} → ${data.endDate} (${data.days} ${t('daysShort')})`,
+          Number(data.amount) > 0 ? `💰 ${Number(data.amount).toLocaleString()} ${t('cadSum')}` : null,
           `🏨 ${HOSTEL_LABEL[hostelId] || hostelId}`,
-          `👷 ${currentUser.name || currentUser.login}`,
+          `👷 ${escapeTg(currentUser.name || currentUser.login)}`,
         ].filter(Boolean).join('\n');
         sendTelegramMessage(msg, 'cadastreNew');
       }
     } catch (e) {
       console.error(e);
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -258,6 +264,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     new Date().toISOString(),
         });
+        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: costNum,
+          comment: `Кадастр продление: ${reg.cadastreAddress} — ${reg.guestName} (+${extData.days} дн.)` });
         const expensedByMonth = addMonthAmount(
           getExpensedByMonthMap(reg, expenseByMonth),
           extMonth,
@@ -271,10 +279,10 @@ export function useCadastreActions({
         });
       }
 
-      showNotification(`Регистрация продлена до ${extData.newEndDate}`, 'success');
+      showNotification(t('cdaRegExtendedTo').replace('{date}', extData.newEndDate), 'success');
       logAction(currentUser, 'cadastre_reg_extend', { id: reg.id, newEndDate: extData.newEndDate });
     } catch (e) {
-      showNotification('Ошибка продления: ' + e.message, 'error');
+      showNotification(t('cdaExtendError') + e.message, 'error');
     }
   };
 
@@ -299,6 +307,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     reg.createdAt || new Date().toISOString(),
         });
+        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: Number(reg.amount),
+          comment: `Кадастр завершение: ${reg.cadastreAddress} — ${reg.guestName}` });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
           expenseAdded: true,
           expenseId: expRef.id,
@@ -312,10 +322,10 @@ export function useCadastreActions({
         regId: reg.id,
         expenseId: removedExpenseId,
       });
-      showNotification('Регистрация завершена', 'success');
+      showNotification(t('cdaRegFinished'), 'success');
       logAction(currentUser, 'cadastre_reg_remove', { id: reg.id, guestName: reg.guestName });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -341,10 +351,10 @@ export function useCadastreActions({
         updatedAt:       new Date().toISOString(),
         updatedBy:       currentUser.login,
       });
-      showNotification('Регистрация обновлена', 'success');
+      showNotification(t('cdaRegUpdated'), 'success');
       logAction(currentUser, 'cadastre_reg_update', { id: reg.id, guestName: data.guestName });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -352,10 +362,10 @@ export function useCadastreActions({
   const handleDeleteCadastreReg = async (reg) => {
     try {
       await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id));
-      showNotification('Запись удалена', 'success');
+      showNotification(t('cdaRecordDeleted'), 'success');
       logAction(currentUser, 'cadastre_reg_delete', { id: reg.id, guestName: reg.guestName });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -366,7 +376,7 @@ export function useCadastreActions({
     const toAdd = Math.max(0, (Number(reg.amount) || 0) - alreadyExpensed);
 
     if (toAdd <= 0) {
-      showNotification('Все суммы уже добавлены в расходы', 'info');
+      showNotification(t('cdaAllAlreadyExpensed'), 'info');
       return;
     }
     try {
@@ -383,6 +393,8 @@ export function useCadastreActions({
         source:   'cadastre',
         date:     reg.createdAt || new Date().toISOString(),
       });
+      notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: toAdd,
+        comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName}` });
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
         expenseAdded:  true,
         expenseId:     expRef.id,
@@ -396,10 +408,10 @@ export function useCadastreActions({
         expenseId: expRef.id,
         regId: reg.id,
       });
-      showNotification(`Добавлено в расходы: ${toAdd.toLocaleString()} сум`, 'success');
+      showNotification(t('cdaAddedSum').replace('{n}', toAdd.toLocaleString()), 'success');
       logAction(currentUser, 'cadastre_reg_to_expense', { id: reg.id, amount: toAdd });
     } catch (e) {
-      showNotification('Ошибка: ' + e.message, 'error');
+      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -413,7 +425,7 @@ export function useCadastreActions({
       return (Number(r.amount) - alreadyExpensed) > 0;
     });
     if (toAdd.length === 0) {
-      showNotification('Нет новых записей для добавления в расходы', 'info');
+      showNotification(t('cdaNoNewToExpense'), 'info');
       return;
     }
     let addedCount = 0;
@@ -434,6 +446,8 @@ export function useCadastreActions({
           source:   'cadastre',
           date:     reg.createdAt || now,
         });
+        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: diff,
+          comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName}` });
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
           expenseAdded:  true,
           expenseId:     expRef.id,
@@ -446,7 +460,7 @@ export function useCadastreActions({
         console.error('Ошибка при добавлении расхода:', e);
       }
     }
-    showNotification(`Добавлено в расходы: ${addedCount} из ${toAdd.length} записей`, 'success');
+    showNotification(t('cdaAddedCount').replace('{added}', addedCount).replace('{total}', toAdd.length), 'success');
     logAction(currentUser, 'cadastre_bulk_expense', { count: addedCount });
   };
 

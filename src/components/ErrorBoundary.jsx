@@ -1,5 +1,20 @@
 import React from 'react';
 import { logSystemError } from '../utils/auditLog';
+import { getConfig } from '../utils/appConfig';
+
+// Самодостаточные строки: экран краха должен работать, даже если общий словарь не загрузился.
+const EB_STR = {
+    ru: {
+        title: 'Что-то пошло не так',
+        desc: 'Произошла ошибка в приложении. Мы уже получили отчёт. Попробуйте перезагрузить страницу.',
+        reload: '🔄 Перезагрузить',
+    },
+    uz: {
+        title: 'Nimadir xato ketdi',
+        desc: 'Ilovada xatolik yuz berdi. Biz hisobotni oldik. Sahifani qayta yuklab ko’ring.',
+        reload: '🔄 Qayta yuklash',
+    },
+};
 
 /**
  * Глобальный перехватчик ошибок отрисовки React.
@@ -32,6 +47,10 @@ export default class ErrorBoundary extends React.Component {
     render() {
         if (!this.state.hasError) return this.props.children;
 
+        let lang = 'ru';
+        try { lang = getConfig().defaultLang === 'uz' ? 'uz' : 'ru'; } catch { /* config недоступен — русский по умолчанию */ }
+        const s = EB_STR[lang];
+
         return (
             <div style={{
                 minHeight: '100dvh', display: 'flex', flexDirection: 'column',
@@ -40,10 +59,9 @@ export default class ErrorBoundary extends React.Component {
                 fontFamily: 'system-ui, sans-serif',
             }}>
                 <div style={{ fontSize: 48 }}>🛠️</div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>Что-то пошло не так</div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>{s.title}</div>
                 <div style={{ fontSize: 14, color: '#9ecdd0', maxWidth: 420, lineHeight: 1.5 }}>
-                    Произошла ошибка в приложении. Мы уже получили отчёт.
-                    Попробуйте перезагрузить страницу.
+                    {s.desc}
                 </div>
                 <button
                     onClick={this.handleReload}
@@ -53,7 +71,7 @@ export default class ErrorBoundary extends React.Component {
                         border: 'none', cursor: 'pointer',
                     }}
                 >
-                    🔄 Перезагрузить
+                    {s.reload}
                 </button>
                 {this.state.message && (
                     <div style={{

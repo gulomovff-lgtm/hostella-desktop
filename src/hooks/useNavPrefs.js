@@ -11,21 +11,21 @@ export const DEFAULT_FOLDERS = [
         id: 'guests',
         label: 'Гости',
         emoji: '🛏️',
-        items: ['rooms', 'calendar', 'debts', 'clients', 'bookings', 'registrations', 'cadastre'],
+        items: ['rooms', 'calendar', 'debts', 'clients', 'clientdupes', 'bookings', 'registrations', 'cadastre'],
         open: true,
     },
     {
         id: 'finance',
         label: 'Финансы',
         emoji: '💰',
-        items: ['expenses', 'reports', 'analytics'],
+        items: ['expenses', 'reports', 'timeline', 'analytics'],
         open: false,
     },
     {
         id: 'management',
         label: 'Управление',
         emoji: '⚙️',
-        items: ['staff', 'shifts', 'telegram', 'promos', 'hostelconfig', 'auditlog', 'sessions'],
+        items: ['staff', 'shifts', 'telegram', 'promos', 'hostelconfig', 'auditlog', 'sessions', 'errors'],
         open: false,
     },
 ];
@@ -39,7 +39,7 @@ export const DEFAULT_CASHIER_FOLDERS = [
         open: false,
     },
 ];
-export const DEFAULT_CASHIER_ORDER = ['item:rooms', 'item:calendar', 'item:debts', 'folder:misc'];
+export const DEFAULT_CASHIER_ORDER = ['item:rooms', 'item:calendar', 'item:debts', 'item:shop', 'folder:misc'];
 
 const DEFAULTS = { position: 'left', hidden: [], order: [], folders: null, navOrder: null, openFolders: {}, navStyle: 'compact' };
 

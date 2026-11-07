@@ -100,6 +100,7 @@ const auth = getAuth(app);
 
 let allRooms  = [];
 let allGuests = [];
+let noVacancy = {}; // «Мест нет» от кассира: { hostel1: { until, night } }
 let hostelId  = 'hostel1';
 let viewYear  = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
@@ -143,7 +144,7 @@ function getStatus(av, iso) {
   const free = Math.max(0, av.total - av.occupied);
   const pct  = av.total ? (av.occupied/av.total)*100 : 0;
   if (iso < today) return 'past';
-  if (free === 0)  return 'full';
+  if (free === 0 || noVacancy[hostelId]?.night === iso) return 'full';
   if (pct >= 75)   return 'tight';
   if (pct >= 40)   return 'moderate';
   return 'free';
@@ -189,7 +190,7 @@ function renderCalendar() {
     const a   = av[iso];
     const st  = getStatus(a, iso);
     const isT = iso === today;
-    const free = a ? Math.max(0, a.total - a.occupied) : '';
+    const free = st === 'full' ? 0 : a ? Math.max(0, a.total - a.occupied) : '';
     html += `<div class="day ${st}${isT?' today':''}">
       <span class="num">${d}</span>
       ${st !== 'past' && a && a.total ? `<span class="free-count">${free}м</span>` : ''}
@@ -227,13 +228,15 @@ function renderTabs() {
 
 async function init() {
   try {
-    await signInAnonymously(auth);
-    const [rSnap, gSnap] = await Promise.all([
-      getDocs(collection(db, ...PATH, 'rooms')),
-      getDocs(collection(db, ...PATH, 'guests')),
-    ]);
-    allRooms  = rSnap.docs.map(d => ({id:d.id, ...d.data()}));
-    allGuests = gSnap.docs.map(d => ({id:d.id, ...d.data()})).filter(g => g.status !== 'checked_out');
+    // Данные берём из публичной функции getPublicAvailability БЕЗ PII. Раньше этот
+    // виджет анонимно грузил всю коллекцию guests (паспорта/имена/телефоны) в браузер
+    // любого посетителя — это была живая утечка. Анонимный вход тут больше не нужен.
+    const res = await fetch('https://us-central1-hostella-app-a1e07.cloudfunctions.net/getPublicAvailability');
+    const d = await res.json();
+    if (!d || !d.ok) throw new Error('load');
+    allRooms  = d.rooms || [];
+    noVacancy = d.noVacancy || {};
+    allGuests = d.stays || [];   // только интервалы проживания (roomId + даты), без PII
     renderTabs();
     renderCalendar();
     document.getElementById('subtitleEl').textContent = `Загрузка — ${HOSTELS[hostelId]}`;
