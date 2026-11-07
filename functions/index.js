@@ -1,5 +1,7 @@
 const functions = require("firebase-functions/v1");
-const admin = require("firebase-admin");
+const { initializeApp, getApps } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { FieldValue } = require('firebase-admin/firestore');
 const vision = require("@google-cloud/vision");
 const crypto = require("crypto");
 
@@ -35,8 +37,9 @@ if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
 
-if (!admin.apps.length) {
-  admin.initializeApp();
+// firebase-admin 14: старое пространство имён (admin.auth() и admin.firestore) убрано — только модули.
+if (!getApps().length) {
+  initializeApp();
 }
 
 const client = new vision.ImageAnnotatorClient();
@@ -388,7 +391,7 @@ exports.sendTelegramMessage = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN'
         await errorLogLib.logServerError(authDb(), authBase(), {
             kind: 'telegram', context: 'telegram.recipient',
             message: `${f.code || ''} — ${f.msg || ''}`, details: { chatId: String(f.chatId || ''), type: notificationType || 'manual' },
-        }, admin.firestore.FieldValue);
+        }, FieldValue);
     }
 
     return { success: successful > 0, sent: successful, total: sends.length, failed, errors };
@@ -746,7 +749,7 @@ const SUPER_SECRET_ID = 'super-account';
 // остаётся на анонимной сессии — вход не ломается. Правила пока не требуют claims.
 async function mintClaimsToken(uid, role, hostelId) {
     try {
-        return await admin.auth().createCustomToken(String(uid), {
+        return await getAuth().createCustomToken(String(uid), {
             hostellaRole: String(role || 'cashier'),
             hostellaHostel: String(hostelId || ''),
         });
@@ -802,7 +805,7 @@ async function alertOwnerError(context, err, extra = {}) {
     // В общий журнал ошибок (экран «Ошибки» у супера, вечерняя сводка)
     await errorLogLib.logServerError(authDb(), authBase(), {
         kind: 'function', context, message: String(err?.message || err || ''), details: extra, severity: 'critical',
-    }, admin.firestore.FieldValue);
+    }, FieldValue);
     try {
         const botToken = process.env.TELEGRAM_BOT_TOKEN;
         if (!botToken) return;
@@ -921,7 +924,7 @@ exports.authenticateUser = functions.https.onCall(async (data, context) => {
         // Самолечение: убираем читаемый легаси-хеш из users, чтобы аноним не мог
         // его прочитать и перебрать по словарю. Любой pass исчезает при 1-м входе.
         if (userData.pass !== undefined) {
-            try { await userDoc.ref.update({ pass: admin.firestore.FieldValue.delete() }); } catch (e) { /* ignore */ }
+            try { await userDoc.ref.update({ pass: FieldValue.delete() }); } catch (e) { /* ignore */ }
         }
     }
 
@@ -958,7 +961,7 @@ exports.migrateLegacyPass = functions
                 await secRef.set({ legacyPass: String(data.pass) }, { merge: true });
                 moved++;
             }
-            await d.ref.update({ pass: admin.firestore.FieldValue.delete() });
+            await d.ref.update({ pass: FieldValue.delete() });
             cleared++;
         }
         res.json({ ok: true, moved, cleared, skipped, total: usersSnap.size });
@@ -1390,7 +1393,7 @@ exports.telegramWebhook = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'T
       await reqRef.update({ status: 'approved', decidedAt: nowIso, approvedBy: approver });
       if (r.guestId) {
         await hostellaDb.doc(`${PRICE_BASE}/guests/${r.guestId}`).update({
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(), // кассы следят за правками по этому полю
+          updatedAt: FieldValue.serverTimestamp(), // кассы следят за правками по этому полю
           priceReductionAllowed: true,
           approvedPrice: Number(r.requestedPrice) || 0,
           priceRequestId: requestId,
