@@ -21,6 +21,16 @@ export function cleanDetails(details) {
 }
 
 /**
+ * Обрыв интернета у кассы, а не сбой портала: Chromium-коды загрузки страницы
+ * (ERR_INTERNET_DISCONNECTED, ERR_NAME_NOT_RESOLVED, ERR_NETWORK_CHANGED, (-101)…).
+ * 08.11.2026 касса без интернета 20 минут копила «сбои» e-mehmon и слала
+ * критичные тревоги — а чинить надо было связь, не e-mehmon.
+ */
+const NETWORK_RX = /ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|NETWORK_CHANGED|NETWORK_IO_SUSPENDED|CONNECTION_(RESET|CLOSED|REFUSED|ABORTED|FAILED|TIMED_OUT)|ADDRESS_UNREACHABLE|TIMED_OUT|PROXY_CONNECTION_FAILED|EMPTY_RESPONSE)|\((-10[0-9]|-21|-118|-130|-137|-324)\)/;
+export const isNetworkFailure = (res) =>
+  String(res?.status) === 'network' || NETWORK_RX.test(String(res?.message || res?.code || ''));
+
+/**
  * «INTERNAL ASSERTION FAILED» — Firestore в окне умер насовсем: подписки молчат,
  * записи копятся и не уходят, «пинки» сторожа связи не помогают (08.11.2026:
  * касса 20 минут работала вхолостую после обрыва интернета). Лечится только

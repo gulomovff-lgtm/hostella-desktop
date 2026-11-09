@@ -8,6 +8,7 @@
  * в час (решение владельца 29.10.2026: «e-mehmon не регистрирует подряд»).
  */
 import { reportError } from './errorLog';
+import { isNetworkFailure } from './errorSafety';
 
 const ALERT_AFTER = 3;
 const ALERT_EVERY_MS = 60 * 60 * 1000;
@@ -23,10 +24,11 @@ export function emehmonSuccess() { streak = 0; }
  * @param {object} res     — ответ мастера { status, message }
  * @param {object} [opts]  — { system: false — вопрос к данным, в серию не идёт; hostelId }
  */
+// Обрыв интернета у кассы — не сбой портала: в серию не идёт (utils/errorSafety).
 export function emehmonFailure(stage, guest, res, opts = {}) {
   const status = String(res?.status || 'error');
   const msg = String(res?.message || res?.code || '').slice(0, 200);
-  const system = opts.system !== false;
+  const system = opts.system !== false && !isNetworkFailure(res);
   let critical = false;
   if (system) {
     streak += 1;

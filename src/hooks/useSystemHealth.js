@@ -107,12 +107,15 @@ export function useSystemHealth({ currentUser, versionLt }) {
       if (!payload) return;
       logSystemError(payload.context || 'electron.main', toError(payload), {
         at: payload.at, exitCode: payload.exitCode, type: payload.type,
+        name: payload.name, serviceName: payload.serviceName, mainWindow: payload.mainWindow,
       });
     });
 
     window.electronAPI.takePendingErrors?.()
       .then(list => (list || []).forEach(p => {
-        logSystemError(`${p.context || 'electron.main'} (прошлый запуск)`, toError(p), { at: p.at });
+        logSystemError(`${p.context || 'electron.main'} (прошлый запуск)`, toError(p), {
+          at: p.at, exitCode: p.exitCode, type: p.type, name: p.name, serviceName: p.serviceName,
+        });
       }))
       .catch(() => { /* файла нет — нечего слать */ });
 

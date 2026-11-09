@@ -1,7 +1,7 @@
 {
   "name": "hostella-desktop",
   "private": true,
-  "version": "0.15.58",
+  "version": "0.15.59",
   "description": "Hostella Management System",
   "author": "Fazliddin Gulomov",
   "main": "electron/main.js",
@@ -22,7 +22,7 @@
   "build": {
     "appId": "com.hostella.app",
     "productName": "Hostella",
-    "copyright": "Copyright Р вЂ™Р’В© 2026",
+    "copyright": "Copyright Р В РІР‚в„ўР вЂ™Р’В© 2026",
     "files": [
       "dist/**/*",
       "electron/**/*"

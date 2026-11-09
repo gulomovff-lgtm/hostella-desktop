@@ -64,7 +64,12 @@ export const sendTelegramMessage = async (text, notificationType = null, chatIds
 export const isNetworkFailure = (error) => {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
     const code = String(error?.code || '').replace(/^functions\//, '');
+    const msg = String(error?.message || '');
+    // Обрыв запроса Firebase отдаёт как code 'internal' с текстом ровно 'internal'
+    // (строчными). 08.11.2026 так потерялись 3 уведомления об оплате: функция в это
+    // время вообще не запускалась. Сбой самой функции приходит как 'INTERNAL' —
+    // его по-прежнему пишем в журнал, а не в очередь.
     return code === 'unavailable' || code === 'deadline-exceeded' ||
-        (code === 'internal' && /network|fetch|failed to fetch|timeout/i.test(String(error?.message || '')));
+        (code === 'internal' && (/^internal( \[\d+\])?$/.test(msg) || /network|fetch|failed to fetch|timeout/i.test(msg)));
 };
 
