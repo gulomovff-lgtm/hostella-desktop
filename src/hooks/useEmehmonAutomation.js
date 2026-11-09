@@ -21,6 +21,7 @@ import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
 import { autoRegisterAllowed, cadastreRegFor } from '../utils/registrationStatus';
 import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
 import { changeStamp } from '../utils/collectionStore';
+import { watchEmehmonIgnore, isEmehmonHidden } from '../utils/emehmonIgnore';
 
 const LOCAL_COUNTRY = 'Узбекистан';
 const isLocal = (g) => g?.country === LOCAL_COUNTRY;
@@ -92,6 +93,16 @@ export function useEmehmonAutomation({
     [emehmonCur.status, emehmonCur.at]);
   const emehmonSyncing  = !!emehmonCur.syncing;
 
+  // Скрытые супером регистрации (utils/emehmonIgnore): одна подписка на всю
+  // программу; автомат читает через ref, экран — через emehmonIgnore.
+  const [emehmonIgnore, setEmehmonIgnore] = useState(NO_SLOT);
+  const ignoreRef = useRef(NO_SLOT);
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    return watchEmehmonIgnore((d) => { ignoreRef.current = d || NO_SLOT; setEmehmonIgnore(d || NO_SLOT); });
+  }, [!!currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hiddenIn = (hostelId, r) => isEmehmonHidden(ignoreRef.current, hostelId || r?.hostelId || 'hostel1', r);
+
   const emehmonSyncBusy    = useRef(new Set()); // филиалы, по которым сверка уже идёт
   const emehmonNoRoomTried = useRef(new Set()); // гости, у кого авто-регистрация упёрлась в «нет комнаты»
   const emehmonAutoBusy    = useRef(new Set()); // guestId в процессе регистрации — защита от дубля листка
@@ -160,8 +171,10 @@ const handleDepartOutcome = useCallback(async (res, list, opts = {}) => {
 // (веб) — фолбэк на видимое окно портала.
 const handleEmehmonDepart = useCallback((guestOrList) => {
   if (!guestOrList) return;
-  const arr = Array.isArray(guestOrList) ? guestOrList.filter(Boolean) : [guestOrList];
-  if (!arr.length) return;
+  // Скрытых супером не выводим ни при выселении, ни кнопкой, ни списком.
+  const arr = (Array.isArray(guestOrList) ? guestOrList.filter(Boolean) : [guestOrList])
+    .filter(g => !hiddenIn(g.hostelId, g));
+  if (!arr.length) { setEmehmonReminder(null); return; }
   setEmehmonReminder(null);
   if (!window.electronAPI?.emehmonDeparture) {
     openEmehmonDeparture(arr[0]);
@@ -825,7 +838,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
       if (window.electronAPI?.emehmonDeparture) {
         const cfgDep = getConfig() || {};
         const staleInPortal = (guests || []).filter(g =>
-          g.status === 'checked_out' && !g.emehmonOut && sameHostel(g) && !isLiving(g) &&
+          g.status === 'checked_out' && !g.emehmonOut && sameHostel(g) && !isLiving(g) && !hiddenIn(hostelId, g) &&
           ((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))) &&
           g.checkOutDate && !isStaleSince(g.checkOutDate, 30)).slice(0, 3);
         for (const g of staleInPortal) {
@@ -867,7 +880,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
       // как есть, решает человек на экране регистраций.
       const expiredActive = (registrations || []).filter(r =>
         r.status === 'active' && r.hostelId === hostelId && r.endDate &&
-        new Date(r.endDate + 'T23:59:59').getTime() < Date.now() && !isLiving(r));
+        new Date(r.endDate + 'T23:59:59').getTime() < Date.now() && !isLiving(r) && !hiddenIn(hostelId, r));
       if (expiredActive.length > 0) {
         const inListok = expiredActive.filter(r =>
           (r.passport && pSet.has(norm(r.passport))) || (r.fullName && nSet.has(norm(r.fullName))));
@@ -1096,7 +1109,7 @@ useEffect(() => {
     handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
     handleFetchSheet,
     // снимок портала по текущему филиалу
-    emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
+    emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing, emehmonIgnore,
     // действия
     handleEmehmonFlag, handleEmehmonDepart,
     handleEmehmonDone, handleEmehmonAutoArrival,

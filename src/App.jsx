@@ -892,7 +892,7 @@ function App() {
     emehmonChecking,
     emehmonArrivalPrompt, setEmehmonArrivalPrompt,
     emehmonDepartingIds,
-    emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing,
+    emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing, emehmonIgnore,
     handleEmehmonFlag, handleEmehmonDepart,
     handleEmehmonDone, handleEmehmonAutoArrival,
     runEmehmonSync, runEmehmonRecalc,
@@ -1350,6 +1350,14 @@ const filterByHostel = (items) => {
   const filteredRegistrations = useMemo(() => filterByHostel(registrations || []), [registrations, currentUser, selectedHostelFilter]);
   const filteredCadastres     = useMemo(() => filterByHostel(cadastres || []),     [cadastres,     currentUser, selectedHostelFilter]);
   const filteredCadastreRegs  = useMemo(() => filterByHostel(cadastreRegs || []),  [cadastreRegs,  currentUser, selectedHostelFilter]);
+
+  // Экран e-mehmon — ровно один филиал: тот, чей список портала открыт
+  // (emehmonHostelId). Суперу filterByHostel отдаёт ВСЕ хостелы, и список
+  // портала первого сверялся с гостями обоих — регистрации путались.
+  const emOfHostel = (items) => (items || []).filter(i => (i.hostelId || 'hostel1') === emehmonHostelId);
+  const emehmonGuests        = useMemo(() => emOfHostel(filteredGuests),        [filteredGuests, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emehmonRegistrations = useMemo(() => emOfHostel(filteredRegistrations), [filteredRegistrations, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emehmonCadastreRegs  = useMemo(() => emOfHostel(filteredCadastreRegs),  [filteredCadastreRegs, emehmonHostelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pendingTasksCount = useMemo(() => {
     return filteredTasks.filter(t => t.status !== 'done').length;
@@ -2071,6 +2079,7 @@ return (
                 <EmehmonPendingBanner
                     lang={lang}
                     guests={filteredGuests}
+                    emehmonIgnore={emehmonIgnore}
                     onDepart={(g) => handleEmehmonDepart(g)}
                     onDone={(g) => handleEmehmonDone(g)}
                     checkingId={emehmonChecking}
@@ -2325,9 +2334,10 @@ return (
                 {viewTab === 'registrations' && (
                     <RegistrationsView
                         onNeedHistory={askTabHistory}
-                        registrations={filteredRegistrations}
-                        guests={filteredGuests}
-                        cadastreRegs={filteredCadastreRegs}
+                        registrations={emehmonRegistrations}
+                        guests={emehmonGuests}
+                        cadastreRegs={emehmonCadastreRegs}
+                        emehmonIgnore={emehmonIgnore}
                         emehmonList={emehmonList}
                         emehmonSnapshot={emehmonSnapshot}
                         emehmonDepartingIds={emehmonDepartingIds}

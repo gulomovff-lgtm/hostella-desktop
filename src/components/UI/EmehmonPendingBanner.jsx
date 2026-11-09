@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Plane, Check } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
+import { isEmehmonHidden } from '../../utils/emehmonIgnore';
 
 // Глобальный баннер «хвостов» e-mehmon: гости, помеченные как зарегистрированные,
 // выселены, но ещё не выведены из e-mehmon (за последние 30 дней).
 // Виден на любой вкладке всем ролям — чтобы не забыть оформить убытие.
-const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingId = null, departingIds = null, lang = 'ru' }) => {
+const EmehmonPendingBanner = ({ guests = [], emehmonIgnore = null, onDepart, onDone, onOpen, checkingId = null, departingIds = null, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   const isDeparting = (id) => departingIds && typeof departingIds.has === 'function' && departingIds.has(id);
   const [open, setOpen] = useState(true);
@@ -14,9 +15,10 @@ const EmehmonPendingBanner = ({ guests = [], onDepart, onDone, onOpen, checkingI
     const cutoff = Date.now() - 30 * 86400000;
     return (guests || [])
       .filter(g => g.emehmonReg && !g.emehmonOut && g.status === 'checked_out' &&
-        (!g.checkOutDate || new Date(g.checkOutDate).getTime() >= cutoff))
+        (!g.checkOutDate || new Date(g.checkOutDate).getTime() >= cutoff) &&
+        !isEmehmonHidden(emehmonIgnore, g.hostelId || 'hostel1', g))   // скрытых супером не выводим
       .sort((a, b) => new Date(b.checkOutDate || 0) - new Date(a.checkOutDate || 0));
-  }, [guests]);
+  }, [guests, emehmonIgnore]);
 
   if (!pending.length) return null;
 

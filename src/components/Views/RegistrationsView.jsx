@@ -8,7 +8,7 @@ import { isStaleSince, STALE_TASK_DAYS } from '../../utils/helpers';
 import TRANSLATIONS from '../../constants/translations';
 import { stableView } from '../UI/stableView';
 import { validCadastreFor } from '../../utils/registrationStatus';
-import { watchEmehmonIgnore, ignoreEmehmonRow, unignoreEmehmonRow, ignoreKey } from '../../utils/emehmonIgnore';
+import { ignoreEmehmonRow, unignoreEmehmonRow, isEmehmonHidden } from '../../utils/emehmonIgnore';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -165,16 +165,17 @@ const PersonRow = ({ flag, name, line2, line3, actions, tone = 'white', onClick,
     };
     const Info = onClick ? 'button' : 'div';
     return (
-        <div className={`flex items-center gap-3 border rounded-2xl px-4 py-3 shadow-sm transition-all ${tones[tone]} ${onClick ? 'hover:shadow-md hover:border-indigo-300' : ''}`}>
+        <div className={`flex flex-wrap items-center gap-3 border rounded-2xl px-4 py-3 shadow-sm transition-all ${tones[tone]} ${onClick ? 'hover:shadow-md hover:border-indigo-300' : ''}`}>
             <div className="shrink-0">{flag}</div>
-            <Info onClick={onClick} className={`flex-1 min-w-0 text-left ${onClick ? 'cursor-pointer group' : ''}`} type={onClick ? 'button' : undefined}>
+            <Info onClick={onClick} className={`flex-1 min-w-[10rem] text-left ${onClick ? 'cursor-pointer group' : ''}`} type={onClick ? 'button' : undefined}>
                 <p className={`text-[15px] font-black text-slate-800 truncate ${onClick ? 'group-hover:text-indigo-700 transition-colors' : ''}`}>
                     {name}{onClick && <span className="ml-1.5 text-[11px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">{t('openArrow')}</span>}
                 </p>
                 {line2 && <p className="text-sm text-slate-500 truncate mt-0.5">{line2}</p>}
                 {line3 && <p className="text-sm font-semibold truncate mt-0.5">{line3}</p>}
             </Info>
-            <div className="shrink-0 flex items-center gap-2">{actions}</div>
+            {/* Узкое окно: кнопки уходят на строку ниже, имя не сжимается в ноль */}
+            <div className="shrink-0 ml-auto flex items-center gap-2">{actions}</div>
         </div>
     );
 };
@@ -505,6 +506,7 @@ const RegistrationsView = ({
     cadastreRegs = [],
     emehmonList = [],
     emehmonHostelId = '',
+    emehmonIgnore = null,   // скрытые супером (utils/emehmonIgnore) — подписка в useEmehmonAutomation
     emehmonDepartingIds = null,
     currentUser,
     lang,
@@ -529,14 +531,13 @@ const RegistrationsView = ({
     const canEmehmon = !!window.electronAPI?.openEmehmon;
     const isDeparting = (g) => emehmonDepartingIds && typeof emehmonDepartingIds.has === 'function' && g.id && emehmonDepartingIds.has(g.id);
 
-    const [screen, setScreen] = useState('home'); // home | remove | register | expiring | all | ok
+    const [screen, setScreen] = useState('home'); // home | remove | register | expiring | all | ok | hidden
     const [search, setSearch] = useState('');
     const [extendModal, setExtendModal] = useState(null);
-    // Исключённые супером из «Есть в E-mehmon, но нет в программе» (utils/emehmonIgnore)
-    const [ignoreDoc, setIgnoreDoc] = useState({});
-    const [showIgnored, setShowIgnored] = useState(false);
-    useEffect(() => watchEmehmonIgnore(setIgnoreDoc), []);
-    const ignoredHere = ignoreDoc?.[emehmonHostelId] || {};
+    // Скрытые супером регистрации этого филиала: их нет ни в задачах, ни в
+    // «Всё в порядке», и автомат их не выводит (useEmehmonAutomation).
+    const ignoredHere = useMemo(() => emehmonIgnore?.[emehmonHostelId] || {}, [emehmonIgnore, emehmonHostelId]);
+    const hidden = (g) => isEmehmonHidden(emehmonIgnore, emehmonHostelId, g);
 
     // ── Данные ──
     const normP = s => (s || '').replace(/\s/g, '').toUpperCase();
@@ -548,12 +549,12 @@ const RegistrationsView = ({
         return { ...r, computedStatus: getRegStatus(r), staffName: staff?.name || r.staffId };
     }), [registrations, users]);
 
-    const expiredRegs  = useMemo(() => enriched.filter(r => r.computedStatus === 'expired'), [enriched]);
-    const expiringRegs = useMemo(() => enriched.filter(r => r.computedStatus === 'expiring'), [enriched]);
+    const expiredRegs  = useMemo(() => enriched.filter(r => r.computedStatus === 'expired' && !hidden(r)), [enriched, emehmonIgnore]); // eslint-disable-line
+    const expiringRegs = useMemo(() => enriched.filter(r => r.computedStatus === 'expiring' && !hidden(r)), [enriched, emehmonIgnore]); // eslint-disable-line
 
     // Долговые записи (DEBT_ONLY) — не реальные проживающие, из статуса e-mehmon исключаем.
     const residents = useMemo(() => guests.filter(g => g.status === 'active' && g.roomId !== 'DEBT_ONLY'), [guests]);
-    const registered = useMemo(() => residents.filter(g => g.emehmonReg), [residents]);
+    const registered = useMemo(() => residents.filter(g => g.emehmonReg && !hidden(g)), [residents, emehmonIgnore]); // eslint-disable-line
     // Нужно оформить: активные, без e-mehmon и без кадастра (кадастр = уже зарегистрирован по-другому)
     // «Направить в миграционную службу» (emehmonSkip) — решение принято, в задачах не держим
     const needRegister = useMemo(() => residents.filter(g => !g.emehmonReg && !g.emehmonSkip && !hasCadastre(g)), [residents, cadastreRegs]); // eslint-disable-line
@@ -590,9 +591,8 @@ const RegistrationsView = ({
             };
         })), [portalLoaded, emehmonList, guests, livingByPassport, livingByName, emehmonHostelId]);
 
-    const departedInPortal = useMemo(() => inPortalToRemove.filter(g => !g._orphan), [inPortalToRemove]);
-    const orphansAll       = useMemo(() => inPortalToRemove.filter(g =>  g._orphan), [inPortalToRemove]);
-    const orphans          = useMemo(() => orphansAll.filter(g => !ignoredHere[ignoreKey(g)]), [orphansAll, ignoredHere]);
+    const departedInPortal = useMemo(() => inPortalToRemove.filter(g => !g._orphan && !hidden(g)), [inPortalToRemove, emehmonIgnore]); // eslint-disable-line
+    const orphans          = useMemo(() => inPortalToRemove.filter(g =>  g._orphan && !hidden(g)), [inPortalToRemove, emehmonIgnore]); // eslint-disable-line
     // Незнакомая строка портала может оказаться давно выехавшим гостем: без истории
     // он выглядел бы «нет в программе». Проверяем по всей истории, только когда такие есть.
     useEffect(() => { if (orphans.length > 0) onNeedHistory?.(); }, [orphans.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -603,8 +603,8 @@ const RegistrationsView = ({
     // судим по своим отметкам. Записи старше STALE_TASK_DAYS не показываем, иначе
     // копятся гости из далёкого прошлого, которых портал давно закрыл сам.
     const departedNotRemoved = useMemo(() => portalLoaded ? [] : guests.filter(g =>
-        g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && !isStaleSince(g.checkOutDate)),
-        [guests, portalLoaded]);
+        g.status === 'checked_out' && g.emehmonReg && !g.emehmonOut && !isStaleSince(g.checkOutDate) && !hidden(g)),
+        [guests, portalLoaded, emehmonIgnore]); // eslint-disable-line
 
     const archivedCount = useMemo(() => {
         if (portalLoaded) return 0;   // портал показывает реальное положение дел
@@ -651,6 +651,14 @@ const RegistrationsView = ({
         <BigBtn color="rose" onClick={() => onDepartEmehmon?.(g)} disabled={isDeparting(g)}>
             <Plane size={16} className={isDeparting(g) ? 'animate-pulse' : ''} />
             {isDeparting(g) ? t('removing') : t('removeShort')}
+        </BigBtn>
+    );
+
+    // «Скрыть» — только супер и только в своём филиале (canAct). Правило базы
+    // пускает на запись settings/emehmonIgnore тоже только супера.
+    const hideBtn = (g) => isSuper && canAct && (
+        <BigBtn color="gray" onClick={() => ignoreEmehmonRow(emehmonHostelId, g, currentUser?.login || currentUser?.name).catch(e => console.warn('[emehmonIgnore]', e.message))}>
+            <EyeOff size={15} /> {t('emIgnoreBtn')}
         </BigBtn>
     );
 
@@ -718,7 +726,16 @@ const RegistrationsView = ({
                                     <ClipboardCheck size={22} className="text-white" />
                                 </span>
                                 <div>
-                                    <h1 className="text-xl font-black text-slate-800">E-mehmon</h1>
+                                    {/* Экран всегда про один филиал — чей список портала открыт.
+                                        Тому, кто переключает хостелы, пишем, какой именно */}
+                                    <h1 className="text-xl font-black text-slate-800">
+                                        E-mehmon
+                                        {isAdmin && emehmonHostelId && (
+                                            <span className="ml-2 text-sm font-bold text-slate-400">
+                                                · {emehmonHostelId === 'hostel1' ? t('expHostel1') : emehmonHostelId === 'hostel2' ? t('expHostel2') : emehmonHostelId}
+                                            </span>
+                                        )}
+                                    </h1>
                                     {/* Неприметная отметка сессии филиала: если входа нет —
                                         рядом появляется маленькая кнопка «Войти» */}
                                     <div className="flex items-center gap-1.5 text-sm text-slate-400">
@@ -789,6 +806,15 @@ const RegistrationsView = ({
                                 hint={t('registeredAndLiving')}
                                 disabled={registered.length + inCadastre.length === 0} />
                         </div>
+
+                        {/* Скрытые — только супер; ссылка с главного, потому что при пустом
+                            «Вывести» плитка выключена и до списка иначе не добраться */}
+                        {isSuper && ignoredList.length > 0 && (
+                            <button type="button" onClick={() => setScreen('hidden')}
+                                className="mt-3 flex items-center gap-1.5 text-sm font-bold text-slate-400 hover:text-slate-600">
+                                <EyeOff size={14} /> {t('emIgnoredTitle').replace('{n}', ignoredList.length)} <ChevronRight size={14} />
+                            </button>
+                        )}
 
                         {/* Листы убытия за неделю: открыть карточку — печать и ссылка гостю */}
                         {recentSheets.length > 0 && (
@@ -909,7 +935,7 @@ const RegistrationsView = ({
                                                         ? <span className="text-rose-600">{t('stillInEmehmon').replace('{date}', new Date(g.checkOutDate).toLocaleDateString('ru-RU'))}</span>
                                                         : null}
                                                     onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
-                                                    actions={departBtn(g)} />
+                                                    actions={<>{departBtn(g)}{hideBtn(g)}</>} />
                                             ))}
                                         </div>
                                     </>
@@ -928,6 +954,7 @@ const RegistrationsView = ({
                                                     actions={<>
                                                         {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> {t('extend')}</BigBtn>}
                                                         {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> {t('removeShort')}</BigBtn>}
+                                                        {hideBtn(r)}
                                                     </>} />
                                             ))}
                                         </div>
@@ -943,14 +970,7 @@ const RegistrationsView = ({
                                                     flag={<Flag country={g.country} />}
                                                     name={g.fullName}
                                                     line2={guestLine(g)}
-                                                    actions={<>
-                                                        {departBtn(g)}
-                                                        {isSuper && canAct && (
-                                                            <BigBtn color="gray" onClick={() => ignoreEmehmonRow(emehmonHostelId, g, currentUser?.login || currentUser?.name).catch(e => console.warn('[emehmonIgnore]', e.message))}>
-                                                                <EyeOff size={15} /> {t('emIgnoreBtn')}
-                                                            </BigBtn>
-                                                        )}
-                                                    </>} />
+                                                    actions={<>{departBtn(g)}{hideBtn(g)}</>} />
                                             ))}
                                         </div>
                                     </>
@@ -958,29 +978,27 @@ const RegistrationsView = ({
                             </>
                         )}
 
-                        {/* Исключённые супером: в задачах их нет, вернуть может только он */}
-                        {isSuper && ignoredList.length > 0 && (
-                            <div className="mt-6">
-                                <button type="button" onClick={() => setShowIgnored(v => !v)}
-                                    className="text-sm font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5">
-                                    <EyeOff size={14} /> {t('emIgnoredTitle').replace('{n}', ignoredList.length)}
-                                    <ChevronRight size={14} className={showIgnored ? 'rotate-90 transition-transform' : 'transition-transform'} />
-                                </button>
-                                {showIgnored && (
-                                    <div className="space-y-2 mt-2">
-                                        {ignoredList.map(r => (
-                                            <PersonRow key={r.key} tone="white" lang={lang}
-                                                flag={<span className="text-xl">🙈</span>}
-                                                name={r.name || r.passport}
-                                                line2={[r.passport, r.at ? new Date(r.at).toLocaleDateString('ru-RU') : '', r.by].filter(Boolean).join(' · ')}
-                                                actions={canAct && (
-                                                    <BigBtn color="gray" onClick={() => unignoreEmehmonRow(emehmonHostelId, r.key).catch(e => console.warn('[emehmonIgnore]', e.message))}>
-                                                        <Undo2 size={15} /> {t('emUnignoreBtn')}
-                                                    </BigBtn>
-                                                )} />
-                                        ))}
-                                    </div>
-                                )}
+                    </>
+                )}
+
+                {/* ═══ ЭКРАН: СКРЫТЫЕ (только супер) ═══ */}
+                {screen === 'hidden' && isSuper && (
+                    <>
+                        <ScreenHeader emoji="🙈" title={t('emIgnoredTitle').replace('{n}', ignoredList.length)} />
+                        <p className="text-sm text-slate-400 -mt-1 mb-3">{t('emHiddenHint')}</p>
+                        {ignoredList.length === 0 ? <AllDone text={t('emHiddenEmpty')} lang={lang} /> : (
+                            <div className="space-y-2">
+                                {ignoredList.map(r => (
+                                    <PersonRow key={r.key} tone="white" lang={lang}
+                                        flag={<EyeOff size={20} className="text-slate-400" />}
+                                        name={r.name || r.passport}
+                                        line2={[r.passport, r.at ? new Date(r.at).toLocaleDateString('ru-RU') : '', r.by].filter(Boolean).join(' · ')}
+                                        actions={canAct && (
+                                            <BigBtn color="gray" onClick={() => unignoreEmehmonRow(emehmonHostelId, r.key).catch(e => console.warn('[emehmonIgnore]', e.message))}>
+                                                <Undo2 size={15} /> {t('emUnignoreBtn')}
+                                            </BigBtn>
+                                        )} />
+                                ))}
                             </div>
                         )}
                     </>
@@ -1035,6 +1053,7 @@ const RegistrationsView = ({
                                         actions={<>
                                             {canAct && <BigBtn color="indigo" onClick={() => setExtendModal(r)}><RefreshCw size={15} /> {t('extend')}</BigBtn>}
                                             {canAct && <BigBtn color="rose" onClick={() => onRemove(r)}><UserX size={15} /> {t('removeShort')}</BigBtn>}
+                                            {hideBtn(r)}
                                         </>} />
                                 ))}
                             </div>
@@ -1056,7 +1075,7 @@ const RegistrationsView = ({
                                             name={g.fullName}
                                             line2={guestLine(g)}
                                             onClick={onOpenGuest ? () => onOpenGuest(g) : undefined}
-                                            actions={<CheckCircle2 size={22} className="text-emerald-500" />} />
+                                            actions={<>{hideBtn(g)}<CheckCircle2 size={22} className="text-emerald-500" /></>} />
                                     ))}
                                 </div>
                             </>

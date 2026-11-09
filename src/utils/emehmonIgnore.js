@@ -4,6 +4,8 @@
  * Владелец (2026-11-03): в портале числятся люди, которых нет в Hostella и
  * выводить их не нужно, — а задача «Вывести» висит на всех кассах. Исключает
  * только супер (и правило базы пускает на запись только его), видят все.
+ * С 2026-11-09 скрыть можно любую регистрацию, и скрытого автомат не выводит
+ * из портала (правило — utils/emehmonHidden.js).
  *
  * Документ settings/emehmonIgnore: { [hostelId]: { [key]: { name, passport, by, at } } }
  * key — паспорт без пробелов в верхнем регистре, без паспорта — «N:» + имя так же.
@@ -11,11 +13,10 @@
 import { doc, onSnapshot, setDoc, deleteField } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../firebase';
 
-const ref = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'emehmonIgnore');
-const norm = (s) => String(s || '').replace(/\s/g, '').toUpperCase();
+import { ignoreKey } from './emehmonHidden';
+export { ignoreKey, isEmehmonHidden } from './emehmonHidden';
 
-/** Ключ строки портала: паспорт надёжнее, имя — только когда паспорта нет. */
-export const ignoreKey = (r) => (r?.passport ? norm(r.passport) : (r?.fullName || r?.name) ? 'N:' + norm(r.fullName || r.name) : '');
+const ref = () => doc(db, ...PUBLIC_DATA_PATH, 'settings', 'emehmonIgnore');
 
 /** Подписка на документ; onChange(data). Вернёт отписку. */
 export const watchEmehmonIgnore = (onChange) =>
