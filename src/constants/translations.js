@@ -2922,7 +2922,8 @@ const TRANSLATIONS = {
     emaRoomMoveFail: "{name}: не удалось сменить комнату в e-mehmon ({status}) — переселите вручную в портале",
     emaUnknownInRoom: "В e-mehmon в комнате {room} числятся неизвестные Hostella: {who}",
     emaPortalError: "{name}: e-mehmon отказал — {msg}",
-    emaAlreadyInPortal: "{name}: уже числится в e-mehmon — отметка поставлена"
+    emaAlreadyInPortal: "{name}: уже числится в e-mehmon — отметка поставлена",
+    emaActiveElsewhere: "{name}: в e-mehmon уже зарегистрирован в другом месте — прошлое жильё его не вывело. Нужен выезд оттуда, потом повторите"
   },
   uz: {
     // AuditLogView — o'zgarishlar jurnali
@@ -5845,7 +5846,8 @@ const TRANSLATIONS = {
     emaRoomMoveFail: "{name}: e-mehmon'da xonani almashtirib bo‘lmadi ({status}) — portalda qo‘lda ko‘chiring",
     emaUnknownInRoom: "e-mehmon'da {room}-xonada Hostella'ga noma’lum odamlar bor: {who}",
     emaPortalError: "{name}: e-mehmon rad etdi — {msg}",
-    emaAlreadyInPortal: "{name}: e-mehmon'da allaqachon bor — belgi qo‘yildi"
+    emaAlreadyInPortal: "{name}: e-mehmon'da allaqachon bor — belgi qo‘yildi",
+    emaActiveElsewhere: "{name}: e-mehmon'da boshqa joyda ro‘yxatda turibdi — oldingi joy chiqarmagan. U yerdan chiqarilgach, qayta urinib ko‘ring"
   }
 };
 

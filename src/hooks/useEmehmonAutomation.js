@@ -496,6 +496,16 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
         if (!quiet) showNotification(t('emaAlreadyInPortal').replace('{name}', name), 'success');
         return true;
       }
+      // В нашем списке гостя нет, а портал говорит «уже зарегистрирован» — он числится
+      // в другом месте (прошлое жильё не вывело). Это вопрос к данным гостя, а не сбой
+      // системы: не копим серию и не шлём тревогу (08.11.2026 — две ложные «критично»).
+      if (list?.rows) {
+        const note = t('emaActiveElsewhere').replace('{name}', name);
+        await handleEmehmonFlag(guest.id, { emehmonRegError: note, emehmonRegErrorAt: now });
+        emehmonFailure('arrival', guest, res, { system: false });
+        if (!quiet) showNotification(note, 'warning');
+        return false;
+      }
     }
     await handleEmehmonFlag(guest.id, { emehmonRegError: 'e-mehmon: ' + String(res?.message || '').slice(0, 140), emehmonRegErrorAt: now });
     emehmonFailure('arrival', guest, res);

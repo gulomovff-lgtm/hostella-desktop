@@ -25,6 +25,7 @@ import { APP_VERSION } from '../constants/config';
 import { getDeviceId } from './clientTelemetry';
 import { maybeAlertTelegram } from './auditLog';
 import { dayKey, errorDocId } from './errorKey';
+import { cleanDetails } from './errorSafety';
 
 /** Типы ошибок — на экране и в сводке в этом порядке. */
 export const ERROR_KINDS = {
@@ -115,11 +116,13 @@ export function flushErrorLog() {
       hostelId: e.hostelId || who.hostelId || null,
       user: who.name, userId: who.id, role: who.role,
       version: APP_VERSION, platform: platform(), device,
-      details: e.details || {},
+      details: cleanDetails(e.details),
     };
     // firstAt — только с первой записью этой строки с этого компьютера.
     if (!written.has(id)) { data.firstAt = e.firstAt; written.add(id); }
-    setDoc(ref, data, { merge: true }).catch(() => { /* сеть — Firestore дошлёт сам; отказ — молча */ });
+    try {
+      setDoc(ref, data, { merge: true }).catch(() => { /* сеть — Firestore дошлёт сам; отказ — молча */ });
+    } catch { /* неверные данные бросают сразу — журнал не должен падать сам */ }
   }
 }
 
