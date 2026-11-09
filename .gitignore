@@ -47,3 +47,6 @@ lerna-debug.log*
 out/
 .webpack/tmp/
 .lint.json
+
+# ќтчЄты аудита безопасности Ч только локально (репозиторий публичный: это карта атак)
+docs/SECURITY-AUDIT-*.md

@@ -88,13 +88,31 @@ function reportMainError(context, err, extra = {}) {
 
 process.on('uncaughtException', (err) => reportMainError('electron.uncaughtException', err));
 process.on('unhandledRejection', (reason) => reportMainError('electron.unhandledRejection', reason));
-app.on('render-process-gone', (_e, _wc, details) => {
-  reportMainError('electron.render-process-gone', new Error(details && details.reason ? details.reason : 'unknown'),
-    { exitCode: details && details.exitCode });
+// Окно программы упало (нехватка памяти, сбой рендерера) — раньше оставался белый
+// экран, пока кассир сам не перезапустит программу («не заходит», 07.11.2026).
+// Поднимаем окно сами; не чаще 3 раз за 10 минут, чтобы не зациклиться.
+const rendererRestarts = [];
+function reviveMainWindow(reason) {
+  const now = Date.now();
+  while (rendererRestarts.length && now - rendererRestarts[0] > 10 * 60 * 1000) rendererRestarts.shift();
+  if (rendererRestarts.length >= 3) { log.error('[revive] окно падает слишком часто — не перезапускаю:', reason); return; }
+  rendererRestarts.push(now);
+  setTimeout(() => {
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); } catch (e) { log.error('[revive]', e.message); }
+  }, 1000);
+}
+
+app.on('render-process-gone', (_e, wc, details) => {
+  const reason = details && details.reason ? details.reason : 'unknown';
+  reportMainError('electron.render-process-gone', new Error(reason),
+    { exitCode: details && details.exitCode, mainWindow: !!(mainWindow && !mainWindow.isDestroyed() && wc === mainWindow.webContents) });
+  if (reason !== 'clean-exit' && mainWindow && !mainWindow.isDestroyed() && wc === mainWindow.webContents) reviveMainWindow(reason);
 });
 app.on('child-process-gone', (_e, details) => {
+  // name/serviceName — какой именно процесс (сеть, GPU, звук): без них сбой 07.11 не опознать.
   reportMainError('electron.child-process-gone', new Error(details && details.reason ? details.reason : 'unknown'),
-    { type: details && details.type });
+    { type: details && details.type, name: details && details.name, serviceName: details && details.serviceName,
+      exitCode: details && details.exitCode });
 });
 
 // Интерфейс забирает накопленные ошибки при старте и сам их отправляет

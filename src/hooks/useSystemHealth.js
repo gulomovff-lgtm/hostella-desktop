@@ -1,7 +1,22 @@
 import { useEffect, useState } from 'react';
 import { logSystemError } from '../utils/auditLog';
 import { reportClientVersion } from '../utils/clientTelemetry';
+import { isFirestoreDead } from '../utils/errorSafety';
 import { APP_VERSION, MIN_REQUIRED_VERSION } from '../constants/config';
+
+// Firestore умер (utils/errorSafety.isFirestoreDead) — перезапуск окна. Неотправленные
+// записи лежат в кэше на диске (persistentLocalCache) и уйдут после перезапуска.
+const RELOAD_GUARD_KEY = 'hostella_fs_dead_reload_at';
+const RELOAD_EVERY_MS = 10 * 60 * 1000;
+
+function reloadAfterFirestoreDeath() {
+  let last = 0;
+  try { last = Number(localStorage.getItem(RELOAD_GUARD_KEY)) || 0; } catch { /* нет хранилища */ }
+  if (Date.now() - last < RELOAD_EVERY_MS) return; // не зацикливаться, если сбой повторяется сразу
+  try { localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now())); } catch { /* нет хранилища */ }
+  // Пауза — чтобы журнал ошибок успел уйти в beforeunload, а не потерялся.
+  setTimeout(() => window.location.reload(), 3000);
+}
 
 /**
  * useSystemHealth — «здоровье» клиента: версия и ошибки.
@@ -66,6 +81,7 @@ export function useSystemHealth({ currentUser, versionLt }) {
     const onUnhandled = (e) => {
       if (!e.reason) return;
       logSystemError('unhandledrejection', e.reason, {});
+      if (isFirestoreDead(e.reason)) reloadAfterFirestoreDeath();
     };
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onUnhandled);
@@ -91,12 +107,15 @@ export function useSystemHealth({ currentUser, versionLt }) {
       if (!payload) return;
       logSystemError(payload.context || 'electron.main', toError(payload), {
         at: payload.at, exitCode: payload.exitCode, type: payload.type,
+        name: payload.name, serviceName: payload.serviceName, mainWindow: payload.mainWindow,
       });
     });
 
     window.electronAPI.takePendingErrors?.()
       .then(list => (list || []).forEach(p => {
-        logSystemError(`${p.context || 'electron.main'} (прошлый запуск)`, toError(p), { at: p.at });
+        logSystemError(`${p.context || 'electron.main'} (прошлый запуск)`, toError(p), {
+          at: p.at, exitCode: p.exitCode, type: p.type, name: p.name, serviceName: p.serviceName,
+        });
       }))
       .catch(() => { /* файла нет — нечего слать */ });
 
