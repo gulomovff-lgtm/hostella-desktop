@@ -145,7 +145,7 @@ import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
 import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
-import { hasRegistration, isLivingNow } from './utils/registrationStatus';
+import { hasRegistration, isLivingNow, cadastreHouseFor, localYmd } from './utils/registrationStatus';
 import { HISTORY_TABS } from './utils/historyWindow';
 import ScreenLoading from './components/UI/ScreenLoading';
 import { KeepAliveTab, lazyScreen } from './components/UI/screenTabs';
@@ -895,7 +895,7 @@ function App() {
     emehmonHostelId, emehmonList, emehmonSnapshot, emehmonSyncing, emehmonIgnore,
     handleEmehmonFlag, handleEmehmonDepart,
     handleEmehmonDone, handleEmehmonAutoArrival,
-    runEmehmonSync, runEmehmonRecalc,
+    runEmehmonSync, runEmehmonRecalc, departForCadastre,
     kppFixPrompt, setKppFixPrompt,
     kppSituation, setKppSituation,
     handleForeignArrival, handleKppRecheck, handleRegisterAuto, handleSituationDecision,
@@ -1056,6 +1056,35 @@ function App() {
     currentUser, selectedHostelFilter, lang, showNotification, tgSettings, isOnline,
     setUndoStack,
   });
+
+  // «В кадастр» из карточки гостя (2026-11-11): запись на дом-кадастр
+  // (у обоих филиалов он один) и вывод из e-mehmon, если кадастр уже начался;
+  // начнётся позже — выведет сверка в день начала. По окончании кадастра
+  // автомат сам регистрирует гостя обратно (registrationStatus.cadastreBlocksAuto).
+  const handleMoveToCadastre = async (guest, { startDate, endDate, days }) => {
+    const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
+    if (!guest?.id || !startDate || !endDate || !(days > 0)) return false;
+    const house = cadastreHouseFor(guest.hostelId || 'hostel1', cadastres);
+    if (!house) { showNotification(tr('cadMoveNoHouse'), 'error'); return false; }
+    const rate = Number(house.dailyRate) || 0;
+    const id = await handleAddCadastreReg({
+      guestId: guest.id, guestName: guest.fullName, passport: guest.passport || '',
+      birthDate: guest.birthDate || '', country: guest.country || '', phone: guest.phone || '',
+      cadastreId: house.id, cadastreAddress: house.address || house.name || '',
+      cadastreName: house.name || '', cadastreOwner: house.owner || '',
+      hostelId: guest.hostelId || 'hostel1',
+      startDate, endDate, days, amount: rate > 0 ? Math.round(rate * days) : 0,
+      addToExpenses: false, backToEmehmon: true, quiet: true,
+    });
+    if (!id) return false;
+    const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString('ru-RU');
+    showNotification(tr('cadMoveDone').replace('{name}', guest.fullName).replace('{from}', fmt(startDate)).replace('{to}', fmt(endDate)), 'success');
+    if (guest.emehmonReg && startDate <= localYmd()) {
+      if (window.electronAPI?.emehmonDeparture) departForCadastre(guest);
+      else showNotification(tr('cadMoveDepartManual'), 'warning');
+    }
+    return true;
+  };
 
   const { handleSale, handleCancelSale, handleSaveItem, handleStockIn, handleStockAdjust, handleServeBreakfast } =
     useShopActions({ currentUser, lang, showNotification });
@@ -2768,6 +2797,7 @@ return (
                 onOpenSale={(g) => setSaleModal({ open: true, guest: g })}
                 onCancelSale={handleCancelSale}
                 onRegisterAuto={handleRegisterAuto}
+                onMoveToCadastre={canPerformActions ? handleMoveToCadastre : null}
                 onPriceRequest={handleRequestPriceReduction}
                 onUpgradeTariff={handleUpgradeToStandardTariff}
                 onSwitchPlan={handleSwitchPlan}

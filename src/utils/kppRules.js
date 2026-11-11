@@ -264,16 +264,41 @@ export function assessKpp({ country, kppDate, lastCheckout, today, windowDays } 
 }
 
 /**
- * Пора ли регистрировать иностранца: на ПРЕДПОСЛЕДНИЙ день окна (или сразу,
- * если он уже позже). В первые дни окна регистрация не нужна по закону —
+ * В какой день окна автомат регистрирует (день КПП = 1-й): по умолчанию
+ * ПРЕДПОСЛЕДНИЙ. Граждан Таджикистана — на 8-й (решение владельца
+ * 2026-11-11), а не на 9-й из 10.
+ */
+export const autoRegisterDay = (country, windowDays) => {
+  if (!Number.isFinite(windowDays) && country === 'Таджикистан') return 8;
+  const window = Number.isFinite(windowDays) ? windowDays : getRegistrationWindow(country);
+  return Math.max(1, window - 1);
+};
+
+/**
+ * Пора ли регистрировать иностранца: в autoRegisterDay (или сразу, если он
+ * уже позже). В первые дни окна регистрация не нужна по закону —
  * и лишняя запись в портале только создаёт работу при выезде.
  */
 export function registrationDue({ country, kppDate, today, windowDays } = {}) {
-  const window = Number.isFinite(windowDays) ? windowDays : getRegistrationWindow(country);
   if (!kppDate) return false;
   const d = daysBetween(kppDate, today || todayIso());
   if (!Number.isFinite(d)) return false;
-  return d + 1 >= Math.max(1, window - 1);
+  return d + 1 >= autoRegisterDay(country, windowDays);
+}
+
+/**
+ * Пора ли автомату регистрировать ЭТОГО гостя. Есть дата КПП — по ней.
+ * Нет даты: гражданина Таджикистана считаем от дня заезда (иначе его
+ * регистрировали бы в первый же день), остальных — сразу, как и раньше.
+ */
+export function guestRegistrationDue(g, today) {
+  if (!g) return false;
+  if (g.kppDate) return registrationDue({ country: g.country, kppDate: g.kppDate, today });
+  if (g.country === 'Таджикистан' && g.checkInDate) {
+    const ci = toIsoDate(String(g.checkInDate).slice(0, 10));
+    if (ci) return registrationDue({ country: g.country, kppDate: ci, today });
+  }
+  return true;
 }
 
 /** Обрезать дамп до предела размера документа (Firestore — 1 МБ, нам хватит ~8 КБ). */

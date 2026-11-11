@@ -150,7 +150,8 @@ export function useCadastreActions({
 
   const handleAddCadastreReg = async (data) => {
     try {
-      const hostelId = targetHostel();
+      // Перевод из карточки гостя пишет филиал гостя, а не того, кто нажал
+      const hostelId = data.hostelId || targetHostel();
       const safeStaffId = currentUser.id || currentUser.login;
       const createdMonth = nowMonth();
       const regAmount = Number(data.amount) || 0;
@@ -177,6 +178,8 @@ export function useCadastreActions({
         amount:          regAmount,
         regLink:         data.regLink || '',
         status:          'active',
+        // Переведён кнопкой «В кадастр»: после конца — обратно в e-mehmon
+        ...(data.backToEmehmon ? { backToEmehmon: true } : {}),
         expenseAdded:    false,
         expenseId:       null,
         expenseByMonth,
@@ -206,9 +209,10 @@ export function useCadastreActions({
         });
       }
 
-      showNotification(t('cdaRegAdded'), 'success');
+      if (!data.quiet) showNotification(t('cdaRegAdded'), 'success');
       logAction(currentUser, 'cadastre_reg_add', {
         guestName: data.guestName, cadastreAddress: data.cadastreAddress, days: data.days,
+        ...(data.backToEmehmon ? { transfer: true } : {}),
       });
 
       const disabledTypes = new Set(tgSettings?.disabledTypes || []);
@@ -225,9 +229,11 @@ export function useCadastreActions({
         ].filter(Boolean).join('\n');
         sendTelegramMessage(msg, 'cadastreNew');
       }
+      return regRef.id;
     } catch (e) {
       console.error(e);
       showNotification(t('cdaError') + e.message, 'error');
+      return null;
     }
   };
 

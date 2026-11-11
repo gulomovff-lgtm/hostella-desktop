@@ -2,14 +2,14 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
-    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft, AlertTriangle, Settings, MoreHorizontal
+    Printer, Lock, ShieldCheck, RotateCcw, UserX, Search, ChevronDown, Camera, Scissors, History, Copy, ArrowRightLeft, AlertTriangle, Settings, MoreHorizontal, Home
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
 import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff, extensionRate } from '../../utils/stayPlans';
-import { cadastreRegFor, cadastreValid } from '../../utils/registrationStatus';
+import { cadastreRegFor, cadastreValid, cadastreEndFor, cadastreDaysFor, localYmd } from '../../utils/registrationStatus';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
@@ -368,7 +368,7 @@ const EmehmonSheetRow = ({ guest, notify, t, onFetch }) => {
     );
 };
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onMoveToCadastre, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
@@ -822,6 +822,24 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     //    гостя свёрнуты; редкие действия — в меню «Ещё».
     const [infoOpen, setInfoOpen] = useState(false);
     const [moreOpen, setMoreOpen] = useState(false);
+    // «В кадастр»: { from, days, until, busy } или null
+    const [cadMove, setCadMove] = useState(null);
+    const openCadMove = () => {
+        const from = localYmd();
+        // По умолчанию — до конца проживания (день выезда не считаем)
+        const co = guest.checkOutDate ? localYmd(new Date(guest.checkOutDate)) : '';
+        const left = co ? cadastreDaysFor(from, co) - 1 : 0;
+        const days = Math.max(1, left || 30);
+        setCadMove({ from, days: String(days), until: cadastreEndFor(from, days), busy: false });
+    };
+    const cadMoveDays = cadMove ? (parseInt(cadMove.days, 10) || 0) : 0;
+    const cadMoveOk = !!cadMove && !!cadMove.from && cadMoveDays > 0 && !!cadMove.until && cadMove.until >= cadMove.from;
+    const submitCadMove = async () => {
+        if (!cadMoveOk || cadMove.busy || !onMoveToCadastre) return;
+        setCadMove(m => ({ ...m, busy: true }));
+        const ok = await onMoveToCadastre(guest, { startDate: cadMove.from, endDate: cadMove.until, days: cadMoveDays });
+        if (ok) setCadMove(null); else setCadMove(m => (m ? { ...m, busy: false } : m));
+    };
     const [printOpen, setPrintOpen] = useState(false);
     const isForeign = !!guest.country && guest.country !== 'Узбекистан';
     const kppUrgent = (() => {
@@ -923,6 +941,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                         <div className="text-xs font-semibold text-slate-700">
                             {cadReg.startDate} → {cadReg.endDate} ({cadReg.days || '?'} {t('daysShort')})
                         </div>
+                        {cadReg.backToEmehmon && (
+                            <div className="text-[11px] font-semibold text-indigo-600">↩ {t('cadMoveBackOn').replace('{date}', new Date(cadReg.endDate + 'T12:00:00').toLocaleDateString('ru-RU'))}</div>
+                        )}
                         <div className={`text-xs font-bold mt-0.5 ${
                             isExpired  ? 'text-rose-600' :
                             isExpiring ? 'text-amber-700' :
@@ -1334,6 +1355,14 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                     {t('registeredInEmehmon')}
                                                 </label>
                                             )}
+                                            {/* Перевод живущего гостя в кадастр: только дни; дом, вывод
+                                                из e-mehmon и возврат после конца — программа сама */}
+                                            {onMoveToCadastre && guest.status === 'active' && guest.roomId !== 'DEBT_ONLY' && !cadOk && (
+                                                <button type="button" onClick={openCadMove}
+                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 text-xs font-bold">
+                                                    <Home size={13} /> {t('cadMoveBtn')}
+                                                </button>
+                                            )}
                                             {isCheckedOut && (
                                                 <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
                                                     <input type="checkbox" className="w-4 h-4 rounded accent-emerald-600"
@@ -1349,6 +1378,50 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 )}
                             </div>
                         </div>
+
+                        {cadMove && (
+                            <div className="fixed inset-0 z-[175] flex items-center justify-center p-4"
+                                style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
+                                onClick={(e) => { if (e.target === e.currentTarget && !cadMove.busy) setCadMove(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Escape' && !cadMove.busy) { e.stopPropagation(); setCadMove(null); } }}>
+                                <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><Home size={18} className="text-teal-600" /> {t('cadMoveTitle')}</h3>
+                                        <button type="button" onClick={() => !cadMove.busy && setCadMove(null)} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center"><X size={16} /></button>
+                                    </div>
+                                    <div className="text-sm font-bold text-slate-700">{guest.fullName}</div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">{t('cadMoveFrom')}</label>
+                                        <input type="date" value={cadMove.from}
+                                            onChange={e => { const from = e.target.value; setCadMove(m => ({ ...m, from, until: cadastreEndFor(from, m.days) })); }}
+                                            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-base font-semibold" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('cadMoveDays')}</label>
+                                            <input type="number" min="1" value={cadMove.days}
+                                                onChange={e => { const days = e.target.value; setCadMove(m => ({ ...m, days, until: cadastreEndFor(m.from, days) || m.until })); }}
+                                                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-base font-semibold tabular-nums" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">{t('cadMoveUntil')}</label>
+                                            <input type="date" value={cadMove.until} min={cadMove.from}
+                                                onChange={e => { const until = e.target.value; setCadMove(m => ({ ...m, until, days: String(cadastreDaysFor(m.from, until) || '') })); }}
+                                                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-base font-semibold" />
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-slate-500 leading-snug">{t('cadMoveHint')}</p>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setCadMove(null)} disabled={cadMove.busy}
+                                            className="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('cancel')}</button>
+                                        <button type="button" onClick={submitCadMove} disabled={!cadMoveOk || cadMove.busy}
+                                            className="flex-1 py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-black disabled:opacity-50 flex items-center justify-center gap-1.5">
+                                            <Home size={15} /> {cadMove.busy ? '…' : t('cadMoveSubmit')}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* ── Нижняя строка: частые значки + «Ещё» с редкими действиями ── */}
                         <div className="relative px-4 py-3 border-t border-slate-100 bg-white shrink-0 flex items-center gap-1 flex-wrap">

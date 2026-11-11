@@ -61,13 +61,62 @@ export const registrationSource = (g, cadastreRegs = [], now = new Date()) =>
   (!g ? null : g.emehmonReg ? 'emehmon' : validCadastreFor(g, cadastreRegs, now) ? 'cadastre' : null);
 
 /**
+ * Мешает ли кадастр автомату регистрировать гостя в e-mehmon.
+ * Обычный кадастр — мешает, даже истёкший: продлить кадастр или перевести в
+ * e-mehmon решает человек («Оформить» его покажет).
+ * Перевод кнопкой «В кадастр» (backToEmehmon, 2026-11-11) — мешает только
+ * пока действует: на следующий день после конца гость снова идёт в e-mehmon.
+ */
+export function cadastreBlocksAuto(g, cadastreRegs = [], now = new Date()) {
+  const r = cadastreRegFor(g, cadastreRegs);
+  if (!r) return false;
+  if (r.backToEmehmon && !cadastreValid(r, now)) return false;
+  return true;
+}
+
+/**
  * Можно ли автомату (заселение, оплата, добор) регистрировать гостя в e-mehmon.
- * Гостя, оформленного по кадастру, — нет, даже если кадастр истёк: продлить
- * кадастр или перевести в e-mehmon решает человек («Оформить» его покажет).
  * Кнопка «Оформить авто» в карточке — решение человека, её это не касается.
  */
-export const autoRegisterAllowed = (g, cadastreRegs = []) =>
-  !!g && !g.emehmonReg && !g.emehmonSkip && !cadastreRegFor(g, cadastreRegs);
+export const autoRegisterAllowed = (g, cadastreRegs = [], now = new Date()) =>
+  !!g && !g.emehmonReg && !g.emehmonSkip && !cadastreBlocksAuto(g, cadastreRegs, now);
+
+/**
+ * Перевод в кадастр начался, а гость ещё числится в e-mehmon — пора вывести.
+ * Только переводы кнопкой (backToEmehmon) и только с дня начала кадастра.
+ */
+export function cadastreTransferDue(g, cadastreRegs = [], now = new Date()) {
+  const r = cadastreRegFor(g, cadastreRegs);
+  if (!r || !r.backToEmehmon || !cadastreValid(r, now)) return null;
+  return String(r.startDate || '').slice(0, 10) <= localYmd(now) ? r : null;
+}
+
+/** Конец кадастра по началу и числу дней (день начала — 1-й). YYYY-MM-DD. */
+export function cadastreEndFor(startYmd, days) {
+  const n = Math.round(Number(days));
+  if (!startYmd || !Number.isFinite(n) || n < 1) return '';
+  const d = new Date(String(startYmd).slice(0, 10) + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + n - 1);
+  return localYmd(d);
+}
+
+/** Сколько дней от начала до конца включительно (0 — конец раньше начала). */
+export function cadastreDaysFor(startYmd, endYmd) {
+  const a = new Date(String(startYmd || '').slice(0, 10) + 'T12:00:00');
+  const b = new Date(String(endYmd || '').slice(0, 10) + 'T12:00:00');
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  return Math.max(0, Math.round((b - a) / 86400000) + 1);
+}
+
+/**
+ * Какой дом-кадастр брать гостю: у обоих филиалов он один (Ниёзбек Йули 43),
+ * но записей две — по филиалу. Берём свою, иначе любую действующую.
+ */
+export function cadastreHouseFor(hostelId, cadastres = []) {
+  const live = (cadastres || []).filter(c => c && c.active !== false);
+  return live.find(c => (c.hostelId || 'hostel1') === (hostelId || 'hostel1')) || live[0] || null;
+}
 
 /**
  * Что НЕ переносится в новое проживание того же человека после паузы (деление

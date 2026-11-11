@@ -11,14 +11,14 @@ import {
   checkPassportInGov, getEmehmonStatus,
 } from '../utils/emehmon';
 import {
-  parseEmehmonProbe, assessKpp, registrationDue, trimProbe, shouldRetryNoRoom, shouldRetryAttempt, lastTryMark,
+  parseEmehmonProbe, assessKpp, guestRegistrationDue, autoRegisterDay, trimProbe, shouldRetryNoRoom, shouldRetryAttempt, lastTryMark,
   todayIso, daysBetween, getRegistrationWindow,
 } from '../utils/kppRules';
 import TRANSLATIONS from '../constants/translations';
 import { getConfig } from '../utils/appConfig';
 import { departureExtras, departureMarks } from '../utils/emehmonDeparture';
 import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
-import { autoRegisterAllowed, cadastreRegFor } from '../utils/registrationStatus';
+import { autoRegisterAllowed, cadastreBlocksAuto, cadastreTransferDue } from '../utils/registrationStatus';
 import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
 import { changeStamp } from '../utils/collectionStore';
 import { watchEmehmonIgnore, isEmehmonHidden } from '../utils/emehmonIgnore';
@@ -226,6 +226,45 @@ const handleFetchSheet = useCallback(async (guest) => {
   } else {
     emehmonFailure('sheet', guest, res);
     showNotification(t('emsFetchFail').replace('{msg}', res?.message || res?.code || res?.status || ''), 'error');
+  }
+}, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
+
+// Перевод в кадастр (кнопка «В кадастр», 2026-11-11): вывести из портала
+// ЖИВУЩЕГО гостя. Не через handleDepartOutcome: тот ставит «выведен»
+// (emehmonOut), а гость живёт дальше — с этой отметкой по окончании кадастра
+// его бы не зарегистрировали обратно и не вывели при выселении. Здесь
+// снимаем саму регистрацию e-mehmon, как будто её не было.
+const cadOutBusy = useRef(new Set());
+const departForCadastre = useCallback(async (g, opts = {}) => {
+  if (!g?.id) return { status: 'error' };
+  if (!window.electronAPI?.emehmonDeparture) return { status: 'no_electron' };
+  if (hiddenIn(g.hostelId, g)) return { status: 'hidden' };
+  if (cadOutBusy.current.has(g.id)) return { status: 'busy' };
+  cadOutBusy.current.add(g.id);
+  setEmehmonDepartingIds(prev => new Set([...prev, g.id]));
+  try {
+    const cfg = getConfig() || {};
+    const res = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType }));
+    const st = res?.status;
+    // not_found — в портале его уже нет: итог тот же
+    if (st === 'done' || st === 'submitted' || st === 'not_found') {
+      await handleEmehmonFlag(g.id, {
+        emehmonReg: false, emehmonRegAt: deleteField(), emehmonRegAuto: deleteField(),
+        emehmonOut: deleteField(), emehmonOutAt: deleteField(), emehmonOutAuto: deleteField(),
+        emehmonLastTry: deleteField(), emehmonToCadastreAt: new Date().toISOString(),
+      });
+      emehmonSuccess();
+      if (!opts.quiet) showNotification(t('cadMoveDeparted').replace('{name}', g.fullName), 'success');
+    } else if (st === 'need_login') {
+      if (!opts.quiet) showNotification(t('cadMoveNeedLogin'), 'info');
+    } else {
+      emehmonFailure('depart', g, res);
+      if (!opts.quiet) showNotification(t('cadMoveDepartFail'), 'warning');
+    }
+    return res;
+  } finally {
+    cadOutBusy.current.delete(g.id);
+    setEmehmonDepartingIds(prev => { const n = new Set(prev); n.delete(g.id); return n; });
   }
 }, [handleEmehmonFlag]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -636,9 +675,8 @@ const handleForeignArrival = useCallback(async (guest) => {
     }
     if (g.emehmonReg || g.emehmonSkip) return;
     if (!(paidOf(g) > 0)) return;                       // регистрация — после оплаты, позовут снова
-    if (g.kppDate && !registrationDue({ country: g.country, kppDate: g.kppDate })) {
-      const win = getRegistrationWindow(g.country);
-      showNotification(t('emaAutoOnDay').replace('{name}', g.fullName).replace('{n}', Math.max(1, win - 1)), 'info');
+    if (!guestRegistrationDue(g)) {
+      showNotification(t('emaAutoOnDay').replace('{name}', g.fullName).replace('{n}', autoRegisterDay(g.country)), 'info');
       return;
     }
     await runForeignRegistration(g, { silent: false });
@@ -700,8 +738,9 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
   const norm = s => (s || '').replace(/\s/g, '').toUpperCase();
   const isReal = (g) => g.roomId !== 'DEBT_ONLY';
   const sameHostel = (g) => (g.hostelId || 'hostel1') === hostelId;
-  // Оформлен по кадастру (даже истёкшему) — автомат не регистрирует, решает человек
-  const inCad = (g) => !!cadastreRegFor(g, cadastreRegs);
+  // Оформлен по кадастру (даже истёкшему) — автомат не регистрирует, решает человек.
+  // Кроме перевода кнопкой «В кадастр»: он кончился — регистрируем обратно.
+  const inCad = (g) => cadastreBlocksAuto(g, cadastreRegs);
   const inList = (g) => pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName));
   const recent = (g) => g.checkInDate && (Date.now() - new Date(g.checkInDate).getTime()) < 2 * 24 * HOURS;
   const candidates = (guests || []).filter(g =>
@@ -748,7 +787,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
       }
       gg = r.guest;
     }
-    if (gg.kppDate && !registrationDue({ country: gg.country, kppDate: gg.kppDate })) continue;
+    if (!guestRegistrationDue(gg)) continue;
     if (trips >= MAX_TRIPS) break;
     trips++;
     const res = await runForeignRegistration(gg, { silent: true, quiet });
@@ -844,6 +883,19 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
         for (const g of staleInPortal) {
           const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfgDep.emehmonPayType }));
           await handleDepartOutcome(out, [g], { quiet: quietHere });
+          if (out?.status === 'need_login') break;
+        }
+      }
+      // Перевод в кадастр начался (сегодня или раньше), а гость ещё в /listok —
+      // выводим. Так срабатывает и перевод «с завтрашнего дня», и повтор, если
+      // при нажатии кнопки портал был недоступен.
+      if (window.electronAPI?.emehmonDeparture) {
+        const cadOut = (guests || []).filter(g =>
+          g.status === 'active' && isReal(g) && sameHostel(g) && !hiddenIn(hostelId, g) &&
+          cadastreTransferDue(g, cadRegsRef.current) &&
+          ((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName))))).slice(0, 3);
+        for (const g of cadOut) {
+          const out = await departForCadastre(g, { quiet: quietHere });
           if (out?.status === 'need_login') break;
         }
       }
@@ -1113,6 +1165,6 @@ useEffect(() => {
     // действия
     handleEmehmonFlag, handleEmehmonDepart,
     handleEmehmonDone, handleEmehmonAutoArrival,
-    handleDepartOutcome, runEmehmonSync, runEmehmonRecalc,
+    handleDepartOutcome, runEmehmonSync, runEmehmonRecalc, departForCadastre,
   };
 }
