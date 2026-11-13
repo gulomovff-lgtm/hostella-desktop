@@ -3,8 +3,10 @@ import {
   Home, Plus, Search, Trash2, RefreshCw, UserX, ChevronDown, ChevronUp, ChevronLeft,
   X, Calendar, MapPin, Building, AlertCircle, User, Users,
   CheckCircle2, Receipt, AlertTriangle, Edit2, Check,
-  Link, Copy, ExternalLink,
+  Link, Copy, ExternalLink, Settings,
 } from 'lucide-react';
+import { KadastrSetupModal } from '../UI/KadastrCardPicker';
+import KadastrStages, { KADASTR_LOGIN_STEPS } from '../UI/KadastrStages';
 import { HOSTELS, Flag } from '../../utils/helpers';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import TRANSLATIONS from '../../constants/translations';
@@ -53,6 +55,9 @@ export default function CadastreView({
   };
   // Вход в кадастр (сайт reg.emehmon.uz): кнопка, если не вошли
   const [kadLogin, setKadLogin] = useState(null);   // { loggedIn, hasPassword, busy, error }
+  // Пароль ЭЦП и карты меняет админ прямо здесь (13.11.2026)
+  const canKadSetup = currentUser.role === 'admin' || currentUser.role === 'super';
+  const [kadSetupOpen, setKadSetupOpen] = useState(false);
   const kadAvail = typeof window !== 'undefined' && !!window.electronAPI?.kadastrStatus;
   const refreshKad = () => window.electronAPI?.kadastrStatus?.().then(st => setKadLogin(s => ({ ...(s || {}), ...st, busy: false }))).catch(() => {});
   React.useEffect(() => { if (kadAvail) refreshKad(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -207,12 +212,19 @@ export default function CadastreView({
             <p className="text-xs text-slate-500">{t('cadSubtitle')}</p>
           </div>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        {kadAvail && canKadSetup && (
+          <button onClick={() => setKadSetupOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:border-teal-400 hover:text-teal-700">
+            <Settings size={13} /> {t('cadPortalSetup')}
+          </button>
+        )}
         {kadAvail && kadLogin && (
           kadLogin.loggedIn
             ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">✓ {t('cadLoggedIn')}</span>
             : (
               <div className="flex items-center gap-2">
-                {kadLogin.error && <span className="text-[11px] font-semibold text-rose-600">{t('cadLoginFail')}</span>}
+                {kadLogin.error && <span className="text-[11px] font-semibold text-rose-600" title={kadLogin.error}>{t('cadLoginFail')} <span className="font-mono font-normal opacity-70">({String(kadLogin.error).slice(0, 80)})</span></span>}
                 <button onClick={doKadLogin} disabled={kadLogin.busy}
                   className="px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-50">
                   {kadLogin.busy ? '…' : t('cadLoginBtn')}
@@ -220,8 +232,14 @@ export default function CadastreView({
               </div>
             )
         )}
-
+        </div>
       </div>
+      {kadLogin?.busy && (
+        <div className="bg-white rounded-2xl border border-teal-200 p-4 max-w-sm ml-auto">
+          <KadastrStages steps={KADASTR_LOGIN_STEPS} t={t} />
+        </div>
+      )}
+      {kadSetupOpen && <KadastrSetupModal t={t} onClose={() => { setKadSetupOpen(false); refreshKad(); }} />}
 
       {/* Stats bar */}
       <div className="grid grid-cols-4 gap-2">

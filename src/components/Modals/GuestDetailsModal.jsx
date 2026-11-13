@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import KadastrCardPicker, { emptyKadastrCard, kadastrCardArg, kadastrCardOk } from '../UI/KadastrCardPicker';
-import { kadastrPortalAvailable, portalPayOpen, portalUnpaid, cadastreLimitFor } from '../../utils/kadastrPortal';
+import { kadastrPortalAvailable, portalPayOpen, portalUnpaid, cadastreLimitFor, portalPayLeftMs, fmtPayLeft } from '../../utils/kadastrPortal';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
@@ -978,7 +978,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                         <div className="flex flex-wrap gap-1.5 pt-1">
                             {onKadastrPay && portalPayOpen(cadReg.portal) && (
                                 <button type="button" onClick={() => setKadAct({ kind: 'pay', card: emptyKadastrCard(), busy: false })}
-                                    className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold">{t('cadPortalPayBtn')}</button>
+                                    className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold">💳 {t('cadPortalPayBtn')} <span className="font-semibold opacity-80 tabular-nums">· {t('cadPayLeft').replace('{t}', fmtPayLeft(portalPayLeftMs(cadReg.portal), t))}</span></button>
                             )}
                         </div>
                         <div className={`text-xs font-bold mt-0.5 ${
@@ -987,7 +987,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                          'text-emerald-700'
                         }`}>
                             {unpaid && !isExpired
-                                ? `💳 ${t('cadPortalUnpaidBadge')}`
+                                ? `💳 ${t('cadPortalUnpaidBadge')}${portalPayLeftMs(cadReg.portal) > 0 ? ' · ' + t('cadPayLeft').replace('{t}', fmtPayLeft(portalPayLeftMs(cadReg.portal), t)) : ''}`
                                 : isExpired
                                 ? `❌ ${t('cadastreExpired').replace('{n}', Math.abs(daysLeft))}`
                                 : isExpiring

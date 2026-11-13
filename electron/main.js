@@ -973,14 +973,31 @@ const cleanCard = (c) => {
   if (number.length !== 16 || !/^(0[1-9]|1[0-2])$/.test(mm) || yy.length !== 2 || phone.length !== 12) return null;
   return { number, mm, yy, phone };
 };
-const kadastrPublic = (st) => ({
-  hasPassword: !!st.eimzoPassword,
-  cert: st.cert || '',
-  cadMatch: st.cadMatch || '',
-  hasCard: !!st.card,
-  cardMask: st.card ? '•••• ' + String(st.card.number).slice(-4) : '',
-  cardPhoneMask: st.card ? '+' + String(st.card.phone).slice(0, 5) + ' ••• •• ' + String(st.card.phone).slice(-2) : '',
-});
+// Карты (13.11.2026): несколько, одна — по умолчанию. Старая одиночная
+// st.card переезжает в список при первом чтении.
+const kadastrCards = (st) => {
+  if (st.card && !Array.isArray(st.cards)) { st.cards = [{ id: 'c' + Date.now().toString(36), ...st.card }]; st.defaultCardId = st.cards[0].id; }
+  delete st.card;
+  if (!Array.isArray(st.cards)) st.cards = [];
+  if (st.cards.length && !st.cards.some(c => c.id === st.defaultCardId)) st.defaultCardId = st.cards[0].id;
+  if (!st.cards.length) delete st.defaultCardId;
+  return st.cards;
+};
+const cardMask = (c) => '•••• ' + String(c.number).slice(-4);
+const phoneMask = (c) => '+' + String(c.phone).slice(0, 5) + ' ••• •• ' + String(c.phone).slice(-2);
+const kadastrPublic = (st) => {
+  const cards = kadastrCards(st);
+  const def = cards.find(c => c.id === st.defaultCardId) || null;
+  return {
+    hasPassword: !!st.eimzoPassword,
+    cert: st.cert || '',
+    cadMatch: st.cadMatch || '',
+    cards: cards.map(c => ({ id: c.id, mask: cardMask(c), phoneMask: phoneMask(c), isDefault: c.id === st.defaultCardId })),
+    hasCard: !!def,
+    cardMask: def ? cardMask(def) : '',
+    cardPhoneMask: def ? phoneMask(def) : '',
+  };
+};
 
 ipcMain.handle('kadastr-settings-get', () => kadastrPublic(readKadastrSettings()));
 ipcMain.handle('kadastr-settings-set', (_e, patch) => {
@@ -990,14 +1007,68 @@ ipcMain.handle('kadastr-settings-set', (_e, patch) => {
   if (p.clearPassword) delete st.eimzoPassword;
   if (typeof p.cert === 'string' && /^[0-9A-Za-z]{4,40}$/.test(p.cert.trim())) st.cert = p.cert.trim();
   if (typeof p.cadMatch === 'string' && p.cadMatch.trim() && p.cadMatch.length <= 60) st.cadMatch = p.cadMatch.trim();
-  if (p.card) { const c = cleanCard(p.card); if (!c) return { ok: false, error: 'bad_card' }; st.card = c; }
-  if (p.clearCard) delete st.card;
+  const cards = kadastrCards(st);
+  const addOne = (raw, makeDefault) => {
+    const c = cleanCard(raw); if (!c) return false;
+    const same = cards.find(x => x.number === c.number);
+    if (same) Object.assign(same, c); else cards.push({ id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...c });
+    if (makeDefault || cards.length === 1) st.defaultCardId = (same || cards[cards.length - 1]).id;
+    return true;
+  };
+  if (p.card && !addOne(p.card, true)) return { ok: false, error: 'bad_card' };           // прежний вызов: карта по умолчанию
+  if (p.addCard && !addOne(p.addCard, !!p.addCard.makeDefault)) return { ok: false, error: 'bad_card' };
+  if (typeof p.removeCard === 'string') st.cards = cards.filter(c => c.id !== p.removeCard);
+  if (typeof p.defaultCard === 'string' && cards.some(c => c.id === p.defaultCard)) st.defaultCardId = p.defaultCard;
+  if (p.clearCard) st.cards = [];
+  kadastrCards(st);
   try { writeKadastrSettings(st); } catch (e) { return { ok: false, error: e.message }; }
   return { ok: true, ...kadastrPublic(st) };
 });
 
 let kadastrWindow = null;
 let kadastrChain = Promise.resolve();
+// Предохранители очереди (13.11.2026: «крутится без конца»). Скрипт страницы,
+// у которой сайт сменил адрес, или вечная загрузка не возвращаются никогда —
+// и очередь кадастра стояла до перезапуска: ни оплаты, ни входа, ни сверки.
+// Теперь у каждого шага и у операции целиком есть предел времени.
+// Скрипт на странице, которую сайт сменил (OneID сам вернул на кадастр —
+// журнал 13.11.2026, 18:29–18:32), не ответит никогда: смену страницы ловим
+// сразу и не ждём.
+function kadJs(win, code, _gesture, ms = 150000) {
+  let t, onNav;
+  const wc = win.webContents;
+  return Promise.race([
+    wc.executeJavaScript(code, true),
+    new Promise((_, rej) => { t = setTimeout(() => rej(new Error('js_timeout')), ms); }),
+    new Promise((_, rej) => {
+      onNav = (e, _url, inPlace, mainFrame) => {
+        const main = e && typeof e.isMainFrame === 'boolean' ? e.isMainFrame : mainFrame;
+        const same = e && typeof e.isSameDocument === 'boolean' ? e.isSameDocument : inPlace;
+        if (main && !same) rej(new Error('navigated'));
+      };
+      wc.on('did-start-navigation', onNav);
+    }),
+  ]).finally(() => { clearTimeout(t); try { wc.removeListener('did-start-navigation', onNav); } catch (_) {} });
+}
+function kadLoad(win, url, ms = 45000) {
+  let t;
+  return Promise.race([
+    win.loadURL(url),
+    new Promise((_, rej) => { t = setTimeout(() => rej(new Error('load_timeout')), ms); }),
+  ]).finally(() => clearTimeout(t));
+}
+function kadQueue(label, ms, fn) {
+  const run = kadastrChain.then(() => {
+    log.info('[kadastr] начало:', label);
+    let t;
+    return Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((res) => { t = setTimeout(() => { log.warn('[kadastr] не уложилось в срок:', label); res({ status: 'timeout' }); }, ms); }),
+    ]).finally(() => clearTimeout(t));
+  });
+  kadastrChain = run.catch(() => {});
+  return run;
+}
 let kadastrPayTimer = null;
 function ensureKadastrWindow() {
   if (kadastrWindow && !kadastrWindow.isDestroyed()) return kadastrWindow;
@@ -1037,13 +1108,28 @@ const waitUntil = async (fn, ms, gap = 500) => {
   return false;
 };
 // Вход: /listovka открылась — уже вошли. Иначе OneID → ключ → пароль E-IMZO.
+// Каждая попытка входа — в журнал с причиной (13.11.2026 кассир видел только
+// «Не удалось войти», а причину было не найти)
+// Этап входа/оплаты → программе: кассир видит, на каком шаге сайт (13.11.2026)
+function kadStage(stage) {
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('kadastr-stage', { stage, at: Date.now() }); } catch (_) {}
+}
 async function kadastrLogin(win, st) {
-  await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+  let r;
+  try { r = await kadastrLoginRun(win, st); } catch (e) { r = 'error:' + e.message; }
+  let at = ''; try { at = new URL(win.webContents.getURL()).host + new URL(win.webContents.getURL()).pathname; } catch (_) {}
+  (r === 'ok' ? log.info : log.warn)('[kadastr] вход:', r, at);
+  return r;
+}
+async function kadastrLoginRun(win, st) {
+  kadStage('site');
+  await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
   if (onListovka(win)) return 'ok';
   if (!st.eimzoPassword) return 'no_password';
   // Вход в фоне (просьба владельца 13.11.2026): окно сайта скрыто, на экране
   // мелькает только окно пароля E-IMZO, и его заполняет программа.
-  await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
+  kadStage('oneid');
+  await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
   // OneID может помнить вход и сразу вернуть на сайт кадастра, минуя страницу
   // ключей (журнал 13.11.2026: «not_oneid» — ждали OneID, а были уже на сайте)
   const hostNow = () => { try { return new URL(win.webContents.getURL()).hostname; } catch (_) { return ''; } };
@@ -1051,35 +1137,45 @@ async function kadastrLogin(win, st) {
   await waitUntil(() => /id\.egov\.uz$/.test(hostNow()) ||
     (hostNow() === 'reg.emehmon.uz' && !/^\/(login|auth)/.test(pathNow())), 30000);
   if (hostNow() === 'reg.emehmon.uz') {
-    if (!onListovka(win)) await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+    if (!onListovka(win)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
     if (onListovka(win)) return 'ok';
   }
   if (!/id\.egov\.uz$/.test(hostNow())) return 'oneid_not_opened:' + hostNow() + pathNow();
   let r;
-  try { r = await win.webContents.executeJavaScript(kadastrPortal.buildOneIdLoginScript({ cert: st.cert }), true); }
+  kadStage('key');
+  try { r = await kadJs(win, kadastrPortal.buildOneIdLoginScript({ cert: st.cert }), true); }
   catch (e) { r = { status: 'error', message: e.message }; }
-  if (!r || r.status !== 'clicked') return (r && r.status) || 'oneid_error';
+  // OneID помнил вход и сам вернул на сайт кадастра, пока выбирали ключ
+  if ((!r || r.status !== 'clicked') && await waitUntil(() => hostNow() === 'reg.emehmon.uz', 8000)) {
+    if (!onListovka(win)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+    if (onListovka(win)) return 'ok';
+  }
+  if (!r || r.status !== 'clicked') return ((r && r.status) || 'oneid_error') + (r && r.page ? ' | ' + String(r.page).slice(0, 160) : '');
+  kadStage('password');
   const typed = await kadastrPortal.typeEimzoPassword(st.eimzoPassword, { waitSec: 45, log, scriptDir: app.getPath('userData') });
   if (typed !== 'typed') { log.warn('[kadastr] пароль ЭЦП:', typed); return 'eimzo_' + typed; }
+  kadStage('return');
   const back = await waitUntil(() => new URL(win.webContents.getURL()).hostname === 'reg.emehmon.uz', 60000);
   if (!back) return 'oneid_timeout';
-  if (!onListovka(win)) await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+  if (!onListovka(win)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
   return onListovka(win) ? 'ok' : 'login_failed';
 }
-// Оплата: карта вписана и «Оплатить» нажат — дальше SMS-код вводит кассир.
+// Оплата: карта вписана и «Оплатить» нажат в СКРЫТОМ окне — SMS-код кассир
+// вводит в самой программе (kadastr-pay-otp, просьба владельца 13.11.2026).
+// Окно сайта показываем, только если карту вводят на сайте («manual»).
 // Успех ловим по окну сайта и сообщаем рендереру.
 async function kadastrFillPayment(win, card, payUrl) {
-  win.show(); win.focus();
   let r = { status: 'manual' };
   if (card) {
-    try { r = await win.webContents.executeJavaScript(kadastrPortal.buildPayFillScript(card), true); }
+    kadStage('card');
+    try { r = await kadJs(win, kadastrPortal.buildPayFillScript(card), true); }
     catch (e) { r = { status: 'error', message: e.message }; }
-  }
+  } else { win.show(); win.focus(); }
   if (kadastrPayTimer) clearInterval(kadastrPayTimer);
   const started = Date.now();
   kadastrPayTimer = setInterval(() => {
     if (!win || win.isDestroyed() || Date.now() - started > 30 * 60 * 1000) { clearInterval(kadastrPayTimer); kadastrPayTimer = null; return; }
-    win.webContents.executeJavaScript(kadastrPortal.PAY_DONE_CHECK, true).then((done) => {
+    kadJs(win, kadastrPortal.PAY_DONE_CHECK, true, 5000).then((done) => {
       if (!done) return;
       clearInterval(kadastrPayTimer); kadastrPayTimer = null;
       try { mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.send('kadastr-paid', { payUrl }); } catch (_) {}
@@ -1093,7 +1189,7 @@ async function kadastrFillPayment(win, card, payUrl) {
 // держит вход в кадастр и сама поправляет дни/недостающие записи.
 ipcMain.handle('kadastr-list', (_e, payload) => {
   const data = payload || {};
-  const run = kadastrChain.then(async () => {
+  return kadQueue('list', 240 * 1000, async () => {
     const st = readKadastrSettings();
     if (!st.eimzoPassword) return { status: 'no_password' };
     const win = ensureKadastrWindow();
@@ -1102,26 +1198,30 @@ ipcMain.handle('kadastr-list', (_e, payload) => {
       if (login !== 'ok') return { status: 'need_login', reason: login };
     }
     let r;
-    try { r = await win.webContents.executeJavaScript(kadastrPortal.buildListFetchScript({ length: data.length }), true); }
+    try { r = await kadJs(win, kadastrPortal.buildListFetchScript({ length: data.length }), true); }
     catch (e) { r = { status: 'error', message: e.message }; }
     if (r && r.status === 'need_login') {
       const login = await kadastrLogin(win, st);
       if (login !== 'ok') return { status: 'need_login', reason: login };
-      try { r = await win.webContents.executeJavaScript(kadastrPortal.buildListFetchScript({ length: data.length }), true); }
+      try { r = await kadJs(win, kadastrPortal.buildListFetchScript({ length: data.length }), true); }
       catch (e) { r = { status: 'error', message: e.message }; }
     }
     if (r && Array.isArray(r.rows)) r.rows = r.rows.map(x => ({ ...x, payUrl: kadastrPortal.safePayUrl(x.payUrl) }));
     return r || { status: 'error' };
   });
-  kadastrChain = run.catch(() => {});
-  return run;
 });
 
-const resolveCard = (req, st) => (req === 'default' ? (st.card || null) : cleanCard(req));
+// 'default' — карта по умолчанию; { savedId } — сохранённая; иначе — введённая сейчас
+const resolveCard = (req, st) => {
+  const cards = kadastrCards(st);
+  if (req === 'default') return cards.find(c => c.id === st.defaultCardId) || null;
+  if (req && typeof req.savedId === 'string') return cards.find(c => c.id === req.savedId) || null;
+  return cleanCard(req);
+};
 
 ipcMain.handle('kadastr-register', (_e, payload) => {
   const data = payload || {};
-  const run = kadastrChain.then(async () => {
+  return kadQueue('register', 360 * 1000, async () => {
     const st = readKadastrSettings();
     const win = ensureKadastrWindow();
     try {
@@ -1129,7 +1229,8 @@ ipcMain.handle('kadastr-register', (_e, payload) => {
       if (login !== 'ok') return { status: 'need_login', reason: login };
       let r;
       try {
-        r = await win.webContents.executeJavaScript(kadastrPortal.buildListovkaScript({
+        kadStage('form');
+        r = await kadJs(win, kadastrPortal.buildListovkaScript({
           iso3: data.iso3, birth: data.birth, passport: data.passport, pspDate: data.pspDate,
           issuedBy: data.issuedBy, days: Number(data.days) || 0, cadMatch: st.cadMatch, dryRun: !!data.dryRun, fitMax: true,
         }), true);
@@ -1137,15 +1238,14 @@ ipcMain.handle('kadastr-register', (_e, payload) => {
       if (!r || r.status !== 'saved') { win.show(); return r || { status: 'error' }; }
       const payUrl = kadastrPortal.safePayUrl(r.payUrl);
       const pay = await kadastrFillPayment(win, resolveCard(data.card, st), payUrl);
-      return { ...r, payUrl, pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount };
+      log.info('[kadastr] оплата после листка:', pay && pay.status, (pay && pay.message) || '');
+      return { ...r, payUrl, pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount, payPhone: pay && pay.phoneMask };
     } catch (e) {
       log.error('[kadastr] register failed:', e.message);
       try { win.show(); } catch (_) {}
       return { status: 'error', message: e.message };
     }
   });
-  kadastrChain = run.catch(() => {});
-  return run;
 });
 
 // Вход в кадастр по кнопке и состояние входа для экрана кадастра.
@@ -1156,43 +1256,61 @@ ipcMain.handle('kadastr-status', () => {
   return { loggedIn: !!(kadastrWindow && !kadastrWindow.isDestroyed() && onListovka(kadastrWindow)), hasPassword: !!st.eimzoPassword };
 });
 ipcMain.handle('kadastr-login', () => {
-  const run = kadastrChain.then(async () => {
+  return kadQueue('login', 420 * 1000, async () => {
     const st = readKadastrSettings();
     const win = ensureKadastrWindow();
+    let reason = 'no_password';
     if (st.eimzoPassword) {
-      const r = await kadastrLogin(win, st);
-      return { status: r === 'ok' ? 'ok' : 'need_login', reason: r };
+      reason = await kadastrLogin(win, st);
+      if (reason === 'ok') return { status: 'ok' };
+    } else {
+      await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+      if (onListovka(win)) return { status: 'ok' };
     }
-    await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
-    if (onListovka(win)) return { status: 'ok' };
-    await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
+    // Фоновый вход не прошёл — показываем окно входа, кассир заканчивает сам
+    kadStage('manual');
+    let host = ''; try { host = new URL(win.webContents.getURL()).hostname; } catch (_) {}
+    if (!/id\.egov\.uz$/.test(host)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
     win.show(); win.focus();
     const ok = await waitUntil(() => onListovka(win) || (() => { try { const u = new URL(win.webContents.getURL()); return u.hostname === 'reg.emehmon.uz' && !/^\/(login|auth)/.test(u.pathname); } catch (_) { return false; } })(), 5 * 60 * 1000, 1000);
-    if (ok && !onListovka(win)) await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+    if (ok && !onListovka(win)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
     if (onListovka(win)) { win.hide(); return { status: 'ok' }; }
-    return { status: 'need_login', reason: 'manual_timeout' };
+    log.warn('[kadastr] ручной вход не завершён за 5 минут, фон:', reason);
+    return { status: 'need_login', reason: reason + ' / manual_timeout' };
   });
-  kadastrChain = run.catch(() => {});
-  return run;
 });
 
 // «Оплатить» позже (окно оплаты живёт 24 часа): открыть листок и вписать карту
 ipcMain.handle('kadastr-open-pay', (_e, payload) => {
   const data = payload || {};
-  const run = kadastrChain.then(async () => {
+  return kadQueue('open-pay', 240 * 1000, async () => {
     const payUrl = kadastrPortal.safePayUrl(data.payUrl);
     if (!payUrl) return { status: 'bad_url' };
     const st = readKadastrSettings();
     const win = ensureKadastrWindow();
     const login = await kadastrLogin(win, st);
     if (login !== 'ok') return { status: 'need_login', reason: login };
-    try { await win.webContents.executeJavaScript('JPView(' + JSON.stringify(payUrl) + ', "To`lash"); true', true); }
+    kadStage('pay_open');
+    try { await kadJs(win, 'JPView(' + JSON.stringify(payUrl) + ', "To`lash"); true', true); }
     catch (e) { return { status: 'error', message: e.message }; }
     const pay = await kadastrFillPayment(win, resolveCard(data.card, st), payUrl);
-    return { status: 'opened', pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount };
+    log.info('[kadastr] оплата:', pay && pay.status, (pay && pay.message) || '');
+    return { status: 'opened', pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount, payPhone: pay && pay.phoneMask };
   });
-  kadastrChain = run.catch(() => {});
-  return run;
+});
+
+// SMS-код оплаты из программы → поля кода на сайте (окно скрыто) → «To`lash».
+// Ответ: paid | otp_error {message} | no_otp_form (окно оплаты закрылось) | timeout
+ipcMain.handle('kadastr-pay-otp', (_e, payload) => {
+  const code = String((payload && payload.code) || '').replace(/\D/g, '');
+  return kadQueue('pay-otp', 120 * 1000, async () => {
+    if (!kadastrWindow || kadastrWindow.isDestroyed()) return { status: 'no_otp_form' };
+    let r;
+    try { r = await kadJs(kadastrWindow, kadastrPortal.buildOtpSubmitScript(code), true); }
+    catch (e) { r = { status: 'error', message: e.message }; }
+    log.info('[kadastr] код оплаты:', r && r.status, (r && r.message) || '');
+    return r || { status: 'error' };
+  });
 });
 
 // Турсбор: отчёт с /tursborpays за период (фоново, как и список листков).

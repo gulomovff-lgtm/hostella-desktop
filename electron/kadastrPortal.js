@@ -56,6 +56,13 @@ function buildOneIdLoginScript(opts) {
   return `(async function(){
   ${COMMON}
   var O = ${O};
+  // На странице два списка: язык (в шапке, «Tilni tanlash») и ключ ЭЦП в форме
+  // входа. Раньше брали первый — раскрывался список языков (журнал 13.11.2026).
+  function keySelect(){
+    var all = Array.prototype.slice.call(document.querySelectorAll('main [role=combobox], main .MuiSelect-select, [role=combobox]')).filter(vis);
+    return all.filter(function(el){ return !el.closest('nav,header') && !/til|язык|lang/i.test(el.getAttribute('aria-label') || ''); })[0] || null;
+  }
+  function options(){ return Array.prototype.slice.call(document.querySelectorAll('[role=listbox] [role=option], .MuiMenu-list li, [role=option]')).filter(vis); }
   if (location.hostname.indexOf('id.egov.uz') === -1) return { status:'not_oneid', url: location.href };
   function buttons(){ return Array.prototype.slice.call(document.querySelectorAll('button,[role=tab],a')).filter(vis); }
   var tab = await waitFor(function(){ return buttons().filter(function(b){ return /^(ERI|ЭЦП|EDS|E-IMZO)$/i.test(txt(b)); })[0]; }, 40, 250);
@@ -66,28 +73,36 @@ function buildOneIdLoginScript(opts) {
   var bodyTxt = function(){ return txt(document.body); };
   var hasKey = function(){ return O.cert && bodyTxt().indexOf(O.cert) !== -1; };
   var ok = await waitFor(function(){ return hasKey() || /E-IMZO modul|E-IMZO модул|E-IMZO module/i.test(bodyTxt()); }, 40, 250);
+  var picked = false;
   if (!hasKey()) {
     // Ключ не первый — раскрываем список и выбираем по номеру сертификата
-    var opener = document.querySelector('[role=combobox],[aria-haspopup=listbox],.MuiSelect-select,.MuiSelect-root');
-    if (opener && vis(opener)) {
-      opener.dispatchEvent(new MouseEvent('mousedown', { bubbles:true }));
-      try { opener.click(); } catch(e){}
+    var opener = keySelect();
+    if (opener) {
+      opener.dispatchEvent(new MouseEvent('mousedown', { bubbles:true, button:0 }));
+      // Ключи E-IMZO подгружаются не сразу — ждём свой до 10 с
       var opt = await waitFor(function(){
-        return Array.prototype.slice.call(document.querySelectorAll('[role=option],li')).filter(function(li){ return vis(li) && txt(li).indexOf(O.cert) !== -1; })[0];
-      }, 20, 250);
-      if (opt) { opt.click(); await sleep(600); }
+        return options().filter(function(li){ return txt(li).indexOf(O.cert) !== -1; })[0];
+      }, 40, 250);
+      if (opt) { opt.click(); picked = true; await sleep(800); }
+      else {
+        var seen = options().map(txt).join(' ; ');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', bubbles:true }));
+        return { status:'no_key', page: 'ключи: ' + (seen || 'нет') };
+      }
     }
   }
-  if (!hasKey()) {
+  if (!hasKey() && !picked) {
     if (/E-IMZO modul|E-IMZO модул|E-IMZO module/i.test(bodyTxt())) return { status:'no_eimzo' };
     return { status:'no_key', page: bodyTxt().slice(0, 300) };
   }
   // Выбран ли нужный ключ, а не просто упомянут в раскрытом списке
-  var shown = Array.prototype.slice.call(document.querySelectorAll('[role=combobox],.MuiSelect-select,[aria-haspopup=listbox]')).filter(vis).map(txt).join(' ');
-  if (shown && shown.indexOf(O.cert) === -1) return { status:'no_key', page: shown.slice(0, 200) };
-  var go = buttons().filter(function(b){ return /^(Kirish|Войти|Login|Кириш)$/i.test(txt(b)) && !b.disabled; }).pop();
+  var shown = keySelect() ? txt(keySelect()) : '';
+  // В поле может стоять имя владельца без номера — проверяем, что это не заглушка
+  if (!shown || /tanlang|выберите|select/i.test(shown)) return { status:'no_key', page: 'не выбран: ' + shown.slice(0, 120) };
+  var go = buttons().filter(function(b){ return /^(Kirish|Войти|Кириш)$/i.test(txt(b)) && !b.disabled; }).pop();
   if (!go) return { status:'no_button' };
-  go.click();
+  // Жмём после ответа: если «Kirish» сразу уведёт страницу, ответ «clicked» уже ушёл
+  setTimeout(function(){ go.click(); }, 80);
   return { status:'clicked' };
 })()`;
 }
@@ -241,6 +256,42 @@ function buildPayFillScript(card) {
 })()`;
 }
 
+// ─── SMS-код оплаты (кассир вводит в программе, 13.11.2026) ─────────────────
+// Окно сайта скрыто: код вписываем в 6 полей #otpInputs и в #confirmNumber
+// (его читает confirmPayment() сайта), жмём «To`lash» и ждём ответ сайта —
+// Swal «muvaffaqiyatli» (оплачено) или ошибку. Неверный код — можно ещё раз.
+function buildOtpSubmitScript(code) {
+  const C = JSON.stringify(String(code || '').replace(/\D/g, '').slice(0, 6));
+  return `(async function(){
+  ${COMMON}
+  var code = ${C};
+  if (code.length !== 6) return { status:'bad_code' };
+  var box = document.getElementById('confirmData');
+  if (!vis(box)) return { status:'no_otp_form' };
+  try { if (window.Swal && Swal.isVisible && Swal.isVisible()) Swal.close(); } catch(e){}
+  Array.prototype.slice.call(document.querySelectorAll('.iziToast')).forEach(function(e){ try { e.remove(); } catch(_){} });
+  await sleep(200);
+  var ins = Array.prototype.slice.call(document.querySelectorAll('#otpInputs input'));
+  ins.forEach(function(el, i){ el.value = code[i] || ''; });
+  ins.forEach(function(el){ el.dispatchEvent(new Event('input', { bubbles:true })); });
+  var cn = document.getElementById('confirmNumber'); if (cn) cn.value = code;
+  if (typeof window.confirmPayment === 'function') window.confirmPayment();
+  else { var b = document.getElementById('confirm_card'); if (!b) return { status:'no_otp_form' }; b.click(); }
+  var r = await waitFor(function(){
+    var p = document.querySelector('.swal2-popup');
+    if (vis(p)) {
+      if (p.querySelector('.swal2-icon-success, .swal2-success') && /muvaffaqiyatli|успешно|success/i.test(txt(p))) return 'paid';
+      if (p.querySelector('.swal2-icon-error, .swal2-error')) return 'err:' + txt(p);
+    }
+    var z = Array.prototype.slice.call(document.querySelectorAll('.iziToast')).filter(vis).map(txt).join(' ');
+    return z ? 'err:' + z : null;
+  }, 160, 250);
+  if (r === 'paid') return { status:'paid' };
+  if (!r) return { status:'timeout' };
+  return { status:'otp_error', message: String(r).slice(4, 300) };
+})()`;
+}
+
 // ─── Список листков (сверка с Hostella) ──────────────────────────────────────
 // Тот же запрос, что таблица /listovka (DataTables, по дате регистрации,
 // новые сверху). Строка: { id, encId, name, passport, dt 'dd.mm.yyyy HH:MM',
@@ -309,6 +360,36 @@ public class HWin {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [StructLayout(LayoutKind.Sequential)] public struct KI { public ushort vk; public ushort scan; public uint flags; public uint time; public IntPtr extra; }
+  [StructLayout(LayoutKind.Sequential)] public struct MI { public int dx; public int dy; public uint data; public uint flags; public uint time; public IntPtr extra; }
+  [StructLayout(LayoutKind.Explicit)] public struct UN { [FieldOffset(0)] public MI mi; [FieldOffset(0)] public KI ki; }
+  [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public UN u; }
+  [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint n, INPUT[] i, int cb);
+  static void Key(ushort vk, ushort scan, uint flags) {
+    INPUT x = new INPUT(); x.type = 1; x.u.ki.vk = vk; x.u.ki.scan = scan; x.u.ki.flags = flags;
+    SendInput(1, new INPUT[] { x }, Marshal.SizeOf(typeof(INPUT)));
+  }
+  static bool Mine(uint[] pids) { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return Array.IndexOf(pids, p) >= 0; }
+  // Символы — как Unicode (KEYEVENTF_UNICODE): не зависят от раскладки.
+  // SendKeys слал клавиши в текущей раскладке — при русской E-IMZO получал
+  // кириллицу вместо пароля (13.11.2026). Перед каждым символом — проверка,
+  // что впереди окно E-IMZO; поле сначала очищаем (Ctrl+A, Backspace).
+  public static string TypeInto(uint[] pids, string s) {
+    if (!Mine(pids)) return "focus_lost";
+    Key(0x11, 0, 0); Key(0x41, 0, 0); Key(0x41, 0, 2); Key(0x11, 0, 2);
+    System.Threading.Thread.Sleep(60);
+    Key(0x08, 0, 0); Key(0x08, 0, 2);
+    System.Threading.Thread.Sleep(60);
+    foreach (char c in s) {
+      if (!Mine(pids)) return "focus_lost";
+      Key(0, c, 4); Key(0, c, 4 | 2);
+      System.Threading.Thread.Sleep(35);
+    }
+    System.Threading.Thread.Sleep(150);
+    if (!Mine(pids)) return "focus_lost";
+    Key(0x0D, 0, 0); Key(0x0D, 0, 2);
+    return "typed";
+  }
 }
 '@
 function EimzoPids { @(Get-Process | Where-Object { try { $_.Path -like '*\\E-IMZO\\*' } catch { $false } } | ForEach-Object { [uint32]$_.Id }) }
@@ -328,7 +409,6 @@ function FindWin($pids) {
   if ($found.Count -gt 0) { return $found[0].h }
   return [IntPtr]::Zero
 }
-function Esc($s) { ($s.ToCharArray() | ForEach-Object { if ('+^%~(){}[]'.Contains([string]$_)) { '{' + $_ + '}' } else { [string]$_ } }) -join '' }
 $deadline = (Get-Date).AddSeconds([int]$env:HOSTELLA_EIMZO_WAIT)
 while ((Get-Date) -lt $deadline) {
   $pids = EimzoPids
@@ -341,11 +421,8 @@ while ((Get-Date) -lt $deadline) {
       Start-Sleep -Milliseconds 400
       $fg = [HWin]::GetForegroundWindow(); $fp = [uint32]0; [void][HWin]::GetWindowThreadProcessId($fg, [ref]$fp)
       if ($pids -contains $fp) {
-        [System.Windows.Forms.SendKeys]::SendWait((Esc $pw))
-        Start-Sleep -Milliseconds 150
-        $fg2 = [HWin]::GetForegroundWindow(); $fp2 = [uint32]0; [void][HWin]::GetWindowThreadProcessId($fg2, [ref]$fp2)
-        if ($pids -contains $fp2) { [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); Write-Output 'typed'; exit 0 }
-        Write-Output 'focus_lost'; exit 0
+        Start-Sleep -Milliseconds 500   # окно Java успевает поставить курсор в поле
+        Write-Output ([HWin]::TypeInto([uint32[]]$pids, $pw)); exit 0
       }
     }
   }
@@ -387,6 +464,6 @@ function typeEimzoPassword(password, { waitSec = 60, log, scriptDir } = {}) {
 
 module.exports = {
   KADASTR_ORIGIN, isKadastrUrl, safePayUrl,
-  buildOneIdLoginScript, buildListovkaScript, buildPayFillScript, buildListFetchScript, PAY_DONE_CHECK,
+  buildOneIdLoginScript, buildListovkaScript, buildPayFillScript, buildOtpSubmitScript, buildListFetchScript, PAY_DONE_CHECK,
   typeEimzoPassword, EIMZO_PS,
 };

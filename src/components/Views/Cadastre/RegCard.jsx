@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, ChevronDown, ChevronUp, ExternalLink, Link, MapPin, Receipt, RefreshCw } from 'lucide-react';
-import { portalPayOpen, portalUnpaid } from '../../../utils/kadastrPortal';
+import { portalUnpaid, portalPayLeftMs, fmtPayLeft } from '../../../utils/kadastrPortal';
+import { localYmd } from '../../../utils/registrationStatus';
 import { STATUS_CFG, fmt, getDaysLeft, getStatus } from './shared';
 import CopyButton from './CopyButton';
 import TRANSLATIONS from '../../../constants/translations';
@@ -15,9 +16,15 @@ const RegCard = ({ reg, maxEnd = '', onExtend, onPay, lang = 'ru' }) => {
   const unexpensed = Math.max(0, (Number(reg.amount) || 0) - alreadyExpensed);
   const unpaid = portalUnpaid(reg.portal);
   const status = getStatus(reg);
-  const cfg = unpaid && status !== 'removed' ? STATUS_CFG.expired : STATUS_CFG[status];
+  // Не оплачен — красный цвет, но подпись по сроку («Активна · 4 дн.», а не «Истекла»)
+  const cfg = unpaid && status !== 'removed' ? { ...STATUS_CFG.expired, label: STATUS_CFG[status].label } : STATUS_CFG[status];
   const daysLeft = getDaysLeft(reg.endDate);
   const Icon = cfg.icon;
+  const payLeft = portalPayLeftMs(reg.portal);
+  const canPay = !!onPay && payLeft > 0;
+  const ended = status !== 'removed' && reg.endDate && reg.endDate < localYmd();
+  const limitHit = ended && !!maxEnd && reg.endDate >= maxEnd;
+  const canExtend = ended && !!onExtend && !limitHit;
 
   return (
     <div className={`bg-white rounded-2xl border ${cfg.border} shadow-sm overflow-hidden transition-all hover:shadow-md`}>
@@ -57,6 +64,7 @@ const RegCard = ({ reg, maxEnd = '', onExtend, onPay, lang = 'ru' }) => {
               {unpaid && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
                   💳 {t('cadPortalUnpaidBadge')}
+                  {payLeft > 0 && <span className="tabular-nums"> · {t('cadPayLeft').replace('{t}', fmtPayLeft(payLeft, t))}</span>}
                 </span>
               )}
               {reg.portal?.status === 'saved' && reg.portal.paidAt && (
@@ -92,6 +100,30 @@ const RegCard = ({ reg, maxEnd = '', onExtend, onPay, lang = 'ru' }) => {
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
         </div>
+        {/* Кнопки — прямо на карточке (просьба владельца 13.11.2026):
+            «Оплатить» — пока сайт держит листок (сутки), с остатком времени;
+            «Продлить» — только когда срок кончился: на сайте после окончания
+            листок оформляют заново, раньше его не принять */}
+        {(canPay || canExtend || limitHit) && (
+          <div className="flex flex-wrap items-center gap-2 mt-3 pl-[52px]">
+            {canPay && (
+              <button onClick={() => onPay(reg)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold hover:bg-rose-700">
+                💳 {t('cadPortalPayBtn')}
+                <span className="font-semibold opacity-80 tabular-nums">· {t('cadPayLeft').replace('{t}', fmtPayLeft(payLeft, t))}</span>
+              </button>
+            )}
+            {canExtend && (
+              <button onClick={() => onExtend(reg)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
+                <RefreshCw size={11} /> {t('cdmExtend')}
+              </button>
+            )}
+            {limitHit && (
+              <span className="text-xs font-semibold text-rose-600">{t('cadLimitReached').replace('{date}', maxEnd)}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {expanded && (
@@ -118,24 +150,6 @@ const RegCard = ({ reg, maxEnd = '', onExtend, onPay, lang = 'ru' }) => {
               </a>
             </div>
           )}
-          {/* Кнопки */}
-          <div className="flex flex-wrap gap-2">
-            {maxEnd && reg.endDate >= maxEnd && status !== 'removed' && (
-              <span className="text-xs font-semibold text-rose-600 self-center">{t('cadLimitReached').replace('{date}', maxEnd)}</span>
-            )}
-            {status !== 'removed' && onExtend && !(maxEnd && reg.endDate >= maxEnd) && (
-              <button onClick={() => onExtend(reg)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
-                <RefreshCw size={11} /> {t('cdmExtend')}
-              </button>
-            )}
-            {onPay && portalPayOpen(reg.portal) && (
-              <button onClick={() => onPay(reg)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold hover:bg-rose-700">
-                💳 {t('cadPortalPayBtn')}
-              </button>
-            )}
-          </div>
         </div>
       )}
     </div>

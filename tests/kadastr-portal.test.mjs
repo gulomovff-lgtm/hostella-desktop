@@ -62,8 +62,12 @@ test('пароль ЭЦП печатается только в окно E-IMZO �
 
 test('секреты кадастра — в главном процессе, рендереру только маски', () => {
   assert.match(mainSrc, /electron\.safeStorage\.encryptString/);
-  assert.match(mainSrc, /const kadastrPublic = \(st\) => \(\{\s*hasPassword: !!st\.eimzoPassword/);
-  assert.doesNotMatch(mainSrc, /kadastrPublic[\s\S]{0,400}eimzoPassword: st\.eimzoPassword/);
+  const pub = mainSrc.slice(mainSrc.indexOf('const kadastrPublic'), mainSrc.indexOf("ipcMain.handle('kadastr-settings-get'"));
+  assert.match(pub, /hasPassword: !!st\.eimzoPassword/);
+  assert.doesNotMatch(pub, /eimzoPassword: st\.eimzoPassword/);
+  // карты — только маски: номер и телефон целиком рендерер не получает
+  assert.match(pub, /cards: cards\.map\(c => \(\{ id: c\.id, mask: cardMask\(c\), phoneMask: phoneMask\(c\), isDefault/);
+  assert.doesNotMatch(pub, /number: c\.number|phone: c\.phone/);
   assert.match(preloadSrc, /kadastrRegister: \(payload\) => ipcRenderer\.invoke\('kadastr-register'/);
   // E-IMZO-сертификат признаём только для окна кадастра
   assert.match(mainSrc, /u\.hostname === '127\.0\.0\.1' && u\.port === '64443' && kadastrWindow/);
@@ -74,6 +78,25 @@ test('вход в кадастр — в фоне: окно не показыва
   assert.doesNotMatch(login, /win\.show\(\)/);
   assert.ok(mainSrc.includes("ipcMain.handle('kadastr-list'"), 'вход держит сверка: список берётся после фонового входа');
   assert.match(mainSrc, /backgroundThrottling: false/);
+});
+
+test('оплата с картой — в скрытом окне, SMS-код вводится в программе', () => {
+  const fill = mainSrc.slice(mainSrc.indexOf('async function kadastrFillPayment'), mainSrc.indexOf('// Список листков сайта для сверки'));
+  assert.match(fill, /\} else \{ win\.show\(\); win\.focus\(\); \}/, 'окно сайта — только когда карту вводят на сайте');
+  assert.ok(mainSrc.includes("ipcMain.handle('kadastr-pay-otp'"));
+  assert.match(preloadSrc, /kadastrPayOtp: \(code\) => ipcRenderer\.invoke\('kadastr-pay-otp'/);
+  const s = kp.buildOtpSubmitScript("12'34;56");
+  assert.doesNotThrow(() => new Function(s));
+  assert.match(s, /var code = "123456"/, 'в страницу уходят только цифры');
+  assert.match(s, /confirmNumber/); assert.match(s, /otpInputs/);
+});
+
+test('очередь кадастра не встаёт навсегда: у шагов и операций есть предел времени', () => {
+  // kadastrChain трогает только kadQueue — все операции идут через неё
+  assert.equal((mainSrc.match(/kadastrChain/g) || []).length, 3);
+  for (const op of ['list', 'register', 'login', 'open-pay', 'pay-otp']) assert.ok(mainSrc.includes(`kadQueue('${op}',`), op);
+  const sec = mainSrc.slice(mainSrc.indexOf('function kadQueue'), mainSrc.indexOf("ipcMain.handle('emehmon-tursbor'"));
+  assert.doesNotMatch(sec, /\bwin\.loadURL\(|kadastrWindow\.webContents\.executeJavaScript\(/, 'страницы сайта — только через kadLoad/kadJs');
 });
 
 test('цепочка входа OneID пропускается целиком (sso.egov.uz и http-возврат), чужое — нет', () => {

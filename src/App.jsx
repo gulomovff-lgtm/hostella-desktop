@@ -147,6 +147,7 @@ import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { hasRegistration, isLivingNow, cadastreHouseFor, cadastreDaysFor, cadastreEndFor, localYmd } from './utils/registrationStatus';
 import { kadastrPayload, kadastrMissing, kadastrPortalAvailable, portalFromResult, dmySlashToYmd, cadastreLimitEnd } from './utils/kadastrPortal';
+import { KadastrOtpModal } from './components/UI/KadastrCardPicker';
 import { planKadastrSync } from './utils/kadastrSync';
 import { HISTORY_TABS } from './utils/historyWindow';
 import ScreenLoading from './components/UI/ScreenLoading';
@@ -1080,6 +1081,8 @@ function App() {
     if (r?.status === 'saved') {
       const msg = r.pay === 'otp' ? 'cadPortalSavedOtp' : 'cadPortalSaved';
       showNotification(tr(msg).replace('{name}', guest.fullName || '').replace('{sum}', Number(r.amount || 0).toLocaleString('ru-RU')), 'success');
+      if (r.pay === 'otp') setKadOtp({ stage: 'code', name: guest.fullName || '', phone: r.payPhone || '', amount: r.payAmount || r.amount || 0 });
+      else if (r.pay === 'card_error') showNotification(tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : ''), 'warning');
     } else {
       showNotification(tr('cadPortalFail').replace('{name}', guest.fullName || '').replace('{status}', tr('cadPortal_' + (r?.status || 'error')) + (r?.message ? ': ' + r.message : '')), 'warning');
       reportError('emehmon', 'kadastr.portal', String(r?.status || 'error') + ' ' + String(r?.message || r?.reason || '').slice(0, 200), { guestId: guest.id, guest: guest.fullName || '', status: r?.status || 'error' }, { severity: 'warning' });
@@ -1167,16 +1170,32 @@ function App() {
   const handleKadastrPay = async (reg, card) => {
     const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
     if (!reg?.portal?.payUrl || !window.electronAPI?.kadastrOpenPay) return;
-    showNotification(tr('cadPortalPayOpening'), 'info');
+    // Окошко сразу, с крутилкой: вход и карта на сайте идут до минуты
+    const manual = !card;
+    if (!manual) setKadOtp({ stage: 'working', name: reg.guestName || '' });
+    else showNotification(tr('cadPortalPayOpening'), 'info');
     window.electronAPI.kadastrOpenPay({ payUrl: reg.portal.payUrl, card: card || null })
       .catch((e) => ({ status: 'error', message: e.message }))
-      .then((r) => afterKadastrPay(reg, r));
+      .then((r) => afterKadastrPay(reg, r, manual));
   };
-  const afterKadastrPay = (reg, r) => {
+  const afterKadastrPay = (reg, r, manual = false) => {
     const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
-    if (r?.status !== 'opened') showNotification(tr('cadPortalFail').replace('{name}', reg.guestName || '').replace('{status}', tr('cadPortal_' + (r?.status || 'error')) + (r?.message ? ': ' + r.message : '')), 'warning');
-    else if (r.pay === 'otp') showNotification(tr('cadPortalOtp'), 'info');
+    const name = reg.guestName || '';
+    if (r?.status === 'opened' && r.pay === 'otp') {
+      setKadOtp({ stage: 'code', name, phone: r.payPhone || '', amount: r.payAmount || reg.portal?.amount || 0 });
+      return;
+    }
+    if (r?.status === 'opened' && r.pay === 'manual') { setKadOtp(null); return; }   // карту вводят на сайте — окно сайта открыто
+    // Любой другой исход — причиной в том же окошке, а не тишиной
+    const why = r?.status !== 'opened'
+      ? tr('cadPortal_' + (r?.status || 'error')) + (r?.message || r?.reason ? ': ' + (r.message || r.reason) : '')
+      : r.pay === 'card_error' ? tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : '')
+      : tr('cadPortal_' + (r.pay || 'error')) + (r.payMessage ? ': ' + r.payMessage : '');
+    if (manual) { showNotification(tr('cadPortalFail').replace('{name}', name).replace('{status}', why), 'warning'); return; }
+    setKadOtp({ stage: 'error', name, error: why });
   };
+  // Окно «Код из SMS» — оплата турсбора без окна сайта (13.11.2026)
+  const [kadOtp, setKadOtp] = useState(null);
   const cadRegsForPayRef = useRef(cadastreRegs);
   cadRegsForPayRef.current = cadastreRegs;
   useEffect(() => {
@@ -2873,6 +2892,9 @@ return (
         )}
 
         {/* Госбаза не нашла иностранца — исправить данные и проверить снова */}
+        {kadOtp && (
+          <KadastrOtpModal t={(k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k} otp={kadOtp} onClose={() => setKadOtp(null)} />
+        )}
         {kppFixPrompt && !checkInModal.open && (
             <KppFixDataModal
                 guest={kppFixPrompt.guest}
