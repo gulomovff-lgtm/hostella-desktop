@@ -4,6 +4,7 @@
 // не указан. Сайт — источник правды о сроке; деньги не трогаем (сумма с сайта
 // в списке не приходит, расход пишется при оформлении через программу).
 import { normPass, cadastreEndFor, cadastreDaysFor, localYmd, cadastreHouseFor } from './registrationStatus.js';
+import { cadastreLimitFor } from './kadastrPortal.js';
 
 /** 'dd.mm.yyyy HH:MM' → { ymd, iso } (местное время) или null. */
 export function parseSiteDt(dt) {
@@ -129,7 +130,16 @@ export function planKadastrSync({ rows = [], regs = [], guests = [], cadastres =
     const guest = (guests || []).find(g => g && g.status === 'active' && g.roomId !== 'DEBT_ONLY' &&
       ((reg.guestId && g.id === reg.guestId) || normPass(g.passport) === pass));
     if (!guest) continue;
-    toRegister.push({ reg, guest, days: Math.max(1, cadastreDaysFor(today, reg.endDate)) });
+    // Предел сайта известен (30 дней от въезда) и уже пройден — не стучимся
+    const lim = cadastreLimitFor(guest, [reg]);
+    if (lim && lim < today) {
+      // 30 дней от въезда (КПП) прошли: продление в Hostella откатываем к
+      // последнему листку — дальше гость пойдёт в e-mehmon
+      const back = siteEnd.get(pass) || '';
+      if (back && reg.endDate > back) fixes.push({ regId: reg.id, patch: { endDate: back, days: cadastreDaysFor(reg.startDate, back) } });
+      continue;
+    }
+    toRegister.push({ reg, guest, siteEnd: siteEnd.get(pass) || '', days: Math.max(1, cadastreDaysFor(today, lim && lim < reg.endDate ? lim : reg.endDate)) });
   }
   // Не больше limit записей за раз: остальное — в следующую сверку
   return { fixes: fixes.slice(0, limit), creates: creates.slice(0, limit), unmatched, toRegister: toRegister.slice(0, 2) };

@@ -28,6 +28,7 @@
  * разбор принимает строку и массивом ячеек, и строкой с ячейками через « | »,
  * а `trimProbe` всегда отдаёт второй вид — именно он уходит в документ гостя.
  */
+import { cadastreMatches, localYmd } from './registrationStatus.js';
 
 /** Срок (дней) без регистрации, день прохода КПП = 1-й день. */
 export const getRegistrationWindow = (country) => {
@@ -381,4 +382,29 @@ export function shouldRetryNoRoom(guest, now = Date.now(), hours = 6) {
   const at = guest?.emehmonNoRoomAt ? new Date(guest.emehmonNoRoomAt).getTime() : 0;
   if (!at || !Number.isFinite(at) || at < NO_ROOM_RESET_AT) return true;
   return now - at >= hours * 3600 * 1000;
+}
+
+// ── Дата КПП сама (решение владельца 13.11.2026) ─────────────────────────
+// Кого программа проверяет в госбазе без кнопки: живущие иностранцы
+// (не «только долг»), независимо от оплаты и регистрации.
+//  • даты КПП нет — сразу (не проверяли или проверка не нашла — раз в 6 ч);
+//  • живёт по кадастру — раз в сутки: каждые 30 дней они делают въезд-выезд,
+//    от новой даты считается предел кадастра;
+//  • ручную дату не перебиваем походами — её правит человек.
+// Неудача (kppTryAt) — пауза 6 ч. Сначала те, у кого даты нет.
+const KPP_HOUR = 3600 * 1000;
+export function kppPlan(guests = [], cadastreRegs = [], now = Date.now()) {
+  const today = localYmd(new Date(now));
+  const ago = (iso) => { const t = iso ? new Date(iso).getTime() : 0; return Number.isFinite(t) && t > 0 ? now - t : Infinity; };
+  const inCadastre = (g) => (cadastreRegs || []).some(r => r && r.status !== 'removed' && !r.void &&
+    r.startDate && r.endDate && r.startDate <= today && r.endDate >= today && cadastreMatches(r, g));
+  const out = [];
+  for (const g of guests || []) {
+    if (!g || g.status !== 'active' || g.roomId === 'DEBT_ONLY' || !g.country || g.country === 'Узбекистан' || !g.passport) continue;
+    if (ago(g.kppTryAt) < 6 * KPP_HOUR) continue;
+    if (!g.kppDate) { if (ago(g.kppCheckedAt) >= 6 * KPP_HOUR) out.push({ g, first: true }); continue; }
+    if (g.kppSource === 'manual') continue;
+    if (inCadastre(g) && ago(g.kppCheckedAt) >= 24 * KPP_HOUR) out.push({ g, first: false });
+  }
+  return out.sort((a, b) => Number(b.first) - Number(a.first)).map(x => x.g);
 }

@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   kadastrRegister: (payload) => ipcRenderer.invoke('kadastr-register', payload),
   kadastrOpenPay: (payload) => ipcRenderer.invoke('kadastr-open-pay', payload),
   kadastrList: (payload) => ipcRenderer.invoke('kadastr-list', payload),
+  kadastrStatus: () => ipcRenderer.invoke('kadastr-status'),
+  kadastrLogin: () => ipcRenderer.invoke('kadastr-login'),
   onKadastrPaid: (cb) => subscribe('kadastr-paid', cb),
 
   // Pending payments (offline safety net)

@@ -8,7 +8,7 @@ import TRANSLATIONS from '../../../constants/translations';
 // Ручные «Изменить / Завершить / Удалить / В расходы» убраны (13.11.2026):
 // кадастр ведёт программа — листок на сайте, сумма в расходы, завершение через
 // 18 часов, сверка сроков. Кассиру остаются «Продлить» и «Оплатить».
-const RegCard = ({ reg, onExtend, onPay, lang = 'ru' }) => {
+const RegCard = ({ reg, maxEnd = '', onExtend, onPay, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [expanded, setExpanded] = useState(false);
   const alreadyExpensed = reg.totalExpensed ?? (reg.expenseAdded ? (Number(reg.amount) || 0) : 0);
@@ -120,7 +120,10 @@ const RegCard = ({ reg, onExtend, onPay, lang = 'ru' }) => {
           )}
           {/* Кнопки */}
           <div className="flex flex-wrap gap-2">
-            {status !== 'removed' && onExtend && (
+            {maxEnd && reg.endDate >= maxEnd && status !== 'removed' && (
+              <span className="text-xs font-semibold text-rose-600 self-center">{t('cadLimitReached').replace('{date}', maxEnd)}</span>
+            )}
+            {status !== 'removed' && onExtend && !(maxEnd && reg.endDate >= maxEnd) && (
               <button onClick={() => onExtend(reg)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
                 <RefreshCw size={11} /> {t('cdmExtend')}

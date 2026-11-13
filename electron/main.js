@@ -1131,7 +1131,7 @@ ipcMain.handle('kadastr-register', (_e, payload) => {
       try {
         r = await win.webContents.executeJavaScript(kadastrPortal.buildListovkaScript({
           iso3: data.iso3, birth: data.birth, passport: data.passport, pspDate: data.pspDate,
-          issuedBy: data.issuedBy, days: Number(data.days) || 0, cadMatch: st.cadMatch, dryRun: !!data.dryRun,
+          issuedBy: data.issuedBy, days: Number(data.days) || 0, cadMatch: st.cadMatch, dryRun: !!data.dryRun, fitMax: true,
         }), true);
       } catch (e) { r = { status: 'error', message: e.message }; }
       if (!r || r.status !== 'saved') { win.show(); return r || { status: 'error' }; }
@@ -1143,6 +1143,34 @@ ipcMain.handle('kadastr-register', (_e, payload) => {
       try { win.show(); } catch (_) {}
       return { status: 'error', message: e.message };
     }
+  });
+  kadastrChain = run.catch(() => {});
+  return run;
+});
+
+// Вход в кадастр по кнопке и состояние входа для экрана кадастра.
+// Пароль ЭЦП задан — вход в фоне; не задан — окно OneID кассиру (ключ и
+// пароль E-IMZO вводит человек), после входа окно прячется.
+ipcMain.handle('kadastr-status', () => {
+  const st = readKadastrSettings();
+  return { loggedIn: !!(kadastrWindow && !kadastrWindow.isDestroyed() && onListovka(kadastrWindow)), hasPassword: !!st.eimzoPassword };
+});
+ipcMain.handle('kadastr-login', () => {
+  const run = kadastrChain.then(async () => {
+    const st = readKadastrSettings();
+    const win = ensureKadastrWindow();
+    if (st.eimzoPassword) {
+      const r = await kadastrLogin(win, st);
+      return { status: r === 'ok' ? 'ok' : 'need_login', reason: r };
+    }
+    await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+    if (onListovka(win)) return { status: 'ok' };
+    await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
+    win.show(); win.focus();
+    const ok = await waitUntil(() => onListovka(win) || (() => { try { const u = new URL(win.webContents.getURL()); return u.hostname === 'reg.emehmon.uz' && !/^\/(login|auth)/.test(u.pathname); } catch (_) { return false; } })(), 5 * 60 * 1000, 1000);
+    if (ok && !onListovka(win)) await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+    if (onListovka(win)) { win.hide(); return { status: 'ok' }; }
+    return { status: 'need_login', reason: 'manual_timeout' };
   });
   kadastrChain = run.catch(() => {});
   return run;

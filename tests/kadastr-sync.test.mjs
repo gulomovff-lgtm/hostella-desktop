@@ -91,3 +91,22 @@ test('листок не прошёл — сверка повторит сама;
   assert.equal(run({ status: 'pending', at: new Date(now.getTime() - 30 * 60e3).toISOString() }), 0);
   assert.equal(planKadastrSync({ rows: [], regs: [{ ...base }], guests: [guest], cadastres: houses, createHostelId: 'hostel2', now }).toRegister.length, 0, 'чужой филиал');
 });
+
+test('лимит кадастра — 30 дней от КПП (или более позднего въезда с сайта)', async () => {
+  const { cadastreLimitEnd, cadastreLimitFor } = await import('../src/utils/kadastrPortal.js');
+  assert.equal(cadastreLimitEnd('2026-11-01'), '2026-11-30', 'въезд — 1-й день из 30');
+  assert.equal(cadastreLimitFor({ kppDate: '2026-11-11' }, []), '2026-12-10');
+  assert.equal(cadastreLimitFor({ kppDate: '2026-10-01' }, [{ portal: { maxEnd: '2026-11-30' } }]), '2026-11-30', 'сайт знает въезд позже');
+  assert.equal(cadastreLimitFor({}, []), '');
+});
+
+test('30 дней от КПП прошли — сверка не оформляет и откатывает продление к листку', () => {
+  const g = { ...guest, kppDate: '2026-10-10' };   // предел 08.11
+  const reg = { id: 'r1', status: 'active', hostelId: 'hostel1', guestId: 'g1', passport: '405459377', startDate: '2026-11-05', endDate: '2026-11-15', days: 11, extendedAt: '2026-11-13T12:00:00.000Z' };
+  const p = planKadastrSync({ rows: [row({ dt: '05.11.2026 18:45', wdays: 8 })], regs: [reg], guests: [g], cadastres: houses, createHostelId: 'hostel1', now });
+  assert.equal(p.toRegister.length, 0);
+  assert.ok(p.fixes.some(f => f.patch.endDate === '2026-11-12'), 'конец — по последнему листку');
+  const ok = planKadastrSync({ rows: [row({ dt: '05.11.2026 18:45', wdays: 8 })], regs: [reg], guests: [{ ...guest, kppDate: '2026-11-11' }], cadastres: houses, createHostelId: 'hostel1', now });
+  assert.equal(ok.toRegister.length, 1, 'КПП 11.11 — предел 10.12, продление оформляем');
+  assert.equal(ok.toRegister[0].days, 3, '13–15 ноября');
+});

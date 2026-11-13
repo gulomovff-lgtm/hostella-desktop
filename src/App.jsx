@@ -145,8 +145,8 @@ import { useShiftActions }        from './hooks/useShiftActions';
 import { useRegistrationActions } from './hooks/useRegistrationActions';
 import { useCadastreActions }     from './hooks/useCadastreActions';
 import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
-import { hasRegistration, isLivingNow, cadastreHouseFor, cadastreDaysFor, localYmd } from './utils/registrationStatus';
-import { kadastrPayload, kadastrMissing, kadastrPortalAvailable, portalFromResult } from './utils/kadastrPortal';
+import { hasRegistration, isLivingNow, cadastreHouseFor, cadastreDaysFor, cadastreEndFor, localYmd } from './utils/registrationStatus';
+import { kadastrPayload, kadastrMissing, kadastrPortalAvailable, portalFromResult, dmySlashToYmd, cadastreLimitEnd } from './utils/kadastrPortal';
 import { planKadastrSync } from './utils/kadastrSync';
 import { HISTORY_TABS } from './utils/historyWindow';
 import ScreenLoading from './components/UI/ScreenLoading';
@@ -1128,13 +1128,37 @@ function App() {
   };
 
   // Ответ сайта → запись кадастра: отметка листка, сумма с сайта и расход
-  const applyPortalResult = async (reg, r) => {
+  // Сайт даёт кадастр максимум 30 дней от въезда (13.11.2026): дату въезда
+  // и предел берём с сайта и запоминаем; оформили меньше дней — правим конец
+  // в Hostella; не дали ни дня — продление откатываем к последнему листку.
+  const applyPortalResult = async (reg, r, ctx = {}) => {
+    const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
+    const fmtD = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('ru-RU') : '');
     const portal = portalFromResult(r);
+    const border = dmySlashToYmd(r?.border) || reg.portal?.borderDate || '';
+    if (border) { portal.borderDate = border; portal.maxEnd = cadastreLimitEnd(border); }
     await handleCadastrePortal(reg.id, portal);
-    if (portal.status === 'saved' && portal.amount > 0) {
+    if (r?.status === 'days_limit') {
+      const back = ctx.siteEnd && ctx.siteEnd < reg.endDate ? ctx.siteEnd : '';
+      if (back) await handleCadastreSyncFix(reg.id, { endDate: back, days: cadastreDaysFor(reg.startDate, back) });
+      showNotification(tr('cadPortalLimit').replace('{name}', reg.guestName || '').replace('{date}', fmtD(portal.maxEnd || back || reg.endDate)), 'warning');
+      return;
+    }
+    if (portal.status !== 'saved') return;
+    let endDate = reg.endDate, days = reg.days;
+    const used = Math.round(Number(r?.wdays) || 0);
+    if (used > 0) {
+      const siteEndNew = cadastreEndFor(localYmd(), used);
+      if (siteEndNew && siteEndNew < reg.endDate) {
+        endDate = siteEndNew; days = cadastreDaysFor(reg.startDate, endDate);
+        await handleCadastreSyncFix(reg.id, { endDate, days });
+        showNotification(tr('cadPortalShortened').replace('{name}', reg.guestName || '').replace('{date}', fmtD(endDate)), 'warning');
+      }
+    }
+    if (portal.amount > 0) {
       const amount = (Number(reg.amount) || 0) + portal.amount;
-      await handleUpdateCadastreReg(reg, { guestName: reg.guestName, startDate: reg.startDate, endDate: reg.endDate, days: reg.days, amount, regLink: reg.regLink });
-      await handleAddRegToExpenses({ ...reg, amount });
+      await handleUpdateCadastreReg(reg, { guestName: reg.guestName, startDate: reg.startDate, endDate, days, amount, regLink: reg.regLink });
+      await handleAddRegToExpenses({ ...reg, endDate, days, amount });
     }
   };
   // Гость, которого программа оформляет на сайте прямо сейчас (не дважды)
@@ -1209,7 +1233,7 @@ function App() {
           await handleCadastrePortal(it.reg.id, { ...(it.reg.portal || {}), status: 'pending', at: new Date().toISOString() });
           try {
             const r = await runKadastrPortal(it.guest, it.days, 'default');
-            await applyPortalResult(it.reg, r);
+            await applyPortalResult(it.reg, r, { siteEnd: it.siteEnd });
           } finally { kadInFlightRef.current.delete(it.guest.id); }
         }
         if (fixed || created) {

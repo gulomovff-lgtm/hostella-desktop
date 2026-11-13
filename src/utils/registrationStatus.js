@@ -113,7 +113,8 @@ export function stayStartAfterCadastre(g, cadastreRegs = [], now = new Date()) {
   const ci = g.checkInDate ? new Date(g.checkInDate) : null;
   let best = '';
   for (const r of cadastreRegs || []) {
-    if (!r || !cadastreMatches(r, g)) continue;
+    // void — запись отменена как «не было» (откат владельца): дни не трогает
+    if (!r || r.void || !cadastreMatches(r, g)) continue;
     let e = String(r.endDate || '').slice(0, 10);
     // Сняли раньше срока — кадастр кончился в день снятия
     if (r.status === 'removed' && r.removedAt) {

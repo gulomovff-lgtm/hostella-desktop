@@ -12,7 +12,7 @@ import {
 } from '../utils/emehmon';
 import {
   parseEmehmonProbe, assessKpp, guestRegistrationDue, autoRegisterDay, trimProbe, shouldRetryNoRoom, shouldRetryAttempt, lastTryMark,
-  todayIso, daysBetween, getRegistrationWindow,
+  todayIso, daysBetween, getRegistrationWindow, kppPlan,
 } from '../utils/kppRules';
 import TRANSLATIONS from '../constants/translations';
 import { getConfig } from '../utils/appConfig';
@@ -628,7 +628,7 @@ const runForeignRegistration = useCallback(async (guest, opts = {}) => {
 
 // Проверка иностранца в госбазе (без регистрации): дата КПП → карточка.
 // Возвращает гостя с обновлённой датой или null, если продолжать нельзя.
-const checkForeign = useCallback(async (guest, { silent = false, quiet = false } = {}) => {
+const checkForeign = useCallback(async (guest, { silent = false, quiet = false, kppOnly = false } = {}) => {
   const now = new Date().toISOString();
   if (quiet) silent = true;
   if (!silent) showNotification(t('emaCheckingGov').replace('{name}', guest.fullName), 'info');
@@ -636,7 +636,9 @@ const checkForeign = useCallback(async (guest, { silent = false, quiet = false }
   const st = res?.status;
   if (st === 'need_login') { if (!silent) showNotification(t('emaLoginContinueReg'), 'info'); return { guest: null, status: st }; }
   if (st === 'not_found') {
-    await handleEmehmonFlag(guest.id, { emehmonRegError: REG_ERROR_TEXT, emehmonRegErrorAt: now });
+    // Проход «только КПП» ошибку регистрации не ставит: гость может быть уже
+    // зарегистрирован или в кадастре — ошибка данных там лишь пугает кассира
+    if (!kppOnly) await handleEmehmonFlag(guest.id, { emehmonRegError: REG_ERROR_TEXT, emehmonRegErrorAt: now });
     if (!silent) setKppFixPrompt({ guest, notFoundText: res?.notFoundText || '' });
     else if (!quiet) showNotification(t('emaNotInGovDb').replace('{name}', guest.fullName), 'warning');
     return { guest: null, status: st };
@@ -753,6 +755,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
     !(g.kppSituation && !g.kppSituationDecision)   // ждёт решения человека — не дёргаем портал
   );
   let trips = 0;
+  let portalDown = false;            // портал просит вход / нет сети — КПП тоже не взять
   const MAX_TRIPS = 5;
   for (const g of candidates) {
     if (trips >= MAX_TRIPS) break;
@@ -761,7 +764,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
       emehmonAutoBusy.current.add(g.id); trips++;
       try {
         const reg = await autoRegisterArrival(g, { silent: true });
-        if (reg?.status === 'need_login' || reg?.status === 'network') { await releasePortalClaim(g.id); break; }
+        if (reg?.status === 'need_login' || reg?.status === 'network') { await releasePortalClaim(g.id); portalDown = true; break; }
         await finishAutoArrival(g, reg, { silent: true, quiet, again: () => autoRegisterArrival(g, { silent: true }) });
       } catch (_) { /* пропускаем */ } finally { emehmonAutoBusy.current.delete(g.id); }
       continue;
@@ -778,7 +781,7 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
       foreignBusy.current.add(g.id); trips++;
       let r;
       try { r = await checkForeign(g, { silent: true, quiet }); } finally { foreignBusy.current.delete(g.id); }
-      if (r.status === 'need_login') break;
+      if (r.status === 'need_login') { portalDown = true; break; }
       if (!r.guest) {
         // not_found пишет ошибку данных сама; прочие неудачи — след и пауза,
         // иначе гость без даты КПП «устаревал» снова и брал попытку каждые 5 минут
@@ -791,7 +794,27 @@ const runEmehmonCatchup = useCallback(async (hostelId, listOk, pSet, nSet) => {
     if (trips >= MAX_TRIPS) break;
     trips++;
     const res = await runForeignRegistration(gg, { silent: true, quiet });
-    if (res?.status === 'need_login') break;
+    if (res?.status === 'need_login') { portalDown = true; break; }
+  }
+  if (portalDown) return;
+
+  // ── Дата КПП сама, без кнопки «Проверить в госбазе» (решение владельца
+  // 13.11.2026). Добор выше смотрит только оплаченных и ещё не
+  // зарегистрированных — здесь все живущие иностранцы филиала: без даты —
+  // сразу, в кадастре — раз в сутки (они раз в 30 дней делают въезд-выезд,
+  // от новой даты считается предел кадастра). Неудачу повторяем через 6 ч.
+  if (!window.electronAPI?.emehmonPassportCheck) return;
+  const nowMs = Date.now();
+  const kppDue = (kppPlan(guests, cadastreRegs, nowMs) || []).filter(g => sameHostel(g) &&
+    !emehmonAutoBusy.current.has(g.id) && !foreignBusy.current.has(g.id));
+  let kppTrips = 0;
+  for (const g of kppDue) {
+    if (kppTrips >= 2) break;
+    foreignBusy.current.add(g.id); kppTrips++;
+    let r;
+    try { r = await checkForeign(g, { silent: true, quiet: true, kppOnly: true }); } finally { foreignBusy.current.delete(g.id); }
+    if (r.status === 'need_login') break;
+    if (!r.guest) await handleEmehmonFlag(g.id, { kppTryAt: new Date().toISOString() });
   }
 }, [guests, cadastreRegs, finishAutoArrival, checkForeign, runForeignRegistration, claimForPortal]); // eslint-disable-line react-hooks/exhaustive-deps
 

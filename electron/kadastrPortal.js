@@ -16,12 +16,18 @@
 const KADASTR_ORIGIN = 'https://reg.emehmon.uz';
 
 // Хосты окна кадастра: сам сайт и вход OneID. Остальное окно не открывает.
+// Цепочка входа (проверено 13.11.2026): reg.emehmon.uz/auth/oneid →
+// sso.egov.uz/sso/oauth/Authorization.do → id.egov.uz → обратно на
+// http://reg.emehmon.uz/user/autosocialize/egov (сайт сам переводит на https).
+// Без sso.egov.uz и http-возврата окно оставалось на /login («не удалось
+// войти ключом ЭЦП»).
 const isKadastrUrl = (url) => {
   try {
     const u = new URL(url);
-    if (u.protocol !== 'https:') return false;
     const h = u.hostname.toLowerCase();
-    return h === 'reg.emehmon.uz' || h === 'id.egov.uz' || h.endsWith('.id.egov.uz');
+    if (u.protocol === 'http:') return h === 'reg.emehmon.uz' && u.pathname.indexOf('/user/autosocialize/') === 0;
+    if (u.protocol !== 'https:') return false;
+    return h === 'reg.emehmon.uz' || h === 'id.egov.uz' || h === 'sso.egov.uz';
   } catch { return false; }
 };
 
@@ -149,8 +155,16 @@ function buildListovkaScript(data) {
   setVal('pspIssuedBy', String(D.issuedBy || ctz.text.split(' - ').slice(1).join(' - ') || '').toUpperCase().replace(/[^A-Z0-9 -]/g,' ').replace(/\\s+/g,' ').trim());
   var wd = document.getElementById('wdays');
   var maxDays = wd ? parseInt(wd.getAttribute('max') || '0', 10) : 0;
-  if (maxDays && D.days > maxDays) return { status:'days_limit', max: maxDays };
-  setVal('wdays', String(D.days));
+  // Дата въезда (погранбаза) — по ней сайт считает 30 дней кадастра
+  var border = String((document.getElementById('kppDate') || {}).value || '').trim();
+  var days = D.days;
+  if (wd && wd.hasAttribute('max') && maxDays < 1) return { status:'days_limit', max: 0, border: border };
+  // Сайт разрешает меньше — оформляем сколько можно (fitMax), конец в Hostella поправит программа
+  if (maxDays && days > maxDays) {
+    if (!D.fitMax) return { status:'days_limit', max: maxDays, border: border };
+    days = maxDays;
+  }
+  setVal('wdays', String(days));
   // Норма площади: ответ сайта приходит отдельным запросом
   await waitFor(function(){ var b=document.getElementById('housingNormBox'); return b && !/tekshirilmoqda|Kadastrni tanlang/i.test(txt(b)); }, 40, 250);
   if (window.HN_STATE && window.HN_STATE.blocking) return { status:'housing_blocked', message: String(window.HN_STATE.message||'').slice(0,300) };
@@ -176,7 +190,7 @@ function buildListovkaScript(data) {
   var danger = document.querySelector('#guestInfoCompliance .gi-compliance.level-danger');
   if (danger) return { status:'compliance_danger', amount: amount, message: txt(danger).slice(0, 300) };
   if (window.HN_STATE && window.HN_STATE.blocking) return { status:'housing_blocked', message: String(window.HN_STATE.message||'').slice(0,300) };
-  if (D.dryRun) return { status:'ready', amount: amount };
+  if (D.dryRun) return { status:'ready', amount: amount, wdays: days, max: maxDays, border: border };
 
   // Сохранить. Ответ сайта ловим, подменив его обработчик (вызывается по имени)
   window.__hostellaKad = null;
@@ -188,7 +202,7 @@ function buildListovkaScript(data) {
   if (!res) return { status:'submit_unconfirmed', amount: amount, message: alertText() };
   var d = res.d || {};
   var plain = function(h){ var div=document.createElement('div'); div.innerHTML=String(h||''); return txt(div).slice(0,300); };
-  if (res.ok && d.status === 'success') return { status:'saved', amount: amount, payUrl: String(d.link||''), message: plain(d.message) };
+  if (res.ok && d.status === 'success') return { status:'saved', amount: amount, wdays: days, max: maxDays, border: border, payUrl: String(d.link||''), message: plain(d.message) };
   return { status:'portal_error', amount: amount, message: plain((d.message||'') + ' ' + (d.errors||'')) };
 })()`;
 }

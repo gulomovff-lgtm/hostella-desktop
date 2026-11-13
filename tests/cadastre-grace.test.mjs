@@ -102,3 +102,10 @@ test('гость выехал — регистрация кадастра зав
   assert.equal(cadastreGuestLeft(reg, [], now), false, 'список гостей пуст — ничего не снимаем');
   assert.equal(cadastreGuestLeft({ ...reg, status: 'removed' }, [{ id: 'g1', status: 'checked_out' }], now), false);
 });
+
+test('отменённая запись кадастра (void) сутки e-mehmon не сдвигает', async () => {
+  const { stayStartAfterCadastre } = await import('../src/utils/registrationStatus.js');
+  const g = { id: 'g1', passport: 'AA1', checkInDate: '2026-11-10T07:00:00' };
+  const r = { guestId: 'g1', passport: 'AA1', startDate: '2026-11-13', endDate: '2026-11-13', status: 'removed', removedAt: '2026-11-13T15:00:00', void: true };
+  assert.equal(stayStartAfterCadastre(g, [r], new Date('2026-11-14T10:00:00')), null);
+});

@@ -59,3 +59,35 @@ export const portalPayOpen = (portal, now = Date.now()) =>
 
 /** Листок на сайте есть, а турсбор не оплачен — красный статус в кадастре. */
 export const portalUnpaid = (portal) => !!portal && portal.status === 'saved' && !portal.paidAt;
+
+/** Сколько дней кадастра разрешено от въезда в страну (правило сайта). */
+export const CADASTRE_MAX_DAYS = 30;
+/** 'dd/mm/yyyy' (поле сайта) → 'YYYY-MM-DD'. */
+export const dmySlashToYmd = (s) => {
+  const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+};
+/** Последний день, до которого сайт даст кадастр: въезд — 1-й день из 30. */
+export function cadastreLimitEnd(borderYmd) {
+  const m = String(borderYmd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const d = new Date(+m[1], +m[2] - 1, +m[3] + CADASTRE_MAX_DAYS - 1, 12);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** Известный предел кадастра для человека: из листков сайта (самый поздний). */
+export function cadastreMaxEndFor(regs = []) {
+  let best = '';
+  for (const r of regs || []) { const m = r?.portal?.maxEnd; if (m && m > best) best = m; }
+  return best;
+}
+
+/**
+ * Предел кадастра гостя: 30 дней от последнего въезда. Въезд — дата КПП
+ * (решение владельца 13.11.2026: гости раз в 30 дней выезжают и въезжают,
+ * дата КПП обновляется); если сайт сообщил въезд позже — берём его.
+ */
+export function cadastreLimitFor(guest, regs = []) {
+  const byKpp = cadastreLimitEnd(String(guest?.kppDate || '').slice(0, 10));
+  const bySite = cadastreMaxEndFor(regs);
+  return byKpp > bySite ? byKpp : bySite;
+}

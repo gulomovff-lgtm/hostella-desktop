@@ -3,7 +3,7 @@ import { RefreshCw, X } from 'lucide-react';
 import { calcEndDate, inp } from './shared';
 import TRANSLATIONS from '../../../constants/translations';
 
-const ExtendModal = ({ reg, onClose, onSubmit, lang = 'ru' }) => {
+const ExtendModal = ({ reg, maxEnd = '', onClose, onSubmit, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   // Сумму и расход ручно не вводим (13.11.2026): листок на добавленные дни
   // программа сама оформит на сайте кадастра, когда кончится текущий, и
@@ -12,11 +12,13 @@ const ExtendModal = ({ reg, onClose, onSubmit, lang = 'ru' }) => {
   const [startFrom, setStartFrom] = useState(reg.endDate || '');
 
   const newEndDate = calcEndDate(startFrom || reg.endDate, days);
+  // Сайт даёт кадастр максимум 30 дней от въезда: дальше не продлить
+  const overLimit = !!maxEnd && !!newEndDate && newEndDate > maxEnd;
 
   const handleDaysChange = (val) => setDays(val);
 
   const submit = () => {
-    if (!days || parseInt(days) <= 0) return;
+    if (!days || parseInt(days) <= 0 || overLimit) return;
     onSubmit({ days: parseInt(days), newEndDate, startFrom, regCost: '', addToExpenses: false });
     onClose();
   };
@@ -63,11 +65,16 @@ const ExtendModal = ({ reg, onClose, onSubmit, lang = 'ru' }) => {
               📅 {t('cdmNewEndDate')}: <b>{newEndDate}</b>
             </p>
           )}
+          {maxEnd && (
+            <p className={`text-xs font-semibold leading-snug ${overLimit ? 'text-rose-600' : 'text-slate-600'}`}>
+              {t('cadLimitHint').replace('{date}', maxEnd)}
+            </p>
+          )}
           <p className="text-xs text-slate-500 leading-snug">{t('cdmExtendAutoHint')}</p>
         </div>
         <div className="flex gap-2 pt-1">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">{t('cancel')}</button>
-          <button onClick={submit} className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700">{t('cdmExtend')}</button>
+          <button onClick={submit} disabled={overLimit} className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-50">{t('cdmExtend')}</button>
         </div>
       </div>
     </div>

@@ -75,3 +75,10 @@ test('вход в кадастр — в фоне: окно не показыва
   assert.ok(mainSrc.includes("ipcMain.handle('kadastr-list'"), 'вход держит сверка: список берётся после фонового входа');
   assert.match(mainSrc, /backgroundThrottling: false/);
 });
+
+test('цепочка входа OneID пропускается целиком (sso.egov.uz и http-возврат), чужое — нет', () => {
+  assert.ok(kp.isKadastrUrl('https://sso.egov.uz/sso/oauth/Authorization.do?client_id=e_mehmon'));
+  assert.ok(kp.isKadastrUrl('http://reg.emehmon.uz/user/autosocialize/egov?code=x'));
+  assert.ok(!kp.isKadastrUrl('http://reg.emehmon.uz/listovka'));
+  assert.ok(!kp.isKadastrUrl('https://evil.egov.uz/'));
+});

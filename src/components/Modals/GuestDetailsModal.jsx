@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import KadastrCardPicker, { emptyKadastrCard, kadastrCardArg, kadastrCardOk } from '../UI/KadastrCardPicker';
-import { kadastrPortalAvailable, portalPayOpen, portalUnpaid } from '../../utils/kadastrPortal';
+import { kadastrPortalAvailable, portalPayOpen, portalUnpaid, cadastreLimitFor } from '../../utils/kadastrPortal';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
@@ -11,7 +11,7 @@ import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
 import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
 import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff, extensionRate } from '../../utils/stayPlans';
-import { cadastreRegFor, cadastreValid, cadastreEndFor, cadastreDaysFor, localYmd } from '../../utils/registrationStatus';
+import { cadastreRegFor, cadastreValid, cadastreEndFor, cadastreDaysFor, cadastreMatches, localYmd } from '../../utils/registrationStatus';
 import TRANSLATIONS from '../../constants/translations';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import { sourceOptions, sourceOf, sourceLabel } from '../../utils/guestSource';
@@ -847,7 +847,10 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         } finally { setKadAct(null); }
     };
     const cadMoveDays = cadMove ? (parseInt(cadMove.days, 10) || 0) : 0;
-    const cadMoveOk = !!cadMove && !!cadMove.from && cadMoveDays > 0 && !!cadMove.until && cadMove.until >= cadMove.from && kadastrCardOk(cadMove.card);
+    // Предел кадастра (30 дней от въезда) — если сайт его уже сообщал
+    const cadLimit = cadastreLimitFor(guest, (cadastreRegs || []).filter(r => cadastreMatches(r, guest)));
+    const cadOverLimit = !!cadMove && !!cadLimit && !!cadMove.until && cadMove.until > cadLimit;
+    const cadMoveOk = !!cadMove && !!cadMove.from && cadMoveDays > 0 && !!cadMove.until && cadMove.until >= cadMove.from && kadastrCardOk(cadMove.card) && !cadOverLimit;
     const submitCadMove = async () => {
         if (!cadMoveOk || cadMove.busy || !onMoveToCadastre) return;
         setCadMove(m => ({ ...m, busy: true }));
@@ -1462,6 +1465,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                 className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-base font-semibold" />
                                         </div>
                                     </div>
+                                    {cadLimit && (
+                                        <p className={`text-xs font-semibold leading-snug ${cadOverLimit ? 'text-rose-600' : 'text-slate-600'}`}>{t('cadLimitHint').replace('{date}', cadLimit)}</p>
+                                    )}
                                     <p className="text-xs text-slate-500 leading-snug">{t('cadMoveHint')}</p>
                                     {cadPortalNow && (
                                         <KadastrCardPicker t={t} canSetup={canKadSetup} value={cadMove.card}

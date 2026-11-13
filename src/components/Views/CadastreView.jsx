@@ -16,6 +16,8 @@ import CopyButton from './Cadastre/CopyButton';
 import ExtendModal from './Cadastre/ExtendModal';
 import CadastreManageModal from './Cadastre/CadastreManageModal';
 import RegCard from './Cadastre/RegCard';
+import { cadastreLimitFor } from '../../utils/kadastrPortal';
+import { normPass } from '../../utils/registrationStatus';
 
 export default function CadastreView({
   cadastreRegs = [],
@@ -42,6 +44,23 @@ export default function CadastreView({
   const [statusFilter, setStatusFilter] = useState('active_expiring');
   const [monthFilter, setMonthFilter] = useState('');
   const [extendReg, setExtendReg] = useState(null);
+  // Предел кадастра человека (30 дней от въезда) — из листков сайта
+  const maxEndOf = (reg) => {
+    const same = (cadastreRegs || []).filter(r => normPass(r.passport) && normPass(r.passport) === normPass(reg.passport));
+    const guest = (guests || []).find(g => (reg.guestId && g.id === reg.guestId) || (normPass(g.passport) && normPass(g.passport) === normPass(reg.passport)) && g.status === 'active')
+      || (guests || []).find(g => reg.guestId && g.id === reg.guestId);
+    return cadastreLimitFor(guest, same);
+  };
+  // Вход в кадастр (сайт reg.emehmon.uz): кнопка, если не вошли
+  const [kadLogin, setKadLogin] = useState(null);   // { loggedIn, hasPassword, busy, error }
+  const kadAvail = typeof window !== 'undefined' && !!window.electronAPI?.kadastrStatus;
+  const refreshKad = () => window.electronAPI?.kadastrStatus?.().then(st => setKadLogin(s => ({ ...(s || {}), ...st, busy: false }))).catch(() => {});
+  React.useEffect(() => { if (kadAvail) refreshKad(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const doKadLogin = async () => {
+    setKadLogin(s => ({ ...(s || {}), busy: true, error: '' }));
+    const r = await window.electronAPI.kadastrLogin().catch(e => ({ status: 'error', reason: e.message }));
+    setKadLogin(s => ({ ...(s || {}), busy: false, loggedIn: r?.status === 'ok', error: r?.status === 'ok' ? '' : (r?.reason || 'error') }));
+  };
   const [cadastreModal, setCadastreModal] = useState(null);
 
   // ─── Hostel filtering (cashier sees own only) ───────────────────────
@@ -188,6 +207,19 @@ export default function CadastreView({
             <p className="text-xs text-slate-500">{t('cadSubtitle')}</p>
           </div>
         </div>
+        {kadAvail && kadLogin && (
+          kadLogin.loggedIn
+            ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">✓ {t('cadLoggedIn')}</span>
+            : (
+              <div className="flex items-center gap-2">
+                {kadLogin.error && <span className="text-[11px] font-semibold text-rose-600">{t('cadLoginFail')}</span>}
+                <button onClick={doKadLogin} disabled={kadLogin.busy}
+                  className="px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-50">
+                  {kadLogin.busy ? '…' : t('cadLoginBtn')}
+                </button>
+              </div>
+            )
+        )}
 
       </div>
 
@@ -278,6 +310,7 @@ export default function CadastreView({
                 <RegCard
                   key={reg.id}
                   reg={reg}
+                  maxEnd={maxEndOf(reg)}
                   onExtend={onExtendReg ? (r => setExtendReg(r)) : null}
                   onPay={onPay}
                   lang={lang}
@@ -340,6 +373,7 @@ export default function CadastreView({
       {extendReg && (
         <ExtendModal
           reg={extendReg}
+          maxEnd={maxEndOf(extendReg)}
           onClose={() => setExtendReg(null)}
           onSubmit={data => onExtendReg(extendReg, data)}
           lang={lang}

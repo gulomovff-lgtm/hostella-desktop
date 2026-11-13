@@ -235,3 +235,24 @@ test('«не подтверждено»: 30 мин первые два раза,
     assert.equal(shouldRetryAttempt(g(15), after(6 * 60 + 1), { listOk: true }), true);
     assert.equal(shouldRetryAttempt(g(1), after(120), { listOk: false }), false);
 });
+
+import { kppPlan } from '../src/utils/kppRules.js';
+test('дата КПП сама: без даты — сразу, в кадастре — раз в сутки, ручную не трогаем', () => {
+  const now = Date.parse('2026-11-13T12:00:00');
+  const base = { status: 'active', country: 'Таджикистан', passport: 'A1', roomId: 'r1' };
+  const g = [
+    { ...base, id: 'new', passport: 'N1' },                                          // заселили, даты нет
+    { ...base, id: 'reg', passport: 'R1', emehmonReg: true },                         // уже зарегистрирован, даты нет
+    { ...base, id: 'cad', passport: 'C1', kppDate: '2026-10-20', kppSource: 'emehmon', kppCheckedAt: '2026-11-12T08:00:00' },
+    { ...base, id: 'cadFresh', passport: 'C2', kppDate: '2026-10-20', kppSource: 'emehmon', kppCheckedAt: '2026-11-13T09:00:00' },
+    { ...base, id: 'manual', passport: 'C3', kppDate: '2026-10-20', kppSource: 'manual' },
+    { ...base, id: 'tried', passport: 'T1', kppTryAt: '2026-11-13T10:00:00' },
+    { ...base, id: 'uz', passport: 'U1', country: 'Узбекистан' },
+    { ...base, id: 'debt', passport: 'D1', roomId: 'DEBT_ONLY' },
+    { ...base, id: 'notCad', passport: 'E1', kppDate: '2026-10-20', kppSource: 'emehmon', kppCheckedAt: '2026-11-01T08:00:00' },
+  ];
+  const regs = ['C1', 'C2', 'C3'].map(p => ({ passport: p, status: 'active', startDate: '2026-11-05', endDate: '2026-11-20' }));
+  assert.deepEqual(kppPlan(g, regs, now).map(x => x.id), ['new', 'reg', 'cad']);
+  // отменённая запись кадастра («не было») не считается
+  assert.deepEqual(kppPlan([g[2]], [{ ...regs[0], void: true, status: 'removed' }], now).map(x => x.id), []);
+});
