@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { KadastrSetupModal } from '../UI/KadastrCardPicker';
 import KadastrStages, { KADASTR_LOGIN_STEPS } from '../UI/KadastrStages';
+import { vaultArg } from '../../utils/kadastrVault';
 import { HOSTELS, Flag } from '../../utils/helpers';
 import { COUNTRY_FLAGS } from '../../constants/countries';
 import TRANSLATIONS from '../../constants/translations';
@@ -20,6 +21,25 @@ import CadastreManageModal from './Cadastre/CadastreManageModal';
 import RegCard from './Cadastre/RegCard';
 import { cadastreLimitFor } from '../../utils/kadastrPortal';
 import { normPass } from '../../utils/registrationStatus';
+
+// Число плавно набирается до значения (≈0,6 с), при смене — от прежнего
+function CountUp({ value }) {
+  const [shown, setShown] = React.useState(0);
+  const from = React.useRef(0);
+  React.useEffect(() => {
+    const start = from.current, end = Number(value) || 0, t0 = performance.now();
+    let raf;
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / 600);
+      const v = Math.round(start + (end - start) * (1 - Math.pow(1 - k, 3)));
+      setShown(v);
+      if (k < 1) raf = requestAnimationFrame(step); else from.current = end;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{fmt(shown)}</>;
+}
 
 export default function CadastreView({
   cadastreRegs = [],
@@ -61,9 +81,13 @@ export default function CadastreView({
   const kadAvail = typeof window !== 'undefined' && !!window.electronAPI?.kadastrStatus;
   const refreshKad = () => window.electronAPI?.kadastrStatus?.().then(st => setKadLogin(s => ({ ...(s || {}), ...st, busy: false }))).catch(() => {});
   React.useEffect(() => { if (kadAvail) refreshKad(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Филиал, чьим паролем ЭЦП входить: кассир — свой, админ — выбранный сверху
+  const kadHostel = (!isAdmin ? currentUser.hostelId : (selectedHostelFilter && selectedHostelFilter !== 'all' ? selectedHostelFilter : currentUser.hostelId)) || 'hostel1';
   const doKadLogin = async () => {
     setKadLogin(s => ({ ...(s || {}), busy: true, error: '' }));
-    const r = await window.electronAPI.kadastrLogin().catch(e => ({ status: 'error', reason: e.message }));
+    const r = await vaultArg(kadHostel)
+      .then((vault) => window.electronAPI.kadastrLogin({ vault }))
+      .catch(e => ({ status: 'error', reason: e.message }));
     setKadLogin(s => ({ ...(s || {}), busy: false, loggedIn: r?.status === 'ok', error: r?.status === 'ok' ? '' : (r?.reason || 'error') }));
   };
   const [cadastreModal, setCadastreModal] = useState(null);
@@ -201,61 +225,64 @@ export default function CadastreView({
 
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center">
-            <Home size={18} className="text-teal-600" />
-          </div>
-          <div>
-            <h2 className="font-black text-slate-800 text-lg leading-tight">{t('cadTitle')}</h2>
-            <p className="text-xs text-slate-500">{t('cadSubtitle')}</p>
-          </div>
+      {/* Шапка (13.11.2026, по просьбе владельца — минимализм, без тёмных
+          обложек, приглушённые цвета): заголовок, вход на сайт, счётчики-фильтры */}
+      <div className="kad-rise flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-xl md:text-2xl font-black text-slate-800 leading-tight">{t('cadTitle')}</h2>
+          <p className="text-xs text-slate-400 mt-0.5">{t('cadSubtitle')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-        {kadAvail && canKadSetup && (
-          <button onClick={() => setKadSetupOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:border-teal-400 hover:text-teal-700">
-            <Settings size={13} /> {t('cadPortalSetup')}
-          </button>
-        )}
-        {kadAvail && kadLogin && (
-          kadLogin.loggedIn
-            ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">✓ {t('cadLoggedIn')}</span>
-            : (
-              <div className="flex items-center gap-2">
-                {kadLogin.error && <span className="text-[11px] font-semibold text-rose-600" title={kadLogin.error}>{t('cadLoginFail')} <span className="font-mono font-normal opacity-70">({String(kadLogin.error).slice(0, 80)})</span></span>}
-                <button onClick={doKadLogin} disabled={kadLogin.busy}
-                  className="px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 disabled:opacity-50">
-                  {kadLogin.busy ? '…' : t('cadLoginBtn')}
-                </button>
-              </div>
-            )
-        )}
+          {kadAvail && canKadSetup && (
+            <button onClick={() => setKadSetupOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-500 hover:text-slate-700 hover:border-slate-300 transition-colors">
+              <Settings size={13} /> {t('cadPortalSetup')}
+            </button>
+          )}
+          {kadAvail && kadLogin && (kadLogin.loggedIn ? (
+            <span className="kad-slide flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 kad-breathe" /> {t('cadLoggedIn')}
+            </span>
+          ) : (
+            <button onClick={doKadLogin} disabled={kadLogin.busy}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-teal-200 bg-teal-50/60 text-xs font-bold text-teal-700 hover:bg-teal-50 disabled:opacity-60 transition-colors">
+              {kadLogin.busy ? <span className="w-3 h-3 rounded-full border-2 border-teal-200 border-t-teal-600 animate-spin" /> : <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+              {t('cadLoginBtn')}
+            </button>
+          ))}
         </div>
       </div>
+      {kadLogin?.error && !kadLogin.busy && !kadLogin.loggedIn && (
+        <p className="kad-slide -mt-2 text-[11px] text-rose-500 text-right" title={kadLogin.error}>
+          {t('cadLoginFail')} <span className="font-mono opacity-70">({String(kadLogin.error).slice(0, 80)})</span>
+        </p>
+      )}
       {kadLogin?.busy && (
-        <div className="bg-white rounded-2xl border border-teal-200 p-4 max-w-sm ml-auto">
+        <div className="kad-rise rounded-2xl border border-slate-200 bg-white p-4 max-w-sm ml-auto">
           <KadastrStages steps={KADASTR_LOGIN_STEPS} t={t} />
         </div>
       )}
-      {kadSetupOpen && <KadastrSetupModal t={t} onClose={() => { setKadSetupOpen(false); refreshKad(); }} />}
-
-      {/* Stats bar */}
-      <div className="grid grid-cols-4 gap-2">
+      {/* Счётчики — фильтры списка */}
+      <div className="kad-rise grid grid-cols-2 sm:grid-cols-4 rounded-2xl border border-slate-200 bg-white divide-x divide-slate-100 overflow-hidden" style={{ animationDelay: '60ms' }}>
         {[
-          { label: t('activeCount'),  value: stats.active,   color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', filter: 'active' },
-          { label: t('cadExpiring'),  value: stats.expiring, color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200',   filter: 'expiring' },
-          { label: t('cadExpired'),   value: stats.expired,  color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200',    filter: 'expired' },
-          { label: t('cadAllExpenses'), value: fmt(stats.totalCost) + ' ' + t('cadSum'), color: 'text-teal-700', bg: 'bg-teal-50', border: 'border-teal-200', filter: 'all' },
-        ].map(s => (
-          <button key={s.label} onClick={() => setStatusFilter(f => f === s.filter ? 'active_expiring' : s.filter)}
-            className={`${s.bg} border-2 ${statusFilter === s.filter ? s.border + ' ring-2 ring-offset-1 ring-current opacity-100' : s.border + ' opacity-70'} rounded-xl p-3 text-center hover:opacity-90 transition-all`}>
-            <p className={`text-lg font-black ${s.color}`}>{s.value}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">{s.label}</p>
+          { label: t('activeCount'),  value: stats.active,   dot: 'bg-emerald-400', filter: 'active' },
+          { label: t('cadExpiring'),  value: stats.expiring, dot: 'bg-amber-400',   filter: 'expiring' },
+          { label: t('cadExpired'),   value: stats.expired,  dot: 'bg-rose-400',    filter: 'expired' },
+          { label: t('cadAllExpenses'), value: stats.totalCost, money: true, dot: 'bg-slate-300', filter: 'all' },
+        ].map((s) => (
+          <button key={s.filter} onClick={() => setStatusFilter(f => f === s.filter ? 'active_expiring' : s.filter)}
+            className={'relative text-left px-4 py-3 transition-colors ' + (statusFilter === s.filter ? 'bg-slate-50' : 'hover:bg-slate-50/60')}>
+            {statusFilter === s.filter && <span className="kad-fill absolute left-4 right-4 bottom-0 h-0.5 rounded-full bg-slate-300" />}
+            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <span className={'w-1.5 h-1.5 rounded-full ' + s.dot} /> {s.label}
+            </p>
+            <p className="text-xl font-black tabular-nums mt-1 leading-none text-slate-700">
+              <CountUp value={s.value} />{s.money && <span className="text-[11px] font-semibold text-slate-400 ml-1">{t('cadSum')}</span>}
+            </p>
           </button>
         ))}
       </div>
+      {kadSetupOpen && <KadastrSetupModal t={t} hostelId={kadHostel} onClose={() => { setKadSetupOpen(false); refreshKad(); }} />}
 
       {/* Sub tabs */}
       {isAdmin && (
@@ -324,9 +351,10 @@ export default function CadastreView({
             </div>
           ) : (
             <div className="space-y-3">
-              {filtered.map(reg => (
+              {filtered.map((reg, i) => (
                 <RegCard
                   key={reg.id}
+                  index={i}
                   reg={reg}
                   maxEnd={maxEndOf(reg)}
                   onExtend={onExtendReg ? (r => setExtendReg(r)) : null}

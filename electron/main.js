@@ -948,21 +948,20 @@ ipcMain.handle('emehmon-recalc', async (_event, payload) => {
 });
 
 // ─── Сайт кадастра (reg.emehmon.uz): вход ЭЦП, листок, оплата ────────────────
-// Решение владельца 13.11.2026. Пароль ключа ЭЦП, номер сертификата, кадастр
-// и карта по умолчанию — только на этом компьютере, зашифрованы Windows
-// (safeStorage/DPAPI). В рендерер уходят лишь «есть / нет» и маска карты.
+// Пароль ключа ЭЦП, сертификат, кадастр и карты хранятся НА СЕРВЕРЕ, по
+// филиалам (функция kadastrVault, решение владельца 13.11.2026): админ вводит
+// один раз, пользуются кассы этого филиала на любом компьютере. Рендерер
+// передаёт адрес функции, свой токен входа и филиал (payload.vault), а
+// открытые значения забирает и держит только главный процесс.
+// Файл на компьютере (DPAPI) — прежнее хранение: только для переноса на сервер.
 const KADASTR_FILE = () => path.join(app.getPath('userData'), 'kadastr-settings.bin');
 const KADASTR_DEFAULTS = { cert: '79326482', cadMatch: '117.75' };
-function readKadastrSettings() {
+function readKadastrLocal() {
   try {
     const buf = fs.readFileSync(KADASTR_FILE());
     const json = electron.safeStorage.isEncryptionAvailable() ? electron.safeStorage.decryptString(buf) : '';
-    return { ...KADASTR_DEFAULTS, ...(json ? JSON.parse(json) : {}) };
-  } catch (_) { return { ...KADASTR_DEFAULTS }; }
-}
-function writeKadastrSettings(obj) {
-  if (!electron.safeStorage.isEncryptionAvailable()) throw new Error('encryption_unavailable');
-  fs.writeFileSync(KADASTR_FILE(), electron.safeStorage.encryptString(JSON.stringify(obj)));
+    return json ? JSON.parse(json) : {};
+  } catch (_) { return {}; }
 }
 const digitsOnly = (v) => String(v || '').replace(/\D/g, '');
 const cleanCard = (c) => {
@@ -973,56 +972,77 @@ const cleanCard = (c) => {
   if (number.length !== 16 || !/^(0[1-9]|1[0-2])$/.test(mm) || yy.length !== 2 || phone.length !== 12) return null;
   return { number, mm, yy, phone };
 };
-// Карты (13.11.2026): несколько, одна — по умолчанию. Старая одиночная
-// st.card переезжает в список при первом чтении.
+// Прежний локальный формат: одиночная st.card → список
 const kadastrCards = (st) => {
   if (st.card && !Array.isArray(st.cards)) { st.cards = [{ id: 'c' + Date.now().toString(36), ...st.card }]; st.defaultCardId = st.cards[0].id; }
   delete st.card;
   if (!Array.isArray(st.cards)) st.cards = [];
   if (st.cards.length && !st.cards.some(c => c.id === st.defaultCardId)) st.defaultCardId = st.cards[0].id;
-  if (!st.cards.length) delete st.defaultCardId;
   return st.cards;
 };
-const cardMask = (c) => '•••• ' + String(c.number).slice(-4);
-const phoneMask = (c) => '+' + String(c.phone).slice(0, 5) + ' ••• •• ' + String(c.phone).slice(-2);
-const kadastrPublic = (st) => {
+const VAULT_URL_RX = /^https:\/\/us-central1-[a-z0-9-]+\.cloudfunctions\.net\/kadastrVault$/;
+const vaultOk = (v) => !!v && VAULT_URL_RX.test(String(v.url || '')) && typeof v.idToken === 'string' &&
+  v.idToken.length > 20 && v.idToken.length < 5000 && /^hostel\d{1,3}$/.test(String(v.hostelId || ''));
+async function vaultCall(v, data) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(v.url, {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + v.idToken },
+      body: JSON.stringify({ data: { ...data, hostelId: v.hostelId } }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error((j.error && (j.error.message || j.error.status)) || ('HTTP ' + r.status));
+    return j.result;
+  } finally { clearTimeout(t); }
+}
+// Секреты филиала: с сервера, в памяти не дольше 10 минут (смену пароля или
+// карты админом кассы подхватят сами). Сервер недоступен — последнее известное.
+const kadastrVaultCache = new Map();   // hostelId → { at, st }
+async function kadastrSettings(v, why = '') {
+  if (!vaultOk(v)) return { ...KADASTR_DEFAULTS, cards: [], noVault: true };
+  const hit = kadastrVaultCache.get(v.hostelId);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.st;
+  try {
+    const r = await vaultCall(v, { action: 'secrets', why });
+    const st = { ...KADASTR_DEFAULTS, ...(r || {}) };
+    if (!st.cert) st.cert = KADASTR_DEFAULTS.cert;
+    if (!st.cadMatch) st.cadMatch = KADASTR_DEFAULTS.cadMatch;
+    kadastrVaultCache.set(v.hostelId, { at: Date.now(), st });
+    return st;
+  } catch (e) {
+    log.warn('[kadastr] хранилище недоступно:', e.message);
+    if (hit) return hit.st;
+    return { ...KADASTR_DEFAULTS, cards: [], vaultError: e.message };
+  }
+}
+// Админ поменял настройки — касса не ждёт 10 минут
+ipcMain.handle('kadastr-vault-changed', (_e, hostelId) => { kadastrVaultCache.delete(String(hostelId || '')); return true; });
+// Есть ли на этом компьютере прежние настройки (для кнопки «перенести на сервер»)
+ipcMain.handle('kadastr-local-has', () => {
+  const st = readKadastrLocal();
+  return { has: !!(st.eimzoPassword || st.card || (Array.isArray(st.cards) && st.cards.length)) };
+});
+// Перенос прежних настроек этого компьютера на сервер (токен админа), затем
+// файл удаляется — секреты остаются в одном месте
+ipcMain.handle('kadastr-migrate', async (_e, payload) => {
+  const v = payload && payload.vault;
+  if (!vaultOk(v)) return { ok: false, error: 'no_vault' };
+  const st = readKadastrLocal();
   const cards = kadastrCards(st);
-  const def = cards.find(c => c.id === st.defaultCardId) || null;
-  return {
-    hasPassword: !!st.eimzoPassword,
-    cert: st.cert || '',
-    cadMatch: st.cadMatch || '',
-    cards: cards.map(c => ({ id: c.id, mask: cardMask(c), phoneMask: phoneMask(c), isDefault: c.id === st.defaultCardId })),
-    hasCard: !!def,
-    cardMask: def ? cardMask(def) : '',
-    cardPhoneMask: def ? phoneMask(def) : '',
-  };
-};
-
-ipcMain.handle('kadastr-settings-get', () => kadastrPublic(readKadastrSettings()));
-ipcMain.handle('kadastr-settings-set', (_e, patch) => {
-  const p = patch || {};
-  const st = readKadastrSettings();
-  if (typeof p.eimzoPassword === 'string' && p.eimzoPassword) st.eimzoPassword = p.eimzoPassword;
-  if (p.clearPassword) delete st.eimzoPassword;
-  if (typeof p.cert === 'string' && /^[0-9A-Za-z]{4,40}$/.test(p.cert.trim())) st.cert = p.cert.trim();
-  if (typeof p.cadMatch === 'string' && p.cadMatch.trim() && p.cadMatch.length <= 60) st.cadMatch = p.cadMatch.trim();
-  const cards = kadastrCards(st);
-  const addOne = (raw, makeDefault) => {
-    const c = cleanCard(raw); if (!c) return false;
-    const same = cards.find(x => x.number === c.number);
-    if (same) Object.assign(same, c); else cards.push({ id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...c });
-    if (makeDefault || cards.length === 1) st.defaultCardId = (same || cards[cards.length - 1]).id;
-    return true;
-  };
-  if (p.card && !addOne(p.card, true)) return { ok: false, error: 'bad_card' };           // прежний вызов: карта по умолчанию
-  if (p.addCard && !addOne(p.addCard, !!p.addCard.makeDefault)) return { ok: false, error: 'bad_card' };
-  if (typeof p.removeCard === 'string') st.cards = cards.filter(c => c.id !== p.removeCard);
-  if (typeof p.defaultCard === 'string' && cards.some(c => c.id === p.defaultCard)) st.defaultCardId = p.defaultCard;
-  if (p.clearCard) st.cards = [];
-  kadastrCards(st);
-  try { writeKadastrSettings(st); } catch (e) { return { ok: false, error: e.message }; }
-  return { ok: true, ...kadastrPublic(st) };
+  try {
+    const r = await vaultCall(v, { action: 'set', patch: {
+      ...(st.eimzoPassword ? { eimzoPassword: st.eimzoPassword } : {}),
+      ...(st.cert ? { cert: st.cert } : {}), ...(st.cadMatch ? { cadMatch: st.cadMatch } : {}),
+      importCards: cards, importDefaultId: st.defaultCardId || null,
+    } });
+    if (!r || r.ok === false) return { ok: false, error: (r && r.error) || 'error' };
+    try { fs.unlinkSync(KADASTR_FILE()); } catch (_) {}
+    kadastrVaultCache.delete(v.hostelId);
+    log.info('[kadastr] настройки перенесены на сервер:', v.hostelId);
+    return r;
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 let kadastrWindow = null;
@@ -1117,6 +1137,12 @@ function kadStage(stage) {
 async function kadastrLogin(win, st) {
   let r;
   try { r = await kadastrLoginRun(win, st); } catch (e) { r = 'error:' + e.message; }
+  // Пароль напечатан, а сайт не открылся — скорее всего, E-IMZO его не принял
+  // (13.11.2026: «то правильно, то нет»). Один повтор с самого начала.
+  if (r === 'oneid_timeout') {
+    log.warn('[kadastr] вход: после пароля сайт не открылся — повторяю');
+    try { r = await kadastrLoginRun(win, st); } catch (e) { r = 'error:' + e.message; }
+  }
   let at = ''; try { at = new URL(win.webContents.getURL()).host + new URL(win.webContents.getURL()).pathname; } catch (_) {}
   (r === 'ok' ? log.info : log.warn)('[kadastr] вход:', r, at);
   return r;
@@ -1189,8 +1215,8 @@ async function kadastrFillPayment(win, card, payUrl) {
 // держит вход в кадастр и сама поправляет дни/недостающие записи.
 ipcMain.handle('kadastr-list', (_e, payload) => {
   const data = payload || {};
-  return kadQueue('list', 240 * 1000, async () => {
-    const st = readKadastrSettings();
+  return kadQueue('list', 420 * 1000, async () => {
+    const st = await kadastrSettings(data.vault, 'list');
     if (!st.eimzoPassword) return { status: 'no_password' };
     const win = ensureKadastrWindow();
     if (!onListovka(win)) {
@@ -1221,8 +1247,8 @@ const resolveCard = (req, st) => {
 
 ipcMain.handle('kadastr-register', (_e, payload) => {
   const data = payload || {};
-  return kadQueue('register', 360 * 1000, async () => {
-    const st = readKadastrSettings();
+  return kadQueue('register', 540 * 1000, async () => {
+    const st = await kadastrSettings(data.vault, 'register');
     const win = ensureKadastrWindow();
     try {
       const login = await kadastrLogin(win, st);
@@ -1251,13 +1277,14 @@ ipcMain.handle('kadastr-register', (_e, payload) => {
 // Вход в кадастр по кнопке и состояние входа для экрана кадастра.
 // Пароль ЭЦП задан — вход в фоне; не задан — окно OneID кассиру (ключ и
 // пароль E-IMZO вводит человек), после входа окно прячется.
+// Вошли ли (пароль задан или нет — рендерер знает сам, по маскам хранилища)
 ipcMain.handle('kadastr-status', () => {
-  const st = readKadastrSettings();
-  return { loggedIn: !!(kadastrWindow && !kadastrWindow.isDestroyed() && onListovka(kadastrWindow)), hasPassword: !!st.eimzoPassword };
+  return { loggedIn: !!(kadastrWindow && !kadastrWindow.isDestroyed() && onListovka(kadastrWindow)) };
 });
-ipcMain.handle('kadastr-login', () => {
-  return kadQueue('login', 420 * 1000, async () => {
-    const st = readKadastrSettings();
+ipcMain.handle('kadastr-login', (_e, payload) => {
+  const data = payload || {};
+  return kadQueue('login', 720 * 1000, async () => {
+    const st = await kadastrSettings(data.vault, 'login');
     const win = ensureKadastrWindow();
     let reason = 'no_password';
     if (st.eimzoPassword) {
@@ -1283,10 +1310,10 @@ ipcMain.handle('kadastr-login', () => {
 // «Оплатить» позже (окно оплаты живёт 24 часа): открыть листок и вписать карту
 ipcMain.handle('kadastr-open-pay', (_e, payload) => {
   const data = payload || {};
-  return kadQueue('open-pay', 240 * 1000, async () => {
+  return kadQueue('open-pay', 420 * 1000, async () => {
     const payUrl = kadastrPortal.safePayUrl(data.payUrl);
     if (!payUrl) return { status: 'bad_url' };
-    const st = readKadastrSettings();
+    const st = await kadastrSettings(data.vault, 'open-pay');
     const win = ensureKadastrWindow();
     const login = await kadastrLogin(win, st);
     if (login !== 'ok') return { status: 'need_login', reason: login };

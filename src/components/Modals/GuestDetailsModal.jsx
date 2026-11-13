@@ -1426,7 +1426,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         <button type="button" onClick={() => !kadAct.busy && setKadAct(null)} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center"><X size={16} /></button>
                                     </div>
                                     <div className="text-sm font-bold text-slate-700">{guest.fullName}</div>
-                                    <KadastrCardPicker t={t} canSetup={canKadSetup} value={kadAct.card} onChange={(card) => setKadAct(a => ({ ...a, card }))} />
+                                    <KadastrCardPicker t={t} canSetup={canKadSetup} hostelId={guest.hostelId || 'hostel1'} value={kadAct.card} onChange={(card) => setKadAct(a => ({ ...a, card }))} />
                                     <button type="button" onClick={runKadAct} disabled={kadAct.busy || !kadastrCardOk(kadAct.card)}
                                         className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-black disabled:opacity-50">
                                         {kadAct.busy ? '…' : t('cadPortalPayBtn')}
@@ -1470,7 +1470,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                     )}
                                     <p className="text-xs text-slate-500 leading-snug">{t('cadMoveHint')}</p>
                                     {cadPortalNow && (
-                                        <KadastrCardPicker t={t} canSetup={canKadSetup} value={cadMove.card}
+                                        <KadastrCardPicker t={t} canSetup={canKadSetup} hostelId={guest.hostelId || 'hostel1'} value={cadMove.card}
                                             onChange={(card) => setCadMove(m => ({ ...m, card }))} />
                                     )}
                                     <div className="flex gap-2">

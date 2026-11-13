@@ -148,6 +148,7 @@ import { useCadastreAlerts }      from './hooks/useCadastreAlerts';
 import { hasRegistration, isLivingNow, cadastreHouseFor, cadastreDaysFor, cadastreEndFor, localYmd } from './utils/registrationStatus';
 import { kadastrPayload, kadastrMissing, kadastrPortalAvailable, portalFromResult, dmySlashToYmd, cadastreLimitEnd } from './utils/kadastrPortal';
 import { KadastrOtpModal } from './components/UI/KadastrCardPicker';
+import { vaultArg, vaultPublic } from './utils/kadastrVault';
 import { planKadastrSync } from './utils/kadastrSync';
 import { HISTORY_TABS } from './utils/historyWindow';
 import ScreenLoading from './components/UI/ScreenLoading';
@@ -1077,7 +1078,8 @@ function App() {
     }
     showNotification(tr('cadPortalStarted').replace('{name}', guest.fullName || ''), 'info');
     let r;
-    try { r = await window.electronAPI.kadastrRegister(p); } catch (e) { r = { status: 'error', message: e.message }; }
+    // Пароль ЭЦП и карты филиала главный процесс заберёт с сервера сам
+    try { r = await window.electronAPI.kadastrRegister({ ...p, vault: await vaultArg(guest.hostelId || 'hostel1') }); } catch (e) { r = { status: 'error', message: e.message }; }
     if (r?.status === 'saved') {
       const msg = r.pay === 'otp' ? 'cadPortalSavedOtp' : 'cadPortalSaved';
       showNotification(tr(msg).replace('{name}', guest.fullName || '').replace('{sum}', Number(r.amount || 0).toLocaleString('ru-RU')), 'success');
@@ -1174,7 +1176,8 @@ function App() {
     const manual = !card;
     if (!manual) setKadOtp({ stage: 'working', name: reg.guestName || '' });
     else showNotification(tr('cadPortalPayOpening'), 'info');
-    window.electronAPI.kadastrOpenPay({ payUrl: reg.portal.payUrl, card: card || null })
+    vaultArg(reg.hostelId || 'hostel1')
+      .then((vault) => window.electronAPI.kadastrOpenPay({ payUrl: reg.portal.payUrl, card: card || null, vault }))
       .catch((e) => ({ status: 'error', message: e.message }))
       .then((r) => afterKadastrPay(reg, r, manual));
   };
@@ -1234,9 +1237,11 @@ function App() {
       if (busy) return;
       busy = true;
       try {
-        const st = await window.electronAPI.kadastrSettingsGet?.();
+        // Пароль ЭЦП филиала задан на сервере — иначе фоновой сверке войти нечем
+        const hostel = kadSyncRef.current.cashierHostelId || currentUser.hostelId || 'hostel1';
+        const st = await vaultPublic(hostel).catch(() => null);
         if (!st?.hasPassword) return;
-        const r = await window.electronAPI.kadastrList({ length: 250 });
+        const r = await window.electronAPI.kadastrList({ length: 250, vault: await vaultArg(hostel) });
         if (r?.status !== 'ok') {
           if (r?.status && r.status !== 'no_password') reportError('emehmon', 'kadastr.sync', String(r.status) + ' ' + String(r.reason || r.message || ''), {}, { severity: 'warning' });
           return;

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { CreditCard, Settings, X, KeyRound, Trash2, Plus, Star } from 'lucide-react';
 import KadastrStages, { KADASTR_PAY_STEPS } from './KadastrStages';
+import { vaultPublic, vaultSet, vaultArg } from '../../utils/kadastrVault';
+import { HOSTELS } from '../../utils/helpers';
 
 // Карта для оплаты турсбора на сайте кадастра (13.11.2026): сохранённые карты
 // (одна — по умолчанию; хранятся на этом компьютере, видны только маски),
@@ -40,11 +42,12 @@ export function KadastrCardFields({ value, onChange }) {
     );
 }
 
-export default function KadastrCardPicker({ value, onChange, t, canSetup = false }) {
+// hostelId — филиал гостя: карты и пароль ЭЦП берутся из его хранилища на сервере
+export default function KadastrCardPicker({ value, onChange, t, canSetup = false, hostelId = 'hostel1' }) {
     const [st, setSt] = useState(null);
     const [setupOpen, setSetupOpen] = useState(false);
-    const load = () => window.electronAPI?.kadastrSettingsGet?.().then(setSt).catch(() => setSt({}));
-    useEffect(() => { load(); }, []);
+    const load = () => vaultPublic(hostelId).then(setSt).catch(() => setSt({}));
+    useEffect(() => { load(); }, [hostelId]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!st) return;
         // Выбранной карты больше нет (удалили в настройках) — на другую
@@ -77,7 +80,7 @@ export default function KadastrCardPicker({ value, onChange, t, canSetup = false
             {value.mode === 'other' && <KadastrCardFields value={value} onChange={onChange} />}
             {radio('manual', value.mode === 'manual', () => onChange({ ...value, mode: 'manual' }), t('cadPayManual'))}
             {st && !st.hasPassword && <p className="text-[11px] font-semibold text-amber-700">{t('cadPortalNoPassword')}</p>}
-            {setupOpen && <KadastrSetupModal t={t} onClose={() => { setSetupOpen(false); load(); }} />}
+            {setupOpen && <KadastrSetupModal t={t} hostelId={hostelId} onClose={() => { setSetupOpen(false); load(); }} />}
         </div>
     );
 }
@@ -155,7 +158,10 @@ function KadastrOtpCode({ t, otp, onClose, onPaid }) {
 // Настройки сайта кадастра на этом компьютере (админ, 13.11.2026): пароль
 // ключа ЭЦП (сменить / убрать), сертификат, кадастр, карты — добавить,
 // удалить, сделать картой по умолчанию. Номера карт рендерер не видит — маски.
-export function KadastrSetupModal({ t, onClose }) {
+export function KadastrSetupModal({ t, onClose, hostelId: initialHostel = 'hostel1' }) {
+    // Настройки — на сервере, у каждого филиала свои (13.11.2026): админ вводит
+    // один раз, пользуются кассы этого филиала на любом компьютере
+    const [hostelId, setHostelId] = useState(/^hostel\d+$/.test(initialHostel) ? initialHostel : 'hostel1');
     const [st, setSt] = useState(null);
     const [pw, setPw] = useState('');
     const [cert, setCert] = useState('');
@@ -164,17 +170,34 @@ export function KadastrSetupModal({ t, onClose }) {
     const [adding, setAdding] = useState(false);
     const [msg, setMsg] = useState('');
     const [busy, setBusy] = useState(false);
+    const [localHas, setLocalHas] = useState(false);
     useEffect(() => {
-        window.electronAPI?.kadastrSettingsGet?.().then(s => { setSt(s); setCert(s.cert || ''); setCadMatch(s.cadMatch || ''); }).catch(() => setSt({}));
-    }, []);
+        setSt(null); setMsg('');
+        vaultPublic(hostelId).then(s => { setSt(s); setCert(s.cert || ''); setCadMatch(s.cadMatch || ''); })
+            .catch(e => { setSt({}); setMsg(e?.message || 'error'); });
+    }, [hostelId]);
+    useEffect(() => { window.electronAPI?.kadastrLocalHas?.().then(r => setLocalHas(!!r?.has)).catch(() => {}); }, []);
     const save = async (patch, okText) => {
         setBusy(true);
-        const r = await window.electronAPI.kadastrSettingsSet(patch).catch(e => ({ ok: false, error: e.message }));
+        const r = await vaultSet(hostelId, patch);
         setBusy(false);
-        if (r?.ok) { setSt(r); setMsg(okText || t('cadPortalSaved_ok')); return true; }
+        if (r?.ok) {
+            setSt(r); setMsg(okText || t('cadPortalSaved_ok'));
+            window.electronAPI?.kadastrVaultChanged?.(hostelId);   // кассы этого компьютера — сразу
+            return true;
+        }
         setMsg(r?.error === 'bad_card' ? t('cadPayBadCard') : (r?.error || 'error'));
         return false;
     };
+    // Прежние настройки этого компьютера → на сервер этого филиала (файл удаляется)
+    const migrate = async () => {
+        setBusy(true);
+        const r = await window.electronAPI.kadastrMigrate(await vaultArg(hostelId)).catch(e => ({ ok: false, error: e.message }));
+        setBusy(false);
+        if (r?.ok) { setSt(r); setCert(r.cert || ''); setCadMatch(r.cadMatch || ''); setLocalHas(false); setMsg(t('cadVaultMigrated')); }
+        else setMsg(r?.error || 'error');
+    };
+    const hostelIds = Object.keys(HOSTELS || {}).filter(h => /^hostel\d+$/.test(h));
     const cards = st?.cards || [];
     const savePw = async () => { if (pw && await save({ eimzoPassword: pw }, t('cadPwSaved'))) setPw(''); };
     const cardFilled = !!(card.number || card.mm || card.yy || card.phone);
@@ -192,7 +215,27 @@ export function KadastrSetupModal({ t, onClose }) {
                     <h3 className="font-black text-base text-slate-800 flex items-center gap-2"><KeyRound size={16} className="text-teal-600" /> {t('cadPortalSetup')}</h3>
                     <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center"><X size={16} /></button>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-snug">{t('cadPortalSetupHint')}</p>
+                {hostelIds.length > 1 && (
+                    <div className="flex gap-1.5 flex-wrap">
+                        {hostelIds.map(h => (
+                            <button key={h} type="button" onClick={() => setHostelId(h)} disabled={busy}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${h === hostelId ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>
+                                {HOSTELS[h]?.name || h}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <p className="text-[11px] text-slate-500 leading-snug">{t('cadVaultHint')}</p>
+                {localHas && st?.empty && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                        <p className="text-[11px] font-semibold text-amber-800 leading-snug">{t('cadVaultLocalFound')}</p>
+                        <button type="button" disabled={busy} onClick={migrate}
+                            className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-black disabled:opacity-50">
+                            {t('cadVaultMigrate').replace('{hostel}', HOSTELS[hostelId]?.name || hostelId)}
+                        </button>
+                    </div>
+                )}
+                {!st && <p className="text-xs text-slate-400">…</p>}
 
                 <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-500">

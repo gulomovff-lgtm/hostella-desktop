@@ -60,14 +60,21 @@ test('пароль ЭЦП печатается только в окно E-IMZO �
   assert.doesNotMatch(fn, /'-Command'/);
 });
 
-test('секреты кадастра — в главном процессе, рендереру только маски', () => {
-  assert.match(mainSrc, /electron\.safeStorage\.encryptString/);
-  const pub = mainSrc.slice(mainSrc.indexOf('const kadastrPublic'), mainSrc.indexOf("ipcMain.handle('kadastr-settings-get'"));
-  assert.match(pub, /hasPassword: !!st\.eimzoPassword/);
-  assert.doesNotMatch(pub, /eimzoPassword: st\.eimzoPassword/);
-  // карты — только маски: номер и телефон целиком рендерер не получает
-  assert.match(pub, /cards: cards\.map\(c => \(\{ id: c\.id, mask: cardMask\(c\), phoneMask: phoneMask\(c\), isDefault/);
-  assert.doesNotMatch(pub, /number: c\.number|phone: c\.phone/);
+test('секреты кадастра — на сервере по филиалам; рендереру только маски', () => {
+  const vaultSrc = readFileSync(new URL('../functions/kadastrVault.js', import.meta.url), 'utf8');
+  // Сервер: шифрование, кассир — только свой филиал, менять — только админ
+  assert.match(vaultSrc, /aes-256-gcm/);
+  assert.match(vaultSrc, /role === 'cashier' && String\(tok\.hostellaHostel \|\| ''\) !== hostelId/);
+  assert.match(vaultSrc, /if \(!ADMINS\.includes\(role\)\) throw fail\('permission-denied'/);
+  assert.match(vaultSrc, /'kadastr_vault_read'/, 'каждая выдача секретов — в журнал');
+  const pub = vaultSrc.slice(vaultSrc.indexOf('function publicView'), vaultSrc.indexOf('function applyPatch'));
+  assert.doesNotMatch(pub, /eimzoPassword: st\.eimzoPassword|number: c\.number|phone: c\.phone/, 'маски без открытых значений');
+  // Открытые значения забирает главный процесс, не рендерер
+  assert.match(mainSrc, /action: 'secrets'/);
+  assert.match(mainSrc, /const VAULT_URL_RX = \/\^https:\\\/\\\/us-central1-/, 'секреты — только с функции проекта');
+  assert.doesNotMatch(preloadSrc, /kadastrSettingsGet|kadastr-settings-get/, 'прежние локальные настройки убраны');
+  const vaultUi = readFileSync(new URL('../src/utils/kadastrVault.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(vaultUi, /action: 'secrets'/, 'интерфейс секреты не запрашивает');
   assert.match(preloadSrc, /kadastrRegister: \(payload\) => ipcRenderer\.invoke\('kadastr-register'/);
   // E-IMZO-сертификат признаём только для окна кадастра
   assert.match(mainSrc, /u\.hostname === '127\.0\.0\.1' && u\.port === '64443' && kadastrWindow/);

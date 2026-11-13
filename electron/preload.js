@@ -45,14 +45,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Сайт кадастра (reg.emehmon.uz): вход ЭЦП, листок, оплата. Секреты (пароль
   // ЭЦП, карта) хранит главный процесс; сюда — только «есть/нет» и маски.
-  kadastrSettingsGet: () => ipcRenderer.invoke('kadastr-settings-get'),
-  kadastrSettingsSet: (patch) => ipcRenderer.invoke('kadastr-settings-set', patch),
+  // Настройки кадастра — на сервере (kadastrVault); здесь только перенос прежних с компьютера
+  kadastrLocalHas: () => ipcRenderer.invoke('kadastr-local-has'),
+  kadastrMigrate: (vault) => ipcRenderer.invoke('kadastr-migrate', { vault }),
+  kadastrVaultChanged: (hostelId) => ipcRenderer.invoke('kadastr-vault-changed', hostelId),
   kadastrRegister: (payload) => ipcRenderer.invoke('kadastr-register', payload),
   kadastrOpenPay: (payload) => ipcRenderer.invoke('kadastr-open-pay', payload),
   kadastrPayOtp: (code) => ipcRenderer.invoke('kadastr-pay-otp', { code }),
   kadastrList: (payload) => ipcRenderer.invoke('kadastr-list', payload),
   kadastrStatus: () => ipcRenderer.invoke('kadastr-status'),
-  kadastrLogin: () => ipcRenderer.invoke('kadastr-login'),
+  kadastrLogin: (payload) => ipcRenderer.invoke('kadastr-login', payload),
   onKadastrPaid: (cb) => subscribe('kadastr-paid', cb),
   onKadastrStage: (cb) => subscribe('kadastr-stage', cb),
 

@@ -760,3 +760,24 @@ html.motion-idle *::after {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+
+/* ── Экран кадастра (13.11.2026): мягкие анимации без свечений ──────────────
+   Появление карточек лесенкой, заполнение полосы срока, «бегущая» штриховка
+   пока листок оформляется на сайте, щелчок галочки при оплате. Всё гасится
+   общим prefers-reduced-motion выше. */
+@keyframes kad-rise   { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes kad-fill   { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes kad-stripes { from { background-position: 0 0; } to { background-position: 28px 0; } }
+@keyframes kad-pop    { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes kad-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes kad-slide  { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+.kad-rise    { animation: kad-rise .42s cubic-bezier(.2,.7,.2,1) both; }
+.kad-fill    { transform-origin: left center; animation: kad-fill .9s cubic-bezier(.2,.7,.2,1) both; }
+.kad-stripes {
+  background-image: repeating-linear-gradient(-45deg, rgba(20,184,166,.18) 0 7px, transparent 7px 14px);
+  background-size: 28px 100%;
+  animation: kad-stripes .9s linear infinite;
+}
+.kad-pop     { animation: kad-pop .45s cubic-bezier(.2,.8,.3,1.2) both; }
+.kad-breathe { animation: kad-breathe 1.6s ease-in-out infinite; }
+.kad-slide   { animation: kad-slide .3s ease-out both; }

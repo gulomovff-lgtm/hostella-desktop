@@ -1438,3 +1438,6 @@ exports.telegramWebhook = functions.runWith({ secrets: ['TELEGRAM_BOT_TOKEN', 'T
 
 // Реферальная программа (денежные бонусы за сутки приглашённого) — ./referralFunctions.js
 Object.assign(exports, require("./referralFunctions"));
+
+// Хранилище сайта кадастра по филиалам (пароль ЭЦП, карты) — ./kadastrVault.js
+Object.assign(exports, require("./kadastrVault"));

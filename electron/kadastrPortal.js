@@ -370,22 +370,40 @@ public class HWin {
     SendInput(1, new INPUT[] { x }, Marshal.SizeOf(typeof(INPUT)));
   }
   static bool Mine(uint[] pids) { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return Array.IndexOf(pids, p) >= 0; }
-  // Символы — как Unicode (KEYEVENTF_UNICODE): не зависят от раскладки.
-  // SendKeys слал клавиши в текущей раскладке — при русской E-IMZO получал
-  // кириллицу вместо пароля (13.11.2026). Перед каждым символом — проверка,
-  // что впереди окно E-IMZO; поле сначала очищаем (Ctrl+A, Backspace).
-  public static string TypeInto(uint[] pids, string s) {
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr LoadKeyboardLayout(string id, uint flags);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern short VkKeyScanEx(char c, IntPtr hkl);
+  // Ввод пароля в окно E-IMZO (Java). История (13.11.2026):
+  //  • SendKeys — клавиши в текущей раскладке: при русской получалась кириллица;
+  //  • Unicode-символы (KEYEVENTF_UNICODE) — Java принимает их через раз,
+  //    пароль то верный, то нет.
+  // Теперь: окну E-IMZO включаем английскую раскладку (WM_INPUTLANGCHANGEREQUEST)
+  // и печатаем обычными клавишами по английской раскладке (VkKeyScanEx), с Shift
+  // где нужно, без спешки. Символ, которого на английской клавиатуре нет, —
+  // Unicode. Перед каждой клавишей — проверка, что впереди окно E-IMZO.
+  public static string TypeInto(uint[] pids, string s, IntPtr h) {
     if (!Mine(pids)) return "focus_lost";
+    IntPtr us = LoadKeyboardLayout("00000409", 1);
+    if (us != IntPtr.Zero && h != IntPtr.Zero) { PostMessage(h, 0x0050, IntPtr.Zero, us); System.Threading.Thread.Sleep(350); }
     Key(0x11, 0, 0); Key(0x41, 0, 0); Key(0x41, 0, 2); Key(0x11, 0, 2);
-    System.Threading.Thread.Sleep(60);
+    System.Threading.Thread.Sleep(80);
     Key(0x08, 0, 0); Key(0x08, 0, 2);
-    System.Threading.Thread.Sleep(60);
+    System.Threading.Thread.Sleep(80);
     foreach (char c in s) {
       if (!Mine(pids)) return "focus_lost";
-      Key(0, c, 4); Key(0, c, 4 | 2);
-      System.Threading.Thread.Sleep(35);
+      short vs = us != IntPtr.Zero ? VkKeyScanEx(c, us) : (short)-1;
+      if (vs == -1 || ((vs >> 8) & 6) != 0) {
+        Key(0, c, 4); Key(0, c, 4 | 2);
+      } else {
+        ushort vk = (ushort)(vs & 0xFF);
+        bool shift = ((vs >> 8) & 1) != 0;
+        if (shift) { Key(0x10, 0, 0); System.Threading.Thread.Sleep(15); }
+        Key(vk, 0, 0); System.Threading.Thread.Sleep(15); Key(vk, 0, 2);
+        if (shift) { System.Threading.Thread.Sleep(15); Key(0x10, 0, 2); }
+      }
+      System.Threading.Thread.Sleep(60);
     }
-    System.Threading.Thread.Sleep(150);
+    System.Threading.Thread.Sleep(250);
     if (!Mine(pids)) return "focus_lost";
     Key(0x0D, 0, 0); Key(0x0D, 0, 2);
     return "typed";
@@ -422,7 +440,7 @@ while ((Get-Date) -lt $deadline) {
       $fg = [HWin]::GetForegroundWindow(); $fp = [uint32]0; [void][HWin]::GetWindowThreadProcessId($fg, [ref]$fp)
       if ($pids -contains $fp) {
         Start-Sleep -Milliseconds 500   # окно Java успевает поставить курсор в поле
-        Write-Output ([HWin]::TypeInto([uint32[]]$pids, $pw)); exit 0
+        Write-Output ([HWin]::TypeInto([uint32[]]$pids, $pw, $h)); exit 0
       }
     }
   }
