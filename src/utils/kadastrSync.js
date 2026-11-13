@@ -26,13 +26,28 @@ const addDays = (ymd, n) => {
  *  guests — гости, cadastres — дома, createHostelId — филиал, которому эта
  *  касса заводит недостающие записи (null — только правим, не создаём:
  *  две кассы не должны создать одну запись дважды).
- * Ответ: { fixes: [{ regId, patch }], creates: [data], unmatched: [row] }.
+ * Ответ: { fixes: [{ regId, patch }], creates: [data], unmatched: [row],
+ *   toRegister: [{ reg, guest, days }] } — записи, у которых сегодня нет
+ *   листка на сайте (продлили в Hostella, или листок не прошёл): программа
+ *   оформит его сама, без ручной кнопки.
  */
+// Отказы сайта, которые повтором не исправить, — пробуем раз в сутки
+const HARD_ERRORS = new Set(['not_found', 'no_citizen', 'no_cadastre', 'no_psp_date', 'days_limit', 'housing_blocked', 'compliance_danger', 'missing']);
 export function planKadastrSync({ rows = [], regs = [], guests = [], cadastres = [], createHostelId = null, now = new Date(), limit = 20 } = {}) {
   const today = localYmd(now);
   const since = addDays(today, -3);
   const seen = new Set();
   const fixes = [], creates = [], unmatched = [];
+  // Докуда у человека есть листок на сайте (последний листок, любой давности)
+  const siteEnd = new Map();
+  for (const row of rows) {
+    const pass = normPass(row?.passport);
+    const at = parseSiteDt(row?.dt);
+    const days = Math.round(Number(row?.wdays) || 0);
+    if (!pass || !at || days < 1) continue;
+    const end = cadastreEndFor(at.ymd, days);
+    if (end && (!siteEnd.has(pass) || siteEnd.get(pass) < end)) siteEnd.set(pass, end);
+  }
 
   for (const row of rows) {
     const pass = normPass(row?.passport);
@@ -64,10 +79,15 @@ export function planKadastrSync({ rows = [], regs = [], guests = [], cadastres =
       // Продление новым листком: начало оставляем раннее, конец — по сайту
       const startDate = reg.startDate <= start ? reg.startDate : start;
       const patch = {};
-      if (reg.endDate !== end) patch.endDate = end;
-      if (startDate !== reg.startDate) patch.startDate = startDate;
-      const d = cadastreDaysFor(startDate, end);
-      if (Number(reg.days) !== d) patch.days = d;
+      // Продлили в Hostella после этого листка — конец не откатываем:
+      // новый листок на добавленные дни оформит toRegister
+      const pendingExt = reg.endDate > end && reg.extendedAt && reg.extendedAt > at.iso;
+      if (!pendingExt) {
+        if (reg.endDate !== end) patch.endDate = end;
+        if (startDate !== reg.startDate) patch.startDate = startDate;
+        const d = cadastreDaysFor(startDate, end);
+        if (Number(reg.days) !== d) patch.days = d;
+      }
       const p = portalOf(reg.portal || {});
       const pr = reg.portal || {};
       if (pr.listokId !== p.listokId || pr.payUrl !== p.payUrl || (!!pr.paidAt) !== (!!p.paidAt) || pr.status !== 'saved') patch.portal = p;
@@ -91,6 +111,26 @@ export function planKadastrSync({ rows = [], regs = [], guests = [], cadastres =
       portal: portalOf({}),
     });
   }
+  // Сегодня кадастр в Hostella действует, а листка на сайте нет — оформить
+  const toRegister = [];
+  const dayAgo = now.getTime() - 24 * 3600 * 1000;
+  const twoHoursAgo = now.getTime() - 2 * 3600 * 1000;
+  for (const reg of regs || []) {
+    if (!reg || reg.status === 'removed' || !reg.startDate || !reg.endDate) continue;
+    if (reg.startDate > today || reg.endDate < today) continue;
+    if (!createHostelId || (reg.hostelId || 'hostel1') !== createHostelId) continue;
+    const pass = normPass(reg.passport);
+    if (!pass) continue;
+    if ((siteEnd.get(pass) || '') >= today) continue;
+    const p = reg.portal || {};
+    const pAt = new Date(p.at || p.savedAt || 0).getTime();
+    if (p.status === 'error' && HARD_ERRORS.has(p.error) && pAt > dayAgo) continue;
+    if ((p.status === 'saved' || p.status === 'pending') && pAt > twoHoursAgo) continue;   // оформляется сейчас / список сайта мог не успеть
+    const guest = (guests || []).find(g => g && g.status === 'active' && g.roomId !== 'DEBT_ONLY' &&
+      ((reg.guestId && g.id === reg.guestId) || normPass(g.passport) === pass));
+    if (!guest) continue;
+    toRegister.push({ reg, guest, days: Math.max(1, cadastreDaysFor(today, reg.endDate)) });
+  }
   // Не больше limit записей за раз: остальное — в следующую сверку
-  return { fixes: fixes.slice(0, limit), creates: creates.slice(0, limit), unmatched };
+  return { fixes: fixes.slice(0, limit), creates: creates.slice(0, limit), unmatched, toRegister: toRegister.slice(0, 2) };
 }

@@ -1044,7 +1044,17 @@ async function kadastrLogin(win, st) {
   // Вход в фоне (просьба владельца 13.11.2026): окно сайта скрыто, на экране
   // мелькает только окно пароля E-IMZO, и его заполняет программа.
   await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
-  await waitUntil(() => /id\.egov\.uz$/.test(new URL(win.webContents.getURL()).hostname), 20000);
+  // OneID может помнить вход и сразу вернуть на сайт кадастра, минуя страницу
+  // ключей (журнал 13.11.2026: «not_oneid» — ждали OneID, а были уже на сайте)
+  const hostNow = () => { try { return new URL(win.webContents.getURL()).hostname; } catch (_) { return ''; } };
+  const pathNow = () => { try { return new URL(win.webContents.getURL()).pathname; } catch (_) { return ''; } };
+  await waitUntil(() => /id\.egov\.uz$/.test(hostNow()) ||
+    (hostNow() === 'reg.emehmon.uz' && !/^\/(login|auth)/.test(pathNow())), 30000);
+  if (hostNow() === 'reg.emehmon.uz') {
+    if (!onListovka(win)) await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+    if (onListovka(win)) return 'ok';
+  }
+  if (!/id\.egov\.uz$/.test(hostNow())) return 'oneid_not_opened:' + hostNow() + pathNow();
   let r;
   try { r = await win.webContents.executeJavaScript(kadastrPortal.buildOneIdLoginScript({ cert: st.cert }), true); }
   catch (e) { r = { status: 'error', message: e.message }; }

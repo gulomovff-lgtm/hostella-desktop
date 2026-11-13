@@ -89,3 +89,16 @@ test('сверка завершает просроченные кадастры 
   // завершение идёт до добора (добор вызывается в конце сверки)
   assert.ok(src.indexOf("removedBy: 'auto_cadastre_end'") < src.indexOf('await runEmehmonCatchup(hostelId, true'));
 });
+
+test('гость выехал — регистрация кадастра завершается сама; живущий и неизвестный — нет', async () => {
+  const { cadastreGuestLeft } = await import('../src/utils/registrationStatus.js');
+  const reg = { id: 'c1', guestId: 'g1', passport: 'AA1234567', status: 'active', endDate: '2026-11-20' };
+  const now = new Date('2026-11-15T12:00:00');
+  assert.equal(cadastreGuestLeft(reg, [{ id: 'g1', passport: 'AA1234567', status: 'checked_out', checkOutDate: '2026-11-14T07:00:00' }], now), true);
+  assert.equal(cadastreGuestLeft(reg, [
+    { id: 'g1', passport: 'AA1234567', status: 'checked_out' },
+    { id: 'g2', passport: 'AA1234567', status: 'active', checkOutDate: '2026-11-25T07:00:00' },
+  ], now), false, 'продолжение проживания — живёт');
+  assert.equal(cadastreGuestLeft(reg, [], now), false, 'список гостей пуст — ничего не снимаем');
+  assert.equal(cadastreGuestLeft({ ...reg, status: 'removed' }, [{ id: 'g1', status: 'checked_out' }], now), false);
+});

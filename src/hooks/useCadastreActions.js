@@ -253,6 +253,9 @@ export function useCadastreActions({
       const regUpdate = {
         endDate:   extData.newEndDate,
         days:      (reg.days || 0) + Math.max(0, actualDays),
+        // Продлили в Hostella — сверка не «откатит» конец к листку сайта, а
+        // оформит новый листок на добавленные дни, когда текущий кончится
+        extendedAt: new Date().toISOString(),
         status:    'active',
         ...(costNum > 0 ? { expenseByMonth } : {}),
       };
@@ -292,49 +295,6 @@ export function useCadastreActions({
       logAction(currentUser, 'cadastre_reg_extend', { id: reg.id, newEndDate: extData.newEndDate });
     } catch (e) {
       showNotification(t('cdaExtendError') + e.message, 'error');
-    }
-  };
-
-  // Снятие — confirm и опция addToExpenses вынесены в UI
-  const handleRemoveCadastreReg = async (reg, { addToExpenses = false } = {}) => {
-    try {
-      const safeStaffId = currentUser.id || currentUser.login;
-      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
-        status:    'removed',
-        removedAt: new Date().toISOString(),
-        removedBy: currentUser.login,
-      });
-
-      let removedExpenseId = null;
-      if (addToExpenses && Number(reg.amount) > 0 && !reg.expenseAdded) {
-        const expRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
-          category: 'Регистрация',
-          amount:   Number(reg.amount),
-          comment:  `Кадастр завершение: ${reg.cadastreAddress} — ${reg.guestName} (${reg.startDate} – ${reg.endDate})`,
-          hostelId: reg.hostelId,
-          staffId:  safeStaffId,
-          source:   'cadastre',
-          date:     reg.createdAt || new Date().toISOString(),
-        });
-        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: Number(reg.amount),
-          comment: `Кадастр завершение: ${reg.cadastreAddress} — ${reg.guestName}` });
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
-          expenseAdded: true,
-          expenseId: expRef.id,
-        });
-        removedExpenseId = expRef.id;
-      }
-
-      pushUndo({
-        type: 'cadastre_remove',
-        label: `Завершение регистрации: ${reg.guestName}`,
-        regId: reg.id,
-        expenseId: removedExpenseId,
-      });
-      showNotification(t('cdaRegFinished'), 'success');
-      logAction(currentUser, 'cadastre_reg_remove', { id: reg.id, guestName: reg.guestName });
-    } catch (e) {
-      showNotification(t('cdaError') + e.message, 'error');
     }
   };
 
@@ -390,17 +350,6 @@ export function useCadastreActions({
     }
   };
 
-  // Удаление — confirm вынесен в UI
-  const handleDeleteCadastreReg = async (reg) => {
-    try {
-      await deleteDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id));
-      showNotification(t('cdaRecordDeleted'), 'success');
-      logAction(currentUser, 'cadastre_reg_delete', { id: reg.id, guestName: reg.guestName });
-    } catch (e) {
-      showNotification(t('cdaError') + e.message, 'error');
-    }
-  };
-
   // Добавить в расходы одну запись
   const handleAddRegToExpenses = async (reg) => {
     // Вычисляем уже учтённую сумму (поддержка старых записей без totalExpensed)
@@ -447,59 +396,9 @@ export function useCadastreActions({
     }
   };
 
-  // Добавить ВСЕ активные регистрации в расходы одной кнопкой
-  const handleAddAllToExpenses = async (cadastreRegs) => {
-    const safeStaffId = currentUser.id || currentUser.login;
-    // Включаем и завершённые (removed) регистрации с неучтённым расходом — чтобы не потерять
-    const toAdd = cadastreRegs.filter(r => {
-      if (!(Number(r.amount) > 0)) return false;
-      const alreadyExpensed = r.totalExpensed ?? (r.expenseAdded ? (Number(r.amount) || 0) : 0);
-      return (Number(r.amount) - alreadyExpensed) > 0;
-    });
-    if (toAdd.length === 0) {
-      showNotification(t('cdaNoNewToExpense'), 'info');
-      return;
-    }
-    let addedCount = 0;
-    const now = new Date().toISOString();
-    for (const reg of toAdd) {
-      try {
-        const alreadyExpensed = reg.totalExpensed ?? (reg.expenseAdded ? (Number(reg.amount) || 0) : 0);
-        const diff = Number(reg.amount) - alreadyExpensed;
-        const expenseByMonth = getExpenseByMonthMap(reg);
-        const expensedByMonth = getExpensedByMonthMap(reg, expenseByMonth);
-        const nextExpensedByMonth = allocateExpensedByMonth(expenseByMonth, expensedByMonth, diff);
-        const expRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
-          category: 'Регистрация',
-          amount:   diff,
-          comment:  `Кадастр: ${reg.cadastreAddress} — ${reg.guestName} (${reg.startDate} – ${reg.endDate})`,
-          hostelId: reg.hostelId,
-          staffId:  safeStaffId,
-          source:   'cadastre',
-          date:     reg.createdAt || now,
-        });
-        notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: diff,
-          comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName}` });
-        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
-          expenseAdded:  true,
-          expenseId:     expRef.id,
-          totalExpensed: increment(diff),
-          expenseByMonth,
-          expensedByMonth: nextExpensedByMonth,
-        });
-        addedCount++;
-      } catch (e) {
-        console.error('Ошибка при добавлении расхода:', e);
-      }
-    }
-    showNotification(t('cdaAddedCount').replace('{added}', addedCount).replace('{total}', toAdd.length), 'success');
-    logAction(currentUser, 'cadastre_bulk_expense', { count: addedCount });
-  };
-
   return {
     handleAddCadastre, handleUpdateCadastre, handleDeleteCadastre,
     handleAddCadastreReg, handleExtendCadastreReg, handleUpdateCadastreReg,
-    handleRemoveCadastreReg, handleDeleteCadastreReg,
-    handleAddRegToExpenses, handleAddAllToExpenses, handleCadastrePortal, handleCadastreSyncFix,
+    handleAddRegToExpenses, handleCadastrePortal, handleCadastreSyncFix,
   };
 }

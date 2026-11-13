@@ -18,7 +18,7 @@ import TRANSLATIONS from '../constants/translations';
 import { getConfig } from '../utils/appConfig';
 import { departureExtras, departureMarks } from '../utils/emehmonDeparture';
 import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
-import { autoRegisterAllowed, cadastreBlocksAuto, cadastreTransferDue, cadastreAutoFinishDue, stayStartAfterCadastre } from '../utils/registrationStatus';
+import { autoRegisterAllowed, cadastreBlocksAuto, cadastreTransferDue, cadastreAutoFinishDue, cadastreGuestLeft, stayStartAfterCadastre } from '../utils/registrationStatus';
 import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
 import { changeStamp } from '../utils/collectionStore';
 import { watchEmehmonIgnore, isEmehmonHidden } from '../utils/emehmonIgnore';
@@ -922,6 +922,18 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
               status: 'removed', removedAt: now, removedBy: 'auto_cadastre_end',
             });
             if (!quietHere) showNotification(t('cadAutoFinished').replace('{name}', r.guestName || ''), 'info');
+          } catch (_) { /* следующая сверка повторит */ }
+        }
+        // Гость выехал — регистрация кадастра завершается сама, с отметкой
+        // «гость выехал»; напоминаний о ней больше нет (13.11.2026)
+        const left = (guests || []).length
+          ? (cadRegsRef.current || []).filter(r => (r.hostelId || 'hostel1') === hostelId && cadastreGuestLeft(r, guests)).slice(0, 10)
+          : [];
+        for (const r of left) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', r.id), {
+              status: 'removed', removedAt: now, removedBy: 'auto_guest_left', guestLeft: true,
+            });
           } catch (_) { /* следующая сверка повторит */ }
         }
       }

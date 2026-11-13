@@ -12,12 +12,9 @@ import TRANSLATIONS from '../../constants/translations';
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
 import { getStatus, STATUS_CFG, fmt } from './Cadastre/shared';
-import EditRegModal from './Cadastre/EditRegModal';
 import CopyButton from './Cadastre/CopyButton';
 import ExtendModal from './Cadastre/ExtendModal';
-import CadastreModal from './Cadastre/CadastreModal';
 import CadastreManageModal from './Cadastre/CadastreManageModal';
-import RemoveConfirmModal from './Cadastre/RemoveConfirmModal';
 import RegCard from './Cadastre/RegCard';
 
 export default function CadastreView({
@@ -28,13 +25,8 @@ export default function CadastreView({
   rooms = [],
   currentUser,
   selectedHostelFilter,
-  onAddReg,
   onExtendReg,
-  onUpdateReg,
-  onRemoveReg,
-  onDeleteReg,
-  onAddToExpenses,
-  onAddAllToExpenses,
+  onPay,
   onAddCadastre,
   onUpdateCadastre,
   onDeleteCadastre,
@@ -49,13 +41,8 @@ export default function CadastreView({
   // По умолчанию показываем активные + истекающие (обязательная фильтрация)
   const [statusFilter, setStatusFilter] = useState('active_expiring');
   const [monthFilter, setMonthFilter] = useState('');
-  const [showModal, setShowModal] = useState(false);
   const [extendReg, setExtendReg] = useState(null);
-  const [editReg, setEditReg] = useState(null);
   const [cadastreModal, setCadastreModal] = useState(null);
-  const [removeConfirmReg, setRemoveConfirmReg] = useState(null);
-  const [addAllConfirm, setAddAllConfirm] = useState(false);
-  const [busyAddAll, setBusyAddAll] = useState(false);
 
   // ─── Hostel filtering (cashier sees own only) ───────────────────────
   const visibleRegs = useMemo(() => {
@@ -188,18 +175,6 @@ export default function CadastreView({
 
   const hostelName = (id) => HOSTELS[id]?.name || id || '—';
 
-  const handleAddAll = useCallback(() => {
-    setAddAllConfirm(true);
-  }, []);
-
-  const handleAddAllConfirmed = useCallback(async () => {
-    if (busyAddAll) return;
-    setBusyAddAll(true);
-    await onAddAllToExpenses(monthFilteredRegs);
-    setBusyAddAll(false);
-    setAddAllConfirm(false);
-  }, [monthFilteredRegs, onAddAllToExpenses, busyAddAll]);
-
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
       {/* Header */}
@@ -213,23 +188,7 @@ export default function CadastreView({
             <p className="text-xs text-slate-500">{t('cadSubtitle')}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {stats.pendingExpense > 0 && (
-            <button
-              onClick={handleAddAll}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 shadow-sm"
-            >
-              <Receipt size={13} />
-              {t('cadToExpenses').replace('{n}', fmt(stats.pendingExpense))}
-            </button>
-          )}
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 shadow-sm shadow-teal-200"
-          >
-            <Plus size={14} /> {t('registration')}
-          </button>
-        </div>
+
       </div>
 
       {/* Stats bar */}
@@ -319,12 +278,8 @@ export default function CadastreView({
                 <RegCard
                   key={reg.id}
                   reg={reg}
-                  isAdmin={isAdmin}
-                  onExtend={r => setExtendReg(r)}
-                  onEdit={r => setEditReg(r)}
-                  onRemove={r => setRemoveConfirmReg(r)}
-                  onDelete={onDeleteReg}
-                  onAddToExpenses={onAddToExpenses}
+                  onExtend={onExtendReg ? (r => setExtendReg(r)) : null}
+                  onPay={onPay}
                   lang={lang}
                 />
               ))}
@@ -382,75 +337,11 @@ export default function CadastreView({
       )}
 
       {/* Modals */}
-      {removeConfirmReg && (
-        <RemoveConfirmModal
-          reg={removeConfirmReg}
-          onClose={() => setRemoveConfirmReg(null)}
-          onConfirm={onRemoveReg}
-          lang={lang}
-        />
-      )}
-      {addAllConfirm && (
-        <div className="modal-centered fixed inset-0 z-[210] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 pb-[84px] sm:pb-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-violet-500 w-full" />
-            <div className="p-6 space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
-                  <Receipt size={20} className="text-violet-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-base">{t('cadAddAllTitle')}</h3>
-                  <p className="text-sm text-slate-500 mt-1">
-                    {t('cadAddAllInfoPre')}<b className="text-violet-700">{fmt(stats.pendingExpense)} {t('cadSum')}</b>{t('cadAddAllInfoPost')}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => setAddAllConfirm(false)} disabled={busyAddAll}
-                  className="flex-1 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 disabled:opacity-40">
-                  {t('cancel')}
-                </button>
-                <button onClick={handleAddAllConfirmed} disabled={busyAddAll}
-                  className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white font-bold text-sm hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-2">
-                  {busyAddAll
-                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    : <Receipt size={14} />
-                  }
-                  {t('add')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {showModal && (
-        <CadastreModal
-          clients={clients}
-          cadastres={cadastres}
-          guests={guests}
-          rooms={rooms}
-          cadastreRegs={cadastreRegs}
-          currentUser={currentUser}
-          selectedHostelFilter={selectedHostelFilter}
-          onClose={() => setShowModal(false)}
-          onSubmit={onAddReg}
-          lang={lang}
-        />
-      )}
       {extendReg && (
         <ExtendModal
           reg={extendReg}
           onClose={() => setExtendReg(null)}
           onSubmit={data => onExtendReg(extendReg, data)}
-          lang={lang}
-        />
-      )}
-      {editReg && (
-        <EditRegModal
-          reg={editReg}
-          onClose={() => setEditReg(null)}
-          onSubmit={data => onUpdateReg(editReg, data)}
           lang={lang}
         />
       )}

@@ -56,3 +56,6 @@ export function portalFromResult(r, now = new Date()) {
 export const portalPayOpen = (portal, now = Date.now()) =>
   !!portal && portal.status === 'saved' && !portal.paidAt && !!portal.payUrl &&
   now - new Date(portal.savedAt).getTime() < 24 * 3600 * 1000;
+
+/** Листок на сайте есть, а турсбор не оплачен — красный статус в кадастре. */
+export const portalUnpaid = (portal) => !!portal && portal.status === 'saved' && !portal.paidAt;

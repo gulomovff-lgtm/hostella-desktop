@@ -90,7 +90,7 @@ export function KadastrSetupModal({ t, onClose }) {
     };
     const cardFilled = card.number || card.mm || card.yy || card.phone;
     return (
-        <div className="fixed inset-0 z-[180] flex items-center justify-center p-4" style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
+        <div className="fixed inset-0 z-[180] flex items-center justify-center p-4" style={{ background: 'rgba(8,18,20,0.55)' }}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
             <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-3">
                 <div className="flex items-center justify-between">

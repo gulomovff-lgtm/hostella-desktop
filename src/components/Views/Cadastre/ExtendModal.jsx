@@ -5,28 +5,19 @@ import TRANSLATIONS from '../../../constants/translations';
 
 const ExtendModal = ({ reg, onClose, onSubmit, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
-  // Цена за день из текущей регистрации (для автоподстановки)
-  const pricePerDay = (reg.amount > 0 && reg.days > 0) ? reg.amount / reg.days : 0;
-
+  // Сумму и расход ручно не вводим (13.11.2026): листок на добавленные дни
+  // программа сама оформит на сайте кадастра, когда кончится текущий, и
+  // возьмёт его сумму в расходы.
   const [days, setDays] = useState('30');
   const [startFrom, setStartFrom] = useState(reg.endDate || '');
-  const [regCost, setRegCost] = useState(() =>
-    pricePerDay > 0 ? String(Math.round(pricePerDay * 30)) : ''
-  );
-  const [addToExpenses, setAddToExpenses] = useState(false);
 
   const newEndDate = calcEndDate(startFrom || reg.endDate, days);
 
-  const handleDaysChange = (val) => {
-    setDays(val);
-    if (pricePerDay > 0 && parseInt(val) > 0) {
-      setRegCost(String(Math.round(pricePerDay * parseInt(val))));
-    }
-  };
+  const handleDaysChange = (val) => setDays(val);
 
   const submit = () => {
     if (!days || parseInt(days) <= 0) return;
-    onSubmit({ days: parseInt(days), newEndDate, startFrom, regCost, addToExpenses });
+    onSubmit({ days: parseInt(days), newEndDate, startFrom, regCost: '', addToExpenses: false });
     onClose();
   };
 
@@ -72,15 +63,7 @@ const ExtendModal = ({ reg, onClose, onSubmit, lang = 'ru' }) => {
               📅 {t('cdmNewEndDate')}: <b>{newEndDate}</b>
             </p>
           )}
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-1 block">{t('cdmRegCostExpense')}</label>
-            <input className={inp} type="number" placeholder={t('cdmZeroSum')} value={regCost} onChange={e => setRegCost(e.target.value)} />
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={addToExpenses} onChange={e => setAddToExpenses(e.target.checked)}
-              className="w-4 h-4 rounded accent-teal-600" />
-            <span className="text-sm text-slate-700">{t('cdmAddCostToExpenses')}</span>
-          </label>
+          <p className="text-xs text-slate-500 leading-snug">{t('cdmExtendAutoHint')}</p>
         </div>
         <div className="flex gap-2 pt-1">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">{t('cancel')}</button>

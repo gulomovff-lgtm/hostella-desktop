@@ -228,3 +228,17 @@ export function cadastrePersonGone(reg, guests = [], now = new Date(), clients =
   return (clients || []).some(c => (Number(c?.visits) > 0 || c?.lastVisit) &&
     cadastreMatches(reg, { id: c.id, passport: c.passport, fullName: c.fullName }));
 }
+
+/**
+ * Гость кадастра выехал: его запись(и) гостя найдены, ни одна не живёт, и
+ * есть выселенная. Тогда регистрация кадастра завершается сама (13.11.2026).
+ * Нет записей гостя (список не загрузился, человек «с улицы») — false:
+ * лучше лишнее напоминание, чем снятая регистрация живущего.
+ */
+export function cadastreGuestLeft(reg, guests = [], now = new Date()) {
+  if (!reg || reg.status === 'removed') return false;
+  const mine = (guests || []).filter(g => cadastreMatches(reg, g));
+  if (!mine.length) return false;
+  if (mine.some(g => isLivingNow(g, now) || g.status === 'active' || g.status === 'booking')) return false;
+  return mine.some(g => g.status === 'checked_out');
+}

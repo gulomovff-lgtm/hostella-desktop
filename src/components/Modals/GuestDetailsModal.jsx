@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import KadastrCardPicker, { emptyKadastrCard, kadastrCardArg, kadastrCardOk } from '../UI/KadastrCardPicker';
-import { kadastrPortalAvailable, portalPayOpen } from '../../utils/kadastrPortal';
+import { kadastrPortalAvailable, portalPayOpen, portalUnpaid } from '../../utils/kadastrPortal';
 import {
     ChevronLeft, X, DollarSign, CreditCard, QrCode, Magnet, User, Wallet, Clock, Split,
     LogOut, Minus, Plus, Calendar, CalendarDays, ArrowLeftRight, Edit, Trash2, FileText,
@@ -370,7 +370,7 @@ const EmehmonSheetRow = ({ guest, notify, t, onFetch }) => {
     );
 };
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onMoveToCadastre, onKadastrPortalRetry, onKadastrPay, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onMoveToCadastre, onKadastrPay, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
@@ -843,8 +843,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         if (!kadAct || kadAct.busy || !cadReg) return;
         setKadAct(a => ({ ...a, busy: true }));
         try {
-            if (kadAct.kind === 'pay') await onKadastrPay?.(cadReg, kadastrCardArg(kadAct.card));
-            else await onKadastrPortalRetry?.(cadReg, guest, kadastrCardArg(kadAct.card));
+            await onKadastrPay?.(cadReg, kadastrCardArg(kadAct.card));
         } finally { setKadAct(null); }
     };
     const cadMoveDays = cadMove ? (parseInt(cadMove.days, 10) || 0) : 0;
@@ -946,9 +945,11 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         const daysLeft = Math.ceil((new Date(cadReg.endDate + 'T23:59:59') - Date.now()) / 86400000);
         const isExpired = daysLeft < 0;
         const isExpiring = !isExpired && daysLeft <= 3;
+        // Листок на сайте не оплачен — красный, а не «всё хорошо» (13.11.2026)
+        const unpaid = portalUnpaid(cadReg.portal);
         return (
             <div className={`rounded-xl p-3 border ${
-                isExpired  ? 'bg-rose-50 border-rose-300' :
+                isExpired || unpaid ? 'bg-rose-50 border-rose-300' :
                 isExpiring ? 'bg-amber-50 border-amber-300' :
                              'bg-emerald-50 border-emerald-200'
             }`}>
@@ -976,17 +977,15 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                 <button type="button" onClick={() => setKadAct({ kind: 'pay', card: emptyKadastrCard(), busy: false })}
                                     className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold">{t('cadPortalPayBtn')}</button>
                             )}
-                            {onKadastrPortalRetry && guest.status === 'active' && cadReg.portal?.status !== 'saved' && cadReg.startDate <= localYmd() && cadastreValid(cadReg) && (
-                                <button type="button" onClick={() => setKadAct({ kind: 'retry', card: emptyKadastrCard(), busy: false })}
-                                    className="px-2.5 py-1 rounded-lg border border-teal-300 bg-white text-teal-700 hover:bg-teal-50 text-xs font-bold">{t('cadPortalRetryBtn')}</button>
-                            )}
                         </div>
                         <div className={`text-xs font-bold mt-0.5 ${
-                            isExpired  ? 'text-rose-600' :
+                            isExpired || unpaid ? 'text-rose-600' :
                             isExpiring ? 'text-amber-700' :
                                          'text-emerald-700'
                         }`}>
-                            {isExpired
+                            {unpaid && !isExpired
+                                ? `💳 ${t('cadPortalUnpaidBadge')}`
+                                : isExpired
                                 ? `❌ ${t('cadastreExpired').replace('{n}', Math.abs(daysLeft))}`
                                 : isExpiring
                                     ? `⚠️ ${t('cadastreExpiring').replace('{n}', daysLeft)}`
@@ -1077,7 +1076,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
     return (
         <>
-        <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 animate-in fade-in duration-150">
+        <div className="modal-centered fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 p-3 animate-in fade-in duration-150">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
 
                 {currentView === 'dashboard' && (
@@ -1416,25 +1415,25 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
                         {kadAct && (
                             <div className="fixed inset-0 z-[175] flex items-center justify-center p-4"
-                                style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
+                                style={{ background: 'rgba(8,18,20,0.55)' }}
                                 onClick={(e) => { if (e.target === e.currentTarget && !kadAct.busy) setKadAct(null); }}>
                                 <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4">
                                     <div className="flex items-center justify-between gap-2">
-                                        <h3 className="font-black text-base text-slate-800">{t(kadAct.kind === 'pay' ? 'cadPortalPayBtn' : 'cadPortalRetryBtn')}</h3>
+                                        <h3 className="font-black text-base text-slate-800">{t('cadPortalPayBtn')}</h3>
                                         <button type="button" onClick={() => !kadAct.busy && setKadAct(null)} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center"><X size={16} /></button>
                                     </div>
                                     <div className="text-sm font-bold text-slate-700">{guest.fullName}</div>
                                     <KadastrCardPicker t={t} canSetup={canKadSetup} value={kadAct.card} onChange={(card) => setKadAct(a => ({ ...a, card }))} />
                                     <button type="button" onClick={runKadAct} disabled={kadAct.busy || !kadastrCardOk(kadAct.card)}
                                         className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-black disabled:opacity-50">
-                                        {kadAct.busy ? '…' : t(kadAct.kind === 'pay' ? 'cadPortalPayBtn' : 'cadPortalRetryBtn')}
+                                        {kadAct.busy ? '…' : t('cadPortalPayBtn')}
                                     </button>
                                 </div>
                             </div>
                         )}
                         {cadMove && (
                             <div className="fixed inset-0 z-[175] flex items-center justify-center p-4"
-                                style={{ background: 'rgba(8,18,20,0.55)', backdropFilter: 'blur(2px)' }}
+                                style={{ background: 'rgba(8,18,20,0.55)' }}
                                 onClick={(e) => { if (e.target === e.currentTarget && !cadMove.busy) setCadMove(null); }}
                                 onKeyDown={(e) => { if (e.key === 'Escape' && !cadMove.busy) { e.stopPropagation(); setCadMove(null); } }}>
                                 <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4">
@@ -2162,7 +2161,7 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         )}
 
         {kppResetModal && (
-            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/70 p-4">
                 <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
                     <div className="h-1 bg-rose-500 w-full"/>
                     <div className="p-5 space-y-4">

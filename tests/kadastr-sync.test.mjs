@@ -68,3 +68,26 @@ test('программа запускает сверку после входа �
   assert.match(app, /setTimeout\(run, 90 \* 1000\)/);
   assert.match(app, /setInterval\(run, 60 \* 60 \* 1000\)/);
 });
+
+test('продлили в Hostella после листка — конец не откатываем; когда листок кончился — оформить новый', () => {
+  // листок 13.11 на 5 дней (по 17.11); в Hostella продлили до 22.11 позже листка
+  const reg = { id: 'r1', status: 'active', hostelId: 'hostel1', guestId: 'g1', passport: '405459377', startDate: '2026-11-13', endDate: '2026-11-22', days: 10,
+    extendedAt: '2026-11-14T08:00:00.000Z', portal: { status: 'saved', listokId: '536108', payUrl: 'https://reg.emehmon.uz/listovka/payTS/3kFsn-bmNhk', savedAt: '2026-11-13T09:46:00.000Z' } };
+  const p = planKadastrSync({ rows: [row()], regs: [reg], guests: [guest], cadastres: houses, createHostelId: 'hostel1', now });
+  assert.equal(p.fixes.length, 0, 'конец 22.11 не трогаем');
+  assert.equal(p.toRegister.length, 0, 'пока действует листок по 17.11 — рано');
+  const later = planKadastrSync({ rows: [row()], regs: [reg], guests: [guest], cadastres: houses, createHostelId: 'hostel1', now: new Date('2026-11-18T10:00:00') });
+  assert.equal(later.toRegister.length, 1);
+  assert.equal(later.toRegister[0].days, 5, '18–22 ноября');
+});
+
+test('листок не прошёл — сверка повторит сама; неисправимый отказ — не чаще раза в сутки; «оформляется» — не трогаем', () => {
+  const base = { id: 'r1', status: 'active', hostelId: 'hostel1', guestId: 'g1', passport: '405459377', startDate: '2026-11-13', endDate: '2026-11-17', days: 5 };
+  const run = (portal) => planKadastrSync({ rows: [], regs: [{ ...base, portal }], guests: [guest], cadastres: houses, createHostelId: 'hostel1', now }).toRegister.length;
+  assert.equal(run(undefined), 1);
+  assert.equal(run({ status: 'error', error: 'need_login', at: '2026-11-13T06:00:00.000Z' }), 1);
+  assert.equal(run({ status: 'error', error: 'not_found', at: '2026-11-13T06:00:00.000Z' }), 0);
+  assert.equal(run({ status: 'error', error: 'not_found', at: '2026-11-11T06:00:00.000Z' }), 1);
+  assert.equal(run({ status: 'pending', at: new Date(now.getTime() - 30 * 60e3).toISOString() }), 0);
+  assert.equal(planKadastrSync({ rows: [], regs: [{ ...base }], guests: [guest], cadastres: houses, createHostelId: 'hostel2', now }).toRegister.length, 0, 'чужой филиал');
+});

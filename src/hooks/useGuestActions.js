@@ -212,19 +212,6 @@ export function useGuestActions(ctx) {
           expenseAdded: false,
           expenseId: null,
         });
-      } else if (item.type === 'cadastre_remove') {
-        fb.update(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', item.regId), {
-          status: 'active',
-          removedAt: deleteField(),
-          removedBy: deleteField(),
-        });
-        if (item.expenseId) {
-          fb.delete(doc(db, ...PUBLIC_DATA_PATH, 'expenses', item.expenseId));
-          fb.update(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', item.regId), {
-            expenseAdded: false,
-            expenseId: null,
-          });
-        }
       } else if (item.type === 'balance_topup') {
         // Откатываем пополнение баланса: уменьшаем balance клиента, удаляем запись в кассе
         fb.update(doc(db, ...PUBLIC_DATA_PATH, 'clients', item.clientId), { ...clientStamp(), balance: increment(-item.amount) });

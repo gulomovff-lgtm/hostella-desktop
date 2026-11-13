@@ -1,26 +1,21 @@
 import React, { useState } from 'react';
-import { Calendar, ChevronDown, ChevronUp, Edit2, ExternalLink, Link, MapPin, Receipt, RefreshCw, Trash2, UserX } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronUp, ExternalLink, Link, MapPin, Receipt, RefreshCw } from 'lucide-react';
+import { portalPayOpen, portalUnpaid } from '../../../utils/kadastrPortal';
 import { STATUS_CFG, fmt, getDaysLeft, getStatus } from './shared';
 import CopyButton from './CopyButton';
 import TRANSLATIONS from '../../../constants/translations';
 
-const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, isAdmin, lang = 'ru' }) => {
+// Ручные «Изменить / Завершить / Удалить / В расходы» убраны (13.11.2026):
+// кадастр ведёт программа — листок на сайте, сумма в расходы, завершение через
+// 18 часов, сверка сроков. Кассиру остаются «Продлить» и «Оплатить».
+const RegCard = ({ reg, onExtend, onPay, lang = 'ru' }) => {
   const t = k => TRANSLATIONS[lang]?.[k] || k;
   const [expanded, setExpanded] = useState(false);
-  const [busyExpense, setBusyExpense] = useState(false);
-
-  // Сколько уже в расходах (backward-compatible: старые записи без totalExpensed)
   const alreadyExpensed = reg.totalExpensed ?? (reg.expenseAdded ? (Number(reg.amount) || 0) : 0);
   const unexpensed = Math.max(0, (Number(reg.amount) || 0) - alreadyExpensed);
-
-  const handleAddToExpenses = async () => {
-    if (busyExpense) return;
-    setBusyExpense(true);
-    await onAddToExpenses(reg);
-    setBusyExpense(false);
-  };
+  const unpaid = portalUnpaid(reg.portal);
   const status = getStatus(reg);
-  const cfg = STATUS_CFG[status];
+  const cfg = unpaid && status !== 'removed' ? STATUS_CFG.expired : STATUS_CFG[status];
   const daysLeft = getDaysLeft(reg.endDate);
   const Icon = cfg.icon;
 
@@ -52,6 +47,26 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
               {unexpensed > 0 && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                   ⚠️ {t('cdmNotInExpenses')}: {fmt(unexpensed)} {t('cadSum')}
+                </span>
+              )}
+              {reg.guestLeft && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                  🚪 {t('cadGuestLeft')}
+                </span>
+              )}
+              {unpaid && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                  💳 {t('cadPortalUnpaidBadge')}
+                </span>
+              )}
+              {reg.portal?.status === 'saved' && reg.portal.paidAt && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  ✓ {t('cadPortalPaidShort')}
+                </span>
+              )}
+              {reg.portal?.status === 'error' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                  ⚠ {t('cadPortalErrShort')}: {t('cadPortal_' + (reg.portal.error || 'error'))}
                 </span>
               )}
             </div>
@@ -105,36 +120,16 @@ const RegCard = ({ reg, onExtend, onEdit, onRemove, onDelete, onAddToExpenses, i
           )}
           {/* Кнопки */}
           <div className="flex flex-wrap gap-2">
-            {status !== 'removed' && (
-              <>
-                <button onClick={() => onExtend(reg)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
-                  <RefreshCw size={11} /> {t('cdmExtend')}
-                </button>
-                <button onClick={() => onEdit(reg)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-600 text-white text-xs font-bold hover:bg-slate-700">
-                  <Edit2 size={11} /> {t('cdmEdit')}
-                </button>
-                <button onClick={() => onRemove(reg)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600">
-                  <UserX size={11} /> {t('cdmFinish')}
-                </button>
-              </>
-            )}
-            {unexpensed > 0 && (
-              <button onClick={handleAddToExpenses} disabled={busyExpense}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50">
-                {busyExpense
-                  ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  : <Receipt size={11} />
-                }
-                {t('cdmToExpense')} {fmt(unexpensed)} {t('cadSum')}
+            {status !== 'removed' && onExtend && (
+              <button onClick={() => onExtend(reg)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700">
+                <RefreshCw size={11} /> {t('cdmExtend')}
               </button>
             )}
-            {isAdmin && (
-              <button onClick={() => onDelete(reg)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500 text-white text-xs font-bold hover:bg-rose-600">
-                <Trash2 size={11} /> {t('delete')}
+            {onPay && portalPayOpen(reg.portal) && (
+              <button onClick={() => onPay(reg)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold hover:bg-rose-700">
+                💳 {t('cadPortalPayBtn')}
               </button>
             )}
           </div>
