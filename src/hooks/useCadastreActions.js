@@ -180,6 +180,8 @@ export function useCadastreActions({
         status:          'active',
         // Переведён кнопкой «В кадастр»: после конца — обратно в e-mehmon
         ...(data.backToEmehmon ? { backToEmehmon: true } : {}),
+        // Листок на сайте кадастра (reg.emehmon.uz): итог, ссылка оплаты, ошибка
+        ...(data.portal ? { portal: data.portal } : {}),
         expenseAdded:    false,
         expenseId:       null,
         expenseByMonth,
@@ -216,7 +218,8 @@ export function useCadastreActions({
       });
 
       const disabledTypes = new Set(tgSettings?.disabledTypes || []);
-      if (!disabledTypes.has('cadastreNew') && isOnline) {
+      // Запись из сверки с сайтом кадастра (silent) — без телеграма: листок уже есть
+      if (!data.silent && !disabledTypes.has('cadastreNew') && isOnline) {
         const msg = [
           `🏠 <b>${t('cdaTgNewTitle')}</b>`,
           `👤 ${escapeTg(data.guestName)}`,
@@ -330,6 +333,29 @@ export function useCadastreActions({
       });
       showNotification(t('cdaRegFinished'), 'success');
       logAction(currentUser, 'cadastre_reg_remove', { id: reg.id, guestName: reg.guestName });
+    } catch (e) {
+      showNotification(t('cdaError') + e.message, 'error');
+    }
+  };
+
+  // Сверка с сайтом кадастра: срок и отметка листка, без уведомлений
+  const handleCadastreSyncFix = async (regId, patch) => {
+    if (!regId || !patch) return false;
+    const allowed = {};
+    for (const k of ['startDate', 'endDate', 'days', 'portal']) if (patch[k] !== undefined) allowed[k] = patch[k];
+    if (!Object.keys(allowed).length) return false;
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', regId), { ...allowed, syncedAt: new Date().toISOString() });
+      logAction(currentUser, 'cadastre_reg_sync', { id: regId, fields: Object.keys(allowed).join(',') });
+      return true;
+    } catch (_) { return false; }
+  };
+
+  // Отметки сайта кадастра (оплата прошла, повтор листка): только поле portal
+  const handleCadastrePortal = async (regId, portal) => {
+    if (!regId || !portal) return;
+    try {
+      await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', regId), { portal });
     } catch (e) {
       showNotification(t('cdaError') + e.message, 'error');
     }
@@ -474,6 +500,6 @@ export function useCadastreActions({
     handleAddCadastre, handleUpdateCadastre, handleDeleteCadastre,
     handleAddCadastreReg, handleExtendCadastreReg, handleUpdateCadastreReg,
     handleRemoveCadastreReg, handleDeleteCadastreReg,
-    handleAddRegToExpenses, handleAddAllToExpenses,
+    handleAddRegToExpenses, handleAddAllToExpenses, handleCadastrePortal, handleCadastreSyncFix,
   };
 }

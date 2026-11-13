@@ -43,6 +43,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // e-mehmon: проверка паспорта в госбазе БЕЗ регистрации (разбор дубликатов)
   emehmonPassportCheck: (payload) => ipcRenderer.invoke('emehmon-passport-check', payload),
 
+  // Сайт кадастра (reg.emehmon.uz): вход ЭЦП, листок, оплата. Секреты (пароль
+  // ЭЦП, карта) хранит главный процесс; сюда — только «есть/нет» и маски.
+  kadastrSettingsGet: () => ipcRenderer.invoke('kadastr-settings-get'),
+  kadastrSettingsSet: (patch) => ipcRenderer.invoke('kadastr-settings-set', patch),
+  kadastrRegister: (payload) => ipcRenderer.invoke('kadastr-register', payload),
+  kadastrOpenPay: (payload) => ipcRenderer.invoke('kadastr-open-pay', payload),
+  kadastrList: (payload) => ipcRenderer.invoke('kadastr-list', payload),
+  onKadastrPaid: (cb) => subscribe('kadastr-paid', cb),
+
   // Pending payments (offline safety net)
   savePendingPayments: (data) => ipcRenderer.invoke('save-pending-payments', data),
   loadPendingPayments: ()     => ipcRenderer.invoke('load-pending-payments'),

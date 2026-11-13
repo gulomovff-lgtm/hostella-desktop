@@ -9,6 +9,7 @@ const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const { buildAutofillScript, buildDepartureAutoScript, buildDepartureCheckScript, buildPassportCheckScript, buildListFetchScript, buildTursborFetchScript, buildAutoArrivalScript, buildRecalcScript, buildSheetPrintScript, buildRoomChangeScript } = require('./emehmonAutofill');
 const emehmonSheet = require('./emehmonSheet');
+const kadastrPortal = require('./kadastrPortal');
 
 // ─── Фикс «залипания» ввода на Windows ───────────────────────────────────────
 // Известный баг Electron/Chromium: окно перестаёт принимать ввод, пока не
@@ -944,6 +945,216 @@ ipcMain.handle('emehmon-recalc', async (_event, payload) => {
     log.error('[emehmon] recalc failed:', e.message);
     return { status: 'error', message: e.message };
   }
+});
+
+// ─── Сайт кадастра (reg.emehmon.uz): вход ЭЦП, листок, оплата ────────────────
+// Решение владельца 13.11.2026. Пароль ключа ЭЦП, номер сертификата, кадастр
+// и карта по умолчанию — только на этом компьютере, зашифрованы Windows
+// (safeStorage/DPAPI). В рендерер уходят лишь «есть / нет» и маска карты.
+const KADASTR_FILE = () => path.join(app.getPath('userData'), 'kadastr-settings.bin');
+const KADASTR_DEFAULTS = { cert: '79326482', cadMatch: '117.75' };
+function readKadastrSettings() {
+  try {
+    const buf = fs.readFileSync(KADASTR_FILE());
+    const json = electron.safeStorage.isEncryptionAvailable() ? electron.safeStorage.decryptString(buf) : '';
+    return { ...KADASTR_DEFAULTS, ...(json ? JSON.parse(json) : {}) };
+  } catch (_) { return { ...KADASTR_DEFAULTS }; }
+}
+function writeKadastrSettings(obj) {
+  if (!electron.safeStorage.isEncryptionAvailable()) throw new Error('encryption_unavailable');
+  fs.writeFileSync(KADASTR_FILE(), electron.safeStorage.encryptString(JSON.stringify(obj)));
+}
+const digitsOnly = (v) => String(v || '').replace(/\D/g, '');
+const cleanCard = (c) => {
+  if (!c) return null;
+  const number = digitsOnly(c.number), mm = digitsOnly(c.mm).padStart(2, '0').slice(-2), yy = digitsOnly(c.yy).slice(-2);
+  let phone = digitsOnly(c.phone);
+  if (phone.length === 9) phone = '998' + phone;
+  if (number.length !== 16 || !/^(0[1-9]|1[0-2])$/.test(mm) || yy.length !== 2 || phone.length !== 12) return null;
+  return { number, mm, yy, phone };
+};
+const kadastrPublic = (st) => ({
+  hasPassword: !!st.eimzoPassword,
+  cert: st.cert || '',
+  cadMatch: st.cadMatch || '',
+  hasCard: !!st.card,
+  cardMask: st.card ? '•••• ' + String(st.card.number).slice(-4) : '',
+  cardPhoneMask: st.card ? '+' + String(st.card.phone).slice(0, 5) + ' ••• •• ' + String(st.card.phone).slice(-2) : '',
+});
+
+ipcMain.handle('kadastr-settings-get', () => kadastrPublic(readKadastrSettings()));
+ipcMain.handle('kadastr-settings-set', (_e, patch) => {
+  const p = patch || {};
+  const st = readKadastrSettings();
+  if (typeof p.eimzoPassword === 'string' && p.eimzoPassword) st.eimzoPassword = p.eimzoPassword;
+  if (p.clearPassword) delete st.eimzoPassword;
+  if (typeof p.cert === 'string' && /^[0-9A-Za-z]{4,40}$/.test(p.cert.trim())) st.cert = p.cert.trim();
+  if (typeof p.cadMatch === 'string' && p.cadMatch.trim() && p.cadMatch.length <= 60) st.cadMatch = p.cadMatch.trim();
+  if (p.card) { const c = cleanCard(p.card); if (!c) return { ok: false, error: 'bad_card' }; st.card = c; }
+  if (p.clearCard) delete st.card;
+  try { writeKadastrSettings(st); } catch (e) { return { ok: false, error: e.message }; }
+  return { ok: true, ...kadastrPublic(st) };
+});
+
+let kadastrWindow = null;
+let kadastrChain = Promise.resolve();
+let kadastrPayTimer = null;
+function ensureKadastrWindow() {
+  if (kadastrWindow && !kadastrWindow.isDestroyed()) return kadastrWindow;
+  const win = new BrowserWindow({
+    width: 1200, height: 900, parent: mainWindow, show: false,
+    title: 'Кадастр — регистрация',
+    autoHideMenuBar: true,
+    webPreferences: { partition: 'persist:kadastr', contextIsolation: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false },
+  });
+  win.setMenuBarVisibility(false);
+  const block = (event, url) => { if (!kadastrPortal.isKadastrUrl(url)) { event.preventDefault(); log.warn('[kadastr] заблокирован переход на', url); } };
+  win.webContents.on('will-navigate', block);
+  win.webContents.on('will-redirect', block);
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.on('closed', () => { if (kadastrPayTimer) { clearInterval(kadastrPayTimer); kadastrPayTimer = null; } kadastrWindow = null; });
+  returnFocusOnClose(win);
+  kadastrWindow = win;
+  return win;
+}
+// E-IMZO слушает wss://127.0.0.1:64443 со своим сертификатом — для страницы
+// OneID в нашем окне признаём его, больше ничего.
+app.on('certificate-error', (event, wc, url, _err, _cert, callback) => {
+  try {
+    const u = new URL(url);
+    if (u.hostname === '127.0.0.1' && u.port === '64443' && kadastrWindow && !kadastrWindow.isDestroyed() && wc === kadastrWindow.webContents) {
+      event.preventDefault(); callback(true); return;
+    }
+  } catch (_) {}
+  callback(false);
+});
+const onListovka = (win) => {
+  try { const u = new URL(win.webContents.getURL()); return u.hostname === 'reg.emehmon.uz' && u.pathname.indexOf('/listovka') === 0; } catch (_) { return false; }
+};
+const waitUntil = async (fn, ms, gap = 500) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { try { if (await fn()) return true; } catch (_) {} await new Promise(r => setTimeout(r, gap)); }
+  return false;
+};
+// Вход: /listovka открылась — уже вошли. Иначе OneID → ключ → пароль E-IMZO.
+async function kadastrLogin(win, st) {
+  await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+  if (onListovka(win)) return 'ok';
+  if (!st.eimzoPassword) return 'no_password';
+  // Вход в фоне (просьба владельца 13.11.2026): окно сайта скрыто, на экране
+  // мелькает только окно пароля E-IMZO, и его заполняет программа.
+  await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/auth/oneid').catch(() => {});
+  await waitUntil(() => /id\.egov\.uz$/.test(new URL(win.webContents.getURL()).hostname), 20000);
+  let r;
+  try { r = await win.webContents.executeJavaScript(kadastrPortal.buildOneIdLoginScript({ cert: st.cert }), true); }
+  catch (e) { r = { status: 'error', message: e.message }; }
+  if (!r || r.status !== 'clicked') return (r && r.status) || 'oneid_error';
+  const typed = await kadastrPortal.typeEimzoPassword(st.eimzoPassword, { waitSec: 45, log, scriptDir: app.getPath('userData') });
+  if (typed !== 'typed') { log.warn('[kadastr] пароль ЭЦП:', typed); return 'eimzo_' + typed; }
+  const back = await waitUntil(() => new URL(win.webContents.getURL()).hostname === 'reg.emehmon.uz', 60000);
+  if (!back) return 'oneid_timeout';
+  if (!onListovka(win)) await win.loadURL(kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
+  return onListovka(win) ? 'ok' : 'login_failed';
+}
+// Оплата: карта вписана и «Оплатить» нажат — дальше SMS-код вводит кассир.
+// Успех ловим по окну сайта и сообщаем рендереру.
+async function kadastrFillPayment(win, card, payUrl) {
+  win.show(); win.focus();
+  let r = { status: 'manual' };
+  if (card) {
+    try { r = await win.webContents.executeJavaScript(kadastrPortal.buildPayFillScript(card), true); }
+    catch (e) { r = { status: 'error', message: e.message }; }
+  }
+  if (kadastrPayTimer) clearInterval(kadastrPayTimer);
+  const started = Date.now();
+  kadastrPayTimer = setInterval(() => {
+    if (!win || win.isDestroyed() || Date.now() - started > 30 * 60 * 1000) { clearInterval(kadastrPayTimer); kadastrPayTimer = null; return; }
+    win.webContents.executeJavaScript(kadastrPortal.PAY_DONE_CHECK, true).then((done) => {
+      if (!done) return;
+      clearInterval(kadastrPayTimer); kadastrPayTimer = null;
+      try { mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.send('kadastr-paid', { payUrl }); } catch (_) {}
+      setTimeout(() => { try { if (win && !win.isDestroyed()) win.hide(); } catch (_) {} }, 2500);
+    }).catch(() => {});
+  }, 1000);
+  return r;
+}
+// Список листков сайта для сверки с Hostella. Вход — в фоне, если нужно.
+// Программа зовёт это после запуска и раз в час (useKadastrSync): так касса
+// держит вход в кадастр и сама поправляет дни/недостающие записи.
+ipcMain.handle('kadastr-list', (_e, payload) => {
+  const data = payload || {};
+  const run = kadastrChain.then(async () => {
+    const st = readKadastrSettings();
+    if (!st.eimzoPassword) return { status: 'no_password' };
+    const win = ensureKadastrWindow();
+    if (!onListovka(win)) {
+      const login = await kadastrLogin(win, st);
+      if (login !== 'ok') return { status: 'need_login', reason: login };
+    }
+    let r;
+    try { r = await win.webContents.executeJavaScript(kadastrPortal.buildListFetchScript({ length: data.length }), true); }
+    catch (e) { r = { status: 'error', message: e.message }; }
+    if (r && r.status === 'need_login') {
+      const login = await kadastrLogin(win, st);
+      if (login !== 'ok') return { status: 'need_login', reason: login };
+      try { r = await win.webContents.executeJavaScript(kadastrPortal.buildListFetchScript({ length: data.length }), true); }
+      catch (e) { r = { status: 'error', message: e.message }; }
+    }
+    if (r && Array.isArray(r.rows)) r.rows = r.rows.map(x => ({ ...x, payUrl: kadastrPortal.safePayUrl(x.payUrl) }));
+    return r || { status: 'error' };
+  });
+  kadastrChain = run.catch(() => {});
+  return run;
+});
+
+const resolveCard = (req, st) => (req === 'default' ? (st.card || null) : cleanCard(req));
+
+ipcMain.handle('kadastr-register', (_e, payload) => {
+  const data = payload || {};
+  const run = kadastrChain.then(async () => {
+    const st = readKadastrSettings();
+    const win = ensureKadastrWindow();
+    try {
+      const login = await kadastrLogin(win, st);
+      if (login !== 'ok') return { status: 'need_login', reason: login };
+      let r;
+      try {
+        r = await win.webContents.executeJavaScript(kadastrPortal.buildListovkaScript({
+          iso3: data.iso3, birth: data.birth, passport: data.passport, pspDate: data.pspDate,
+          issuedBy: data.issuedBy, days: Number(data.days) || 0, cadMatch: st.cadMatch, dryRun: !!data.dryRun,
+        }), true);
+      } catch (e) { r = { status: 'error', message: e.message }; }
+      if (!r || r.status !== 'saved') { win.show(); return r || { status: 'error' }; }
+      const payUrl = kadastrPortal.safePayUrl(r.payUrl);
+      const pay = await kadastrFillPayment(win, resolveCard(data.card, st), payUrl);
+      return { ...r, payUrl, pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount };
+    } catch (e) {
+      log.error('[kadastr] register failed:', e.message);
+      try { win.show(); } catch (_) {}
+      return { status: 'error', message: e.message };
+    }
+  });
+  kadastrChain = run.catch(() => {});
+  return run;
+});
+
+// «Оплатить» позже (окно оплаты живёт 24 часа): открыть листок и вписать карту
+ipcMain.handle('kadastr-open-pay', (_e, payload) => {
+  const data = payload || {};
+  const run = kadastrChain.then(async () => {
+    const payUrl = kadastrPortal.safePayUrl(data.payUrl);
+    if (!payUrl) return { status: 'bad_url' };
+    const st = readKadastrSettings();
+    const win = ensureKadastrWindow();
+    const login = await kadastrLogin(win, st);
+    if (login !== 'ok') return { status: 'need_login', reason: login };
+    try { await win.webContents.executeJavaScript('JPView(' + JSON.stringify(payUrl) + ', "To`lash"); true', true); }
+    catch (e) { return { status: 'error', message: e.message }; }
+    const pay = await kadastrFillPayment(win, resolveCard(data.card, st), payUrl);
+    return { status: 'opened', pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount };
+  });
+  kadastrChain = run.catch(() => {});
+  return run;
 });
 
 // Турсбор: отчёт с /tursborpays за период (фоново, как и список листков).
