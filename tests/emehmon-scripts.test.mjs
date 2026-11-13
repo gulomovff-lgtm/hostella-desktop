@@ -94,7 +94,7 @@ test('комната находится и по новым названиям п
 
 test('итоги мастера несут дамп шага 2 — дата КПП попадает в карточку и при регистрации', () => {
   const src = m.buildAutoArrivalScript(FOREIGN);
-  for (const st of ["status:'step2_failed', probe: probe", "status:'no_room', probe: mergeProbe(probe", "'submit_unconfirmed', probe: probe"]) {
+  for (const st of ["status:'step2_failed', probe: probe", "status:'no_room', probe: mergeProbe(probe", "status:'submit_unconfirmed', message: formIssues(), probe: probe"]) {
     assert.ok(src.includes(st), st);
   }
 });
@@ -221,4 +221,17 @@ test('лист убытия: скрипты перехватывают печа�
   assert.equal(typeof sheet.windowWebPreferences, 'function');
   const fs = require('node:fs');
   assert.ok(fs.existsSync(sheet.PRELOAD), 'preload заглушки печати не на месте');
+});
+
+test('«Mehmon topildi» (гость найден) — не отказ: окно закрывается, регистрация идёт дальше', () => {
+  const src = m.buildAutoArrivalScript(FOREIGN);
+  assert.ok(src.includes('function passFoundPopup'));
+  assert.ok(src.indexOf('await passFoundPopup();') < src.indexOf('var pe1 = popupText();'));
+  assert.ok(src.includes('!/topilmadi/i.test(tx)'), '«topilmadi» (не найден) окном «найден» не считается');
+});
+
+test('«не подтверждено» несёт подсвеченные порталом ошибки формы', () => {
+  const src = m.buildAutoArrivalScript(FOREIGN);
+  assert.ok(src.includes('function formIssues'));
+  new Function('return ' + src);
 });

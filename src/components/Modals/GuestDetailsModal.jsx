@@ -851,6 +851,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     // Регистрация по кадастру — та же, что считают «Оформить» и автоматика
     const cadReg = cadastreRegFor(guest, cadastreRegs);
     const cadOk = cadastreValid(cadReg);          // истёкший кадастр — не регистрация
+    // Перевод живущего гостя в кадастр: только дни; дом, вывод из e-mehmon и
+    // возврат после конца — программа сама
+    const canCadMove = !!onMoveToCadastre && guest.status === 'active' && guest.roomId !== 'DEBT_ONLY' && !cadOk;
     const cadUrgent = (() => {
         const r = cadReg;
         if (!r) return false;
@@ -1154,10 +1157,16 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         <button onClick={()=>setCurrentView('extend')}   className="py-3 rounded-xl bg-sky-500  text-white font-bold text-sm hover:bg-sky-600  flex items-center justify-center gap-1.5"><Clock size={15}/> {t('extend')}</button>
                                         <button onClick={()=>setCurrentView('checkout')} className="py-3 rounded-xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 flex items-center justify-center gap-1.5"><LogOut size={15}/> {t('evict')}</button>
                                     </div>
-                                    {(onOpenSale || (plansNow && onSwitchPlan && planTargetPrice)) && (
-                                        <div className="flex gap-2">
+                                    {(onOpenSale || canCadMove || (plansNow && onSwitchPlan && planTargetPrice)) && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {/* «В кадастр» — на виду, рядом с главными действиями (просьба владельца 13.11.2026) */}
+                                            {canCadMove && (
+                                                <button onClick={openCadMove} className="flex-1 min-w-[9rem] py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 flex items-center justify-center gap-1.5">
+                                                    <Home size={15} /> {t('cadMoveBtn')}
+                                                </button>
+                                            )}
                                             {onOpenSale && (
-                                                <button onClick={() => onOpenSale(guest)} className="flex-1 py-2.5 rounded-xl border border-teal-200 bg-teal-50 text-teal-700 font-bold text-sm hover:bg-teal-100 flex items-center justify-center gap-1.5">
+                                                <button onClick={() => onOpenSale(guest)} className="flex-1 min-w-[9rem] py-2.5 rounded-xl border border-teal-200 bg-teal-50 text-teal-700 font-bold text-sm hover:bg-teal-100 flex items-center justify-center gap-1.5">
                                                     🛍️ {t('shAddToGuest')}
                                                 </button>
                                             )}
@@ -1354,14 +1363,6 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                                         onChange={e => onUpdate(guest.id, { emehmonReg: e.target.checked, emehmonRegAt: e.target.checked ? new Date().toISOString() : '' })} />
                                                     {t('registeredInEmehmon')}
                                                 </label>
-                                            )}
-                                            {/* Перевод живущего гостя в кадастр: только дни; дом, вывод
-                                                из e-mehmon и возврат после конца — программа сама */}
-                                            {onMoveToCadastre && guest.status === 'active' && guest.roomId !== 'DEBT_ONLY' && !cadOk && (
-                                                <button type="button" onClick={openCadMove}
-                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 text-xs font-bold">
-                                                    <Home size={13} /> {t('cadMoveBtn')}
-                                                </button>
                                             )}
                                             {isCheckedOut && (
                                                 <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">

@@ -308,6 +308,8 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // Закрывают программу — окна портала на входе не держат её (lockUntilLogin)
+  mainWindow.on('close', () => { appQuitting = true; });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -427,8 +429,55 @@ const lightenEmehmonSession = (part) => {
   }
 };
 
+// ─── Вход в портал обязателен (решение владельца 13.11.2026) ────────────────
+// Окно портала, которое кассир видит на странице входа, закрыть нельзя:
+// крестик выключен, Alt+F4 не срабатывает, сверху подсказка «введите цифры с
+// картинки». Вошёл — фоновое окно прячется само, окно кнопки «Вход» закрывается,
+// окно ручной регистрации/убытия остаётся (кассир продолжает) с крестиком.
+// Программа закрывается как обычно: замок только пока она работает.
+let appQuitting = false;
+app.on('before-quit', () => { appQuitting = true; });
+const isPortalLogin = (win) => {
+  try { return /^\/login\b/i.test(new URL(win.webContents.getURL()).pathname); } catch (_) { return false; }
+};
+const LOGIN_BANNER = "(function(){try{if(document.getElementById('__hostellaLoginLock'))return;var d=document.createElement('div');d.id='__hostellaLoginLock';d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#e88c40;color:#fff;font:600 15px/1.35 Segoe UI,Arial,sans-serif;padding:10px 16px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25)';d.textContent='Введите цифры с картинки и нажмите «Kirish». Окно закроется само после входа  •  Rasmdagi raqamlarni kiriting va «Kirish» tugmasini bosing. Kirgandan so‘ng oyna o‘zi yopiladi';document.documentElement.appendChild(d);}catch(e){}})()";
+const lockUntilLogin = (win) => {
+  let locked = false;
+  const sync = () => {
+    if (win.isDestroyed()) return;
+    const onLogin = isPortalLogin(win);
+    if (onLogin) {
+      locked = true;
+      try { win.setClosable(false); } catch (_) {}
+      win.webContents.executeJavaScript(LOGIN_BANNER, true).catch(() => {});
+      return;
+    }
+    try { win.setClosable(true); } catch (_) {}
+    if (!locked) return;
+    locked = false;
+    // Вход выполнен
+    if (!win.isVisible()) return;
+    const after = typeof win.__afterLogin === 'function' ? win.__afterLogin() : 'hide';
+    if (after === 'close') { try { win.close(); } catch (_) {} }
+    else if (after === 'hide') { try { win.hide(); } catch (_) {} }
+  };
+  win.webContents.on('did-finish-load', sync);
+  win.webContents.on('did-navigate', sync);
+  win.webContents.on('did-navigate-in-page', sync);
+  win.on('show', sync);
+  win.on('close', (e) => {
+    if (appQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+    if (win.isVisible() && isPortalLogin(win)) {
+      e.preventDefault();
+      win.webContents.executeJavaScript(LOGIN_BANNER, true).catch(() => {});
+      try { win.flashFrame(true); win.focus(); } catch (_) {}
+    }
+  });
+};
+
 const hardenEmehmonWindow = (win, part) => {
   lightenEmehmonSession(part);
+  lockUntilLogin(win);
   const blockOffOrigin = (event, url) => {
     if (!isEmehmonUrl(url)) {
       event.preventDefault();
@@ -480,6 +529,8 @@ ipcMain.handle('open-emehmon', (_event, guest) => {
       },
     });
     emehmonWindow.setMenuBarVisibility(false);
+    // После входа: окно кнопки «Вход» закрывается, окно регистрации/убытия — остаётся
+    emehmonWindow.__afterLogin = () => (((arrivalPayload && arrivalPayload.mode) || '') === 'login' ? 'close' : 'keep');
     returnFocusOnClose(emehmonWindow);
     hardenEmehmonWindow(emehmonWindow, part);
     // Прибытие → create-page, убытие → /listok. Если не залогинен, портал уведёт

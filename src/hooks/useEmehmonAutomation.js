@@ -18,7 +18,7 @@ import TRANSLATIONS from '../constants/translations';
 import { getConfig } from '../utils/appConfig';
 import { departureExtras, departureMarks } from '../utils/emehmonDeparture';
 import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
-import { autoRegisterAllowed, cadastreBlocksAuto, cadastreTransferDue } from '../utils/registrationStatus';
+import { autoRegisterAllowed, cadastreBlocksAuto, cadastreTransferDue, cadastreAutoFinishDue, stayStartAfterCadastre } from '../utils/registrationStatus';
 import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
 import { changeStamp } from '../utils/collectionStore';
 import { watchEmehmonIgnore, isEmehmonHidden } from '../utils/emehmonIgnore';
@@ -479,7 +479,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
     await handleEmehmonFlag(guest.id, {
       emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
       emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(), emehmonLastTry: deleteField(),
-      emehmonStayStart: emehmonStayStartOf(guest),
+      emehmonStayStart: stayStartAfterCadastre(guest, cadRegsRef.current) || emehmonStayStartOf(guest),
       emehmonAmount: emehmonAmountFor(guest.country),
     });
     emehmonSuccess();
@@ -541,7 +541,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
         await handleEmehmonFlag(guest.id, {
           emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
           emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(), emehmonLastTry: deleteField(),
-      emehmonStayStart: emehmonStayStartOf(guest),
+      emehmonStayStart: stayStartAfterCadastre(guest, cadRegsRef.current) || emehmonStayStartOf(guest),
           emehmonAmount: emehmonAmountFor(guest.country),
         });
         emehmonSuccess();
@@ -837,8 +837,18 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
       const toMark = (guests || []).filter(g =>
         g.status === 'active' && isReal(g) && sameHostel(g) && !g.emehmonReg &&
         (pSet.has(norm(g.passport)) || nSet.has(norm(g.fullName))));
+      // Уже помечен «зарегистрирован», есть в /listok, а ошибка данных висит с прошлой
+      // попытки (09–11.11.2026: MELIXOV) — снимаем, иначе карточка пугает кассира зря.
+      for (const g of (guests || [])) {
+        if (g.status === 'active' && g.emehmonReg && g.emehmonRegError && sameHostel(g) &&
+            ((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName))))) {
+          patches.push([g.id, { emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField() }]);
+        }
+      }
       for (const g of toMark) {
-        patches.push([g.id, { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true, emehmonLastTry: deleteField(), emehmonStayStart: emehmonStayStartOf(g),
+        // Есть в /listok — значит зарегистрирован: прежняя ошибка данных (и заметки) больше не про него
+        patches.push([g.id, { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true, emehmonLastTry: deleteField(),
+          emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(), emehmonStayStart: stayStartAfterCadastre(g, cadRegsRef.current) || emehmonStayStartOf(g),
           emehmonAmount: emehmonAmountFor(g.country) }]);
       }
       // Сверка «зарегистрирован»: активный гость своего филиала помечен emehmonReg,
@@ -897,6 +907,22 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
         for (const g of cadOut) {
           const out = await departForCadastre(g, { quiet: quietHere });
           if (out?.status === 'need_login') break;
+        }
+      }
+      // Кадастр кончился и 18 часов не продлён — завершаем запись сами
+      // (решение владельца 13.11.2026). Живущего гостя следом регистрирует
+      // добор: cadastreBlocksAuto его уже не держит. Расход не трогаем — он
+      // учитывается по месяцам, как у снятых вручную.
+      {
+        const finish = (cadRegsRef.current || []).filter(r =>
+          (r.hostelId || 'hostel1') === hostelId && cadastreAutoFinishDue(r)).slice(0, 10);
+        for (const r of finish) {
+          try {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', r.id), {
+              status: 'removed', removedAt: now, removedBy: 'auto_cadastre_end',
+            });
+            if (!quietHere) showNotification(t('cadAutoFinished').replace('{name}', r.guestName || ''), 'info');
+          } catch (_) { /* следующая сверка повторит */ }
         }
       }
       // Переехал внутри Hostella, а в портале остался в старой комнате — переселяем
@@ -1144,6 +1170,7 @@ useEffect(() => {
     if (id) {
       const regGuest = (guestsRef.current || []).find(x => x.id === id);
       handleEmehmonFlag(id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
+        emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(),
         emehmonAmount: emehmonAmountFor(regGuest?.country) });
       showNotification(t('emaGuestRegistered'), 'success');
     }

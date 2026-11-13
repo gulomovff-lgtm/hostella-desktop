@@ -221,3 +221,17 @@ test('lastCheckout: только наше открытое проживание 
   assert.equal(elsewhere.lastCheckout, '2026-09-11');
   assert.equal(assessKpp({ kppDate: '2026-08-15', lastCheckout: elsewhere.lastCheckout, today: '2026-09-11', windowDays: 3 }).ok, true);
 });
+
+test('«не подтверждено»: 30 мин первые два раза, дальше пауза растёт; без списка — не повторяем', async () => {
+    const { shouldRetryAttempt } = await import('../src/utils/kppRules.js');
+    const at = Date.parse('2026-11-12T10:00:00Z');
+    const g = (n) => ({ emehmonLastTry: { status: 'submit_unconfirmed', n, at: new Date(at).toISOString() } });
+    const after = (min) => at + min * 60000;
+    assert.equal(shouldRetryAttempt(g(1), after(31), { listOk: true }), true);
+    assert.equal(shouldRetryAttempt(g(2), after(31), { listOk: true }), true);
+    assert.equal(shouldRetryAttempt(g(3), after(31), { listOk: true }), false);
+    assert.equal(shouldRetryAttempt(g(3), after(61), { listOk: true }), true);
+    assert.equal(shouldRetryAttempt(g(15), after(5 * 60), { listOk: true }), false);
+    assert.equal(shouldRetryAttempt(g(15), after(6 * 60 + 1), { listOk: true }), true);
+    assert.equal(shouldRetryAttempt(g(1), after(120), { listOk: false }), false);
+});

@@ -21,8 +21,9 @@ test('перевод кнопкой: на следующий день после
   assert.equal(autoRegisterAllowed(g, [transfer], at('2026-11-21')), true);
 });
 
-test('обычный кадастр мешает автомату и истёкший (решает человек)', () => {
-  assert.equal(autoRegisterAllowed(g, [plain], at('2026-11-25')), false);
+test('обычный кадастр: после конца ждём продления 18 часов, потом — в e-mehmon', () => {
+  assert.equal(autoRegisterAllowed(g, [plain], at('2026-11-21')), false, '21-го в 10:00 ещё ждём');
+  assert.equal(autoRegisterAllowed(g, [plain], at('2026-11-25')), true);
 });
 
 test('снятый кадастр не мешает', () => {

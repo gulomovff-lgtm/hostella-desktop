@@ -61,17 +61,74 @@ export const registrationSource = (g, cadastreRegs = [], now = new Date()) =>
   (!g ? null : g.emehmonReg ? 'emehmon' : validCadastreFor(g, cadastreRegs, now) ? 'cadastre' : null);
 
 /**
+ * Сколько часов после конца кадастра ждём продления (решение владельца 13.11.2026).
+ * Последний день кадастра — включительно, отсчёт с полуночи следующего дня:
+ * кадастр по 15-е → ждём до 16-го 18:00.
+ */
+export const CADASTRE_GRACE_HOURS = 18;
+
+/** Момент, после которого непродлённый кадастр считается завершённым (Date) или null. */
+export function cadastreGraceEnd(reg) {
+  const ymd = String(reg?.endDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const d = new Date(ymd + 'T00:00:00');   // местное время
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + 1);
+  d.setHours(CADASTRE_GRACE_HOURS, 0, 0, 0);
+  return d;
+}
+
+/** Кадастр кончился и за 18 часов не продлён. */
+export const cadastreGraceOver = (reg, now = new Date()) => {
+  const end = cadastreGraceEnd(reg);
+  return !!end && new Date(now).getTime() >= end.getTime();
+};
+
+/**
  * Мешает ли кадастр автомату регистрировать гостя в e-mehmon.
- * Обычный кадастр — мешает, даже истёкший: продлить кадастр или перевести в
- * e-mehmon решает человек («Оформить» его покажет).
- * Перевод кнопкой «В кадастр» (backToEmehmon, 2026-11-11) — мешает только
- * пока действует: на следующий день после конца гость снова идёт в e-mehmon.
+ * Действующий — мешает. Кончился — ждём продления 18 часов, потом гость идёт
+ * в e-mehmon (решение владельца 13.11.2026; раньше истёкший мешал навсегда).
+ * Перевод кнопкой «В кадастр» (backToEmehmon) возвращается сразу после конца —
+ * так и задумано при переводе.
  */
 export function cadastreBlocksAuto(g, cadastreRegs = [], now = new Date()) {
   const r = cadastreRegFor(g, cadastreRegs);
   if (!r) return false;
-  if (r.backToEmehmon && !cadastreValid(r, now)) return false;
-  return true;
+  if (cadastreValid(r, now)) return true;
+  if (r.backToEmehmon) return false;
+  return !cadastreGraceOver(r, now);
+}
+
+/** Пора ли автоматически завершить регистрацию кадастра (кончилась и 18 часов не продлена). */
+export const cadastreAutoFinishDue = (reg, now = new Date()) =>
+  !!reg && reg.status !== 'removed' && !cadastreValid(reg, now) && cadastreGraceOver(reg, now);
+
+/**
+ * С какого момента считать сутки в e-mehmon при регистрации гостя после кадастра:
+ * со дня после конца кадастра (дни кадастра порталу не принадлежат). Берёт и
+ * завершённые записи. Кадастр кончился до заезда или его нет — null (как обычно).
+ */
+export function stayStartAfterCadastre(g, cadastreRegs = [], now = new Date()) {
+  if (!g) return null;
+  const ci = g.checkInDate ? new Date(g.checkInDate) : null;
+  let best = '';
+  for (const r of cadastreRegs || []) {
+    if (!r || !cadastreMatches(r, g)) continue;
+    let e = String(r.endDate || '').slice(0, 10);
+    // Сняли раньше срока — кадастр кончился в день снятия
+    if (r.status === 'removed' && r.removedAt) {
+      const rm = localYmd(new Date(r.removedAt));
+      if (rm < e) e = rm;
+    }
+    if (e > best) best = e;
+  }
+  if (!best) return null;
+  const start = new Date(best + 'T00:00:00');
+  start.setDate(start.getDate() + 1);
+  if (Number.isNaN(start.getTime())) return null;
+  if (ci && !Number.isNaN(ci.getTime()) && start <= ci) return null;
+  if (start.getTime() > new Date(now).getTime()) return null;   // кадастр ещё идёт — регистрирует человек вручную
+  return start.toISOString();
 }
 
 /**

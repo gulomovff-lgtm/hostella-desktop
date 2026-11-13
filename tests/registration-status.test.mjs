@@ -19,11 +19,12 @@ test('кадастр — тоже регистрация: по guestId, пасп
   assert.ok(hasRegistration(g, [reg({ guestId: 'g1' })], now), 'галочка «есть регистрация»');
 });
 
-test('истёкший кадастр — не регистрация, но автомат такого гостя в e-mehmon не ведёт', () => {
+test('истёкший кадастр — не регистрация; автомат ждёт продления 18 часов', () => {
   const old = [reg({ guestId: 'g1', endDate: '2026-10-19' })];
   assert.equal(validCadastreFor(g, old, now), null);
   assert.equal(hasRegistration(g, old, now), false, 'снова в «Оформить»');
-  assert.equal(autoRegisterAllowed(g, old), false, 'решает человек');
+  assert.equal(autoRegisterAllowed(g, old, new Date('2026-10-20T17:59:00')), false, 'ждём продления до 18:00');
+  assert.equal(autoRegisterAllowed(g, old, new Date('2026-10-20T18:00:00')), true, 'не продлили — в e-mehmon');
   assert.ok(validCadastreFor(g, [reg({ guestId: 'g1', endDate: '2026-10-20' })], now), 'последний день включительно');
   assert.equal(autoRegisterAllowed({ ...g, emehmonSkip: true }, []), false);
   assert.equal(autoRegisterAllowed(g, []), true);

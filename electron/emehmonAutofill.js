@@ -495,6 +495,38 @@ const HIDDEN_HELPERS = `
     }
     return '';
   }
+  // «Mehmon topildi» — портал НАШЁЛ гостя в госбазе и показывает это окном,
+  // а вкладку данных открывает следом. Раньше окно успевало попасть в
+  // popupText раньше вкладки и регистрация падала как «отказ портала»
+  // (журнал 09.11.2026: «× Mehmon topildi OK No Cancel»). Закрываем окно и ждём вкладку.
+  function foundPopup(){
+    var nodes = popups();
+    for (var i=0;i<nodes.length;i++){ if (!vis(nodes[i])) continue; var tx=String(nodes[i].textContent||''); if (/topildi/i.test(tx) && !/topilmadi/i.test(tx)) return nodes[i]; }
+    return null;
+  }
+  async function passFoundPopup(){
+    var p = foundPopup();
+    if (!p) return;
+    var ok = p.querySelector('.swal2-confirm, .btn-primary, .btn-success, button');
+    if (ok && vis(ok)) { try { ok.click(); } catch(e){} }
+    await waitFor(function(){ return activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 20, 500);
+  }
+  // Что портал подсветил в форме, если «Сохранить» не дал успеха и окна нет:
+  // красные подписи и поля с ошибкой. Раньше такой исход был немым
+  // «submit_unconfirmed» (журнал 12.11.2026: 15 попыток подряд без причины).
+  function formIssues(){
+    var out=[];
+    try {
+      var els=document.querySelectorAll('.invalid-feedback, .text-danger, .error-message, .help-block, .is-invalid, .alert-danger');
+      for (var i=0;i<els.length && out.length<5;i++){
+        var el=els[i]; if (!vis(el)) continue;
+        var tx = el.classList.contains('is-invalid') ? ('поле: ' + (labelFor(el) || el.id || el.name || '?')) : textOf(el);
+        if (tx && out.indexOf(tx)<0) out.push(tx.slice(0,80));
+      }
+      out.push('вкладка: ' + (activeTab() || '?'));
+    } catch(e){}
+    return out.join('; ').slice(0,220);
+  }
   async function waitFor(fn, tries, gap){ for(var i=0;i<tries;i++){ try{ if(fn()) return true; }catch(e){} await sleep(gap||300); } return false; }
   function textOf(el){ return String((el && el.textContent) || '').replace(/\\s+/g,' ').trim(); }
   function labelFor(el){
@@ -618,6 +650,7 @@ function buildPassportCheckScript(guest) {
     // 3) вердикт: «не найден» либо переход на general-info
     if (!(await waitFor(function(){ return notFound() || popupText() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
     if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
+    await passFoundPopup();
     var pe0 = popupText();
     if (pe0 && activeTab()!=='general-info-tab') return { status:'portal_error', stage:'check', message: pe0 };
     await sleep(700);   // даём порталу дозаполнить general-info
@@ -1020,6 +1053,7 @@ function buildAutoArrivalScript(guest) {
     // 3) ждём: general-info активна ИЛИ «не найден» ИЛИ иной отказ портала
     if (!(await waitFor(function(){ return notFound() || popupText() || activeTab()==='general-info-tab' || vis(byId('datePassport')) || vis(byId('sex')); }, 40, 500))) return { status:'check_timeout' };
     if (notFound()) return { status:'not_found', notFoundText: notFoundText() };
+    await passFoundPopup();
     var pe1 = popupText();
     if (pe1 && activeTab()!=='general-info-tab') return { status:'portal_error', stage:'check', message: pe1 };
     await sleep(600);
@@ -1112,7 +1146,7 @@ function buildAutoArrivalScript(guest) {
       var pe2 = popupText();
       if (pe2) return { status:'portal_error', stage:'submit', message: pe2, probe: probe, last: last };
     }
-    return { status: done ? 'done' : 'submit_unconfirmed', probe: probe, last: last };
+    return done ? { status:'done', probe: probe, last: last } : { status:'submit_unconfirmed', message: formIssues(), probe: probe, last: last };
   } catch(e){ return { status:'error', message:(e&&e.message)||String(e) }; }
 })();`;
 }

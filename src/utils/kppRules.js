@@ -363,8 +363,15 @@ export function shouldRetryAttempt(guest, now = Date.now(), { listOk = false } =
   const lt = guest?.emehmonLastTry;
   const at = lt?.at ? Date.parse(lt.at) : NaN;
   if (!Number.isFinite(at)) return true;
-  if (lt.status === 'submit_unconfirmed') return listOk && now - at >= 30 * 60 * 1000;
   const n = Math.max(1, Number(lt.n) || 1);
+  // «Сохранено, но не подтверждено»: первые два раза — через 30 мин (часто это
+  // медленный портал), дальше пауза растёт как у прочих отказов: портал явно
+  // не принимает форму, и каждые полчаса стучаться бесполезно.
+  if (lt.status === 'submit_unconfirmed') {
+    if (!listOk) return false;
+    const waitU = n <= 2 ? 0.5 : Math.min(6, 0.5 * 2 ** (n - 2));
+    return now - at >= waitU * 3600 * 1000;
+  }
   const waitH = Math.min(6, 0.5 * 2 ** (n - 1));
   return now - at >= waitH * 3600 * 1000;
 }
