@@ -88,8 +88,23 @@ export default function CadastreView({
     const r = await vaultArg(kadHostel)
       .then((vault) => window.electronAPI.kadastrLogin({ vault }))
       .catch(e => ({ status: 'error', reason: e.message }));
-    setKadLogin(s => ({ ...(s || {}), busy: false, loggedIn: r?.status === 'ok', error: r?.status === 'ok' ? '' : (r?.reason || 'error') }));
+    if (r?.status === 'ok') {
+      // Успех: все этапы с галочками и «Вход выполнен», потом блок сворачивается
+      setKadLogin(s => ({ ...(s || {}), busy: false, justDone: true, error: '' }));
+      setTimeout(() => setKadLogin(s => ({ ...(s || {}), justDone: false, loggedIn: true })), 1400);
+    } else {
+      setKadLogin(s => ({ ...(s || {}), busy: false, loggedIn: false, error: r?.reason || 'error' }));
+    }
   };
+  // Блок этапов: открыт во время входа и на миг после успеха; содержимое
+  // держим ещё 350 мс, пока блок сворачивается по высоте (иначе — рывок)
+  const stagesOpen = !!(kadLogin?.busy || kadLogin?.justDone);
+  const [stagesMounted, setStagesMounted] = useState(false);
+  React.useEffect(() => {
+    if (stagesOpen) { setStagesMounted(true); return undefined; }
+    const tm = setTimeout(() => setStagesMounted(false), 350);
+    return () => clearTimeout(tm);
+  }, [stagesOpen]);
   const [cadastreModal, setCadastreModal] = useState(null);
 
   // ─── Hostel filtering (cashier sees own only) ───────────────────────
@@ -223,6 +238,17 @@ export default function CadastreView({
 
   const hostelName = (id) => HOSTELS[id]?.name || id || '—';
 
+  // Смена фильтра/поиска: прежние карточки уходят, затем приходят новые.
+  // Обновление данных при том же фильтре — без анимации ухода.
+  const filterKey = statusFilter + '|' + monthFilter + '|' + search.trim();
+  const [shown, setShown] = useState({ list: filtered, key: filterKey, gen: 0, leaving: false, first: true });
+  React.useEffect(() => {
+    if (shown.key === filterKey) { if (shown.list !== filtered && !shown.leaving) setShown(s => ({ ...s, list: filtered })); return undefined; }
+    setShown(s => ({ ...s, leaving: true }));
+    const tm = setTimeout(() => setShown(s => ({ list: filtered, key: filterKey, gen: s.gen + 1, leaving: false, first: false })), 180);
+    return () => clearTimeout(tm);
+  }, [filterKey, filtered]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
       {/* Шапка (13.11.2026, по просьбе владельца — минимализм, без тёмных
@@ -257,36 +283,45 @@ export default function CadastreView({
           {t('cadLoginFail')} <span className="font-mono opacity-70">({String(kadLogin.error).slice(0, 80)})</span>
         </p>
       )}
-      {kadLogin?.busy && (
-        <div className="kad-rise rounded-2xl border border-slate-200 bg-white p-4 max-w-sm ml-auto">
-          <KadastrStages steps={KADASTR_LOGIN_STEPS} t={t} />
+      {/* Этапы входа — раскрываются и сворачиваются по высоте */}
+      <div className={`kad-collapse ${stagesOpen ? 'open' : ''}`} style={{ marginTop: stagesOpen ? undefined : 0 }}>
+        <div>
+          <div className={`rounded-2xl border bg-white p-4 max-w-sm ml-auto transition-colors duration-500 ${kadLogin?.justDone ? 'border-emerald-200' : 'border-teal-100'}`}>
+            {stagesMounted && <KadastrStages steps={KADASTR_LOGIN_STEPS} t={t} done={!!kadLogin?.justDone} doneText={t('cadLoggedIn')} />}
+          </div>
         </div>
-      )}
-      {/* Счётчики — фильтры списка */}
-      <div className="kad-rise grid grid-cols-2 sm:grid-cols-4 rounded-2xl border border-slate-200 bg-white divide-x divide-slate-100 overflow-hidden" style={{ animationDelay: '60ms' }}>
+      </div>
+      {/* Счётчики — фильтры списка (таймлайн: 80–260 мс) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
-          { label: t('activeCount'),  value: stats.active,   dot: 'bg-emerald-400', filter: 'active' },
-          { label: t('cadExpiring'),  value: stats.expiring, dot: 'bg-amber-400',   filter: 'expiring' },
-          { label: t('cadExpired'),   value: stats.expired,  dot: 'bg-rose-400',    filter: 'expired' },
-          { label: t('cadAllExpenses'), value: stats.totalCost, money: true, dot: 'bg-slate-300', filter: 'all' },
-        ].map((s) => (
-          <button key={s.filter} onClick={() => setStatusFilter(f => f === s.filter ? 'active_expiring' : s.filter)}
-            className={'relative text-left px-4 py-3 transition-colors ' + (statusFilter === s.filter ? 'bg-slate-50' : 'hover:bg-slate-50/60')}>
-            {statusFilter === s.filter && <span className="kad-fill absolute left-4 right-4 bottom-0 h-0.5 rounded-full bg-slate-300" />}
-            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              <span className={'w-1.5 h-1.5 rounded-full ' + s.dot} /> {s.label}
-            </p>
-            <p className="text-xl font-black tabular-nums mt-1 leading-none text-slate-700">
-              <CountUp value={s.value} />{s.money && <span className="text-[11px] font-semibold text-slate-400 ml-1">{t('cadSum')}</span>}
-            </p>
-          </button>
-        ))}
+          { label: t('activeCount'),  value: stats.active,   filter: 'active',   num: 'text-emerald-600', dot: 'bg-emerald-400', on: 'bg-emerald-50/70 border-emerald-200', bar: 'bg-emerald-300' },
+          { label: t('cadExpiring'),  value: stats.expiring, filter: 'expiring', num: 'text-amber-600',   dot: 'bg-amber-400',   on: 'bg-amber-50/70 border-amber-200',     bar: 'bg-amber-300' },
+          { label: t('cadExpired'),   value: stats.expired,  filter: 'expired',  num: 'text-rose-500',    dot: 'bg-rose-400',    on: 'bg-rose-50/70 border-rose-200',       bar: 'bg-rose-300' },
+          { label: t('cadAllExpenses'), value: stats.totalCost, money: true, filter: 'all', num: 'text-slate-700', dot: 'bg-teal-400', on: 'bg-teal-50/60 border-teal-200', bar: 'bg-teal-300' },
+        ].map((s, i) => {
+          const sel = statusFilter === s.filter;
+          const share = s.money ? 1 : (stats.active + stats.expiring + stats.expired) ? s.value / (stats.active + stats.expiring + stats.expired) : 0;
+          return (
+            <button key={s.filter} onClick={() => setStatusFilter(f => f === s.filter ? 'active_expiring' : s.filter)}
+              className={'kad-rise relative text-left px-4 pt-3 pb-3.5 rounded-2xl border bg-white transition-colors duration-300 overflow-hidden ' + (sel ? s.on : 'border-slate-200/80 hover:border-slate-300')}
+              style={{ animationDelay: (80 + i * 60) + 'ms' }}>
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <span className={'w-1.5 h-1.5 rounded-full ' + s.dot} /> {s.label}
+              </p>
+              <p className={'text-2xl font-black tabular-nums mt-1 leading-none ' + s.num}>
+                <CountUp value={s.value} />{s.money && <span className="text-[11px] font-semibold text-slate-400 ml-1">{t('cadSum')}</span>}
+              </p>
+              <span className="absolute left-0 bottom-0 h-0.5 bg-slate-100 w-full" />
+              <span className={'kad-fill absolute left-0 bottom-0 h-0.5 ' + s.bar} style={{ width: Math.round(share * 100) + '%', animationDelay: (300 + i * 60) + 'ms' }} />
+            </button>
+          );
+        })}
       </div>
       {kadSetupOpen && <KadastrSetupModal t={t} hostelId={kadHostel} onClose={() => { setKadSetupOpen(false); refreshKad(); }} />}
 
       {/* Sub tabs */}
       {isAdmin && (
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 self-start w-fit">
+        <div className="kad-rise flex gap-1 bg-slate-100 rounded-xl p-1 self-start w-fit" style={{ animationDelay: '300ms' }}>
           {[
             { id: 'regs', label: t('registrations') },
             { id: 'cadastres', label: t('cadCadastres') },
@@ -306,7 +341,7 @@ export default function CadastreView({
       {subTab === 'regs' && (
         <>
           {/* Фильтры — всегда видимы */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="kad-rise flex gap-2 flex-wrap" style={{ animationDelay: '340ms' }}>
             <div className="relative flex-1 min-w-48">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -340,9 +375,10 @@ export default function CadastreView({
             </select>
           </div>
 
-          {/* List */}
-          {filtered.length === 0 ? (
-            <div className="py-16 text-center text-slate-400">
+          {/* List — карточки лесенкой после фильтров (≈400 мс); смена фильтра:
+              старые уходят (kad-leave 180 мс), новые приходят с начала лесенки */}
+          {shown.list.length === 0 ? (
+            <div className={(shown.leaving ? 'kad-leave' : 'kad-rise') + ' py-16 text-center text-slate-400'} style={{ animationDelay: shown.first ? '400ms' : '0ms' }}>
               <Home size={40} className="mx-auto mb-3 opacity-30" />
               <p className="font-semibold">{t('expNoRecords')}</p>
               <p className="text-xs mt-1">
@@ -350,11 +386,13 @@ export default function CadastreView({
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {filtered.map((reg, i) => (
+            <div className="space-y-3" key={shown.gen}>
+              {shown.list.map((reg, i) => (
                 <RegCard
                   key={reg.id}
                   index={i}
+                  baseDelay={shown.first ? 400 : 0}
+                  leaving={shown.leaving}
                   reg={reg}
                   maxEnd={maxEndOf(reg)}
                   onExtend={onExtendReg ? (r => setExtendReg(r)) : null}
