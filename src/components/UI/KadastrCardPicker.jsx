@@ -107,7 +107,12 @@ export function KadastrOtpModal({ t, otp, onClose, onPaid }) {
                     )}
                     <p className="text-[11px] text-slate-400 leading-snug">{otp.stage === 'working' ? t('cadOtpWorkingHint') : t('cadOtpLater')}</p>
                     {otp.stage === 'error' && (
-                        <button type="button" onClick={onClose} className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-black">{t('cadPayLaterBtn')}</button>
+                        <div className="space-y-2">
+                            {typeof otp.retry === 'function' && (
+                                <button type="button" onClick={() => otp.retry()} className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-black">{t('kadRetry')}</button>
+                            )}
+                            <button type="button" onClick={onClose} className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-black">{t('cadPayLaterBtn')}</button>
+                        </div>
                     )}
                 </div>
             </div>

@@ -361,7 +361,7 @@ const EIMZO_PS = `
 $ErrorActionPreference = 'Stop'
 $pw = [Console]::In.ReadLine()
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type @'
+$src = @'
 using System; using System.Runtime.InteropServices; using System.Text;
 public class HWin {
   public delegate bool EnumProc(IntPtr h, IntPtr l);
@@ -422,7 +422,22 @@ public class HWin {
   }
 }
 '@
-function EimzoPids { @(Get-Process | Where-Object { try { $_.Path -like '*\\E-IMZO\\*' } catch { $false } } | ForEach-Object { [uint32]$_.Id }) }
+# Собранное один раз — в DLL рядом с настройками: на слабом компьютере сборка
+# при каждом входе съедала отведённое время (eimzo_timeout, 14.11.2026)
+$dll = Join-Path $env:HOSTELLA_EIMZO_DIR ('hostella-eimzo-' + $env:HOSTELLA_EIMZO_HASH + '.dll')
+if (-not (Test-Path $dll)) { try { Add-Type -TypeDefinition $src -OutputAssembly $dll -OutputType Library } catch { } }
+if (Test-Path $dll) { Add-Type -Path $dll } else { Add-Type -TypeDefinition $src }
+# Процессы E-IMZO: «E-IMZO» в пути или в имени; Java (java/javaw) — если её
+# окно названо E-IMZO / пароль / kalit (14.11.2026: на кассе хостела №1 окно
+# не находилось — E-IMZO там может работать через установленную Java)
+$script:diag = ''
+function EimzoPids {
+  $all = @(Get-Process -ErrorAction SilentlyContinue)
+  $byPath = @($all | Where-Object { try { ($_.Path -like '*E-IMZO*') -or ($_.ProcessName -like '*E-IMZO*') -or ($_.ProcessName -like '*eimzo*') } catch { $false } })
+  $java = @($all | Where-Object { $_.ProcessName -in @('java', 'javaw') -and $_.MainWindowTitle -match '(?i)e-?imzo|parol|пароль|password|kalit|ключ' })
+  $script:diag = 'eimzo:' + $byPath.Count + ' java:' + $java.Count + ' ' + ((@($byPath) + @($java) | Select-Object -First 3 | ForEach-Object { try { $_.ProcessName + '=' + $_.Path } catch { $_.ProcessName } }) -join ';')
+  @(@($byPath) + @($java) | ForEach-Object { [uint32]$_.Id })
+}
 function FindWin($pids) {
   $found = New-Object System.Collections.ArrayList
   [HWin]::EnumWindows({ param($h, $l)
@@ -434,17 +449,23 @@ function FindWin($pids) {
       }
     }
     return $true }, [IntPtr]::Zero) | Out-Null
+  $script:diag += ' wins:' + (($found | ForEach-Object { $_.t }) -join '|')
   $pref = $found | Where-Object { $_.t -match '(?i)parol|пароль|password|kalit|ключ' } | Select-Object -First 1
   if ($pref) { return $pref.h }
   if ($found.Count -gt 0) { return $found[0].h }
   return [IntPtr]::Zero
 }
 $deadline = (Get-Date).AddSeconds([int]$env:HOSTELLA_EIMZO_WAIT)
+$seen = $false
 while ((Get-Date) -lt $deadline) {
   $pids = EimzoPids
+  $h = [IntPtr]::Zero
+  if ($pids.Count -gt 0) { $h = FindWin $pids }
+  # Окно пароля было и пропало до ввода — кассир нажал «Отмена» или крестик
+  if ($seen -and $h -eq [IntPtr]::Zero) { Write-Output ('diag: ' + $script:diag); Write-Output 'closed'; exit 0 }
   if ($pids.Count -gt 0) {
-    $h = FindWin $pids
     if ($h -ne [IntPtr]::Zero) {
+      $seen = $true
       [void][HWin]::ShowWindow($h, 9)
       [System.Windows.Forms.SendKeys]::SendWait('%')
       [void][HWin]::SetForegroundWindow($h)
@@ -452,17 +473,27 @@ while ((Get-Date) -lt $deadline) {
       $fg = [HWin]::GetForegroundWindow(); $fp = [uint32]0; [void][HWin]::GetWindowThreadProcessId($fg, [ref]$fp)
       if ($pids -contains $fp) {
         Start-Sleep -Milliseconds 500   # окно Java успевает поставить курсор в поле
-        Write-Output ([HWin]::TypeInto([uint32[]]$pids, $pw, $h)); exit 0
+        $res = [HWin]::TypeInto([uint32[]]$pids, $pw, $h)
+        Write-Output ('diag: ' + $script:diag)
+        Write-Output $res; exit 0
+      } else {
+        $sb = New-Object System.Text.StringBuilder 256; [void][HWin]::GetWindowText($fg, $sb, 256)
+        $script:diag += ' fg:' + $sb.ToString()
       }
     }
   }
-  Start-Sleep -Milliseconds 500
+  Start-Sleep -Milliseconds 700
 }
+Write-Output ('diag: ' + $script:diag)
 Write-Output 'no_window'
 `;
 
 // scriptDir — папка, куда положить сам скрипт (в нём нет секретов); пароль
 // уходит одной строкой в stdin и читается [Console]::In.ReadLine().
+// Подробности последнего ввода пароля (какие процессы и окна E-IMZO нашлись,
+// что было впереди) — в журнал и в причину неудачного входа
+let lastEimzoDiag = '';
+const eimzoDiag = () => lastEimzoDiag;
 function typeEimzoPassword(password, { waitSec = 60, log, scriptDir } = {}) {
   const { spawn } = require('child_process');
   const fs = require('fs');
@@ -479,14 +510,25 @@ function typeEimzoPassword(password, { waitSec = 60, log, scriptDir } = {}) {
     try {
       ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], {
         windowsHide: true,
-        env: { ...process.env, HOSTELLA_EIMZO_WAIT: String(waitSec) },
+        env: { ...process.env, HOSTELLA_EIMZO_WAIT: String(waitSec),
+          HOSTELLA_EIMZO_DIR: scriptDir || require('os').tmpdir(),
+          HOSTELLA_EIMZO_HASH: require('crypto').createHash('sha1').update(EIMZO_PS).digest('hex').slice(0, 10) },
       });
     } catch (e) { resolve('spawn_failed'); return; }
-    const timer = setTimeout(() => { try { ps.kill(); } catch (_) {} resolve('timeout'); }, (waitSec + 20) * 1000);
+    lastEimzoDiag = '';
+    // Запас на запуск PowerShell и первую сборку помощника на слабом компьютере
+    const timer = setTimeout(() => { try { ps.kill(); } catch (_) {} lastEimzoDiag = 'killed'; resolve('timeout'); }, (waitSec + 60) * 1000);
     ps.on('error', () => { clearTimeout(timer); resolve('spawn_failed'); });
     ps.stdout.on('data', (d) => { out += String(d); });
     ps.stderr.on('data', (d) => { if (log) log.warn('[kadastr] eimzo ps:', String(d).slice(0, 200)); });
-    ps.on('close', () => { clearTimeout(timer); resolve((out.trim().split(/\r?\n/).pop() || 'no_output').trim()); });
+    ps.on('close', () => {
+      clearTimeout(timer);
+      const lines = out.trim().split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+      const d = lines.filter(x => x.startsWith('diag:')).pop();
+      if (d) lastEimzoDiag = d.slice(5).trim().slice(0, 400);
+      if (log && lastEimzoDiag) log.info('[kadastr] eimzo:', lastEimzoDiag);
+      resolve((lines.filter(x => !x.startsWith('diag:')).pop() || 'no_output').trim());
+    });
     ps.stdin.write(String(password) + '\n');
     ps.stdin.end();
   });
@@ -495,5 +537,5 @@ function typeEimzoPassword(password, { waitSec = 60, log, scriptDir } = {}) {
 module.exports = {
   KADASTR_ORIGIN, isKadastrUrl, safePayUrl,
   buildOneIdLoginScript, buildListovkaScript, buildPayFillScript, buildOtpSubmitScript, buildListFetchScript, PAY_DONE_CHECK,
-  typeEimzoPassword, EIMZO_PS,
+  typeEimzoPassword, eimzoDiag, EIMZO_PS,
 };

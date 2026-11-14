@@ -8,6 +8,11 @@
  */
 import { getConfig } from './appConfig';
 import { planConfig, planPrice } from './stayPlans';
+import { foreignRule as foreignRuleOf, foreignNightFloor } from './foreignRule.js';
+
+/** Правило иностранцев филиала (utils/foreignRule.js) — с конфигом приложения. */
+export const foreignRule = (hostelId, country, date = new Date(), cfg = getConfig()) => foreignRuleOf(hostelId, country, date, cfg);
+export { foreignNightFloor };
 
 export const LEGACY_MIN_PRICE = 70000;
 export const LEGACY_PACKAGE_PRICE = 65000;
@@ -51,6 +56,9 @@ export function configuredNightPrice(hostelId, roomNumber, date = new Date(), cf
     // Филиал с тарифами «без завтрака / с завтраком»: цена — по тарифу и стране гостя
     const pp = planPrice(hostelId, opts.plan, opts.country, date, cfg);
     if (pp != null) return pp;
+    // Иностранец в первом филиале — цена по правилу (от 5 суток — пакетная)
+    const fr = foreignRule(hostelId, opts.country, date, cfg);
+    if (fr) return foreignNightFloor(fr, opts.days);
     const p = cfg?.pricing;
     if (!p) return null;
     const s = activeSeason(date, cfg);
@@ -68,6 +76,8 @@ export function configuredNightPrice(hostelId, roomNumber, date = new Date(), cf
 export function minNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig(), opts = {}) {
     const pp = planPrice(hostelId, opts.plan, opts.country, date, cfg);
     if (pp != null) return pp;
+    const fr = foreignRule(hostelId, opts.country, date, cfg);
+    if (fr) return foreignNightFloor(fr, opts.days);
     const p = cfg?.pricing;
     if (!p) return LEGACY_MIN_PRICE;
     const s = activeSeason(date, cfg);
@@ -76,7 +86,9 @@ export function minNightPrice(hostelId, roomNumber, date = new Date(), cfg = get
 }
 
 /** Цена пакета за ночь для комнаты (0 в конфиге → общий packagePrice). */
-export function packageNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig()) {
+export function packageNightPrice(hostelId, roomNumber, date = new Date(), cfg = getConfig(), opts = {}) {
+    const fr = foreignRule(hostelId, opts.country, date, cfg);
+    if (fr && fr.package > 0) return fr.package;
     const p = cfg?.pricing;
     if (!p) return LEGACY_PACKAGE_PRICE;
     const s = activeSeason(date, cfg);
@@ -86,7 +98,9 @@ export function packageNightPrice(hostelId, roomNumber, date = new Date(), cfg =
 }
 
 /** Минимум дней для пакетного тарифа. */
-export function packageMinDays(date = new Date(), cfg = getConfig()) {
+export function packageMinDays(date = new Date(), cfg = getConfig(), opts = {}) {
+    const fr = foreignRule(opts.hostelId, opts.country, date, cfg);
+    if (fr && fr.packageMinDays > 0) return fr.packageMinDays;
     const p = cfg?.pricing;
     if (!p) return LEGACY_PACKAGE_MIN_DAYS;
     const s = activeSeason(date, cfg);

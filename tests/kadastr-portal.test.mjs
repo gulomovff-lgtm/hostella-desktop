@@ -52,7 +52,10 @@ test('скрипты страницы собираются и не тащат д
 });
 
 test('пароль ЭЦП печатается только в окно E-IMZO и не идёт в командную строку', () => {
-  assert.ok(kp.EIMZO_PS.includes("-like '*\\E-IMZO\\*'"), 'только процесс из папки E-IMZO');
+  assert.ok(kp.EIMZO_PS.includes("$_.Path -like '*E-IMZO*'"), 'процесс E-IMZO — по пути или имени');
+  assert.match(kp.EIMZO_PS, /\$_\.ProcessName -in @\('java', 'javaw'\) -and \$_\.MainWindowTitle -match/, 'Java — только с окном E-IMZO/пароля');
+  assert.doesNotMatch(kp.EIMZO_PS, /diag[^\n]*\$pw/, 'пароль не попадает в подробности');
+  assert.match(kp.EIMZO_PS, /-OutputAssembly \$dll/, 'помощник собирается один раз и кэшируется');
   assert.match(kp.EIMZO_PS, /\[Console\]::In\.ReadLine\(\)/);
   assert.match(kp.EIMZO_PS, /if \(\$pids -contains \$fp\)/, 'перед вводом впереди окно E-IMZO');
   const fn = kp.typeEimzoPassword.toString();

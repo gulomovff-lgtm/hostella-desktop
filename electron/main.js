@@ -478,10 +478,16 @@ const lockUntilLogin = (win) => {
     if (onLogin) {
       locked = true;
       try { win.setClosable(false); } catch (_) {}
+      // Не свернуть и поверх программы, пока не вошли (просьба владельца
+      // 14.11.2026: кассир сворачивал окно и работал дальше без входа)
+      try { win.setMinimizable(false); } catch (_) {}
+      try { if (win.isVisible()) win.setAlwaysOnTop(true, 'floating'); } catch (_) {}
       win.webContents.executeJavaScript(LOGIN_BANNER, true).catch(() => {});
       return;
     }
     try { win.setClosable(true); } catch (_) {}
+    try { win.setMinimizable(true); } catch (_) {}
+    try { win.setAlwaysOnTop(false); } catch (_) {}
     if (!locked) return;
     locked = false;
     // Вход выполнен
@@ -494,6 +500,11 @@ const lockUntilLogin = (win) => {
   win.webContents.on('did-navigate', sync);
   win.webContents.on('did-navigate-in-page', sync);
   win.on('show', sync);
+  // Свернули (Win+D, панель задач) на странице входа — разворачиваем обратно
+  win.on('minimize', () => {
+    if (appQuitting || win.isDestroyed() || !isPortalLogin(win)) return;
+    setTimeout(() => { try { if (!win.isDestroyed()) { win.restore(); win.focus(); } } catch (_) {} }, 50);
+  });
   win.on('close', (e) => {
     if (appQuitting || !mainWindow || mainWindow.isDestroyed()) return;
     if (win.isVisible() && isPortalLogin(win)) {
@@ -1159,20 +1170,25 @@ const waitUntil = async (fn, ms, gap = 500) => {
 // Каждая попытка входа — в журнал с причиной (13.11.2026 кассир видел только
 // «Не удалось войти», а причину было не найти)
 // Этап входа/оплаты → программе: кассир видит, на каком шаге сайт (13.11.2026)
-function kadStage(stage) {
-  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('kadastr-stage', { stage, at: Date.now() }); } catch (_) {}
+function kadStage(stage, reason = '') {
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('kadastr-stage', { stage, reason: String(reason || '').slice(0, 200), at: Date.now() }); } catch (_) {}
 }
+// Состояние страницы OneID после ввода пароля: видимое сообщение об ошибке и
+// активна ли снова «Kirish» (окно пароля закрыли — страница вернулась к выбору)
+const ONEID_STATE_JS = "(function(){var t=function(e){return (e&&(e.innerText||e.textContent)||'').replace(/\\s+/g,' ').trim()};var vis=function(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0};var al=[].slice.call(document.querySelectorAll('[role=alert],.MuiAlert-root,.MuiSnackbar-root,.Toastify__toast,.swal2-popup')).filter(vis).map(t).filter(Boolean).join(' ');var b=[].slice.call(document.querySelectorAll('button')).filter(function(x){return vis(x)&&/^(Kirish|Войти|Кириш)$/i.test(t(x))}).pop();return {alert:al.slice(0,200),kirish:!!b&&!b.disabled&&!/Mui-disabled|loading/i.test(b.className)};})()";
 async function kadastrLogin(win, st) {
   let r;
   try { r = await kadastrLoginRun(win, st); } catch (e) { r = 'error:' + e.message; }
   // Пароль напечатан, а сайт не открылся — скорее всего, E-IMZO его не принял
   // (13.11.2026: «то правильно, то нет»). Один повтор с самого начала.
-  if (r === 'oneid_timeout') {
+  if (String(r).startsWith('oneid_timeout')) {
     log.warn('[kadastr] вход: после пароля сайт не открылся — повторяю');
     try { r = await kadastrLoginRun(win, st); } catch (e) { r = 'error:' + e.message; }
   }
   let at = ''; try { at = new URL(win.webContents.getURL()).host + new URL(win.webContents.getURL()).pathname; } catch (_) {}
   (r === 'ok' ? log.info : log.warn)('[kadastr] вход:', r, at);
+  // Этап, на котором сорвалось, — красным на экране, с причиной
+  if (r !== 'ok') kadStage('fail', r);
   return r;
 }
 async function kadastrLoginRun(win, st) {
@@ -1207,10 +1223,33 @@ async function kadastrLoginRun(win, st) {
   if (!r || r.status !== 'clicked') return ((r && r.status) || 'oneid_error') + (r && r.page ? ' | ' + String(r.page).slice(0, 160) : '');
   kadStage('password');
   const typed = await kadastrPortal.typeEimzoPassword(st.eimzoPassword, { waitSec: 45, log, scriptDir: app.getPath('userData') });
-  if (typed !== 'typed') { log.warn('[kadastr] пароль ЭЦП:', typed); return 'eimzo_' + typed; }
+  // Подробности ввода (процессы и окна E-IMZO) — в причину: она уходит в общий
+  // журнал ошибок, и сбой на чужой кассе видно без её журнала (14.11.2026)
+  const diag = kadastrPortal.eimzoDiag();
+  if (typed !== 'typed') { log.warn('[kadastr] пароль ЭЦП:', typed, diag); return 'eimzo_' + typed + (diag ? ' | ' + diag : ''); }
   kadStage('return');
-  const back = await waitUntil(() => new URL(win.webContents.getURL()).hostname === 'reg.emehmon.uz', 60000);
-  if (!back) return 'oneid_timeout';
+  // Ждём возврата на сайт кадастра, но не вслепую (14.11.2026: «закрыл окно
+  // пароля — система пытается зайти дальше»): раз в секунду смотрим страницу
+  // OneID — сообщение об ошибке или снова активная «Kirish» значат отказ.
+  let back = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 60000) {
+    let host = ''; try { host = new URL(win.webContents.getURL()).hostname; } catch (_) {}
+    if (host === 'reg.emehmon.uz') { back = true; break; }
+    if (/id\.egov\.uz$/.test(host)) {
+      let s = null;
+      try { s = await kadJs(win, ONEID_STATE_JS, true, 3000); } catch (_) { /* страница уходит — ждём */ }
+      if (s && s.alert) return 'oneid_error | ' + s.alert + (diag ? ' | ' + diag : '');
+      if (s && s.kirish && Date.now() - t0 > 15000) return 'eimzo_cancelled' + (diag ? ' | ' + diag : '');
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  if (!back) {
+    // Пароль напечатан, а сайт не открылся — что сейчас на странице OneID
+    let page = '';
+    try { page = String(await kadJs(win, "(document.body && document.body.innerText || '').replace(/\\s+/g,' ').slice(0,160)", true, 5000)); } catch (_) {}
+    return 'oneid_timeout' + (diag ? ' | ' + diag : '') + (page ? ' | page: ' + page : '');
+  }
   if (!onListovka(win)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
   return onListovka(win) ? 'ok' : 'login_failed';
 }
@@ -1318,6 +1357,8 @@ ipcMain.handle('kadastr-login', (_e, payload) => {
     if (st.eimzoPassword) {
       reason = await kadastrLogin(win, st);
       if (reason === 'ok') return { status: 'ok' };
+      // Кассир сам закрыл окно пароля — без ручного окна: «Попытаться снова»
+      if (/^eimzo_(closed|cancelled)/.test(String(reason))) return { status: 'need_login', reason };
     } else {
       await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
       if (onListovka(win)) return { status: 'ok' };

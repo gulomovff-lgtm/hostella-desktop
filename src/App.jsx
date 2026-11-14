@@ -149,6 +149,7 @@ import { hasRegistration, isLivingNow, cadastreHouseFor, cadastreDaysFor, cadast
 import { kadastrPayload, kadastrMissing, kadastrPortalAvailable, portalFromResult, dmySlashToYmd, cadastreLimitEnd } from './utils/kadastrPortal';
 import { KadastrOtpModal } from './components/UI/KadastrCardPicker';
 import { vaultArg, vaultPublic } from './utils/kadastrVault';
+import { kadReasonText } from './components/UI/KadastrStages';
 import { planKadastrSync } from './utils/kadastrSync';
 import { HISTORY_TABS } from './utils/historyWindow';
 import ScreenLoading from './components/UI/ScreenLoading';
@@ -1072,7 +1073,7 @@ function App() {
   // листка, затем поле для SMS-кода; без него (фоновая сверка) — только тосты
   // и окно кода, когда сайт прислал SMS (14.11.2026: «окно сразу закрывается,
   // некуда вводить SMS»)
-  const runKadastrPortal = async (guest, days, card, { progress = false } = {}) => {
+  const runKadastrPortal = async (guest, days, card, { progress = false, retry = null } = {}) => {
     const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
     const p = kadastrPayload(guest, days, card);
     const miss = kadastrMissing(p);
@@ -1093,11 +1094,14 @@ function App() {
       else if (r.pay === 'card_error' || r.pay === 'no_pay_form' || r.pay === 'error') {
         // Листок оформлен, оплата не пошла — объясняем в окне, оплатить можно позже
         const why = r.pay === 'card_error' ? tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : '') : tr('cadPortal_' + r.pay);
-        if (progress) setKadOtp({ stage: 'error', name, error: tr('cadSavedPayLater').replace('{why}', why) });
+        // Листок есть — повтор только оплаты, по ссылке оплаты листка
+        if (progress) setKadOtp({ stage: 'error', name, error: tr('cadSavedPayLater').replace('{why}', why),
+          retry: r.payUrl ? () => handleKadastrPay({ guestName: name, hostelId: guest.hostelId, portal: { payUrl: r.payUrl, amount: r.payAmount || r.amount } }, card) : null });
         else showNotification(tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : ''), 'warning');
       } else if (progress) setKadOtp(null);
     } else {
-      if (progress) setKadOtp({ stage: 'error', name, error: tr('cadPortal_' + (r?.status || 'error')) + (r?.message || r?.reason ? ': ' + (r.message || r.reason) : '') });
+      const errText = r?.status === 'need_login' ? kadReasonText(r.reason, tr) : tr('cadPortal_' + (r?.status || 'error')) + (r?.message ? ': ' + r.message : '');
+      if (progress) setKadOtp({ stage: 'error', name, error: errText, retry });
       showNotification(tr('cadPortalFail').replace('{name}', guest.fullName || '').replace('{status}', tr('cadPortal_' + (r?.status || 'error')) + (r?.message ? ': ' + r.message : '')), 'warning');
       reportError('emehmon', 'kadastr.portal', String(r?.status || 'error') + ' ' + String(r?.message || r?.reason || '').slice(0, 200), { guestId: guest.id, guest: guest.fullName || '', status: r?.status || 'error' }, { severity: 'warning' });
     }
@@ -1130,7 +1134,9 @@ function App() {
     if (portalRun) {
       const reg = { ...regData, id, createdAt: new Date().toISOString(), expenseAdded: false };
       kadInFlightRef.current.add(guest.id);
-      runKadastrPortal(guest, days, card, { progress: true })
+      // «Попытаться снова» в окне хода — та же цепочка: листок, оплата, запись
+      const attempt = () => runKadastrPortal(guest, days, card, { progress: true, retry: () => { attempt().then((r) => applyPortalResult(reg, r)).catch(() => {}); } });
+      attempt()
         .then((r) => applyPortalResult(reg, r))
         .catch((e) => reportError('emehmon', 'kadastr.portal', e, { guestId: guest.id }, { severity: 'warning' }))
         .finally(() => kadInFlightRef.current.delete(guest.id));
@@ -1188,6 +1194,7 @@ function App() {
     if (!reg?.portal?.payUrl || !window.electronAPI?.kadastrOpenPay) return;
     // Окошко сразу, с крутилкой: вход и карта на сайте идут до минуты
     const manual = !card;
+    lastPayCardRef.current = card || null;   // для «Попытаться снова»
     if (!manual) setKadOtp({ stage: 'working', name: reg.guestName || '' });
     else showNotification(tr('cadPortalPayOpening'), 'info');
     vaultArg(reg.hostelId || 'hostel1')
@@ -1205,14 +1212,15 @@ function App() {
     if (r?.status === 'opened' && r.pay === 'manual') { setKadOtp(null); return; }   // карту вводят на сайте — окно сайта открыто
     // Любой другой исход — причиной в том же окошке, а не тишиной
     const why = r?.status !== 'opened'
-      ? tr('cadPortal_' + (r?.status || 'error')) + (r?.message || r?.reason ? ': ' + (r.message || r.reason) : '')
+      ? (r?.status === 'need_login' ? kadReasonText(r.reason, tr) : tr('cadPortal_' + (r?.status || 'error')) + (r?.message ? ': ' + r.message : ''))
       : r.pay === 'card_error' ? tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : '')
       : tr('cadPortal_' + (r.pay || 'error')) + (r.payMessage ? ': ' + r.payMessage : '');
     if (manual) { showNotification(tr('cadPortalFail').replace('{name}', name).replace('{status}', why), 'warning'); return; }
-    setKadOtp({ stage: 'error', name, error: why });
+    setKadOtp({ stage: 'error', name, error: why, retry: () => handleKadastrPay(reg, manual ? null : (lastPayCardRef.current || 'default')) });
   };
   // Окно «Код из SMS» — оплата турсбора без окна сайта (13.11.2026)
   const [kadOtp, setKadOtp] = useState(null);
+  const lastPayCardRef = useRef(null);
   const cadRegsForPayRef = useRef(cadastreRegs);
   cadRegsForPayRef.current = cadastreRegs;
   useEffect(() => {
@@ -2047,7 +2055,7 @@ const filterByHostel = (items) => {
   const handleUpgradeToStandardTariff = async (guest, price) => {
     if (!guest?.id) return;
     const days = parseInt(guest.days) || 0;
-    const newPrice = parseInt(price) || minNightPrice(guest.hostelId, guest.roomNumber, guest.checkInDate ? new Date(guest.checkInDate) : new Date());
+    const newPrice = parseInt(price) || minNightPrice(guest.hostelId, guest.roomNumber, guest.checkInDate ? new Date(guest.checkInDate) : new Date(), undefined, { country: guest.country, days: guest.days });
     try {
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { ...changeStamp(), 
         pricePerNight: newPrice,

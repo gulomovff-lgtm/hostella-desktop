@@ -475,8 +475,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
     const guestPlan = planOf(guest);
     const plansAtStay = hasPlans(guest.hostelId, _priceDate);
     const plansNow = !!planConfig(guest.hostelId, new Date(), getConfig());
-    const MIN_NIGHT_PRICE = minNightPrice(guest.hostelId, guest.roomNumber, _priceDate, undefined, { plan: guestPlan, country: guest.country });
-    const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
+    const MIN_NIGHT_PRICE = minNightPrice(guest.hostelId, guest.roomNumber, _priceDate, undefined, { plan: guestPlan, country: guest.country, days: guest.days });
+    const PACKAGE_MIN_DAYS = packageMinDays(_priceDate, undefined, { hostelId: guest.hostelId, country: guest.country });
     const guestRate = parseInt(guest.pricePerNight) || 0;
     const isBelowMinRate = guestRate > 0 && guestRate < MIN_NIGHT_PRICE;
     // Понижение цены одобрено: флаг на госте ИЛИ паспорт в списке разрешённых

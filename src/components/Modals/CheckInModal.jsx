@@ -260,7 +260,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     // Второй хостел с 01.10: тарифы «без завтрака / с завтраком», цена — по стране
     // гостя; пакета там нет (решение владельца 2026-09-30, utils/stayPlans.js).
     const _plans = hasPlans(_roomHostel, _priceDate);
-    const _planOpts = { plan: formData.plan, country: formData.country };
+    // days — для правила иностранцев первого филиала: от 5 суток цена пакета (14.11.2026)
+    const _planOpts = { plan: formData.plan, country: formData.country, days: parseInt(formData.days) || 0 };
     const MIN_NIGHT_PRICE  = minNightPrice(_roomHostel, formData.roomNumber, _priceDate, undefined, _planOpts);
     // Ночной заезд (решение владельца 2026-09-30): второй хостел, граждане
     // Узбекистана, пришёл с 23:00 до 07:00 — место 50 000 до 07:00 утра.
@@ -273,8 +274,8 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const nightOffer = (!isFromBooking && (formData.checkInDate === _todayStr || formData.checkInDate === _todayOrEve))
         ? nightPromoOffer(_roomHostel, formData.country, new Date(), getConfig()) : null;
     const nightOn = !!nightOffer && nightPicked;
-    const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate);
-    const PACKAGE_MIN_DAYS = packageMinDays(_priceDate);
+    const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate, undefined, { country: formData.country });
+    const PACKAGE_MIN_DAYS = packageMinDays(_priceDate, undefined, { hostelId: _roomHostel, country: formData.country });
 
     /** Список «Откуда гость» из настроек; уже записанный источник остаётся, даже если его скрыли. */
     const srcOptions = useMemo(() => sourceOptions(getConfig().guestSources, lang, formData.source), [lang, formData.source]);

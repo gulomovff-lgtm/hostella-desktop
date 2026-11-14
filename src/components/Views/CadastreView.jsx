@@ -100,7 +100,7 @@ export default function CadastreView({
   };
   // Блок этапов: открыт во время входа и на миг после успеха; содержимое
   // держим ещё 350 мс, пока блок сворачивается по высоте (иначе — рывок)
-  const stagesOpen = !!(kadLogin?.busy || kadLogin?.justDone);
+  const stagesOpen = !!(kadLogin?.busy || kadLogin?.justDone || kadLogin?.error);
   const [stagesMounted, setStagesMounted] = useState(false);
   React.useEffect(() => {
     if (stagesOpen) { setStagesMounted(true); return undefined; }
@@ -275,21 +275,26 @@ export default function CadastreView({
             <button onClick={doKadLogin} disabled={kadLogin.busy}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-teal-200 bg-teal-50/60 text-xs font-bold text-teal-700 hover:bg-teal-50 disabled:opacity-60 transition-colors">
               {kadLogin.busy ? <span className="w-3 h-3 rounded-full border-2 border-teal-200 border-t-teal-600 animate-spin" /> : <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
-              {t('cadLoginBtn')}
+              {kadLogin.error ? t('kadRetry') : t('cadLoginBtn')}
             </button>
           ))}
         </div>
       </div>
-      {kadLogin?.error && !kadLogin.busy && !kadLogin.loggedIn && (
-        <p className="kad-slide -mt-2 text-[11px] text-rose-500 text-right" title={kadLogin.error}>
-          {t('cadLoginFail')} <span className="font-mono opacity-70">({String(kadLogin.error).slice(0, 80)})</span>
-        </p>
-      )}
-      {/* Этапы входа — раскрываются и сворачиваются по высоте */}
+      {/* Этапы входа — лента шагов между шапкой и счётчиками (14.11.2026):
+          раскрывается по высоте; сорвалось — шаг красным, причина и «Попытаться
+          снова»; вошли — «Вход выполнен», и лента сворачивается */}
       <div className={`kad-collapse ${stagesOpen ? 'open' : ''}`} style={{ marginTop: stagesOpen ? undefined : 0 }}>
         <div>
-          <div className={`rounded-2xl border bg-white p-4 max-w-sm ml-auto transition-colors duration-500 ${kadLogin?.justDone ? 'border-emerald-200' : 'border-teal-100'}`}>
-            {stagesMounted && <KadastrStages steps={KADASTR_LOGIN_STEPS} t={t} done={!!kadLogin?.justDone} doneText={t('cadLoggedIn')} />}
+          <div className={`rounded-2xl border bg-white px-4 pt-4 pb-3 transition-colors duration-500 ${kadLogin?.justDone ? 'border-emerald-200' : kadLogin?.error ? 'border-rose-200' : 'border-teal-100'}`}>
+            {stagesMounted && <KadastrStages variant="line" steps={KADASTR_LOGIN_STEPS} t={t} done={!!kadLogin?.justDone} doneText={t('cadLoggedIn')} />}
+            {kadLogin?.error && !kadLogin.busy && (
+              <div className="kad-strip flex justify-center gap-2 mt-3">
+                <button onClick={doKadLogin}
+                  className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black active:scale-[.97] transition-transform">{t('kadRetry')}</button>
+                <button onClick={() => setKadLogin(s => ({ ...(s || {}), error: '' }))}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50">{t('close')}</button>
+              </div>
+            )}
           </div>
         </div>
       </div>

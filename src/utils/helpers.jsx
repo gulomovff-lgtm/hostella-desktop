@@ -1,6 +1,7 @@
 import React from 'react';
 import { COUNTRY_MAP, COUNTRIES, COUNTRY_ISO3 } from '../constants/countries';
 import { getConfig } from './appConfig';
+import { foreignRule } from './foreignRule.js';
 import TRANSLATIONS from '../constants/translations';
 
 // Renders a country flag using flag-icons CSS (works offline, SVG bundled)
@@ -69,19 +70,21 @@ export const buildEmehmonPayload = (guest = {}) => {
     country:           guest.country || '',
     // Сумма для поля «Сумма оплаты» в e-mehmon (налоговая отчётность):
     // местным одна ставка, иностранцам другая. Настраивается в конфиге.
-    amount:            String(emehmonAmountFor(guest.country)),
+    amount:            String(emehmonAmountFor(guest.country, guest.hostelId)),
   };
 };
 
-// Ставка, которую указываем в e-mehmon: местные / иностранцы.
-export const emehmonAmountFor = (country) => {
+// Ставка, которую указываем в e-mehmon: местные / иностранцы. Иностранцам
+// первого филиала — не ниже 90 000 за сутки (решение владельца 14.11.2026,
+// utils/pricing.js → foreignRule.emehmonMin).
+export const emehmonAmountFor = (country, hostelId) => {
   const cfg = getConfig() || {};
   const isLocal = (COUNTRY_ISO3[country] || '') === 'UZB';
   const local   = Number(cfg.emehmonAmountLocal);
   const foreign = Number(cfg.emehmonAmountForeign);
   return isLocal
     ? (Number.isFinite(local)   && local   > 0 ? local   : 30000)
-    : (Number.isFinite(foreign) && foreign > 0 ? foreign : 50000);
+    : Math.max(Number.isFinite(foreign) && foreign > 0 ? foreign : 50000, foreignRule(hostelId, country, new Date(), cfg)?.emehmonMin || 0);
 };
 
 // Pure function: compute time-left label given a checkOutDate string and current ts

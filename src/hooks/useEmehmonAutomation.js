@@ -187,7 +187,7 @@ const handleEmehmonDepart = useCallback((guestOrList) => {
   (async () => {
     const cfg = getConfig() || {};
     for (const g of arr) {
-      const opts = departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType });
+      const opts = departureExtras(g, { rate: emehmonAmountFor(g.country, g.hostelId), payType: cfg.emehmonPayType });
       const res = await departEmehmonBackground(g, opts);
       await handleDepartOutcome(res, [g]);
       if (res?.status === 'need_login') {
@@ -244,7 +244,7 @@ const departForCadastre = useCallback(async (g, opts = {}) => {
   setEmehmonDepartingIds(prev => new Set([...prev, g.id]));
   try {
     const cfg = getConfig() || {};
-    const res = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType }));
+    const res = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country, g.hostelId), payType: cfg.emehmonPayType }));
     const st = res?.status;
     // not_found — в портале его уже нет: итог тот же
     if (st === 'done' || st === 'submitted' || st === 'not_found') {
@@ -437,7 +437,7 @@ const reconcileRoom = useCallback(async (guest, opts = {}) => {
   for (const d of plan.depart) {
     const g = d.guest;
     if (g.passport && livingP.has(normP(g.passport))) continue;   // тот же человек живёт по новой записи
-    const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfg.emehmonPayType }));
+    const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country, g.hostelId), payType: cfg.emehmonPayType }));
     await handleDepartOutcome(out, [g], { quiet });
     if (out?.status === 'done' || out?.status === 'submitted') departed++;
     if (out?.status === 'need_login') return { ok: false, status: 'need_login', plan, departed, moved };
@@ -480,7 +480,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
       emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
       emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(), emehmonLastTry: deleteField(),
       emehmonStayStart: stayStartAfterCadastre(guest, cadRegsRef.current) || emehmonStayStartOf(guest),
-      emehmonAmount: emehmonAmountFor(guest.country),
+      emehmonAmount: emehmonAmountFor(guest.country, guest.hostelId),
     });
     emehmonSuccess();
     if (!quiet) showNotification(t(silent ? 'emaRegisteredAuto' : 'emaRegistered').replace('{name}', name), 'success');
@@ -542,7 +542,7 @@ const finishAutoArrival = useCallback(async (guest, res, opts = {}) => {
           emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true,
           emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(), emehmonLastTry: deleteField(),
       emehmonStayStart: stayStartAfterCadastre(guest, cadRegsRef.current) || emehmonStayStartOf(guest),
-          emehmonAmount: emehmonAmountFor(guest.country),
+          emehmonAmount: emehmonAmountFor(guest.country, guest.hostelId),
         });
         emehmonSuccess();
         if (!quiet) showNotification(t('emaAlreadyInPortal').replace('{name}', name), 'success');
@@ -872,7 +872,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
         // Есть в /listok — значит зарегистрирован: прежняя ошибка данных (и заметки) больше не про него
         patches.push([g.id, { emehmonReg: true, emehmonRegAt: now, emehmonRegAuto: true, emehmonLastTry: deleteField(),
           emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(), emehmonStayStart: stayStartAfterCadastre(g, cadRegsRef.current) || emehmonStayStartOf(g),
-          emehmonAmount: emehmonAmountFor(g.country) }]);
+          emehmonAmount: emehmonAmountFor(g.country, g.hostelId) }]);
       }
       // Сверка «зарегистрирован»: активный гость своего филиала помечен emehmonReg,
       // но его НЕТ в /listok → регистрация истекла/снята. Снимаем флаг, чтобы счётчик
@@ -914,7 +914,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
           ((g.passport && pSet.has(norm(g.passport))) || (g.fullName && nSet.has(norm(g.fullName)))) &&
           g.checkOutDate && !isStaleSince(g.checkOutDate, 30)).slice(0, 3);
         for (const g of staleInPortal) {
-          const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country), payType: cfgDep.emehmonPayType }));
+          const out = await departEmehmonBackground(g, departureExtras(g, { rate: emehmonAmountFor(g.country, g.hostelId), payType: cfgDep.emehmonPayType }));
           await handleDepartOutcome(out, [g], { quiet: quietHere });
           if (out?.status === 'need_login') break;
         }
@@ -1014,7 +1014,7 @@ const runEmehmonSync = useCallback(async (manual = false, hostelOverride = null)
           for (const r of inListok) {
             const dep = await departEmehmonBackground(
               { id: r.id, fullName: r.fullName, passport: r.passport, hostelId, country: r.country },
-              departureExtras(r, { rate: emehmonAmountFor(r.country), payType: cfg.emehmonPayType }));
+              departureExtras(r, { rate: emehmonAmountFor(r.country, r.hostelId || hostelId), payType: cfg.emehmonPayType }));
             if (dep?.status === 'done' || dep?.status === 'submitted') { await markRemoved(r, 'auto_expiry'); departed++; }
             if (dep?.status === 'need_login') { needLogin = true; break; }
           }
@@ -1115,7 +1115,7 @@ const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = nul
     const items = living.map(g => ({
       passport: g.passport,
       name: g.fullName,
-      amount: emehmonAmountForStay(g, emehmonAmountFor(g.country), now),
+      amount: emehmonAmountForStay(g, emehmonAmountFor(g.country, g.hostelId), now),
     })).filter(x => x.amount > 0);
 
     if (!items.length) {
@@ -1131,7 +1131,7 @@ const runEmehmonRecalc = useCallback(async (manual = false, hostelOverride = nul
       // Одним пакетом: десятки отдельных записей — десятки перерисовок на всех кассах
       const at = new Date().toISOString();
       await commitGuestPatches(living
-        .map(g => [g, emehmonAmountForStay(g, emehmonAmountFor(g.country), now)])
+        .map(g => [g, emehmonAmountForStay(g, emehmonAmountFor(g.country, g.hostelId), now)])
         .filter(([g, amount]) => amount > 0 && g.emehmonAmount !== amount)
         .map(([g, amount]) => [g.id, { emehmonAmount: amount, emehmonAmountAt: at }]));
       if (manual || res.updated > 0) {
@@ -1206,7 +1206,7 @@ useEffect(() => {
       const regGuest = (guestsRef.current || []).find(x => x.id === id);
       handleEmehmonFlag(id, { emehmonReg: true, emehmonRegAt: new Date().toISOString(), emehmonRegAuto: true,
         emehmonRegError: deleteField(), emehmonRegErrorAt: deleteField(), emehmonNoRoomAt: deleteField(), emehmonRegNote: deleteField(),
-        emehmonAmount: emehmonAmountFor(regGuest?.country) });
+        emehmonAmount: emehmonAmountFor(regGuest?.country, regGuest?.hostelId) });
       showNotification(t('emaGuestRegistered'), 'success');
     }
   });
