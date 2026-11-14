@@ -1233,21 +1233,29 @@ function App() {
   useEffect(() => {
     if (!currentUser || !window.electronAPI?.kadastrList) return undefined;
     let busy = false;
-    const run = async () => {
+    // manual — сразу после «Войти в кадастр»: итог показываем всегда
+    // (14.11.2026: листки, оформленные на сайте до автоматики, должны
+    // появиться в Hostella, а владелец — видеть, что сверка прошла)
+    const run = async ({ manual = false } = {}) => {
       if (busy) return;
       busy = true;
+      const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
       try {
         // Пароль ЭЦП филиала задан на сервере — иначе фоновой сверке войти нечем
-        const hostel = kadSyncRef.current.cashierHostelId || currentUser.hostelId || 'hostel1';
+        const own = kadSyncRef.current.cashierHostelId;
+        const hostel = own || (/^hostel\d+$/.test(currentUser.hostelId || '') ? currentUser.hostelId : 'hostel1');
         const st = await vaultPublic(hostel).catch(() => null);
-        if (!st?.hasPassword) return;
+        if (!st?.hasPassword) { if (manual) showNotification(tr('cadSyncNoPassword'), 'warning'); return; }
         const r = await window.electronAPI.kadastrList({ length: 250, vault: await vaultArg(hostel) });
         if (r?.status !== 'ok') {
           if (r?.status && r.status !== 'no_password') reportError('emehmon', 'kadastr.sync', String(r.status) + ' ' + String(r.reason || r.message || ''), {}, { severity: 'warning' });
           return;
         }
         const ref = kadSyncRef.current;
-        const plan = planKadastrSync({ rows: r.rows, regs: ref.cadastreRegs, guests: ref.guests, cadastres: ref.cadastres, createHostelId: ref.cashierHostelId });
+        // Админ/супер заводят недостающие записи гостям любого филиала,
+        // касса — только своего (иначе у админа сверка лишь правила сроки)
+        const isBoss = currentUser.role === 'admin' || currentUser.role === 'super';
+        const plan = planKadastrSync({ rows: r.rows, regs: ref.cadastreRegs, guests: ref.guests, cadastres: ref.cadastres, createHostelId: ref.cashierHostelId || (isBoss ? '*' : null) });
         let fixed = 0, created = 0;
         for (const fx of plan.fixes) if (await handleCadastreSyncFix(fx.regId, fx.patch)) fixed++;
         for (const c of plan.creates) if (await handleAddCadastreReg(c)) created++;
@@ -1260,8 +1268,10 @@ function App() {
             await applyPortalResult(it.reg, r, { siteEnd: it.siteEnd });
           } finally { kadInFlightRef.current.delete(it.guest.id); }
         }
-        if (fixed || created) {
-          const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
+        if (manual) {
+          showNotification(tr('cadSyncSummary').replace('{rows}', (r.rows || []).length).replace('{created}', created).replace('{fixed}', fixed)
+            + (plan.unmatched.length ? ' ' + tr('cadSyncUnmatched').replace('{n}', plan.unmatched.length) : ''), created || fixed ? 'success' : 'info');
+        } else if (fixed || created) {
           showNotification(tr('cadSyncDone').replace('{fixed}', fixed).replace('{created}', created), 'info');
         }
       } catch (e) {
@@ -1270,7 +1280,10 @@ function App() {
     };
     const t = setTimeout(run, 90 * 1000);
     const iv = setInterval(run, 60 * 60 * 1000);
-    return () => { clearTimeout(t); clearInterval(iv); };
+    // Вошли в кадастр кнопкой — сверяем сразу
+    const onNow = () => run({ manual: true });
+    window.addEventListener('hostella:kadastr-sync', onNow);
+    return () => { clearTimeout(t); clearInterval(iv); window.removeEventListener('hostella:kadastr-sync', onNow); };
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { handleAddExpense, handleAddExpensesBulk, handleDeletePayment, downloadExpensesCSV, handleCashToTerminal, handleEditExpenseCategory, handleUpdateExpense, handleSuperSavePayment } = useExpenseActions({

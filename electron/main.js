@@ -183,6 +183,29 @@ let isInstallingUpdate = false;
 let idleInstallInterval = null;
 let updateCheckInterval = null;
 
+// Заставка обновления (13.11.2026): установка идёт молча, а кассир видит
+// наше окно «Обновляем Hostella до …» с логотипом и сменяющимися подписями
+// (resources/hostella-splash.ps1). Отдельный процесс: живёт, пока программа
+// закрыта и ставится новая версия, гаснет сам.
+//   update      — перезапуск после установки: гаснет, когда Hostella открылась;
+//   update-quit — установка при выходе: гаснет, когда установщик закончил.
+let downloadedVersion = '';
+let splashShown = false;
+function showUpdateSplash(mode = 'update') {
+  if (splashShown || isDev || process.platform !== 'win32') return;
+  try {
+    const script = path.join(process.resourcesPath, 'hostella-splash.ps1');
+    const logo = path.join(process.resourcesPath, 'splash-logo.png');
+    if (!fs.existsSync(script)) return;
+    const { spawn } = require('child_process');
+    const ps = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script,
+      '-Mode', mode, '-Logo', logo, '-Version', String(downloadedVersion || '')], { detached: true, stdio: 'ignore', windowsHide: true });
+    ps.unref();
+    splashShown = true;
+    log.info('[Updater] заставка обновления:', mode, downloadedVersion);
+  } catch (e) { log.warn('[Updater] заставка не запустилась:', e.message); }
+}
+
 function sendToWindow(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
@@ -206,6 +229,7 @@ function tryInstallOnIdle(reason = 'periodic-check') {
   stopIdleInstallWatcher();
   log.info(`[Updater] Installing update silently after idle ${idleSeconds}s`);
   sendToWindow('update-auto-installing', { idleSeconds });
+  showUpdateSplash('update');
 
   // Даем рендереру короткое окно завершить локальные записи перед перезапуском.
   setTimeout(() => {
@@ -437,7 +461,11 @@ const lightenEmehmonSession = (part) => {
 // окно ручной регистрации/убытия остаётся (кассир продолжает) с крестиком.
 // Программа закрывается как обычно: замок только пока она работает.
 let appQuitting = false;
-app.on('before-quit', () => { appQuitting = true; });
+app.on('before-quit', () => {
+  appQuitting = true;
+  // Обновление скачано и поставится при выходе — кассир видит, что идёт обновление
+  if (isUpdateDownloaded && !isInstallingUpdate) showUpdateSplash('update-quit');
+});
 const isPortalLogin = (win) => {
   try { return /^\/login\b/i.test(new URL(win.webContents.getURL()).pathname); } catch (_) { return false; }
 };
@@ -1566,6 +1594,7 @@ autoUpdater.on('download-progress', (progress) => {
 
 autoUpdater.on('update-downloaded', (info) => {
   log.info('Обновление загружено:', info.version);
+  downloadedVersion = info && info.version ? String(info.version) : '';
   isDownloading = false;
   isUpdateDownloaded = true;
   sendToWindow('update-downloaded', info);
@@ -1598,7 +1627,9 @@ ipcMain.handle('install-update', () => {
   stopIdleInstallWatcher();
   // isSilent=true - без окна NSIS "Далее/Далее/Установить"
   // isForceRunAfter=true - автоматически перезапустить приложение после установки
-  autoUpdater.quitAndInstall(true, true);
+  isInstallingUpdate = true;
+  showUpdateSplash('update');
+  setTimeout(() => autoUpdater.quitAndInstall(true, true), 1200);
 });
 
 app.on('second-instance', () => {

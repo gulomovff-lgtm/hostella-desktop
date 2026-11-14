@@ -25,8 +25,9 @@ const addDays = (ymd, n) => {
  * План сверки.
  *  rows — строки сайта (новые сверху), regs — записи кадастра Hostella,
  *  guests — гости, cadastres — дома, createHostelId — филиал, которому эта
- *  касса заводит недостающие записи (null — только правим, не создаём:
- *  две кассы не должны создать одну запись дважды).
+ *  касса заводит недостающие записи ('*' — админ/супер: любой филиал;
+ *  null — только правим, не создаём: две кассы не должны создать одну
+ *  запись дважды). Оформлять листки (toRegister) — только своему филиалу.
  * Ответ: { fixes: [{ regId, patch }], creates: [data], unmatched: [row],
  *   toRegister: [{ reg, guest, days }] } — записи, у которых сегодня нет
  *   листка на сайте (продлили в Hostella, или листок не прошёл): программа
@@ -100,7 +101,8 @@ export function planKadastrSync({ rows = [], regs = [], guests = [], cadastres =
     const guest = (guests || []).find(g => g && g.status === 'active' && g.roomId !== 'DEBT_ONLY' && normPass(g.passport) === pass);
     if (!guest) { unmatched.push(row); continue; }
     const hostelId = guest.hostelId || 'hostel1';
-    if (!createHostelId || createHostelId !== hostelId) continue;
+    // '*' — админ/супер: заводит недостающие записи гостям любого филиала
+    if (!createHostelId || (createHostelId !== '*' && createHostelId !== hostelId)) continue;
     const house = cadastreHouseFor(hostelId, cadastres);
     creates.push({
       guestId: guest.id, guestName: guest.fullName || row.name || '', passport: guest.passport || row.passport,

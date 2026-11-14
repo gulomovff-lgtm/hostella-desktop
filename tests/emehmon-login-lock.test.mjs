@@ -18,7 +18,7 @@ test('на странице входа крестик выключен и зак
 });
 
 test('замок не держит программу при выходе', () => {
-  assert.match(src, /app\.on\('before-quit', \(\) => \{ appQuitting = true; \}\)/);
+  assert.match(src, /app\.on\('before-quit', \(\) => \{\s*appQuitting = true;/);
   assert.match(src, /mainWindow\.on\('close', \(\) => \{ appQuitting = true; \}\)/);
   assert.match(src, /if \(appQuitting \|\| !mainWindow \|\| mainWindow\.isDestroyed\(\)\) return;/);
 });

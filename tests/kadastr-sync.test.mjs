@@ -110,3 +110,16 @@ test('30 дней от КПП прошли — сверка не оформля�
   assert.equal(ok.toRegister.length, 1, 'КПП 11.11 — предел 10.12, продление оформляем');
   assert.equal(ok.toRegister[0].days, 3, '13–15 ноября');
 });
+
+test('админ/супер (\'*\') заводят записи гостям любого филиала, но листки не оформляют', () => {
+  const now = new Date('2026-11-14T10:00:00');
+  const g2 = { id: 'g2', status: 'active', roomId: 'r', passport: 'AB1234567', fullName: 'X', hostelId: 'hostel2', country: 'Таджикистан' };
+  const rows = [{ id: '9', passport: 'AB1234567', dt: '12.11.2026 10:00', wdays: 10 }];
+  const boss = planKadastrSync({ rows, regs: [], guests: [g2], cadastres: [], createHostelId: '*', now });
+  assert.equal(boss.creates.length, 1, 'листок с сайта, оформленный до автоматики, — запись в Hostella');
+  assert.equal(boss.creates[0].hostelId, 'hostel2');
+  const cashier1 = planKadastrSync({ rows, regs: [], guests: [g2], cadastres: [], createHostelId: 'hostel1', now });
+  assert.equal(cashier1.creates.length, 0, 'касса чужого филиала не заводит');
+  const reg = { id: 'r1', status: 'active', passport: 'AB1234567', guestId: 'g2', hostelId: 'hostel2', startDate: '2026-11-10', endDate: '2026-11-20', days: 11 };
+  assert.equal(planKadastrSync({ rows: [], regs: [reg], guests: [g2], createHostelId: '*', now }).toRegister.length, 0, 'оформлять листки — только своя касса');
+});

@@ -92,6 +92,8 @@ export default function CadastreView({
       // Успех: все этапы с галочками и «Вход выполнен», потом блок сворачивается
       setKadLogin(s => ({ ...(s || {}), busy: false, justDone: true, error: '' }));
       setTimeout(() => setKadLogin(s => ({ ...(s || {}), justDone: false, loggedIn: true })), 1400);
+      // Сразу сверка с сайтом: листки, оформленные до автоматики, — в Hostella
+      window.dispatchEvent(new Event('hostella:kadastr-sync'));
     } else {
       setKadLogin(s => ({ ...(s || {}), busy: false, loggedIn: false, error: r?.reason || 'error' }));
     }
