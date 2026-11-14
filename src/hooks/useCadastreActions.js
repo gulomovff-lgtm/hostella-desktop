@@ -292,7 +292,24 @@ export function useCadastreActions({
       }
 
       showNotification(t('cdaRegExtendedTo').replace('{date}', extData.newEndDate), 'success');
-      logAction(currentUser, 'cadastre_reg_extend', { id: reg.id, newEndDate: extData.newEndDate });
+      logAction(currentUser, 'cadastre_reg_extend', { id: reg.id, newEndDate: extData.newEndDate, days: Math.max(0, actualDays) });
+
+      // Телеграм: на сколько дней продлили (просьба владельца 14.11.2026)
+      const disabledTypes = new Set(tgSettings?.disabledTypes || []);
+      if (!disabledTypes.has('cadastreNew') && isOnline) {
+        const fmtD = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('ru-RU') : '');
+        const msg = [
+          `🔄 <b>${t('cdaTgExtTitle')}</b>`,
+          `👤 ${escapeTg(reg.guestName)}`,
+          reg.passport ? `🪪 ${escapeTg(reg.passport)}` : null,
+          `➕ ${t('cdaTgExtDays').replace('{n}', Math.max(0, actualDays))}`,
+          `📅 ${fmtD(reg.endDate)} → ${fmtD(extData.newEndDate)}`,
+          `📍 ${escapeTg(reg.cadastreAddress || '')}`,
+          `🏨 ${HOSTEL_LABEL[reg.hostelId] || reg.hostelId || ''}`,
+          `👷 ${escapeTg(currentUser.name || currentUser.login)}`,
+        ].filter(Boolean).join('\n');
+        sendTelegramMessage(msg, 'cadastreNew');
+      }
     } catch (e) {
       showNotification(t('cdaExtendError') + e.message, 'error');
     }

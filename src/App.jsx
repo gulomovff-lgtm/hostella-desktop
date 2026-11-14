@@ -1068,7 +1068,11 @@ function App() {
   // ключом ЭЦП, заполняет 5 шагов, берёт сумму итога в расходы и вписывает карту
   // в окно оплаты — SMS-код вводит кассир. Только касса на Electron и только с
   // дня начала (сайт ставит дату регистрации «сейчас»).
-  const runKadastrPortal = async (guest, days, card) => {
+  // progress — окно хода на экране (перевод в кадастр кнопкой): этапы входа и
+  // листка, затем поле для SMS-кода; без него (фоновая сверка) — только тосты
+  // и окно кода, когда сайт прислал SMS (14.11.2026: «окно сразу закрывается,
+  // некуда вводить SMS»)
+  const runKadastrPortal = async (guest, days, card, { progress = false } = {}) => {
     const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
     const p = kadastrPayload(guest, days, card);
     const miss = kadastrMissing(p);
@@ -1076,16 +1080,24 @@ function App() {
       showNotification(tr('cadPortalMissing').replace('{fields}', miss.map(k => tr('cadPortalF_' + k)).join(', ')), 'warning');
       return { status: 'missing', message: miss.join(',') };
     }
-    showNotification(tr('cadPortalStarted').replace('{name}', guest.fullName || ''), 'info');
+    const name = guest.fullName || '';
+    if (progress && card) setKadOtp({ stage: 'working', steps: 'register', name });
+    else showNotification(tr('cadPortalStarted').replace('{name}', name), 'info');
     let r;
     // Пароль ЭЦП и карты филиала главный процесс заберёт с сервера сам
     try { r = await window.electronAPI.kadastrRegister({ ...p, vault: await vaultArg(guest.hostelId || 'hostel1') }); } catch (e) { r = { status: 'error', message: e.message }; }
     if (r?.status === 'saved') {
       const msg = r.pay === 'otp' ? 'cadPortalSavedOtp' : 'cadPortalSaved';
       showNotification(tr(msg).replace('{name}', guest.fullName || '').replace('{sum}', Number(r.amount || 0).toLocaleString('ru-RU')), 'success');
-      if (r.pay === 'otp') setKadOtp({ stage: 'code', name: guest.fullName || '', phone: r.payPhone || '', amount: r.payAmount || r.amount || 0 });
-      else if (r.pay === 'card_error') showNotification(tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : ''), 'warning');
+      if (r.pay === 'otp') setKadOtp({ stage: 'code', name, phone: r.payPhone || '', amount: r.payAmount || r.amount || 0 });
+      else if (r.pay === 'card_error' || r.pay === 'no_pay_form' || r.pay === 'error') {
+        // Листок оформлен, оплата не пошла — объясняем в окне, оплатить можно позже
+        const why = r.pay === 'card_error' ? tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : '') : tr('cadPortal_' + r.pay);
+        if (progress) setKadOtp({ stage: 'error', name, error: tr('cadSavedPayLater').replace('{why}', why) });
+        else showNotification(tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : ''), 'warning');
+      } else if (progress) setKadOtp(null);
     } else {
+      if (progress) setKadOtp({ stage: 'error', name, error: tr('cadPortal_' + (r?.status || 'error')) + (r?.message || r?.reason ? ': ' + (r.message || r.reason) : '') });
       showNotification(tr('cadPortalFail').replace('{name}', guest.fullName || '').replace('{status}', tr('cadPortal_' + (r?.status || 'error')) + (r?.message ? ': ' + r.message : '')), 'warning');
       reportError('emehmon', 'kadastr.portal', String(r?.status || 'error') + ' ' + String(r?.message || r?.reason || '').slice(0, 200), { guestId: guest.id, guest: guest.fullName || '', status: r?.status || 'error' }, { severity: 'warning' });
     }
@@ -1118,7 +1130,7 @@ function App() {
     if (portalRun) {
       const reg = { ...regData, id, createdAt: new Date().toISOString(), expenseAdded: false };
       kadInFlightRef.current.add(guest.id);
-      runKadastrPortal(guest, days, card)
+      runKadastrPortal(guest, days, card, { progress: true })
         .then((r) => applyPortalResult(reg, r))
         .catch((e) => reportError('emehmon', 'kadastr.portal', e, { guestId: guest.id }, { severity: 'warning' }))
         .finally(() => kadInFlightRef.current.delete(guest.id));
@@ -1140,6 +1152,8 @@ function App() {
     const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
     const fmtD = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('ru-RU') : '');
     const portal = portalFromResult(r);
+    // В расходы — сумма, которую сайт выставил к оплате; нет её — итог листка
+    if (portal.status === 'saved' && Number(r?.payAmount) > 0) portal.amount = Number(r.payAmount);
     const border = dmySlashToYmd(r?.border) || reg.portal?.borderDate || '';
     if (border) { portal.borderDate = border; portal.maxEnd = cadastreLimitEnd(border); }
     await handleCadastrePortal(reg.id, portal);

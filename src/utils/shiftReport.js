@@ -49,8 +49,10 @@ export function shiftRows(user, payments = [], expenses = []) {
     const shiftStart = user.lastShiftEnd || '1970-01-01T00:00:00.000Z';
     const myPayments = payments.filter(p =>
         ((p.staffId === user.id) || (p.staffId === user.login)) && p.date > shiftStart);
+    // Расходы кадастра (турсбор) — тоже из кассы кассира (решение владельца
+    // 14.11.2026; с июня они отсюда исключались и в кассе смены не видны)
     const myExpenses = expenses.filter(e =>
-        ((e.staffId === user.id) || (e.staffId === user.login)) && e.date > shiftStart && e.source !== 'cadastre');
+        ((e.staffId === user.id) || (e.staffId === user.login)) && e.date > shiftStart);
     return { myPayments, myExpenses };
 }
 

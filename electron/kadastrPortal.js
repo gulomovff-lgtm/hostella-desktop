@@ -236,6 +236,13 @@ function buildPayFillScript(card) {
   if (!num || !$) return { status:'no_pay_form' };
   var amountEl = document.querySelector('.pm-amount-value');
   var amount = amountEl ? parseInt(txt(amountEl).replace(/[^0-9]/g,''), 10) || 0 : 0;
+  // Сообщение о сохранении листка («Saqlandi!») ещё на экране — закрываем:
+  // раньше его принимали за ответ на карту и до SMS дело не доходило (14.11.2026)
+  function okText(t){ return /saqlandi|сохранен|muvaffaqiyatli|успешно|success/i.test(t); }
+  function popups(){ return Array.prototype.slice.call(document.querySelectorAll('.swal2-popup,.iziToast')).filter(vis); }
+  try { if (window.Swal && Swal.isVisible && Swal.isVisible()) Swal.close(); } catch(e){}
+  popups().forEach(function(p){ if (p.classList.contains('iziToast')) { try { p.remove(); } catch(_){} } });
+  await sleep(250);
   $('#cardNumber').val(String(C.number||'')).trigger('input');
   $('#card_mm').val(String(C.mm||'')).trigger('input');
   $('#card_yy').val(String(C.yy||'')).trigger('input');
@@ -245,7 +252,12 @@ function buildPayFillScript(card) {
   btn.click();
   var r = await waitFor(function(){
     var cd = document.getElementById('confirmData'); if (vis(cd)) return 'otp';
-    var e = Array.prototype.slice.call(document.querySelectorAll('.swal2-popup,.iziToast')).filter(vis).map(txt).join(' ');
+    // Ошибка — только настоящая: значок ошибки или красный тост, не «Сохранено»
+    var e = popups().filter(function(p){
+      var t = txt(p);
+      if (okText(t) && !p.querySelector('.swal2-icon-error, .swal2-error')) return false;
+      return p.querySelector('.swal2-icon-error, .swal2-error, .swal2-icon-warning') || p.classList.contains('iziToast');
+    }).map(txt).join(' ');
     return e ? 'err:' + e : null;
   }, 120, 250);
   if (r === 'otp') {

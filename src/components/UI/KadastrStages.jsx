@@ -8,6 +8,8 @@ import { Check } from 'lucide-react';
 // Если вход уже был, сайт сразу перескакивает дальше — прежние шаги пройдены.
 export const KADASTR_LOGIN_STEPS = ['site', 'oneid', 'key', 'password', 'return'];
 export const KADASTR_PAY_STEPS = [...KADASTR_LOGIN_STEPS, 'pay_open', 'card'];
+// Перевод в кадастр: вход, листок на сайте, карта и SMS
+export const KADASTR_REGISTER_STEPS = [...KADASTR_LOGIN_STEPS, 'form', 'card'];
 
 export default function KadastrStages({ steps = KADASTR_LOGIN_STEPS, t, done = false, doneText = '' }) {
     const [cur, setCur] = useState({ stage: steps[0], at: Date.now() });

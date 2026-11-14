@@ -103,6 +103,7 @@ test('«Подробно» по способам: сумма каждой гру
     }
     assert.deepEqual(groups.cash.map(x => x.p.id), ['c', 'a'], 'по времени');
     assert.deepEqual(groups.card.map(x => [x.p.id, x.amount]), [['a', 200]]);
-    assert.deepEqual(ex.map(e => e.id), ['e1', 'e2']);
+    // Расход кадастра (турсбор) — из кассы кассира (решение владельца 14.11.2026)
+    assert.deepEqual(ex.map(e => e.id).sort(), ['cad', 'e1', 'e2']);
     assert.equal(ex.reduce((s, e) => s + e.amount, 0), r.cashboxExpenses);
 });

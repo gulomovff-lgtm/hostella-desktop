@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CreditCard, Settings, X, KeyRound, Trash2, Plus, Star } from 'lucide-react';
-import KadastrStages, { KADASTR_PAY_STEPS } from './KadastrStages';
+import KadastrStages, { KADASTR_PAY_STEPS, KADASTR_REGISTER_STEPS } from './KadastrStages';
 import { vaultPublic, vaultSet, vaultArg } from '../../utils/kadastrVault';
 import { HOSTELS } from '../../utils/helpers';
 
@@ -101,13 +101,13 @@ export function KadastrOtpModal({ t, otp, onClose, onPaid }) {
                     </div>
                     <p className="text-xs font-bold text-slate-700">{otp.name}</p>
                     {otp.stage === 'working' ? (
-                        <div className="py-1"><KadastrStages steps={KADASTR_PAY_STEPS} t={t} /></div>
+                        <div className="py-1"><KadastrStages steps={otp.steps === 'register' ? KADASTR_REGISTER_STEPS : KADASTR_PAY_STEPS} t={t} /></div>
                     ) : (
                         <p className="text-sm font-semibold text-rose-600 py-2">{otp.error}</p>
                     )}
                     <p className="text-[11px] text-slate-400 leading-snug">{otp.stage === 'working' ? t('cadOtpWorkingHint') : t('cadOtpLater')}</p>
                     {otp.stage === 'error' && (
-                        <button type="button" onClick={onClose} className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-black">{t('close')}</button>
+                        <button type="button" onClick={onClose} className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-black">{t('cadPayLaterBtn')}</button>
                     )}
                 </div>
             </div>
@@ -149,6 +149,8 @@ function KadastrOtpCode({ t, otp, onClose, onPaid }) {
                     className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black disabled:opacity-40">
                     {busy ? t('cadOtpPaying') : t('cadPortalPayBtn')}
                 </button>
+                <button type="button" onClick={onClose} disabled={busy}
+                    className="w-full py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 disabled:opacity-40">{t('cadPayLaterBtn')}</button>
                 <p className="text-[11px] text-slate-400 leading-snug">{t('cadOtpLater')}</p>
             </div>
         </div>
