@@ -35,3 +35,18 @@ test('цены и регистрация берут правило', () => {
   assert.match(helpers, /emehmonAmountFor = \(country, hostelId\)/);
   assert.match(helpers, /foreignRule\(hostelId, country, new Date\(\), cfg\)\?\.emehmonMin/);
 });
+
+// 15.11.2026: правило — понижение цены само по числу суток; посуточно только 100 000
+test('заселение и продление иностранца ставят цену по числу суток', () => {
+  const ci = readFileSync(new URL('../src/components/Modals/CheckInModal.jsx', import.meta.url), 'utf8');
+  assert.match(ci, /_foreignPrice = _foreign \? foreignNightFloor\(_foreign, parseInt\(formData\.days\)/);
+  assert.match(ci, /patch\.pricePerNight = String\(_foreignPrice\)/);
+  const gd = readFileSync(new URL('../src/components/Modals/GuestDetailsModal.jsx', import.meta.url), 'utf8');
+  assert.match(gd, /foreignExtRate = foreignExt \? foreignNightFloor\(foreignExt, parseInt\(extendDays\)/);
+  assert.match(gd, /packageOnly = .*!foreignExt/);
+  const ga = readFileSync(new URL('../src/hooks/useGuestActions.js', import.meta.url), 'utf8');
+  assert.match(ga, /foreignRateDiffers\(xg, extData\)/, 'другая цена — новым проживанием');
+  assert.match(ga, /foreignRateDiffers\(target, extData\)/);
+  const r = foreignRule('hostel1', 'Таджикистан', day);
+  assert.deepEqual([1, 4, 5, 10].map(d => foreignNightFloor(r, d)), [100000, 100000, 90000, 90000]);
+});

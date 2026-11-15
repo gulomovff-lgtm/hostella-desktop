@@ -32,6 +32,7 @@ import { assessKpp } from '../utils/kppRules';
 import { unpaidServices, splitServiceShare } from '../utils/shop';
 import { referrerForCheckin } from '../utils/referral';
 import { getConfig } from '../utils/appConfig';
+import { foreignRule, foreignNightFloor } from '../utils/pricing';
 import { planConfig, planPrice, buildPlanSwitch, newPriceCandidates, buildContinuation, continuationsDue, oldPriceRevertCandidates, repricedPrepaidCandidates, extendsToNewTariff, PLAN_ROOM } from '../utils/stayPlans';
 import { cadastreMatches, NEW_STAY_RESET_KEYS } from '../utils/registrationStatus';
 import { emehmonStayStartOf } from '../utils/emehmonAmount';
@@ -680,10 +681,24 @@ export function useGuestActions(ctx) {
       .replace('{date}', new Date(newGuest.checkInDate).toLocaleDateString('ru-RU')), 'success');
   };
 
+  /**
+   * Иностранец первого филиала (15.11.2026): продлённые сутки по правилу —
+   * меньше 5 суток 100 000, от 5 — 90 000. Если эта цена не совпадает с ценой
+   * записи, продление идёт новым проживанием с конца оплаченных дней, чтобы
+   * прожитые сутки остались по своей цене.
+   */
+  const foreignRateDiffers = (g, extData) => {
+    const rate = Math.round(Number(extData?.rate) || 0);
+    return !!extData?.foreign && rate > 0 && !!g?.checkOutDate
+      && !!foreignRule(g.hostelId, g.country, new Date()) && rate !== Math.round(Number(g.pricePerNight) || 0);
+  };
+
   /** У записи уже есть продолжение — продлеваем продолжение (на его цене), а не старую запись. */
   const extendContinuationOf = async (eg, extData) => {
     const target = guests.find(x => x.id === eg.continuedBy);
     if (!target || !(target.status === 'active' || target.status === 'booking')) return false;
+    // Иностранец, цена продления другая — ещё одно продолжение по этой цене
+    if (foreignRateDiffers(target, extData)) { await extendToNewTariff(target, extData); return true; }
     const d = Number(extData.extendDays) || 0;
     const co = new Date(target.checkOutDate); co.setDate(co.getDate() + d); co.setHours(12, 0, 0, 0);
     return handleExtendGuest(target.id, {
@@ -703,7 +718,7 @@ export function useGuestActions(ctx) {
       try { if (await extendContinuationOf(xg, extData) !== false) return; }
       catch (e) { showNotification(t('gaExtendErrorPrefix') + (e?.message || e), 'error'); return; }
     }
-    if (xg && xg.status === 'active' && extendsToNewTariff(xg, new Date(), getConfig())) {
+    if (xg && xg.status === 'active' && (extendsToNewTariff(xg, new Date(), getConfig()) || foreignRateDiffers(xg, extData))) {
       try { await extendToNewTariff(xg, extData); }
       catch (e) { showNotification(t('gaExtendErrorPrefix') + (e?.message || e), 'error'); }
       return;
@@ -801,8 +816,11 @@ export function useGuestActions(ctx) {
     for (const guestId of guestIds) {
       const guest = guests.find(g => g.id === guestId);
       if (!guest || guest.status !== 'active') continue;
-      if (guest.continuedBy || extendsToNewTariff(guest, new Date(), getConfig())) {
-        await handleExtendGuest(guestId, { extendDays: days });
+      // Иностранец первого филиала — продлённые сутки по правилу (100 000 / от 5 суток 90 000)
+      const fr = !guest.priceReductionAllowed ? foreignRule(guest.hostelId, guest.country, new Date()) : null;
+      const fx = fr ? { rate: foreignNightFloor(fr, days), foreign: true } : {};
+      if (guest.continuedBy || extendsToNewTariff(guest, new Date(), getConfig()) || foreignRateDiffers(guest, fx)) {
+        await handleExtendGuest(guestId, { extendDays: days, ...fx });
         count++;
         continue;
       }

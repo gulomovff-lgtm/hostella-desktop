@@ -9,7 +9,7 @@ import {
 import QRCode from 'qrcode';
 import EmehmonAccountsModal from './EmehmonAccountsModal';
 import { openEmehmonArrival, openEmehmonDeparture } from '../../utils/emehmon';
-import { minNightPrice, packageMinDays, hasPlans } from '../../utils/pricing';
+import { minNightPrice, packageMinDays, hasPlans, foreignRule, foreignNightFloor } from '../../utils/pricing';
 import { planOf, planPrice, planConfig, PLAN_FULL, PLAN_ROOM, extendsToNewTariff, extensionRate } from '../../utils/stayPlans';
 import { cadastreRegFor, cadastreValid, cadastreEndFor, cadastreDaysFor, cadastreMatches, localYmd } from '../../utils/registrationStatus';
 import TRANSLATIONS from '../../constants/translations';
@@ -496,9 +496,14 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
         : newTariffExt
             ? (planPrice(guest.hostelId, PLAN_ROOM, guest.country, new Date(), getConfig()) || minNightPrice(guest.hostelId, guest.roomNumber, new Date()))
             : 0;
-    const extRate = extensionRate({ approvedPrice: isPriceApproved ? approvedPrice : 0, tariffRate: promoNextRate, guestRate });
+    // Иностранец в первом филиале (15.11.2026): продлённые сутки — по правилу,
+    // а не по прежней цене: меньше 5 суток — 100 000, от 5 — 90 000. Если цена
+    // другая, продление идёт новым проживанием с конца оплаченных дней.
+    const foreignExt = !isPriceApproved && !plansNow && guest.status === 'active' ? foreignRule(guest.hostelId, guest.country, new Date()) : null;
+    const foreignExtRate = foreignExt ? foreignNightFloor(foreignExt, parseInt(extendDays) || 0) : 0;
+    const extRate = foreignExtRate || extensionRate({ approvedPrice: isPriceApproved ? approvedPrice : 0, tariffRate: promoNextRate, guestRate });
     // Пакет-онли действует, только если понижение НЕ одобрено
-    const packageOnly = isBelowMinRate && !isPriceApproved && !plansAtStay;
+    const packageOnly = isBelowMinRate && !isPriceApproved && !plansAtStay && !foreignExt;
     // Невозвратный пакетный тариф: при выселении переплата не возвращается (пакет сгорает)
     const isNonRefundable = !!guest.nonRefundable || guest.tariff === 'package';
     // Учитываем и переплату, уже ушедшую на баланс во время проживания
@@ -708,6 +713,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                 // Цена суток, которую видел кассир (с учётом одобренного понижения):
                 // продление по тарифу и по продолжению берут её, а не цену тарифа
                 rate: extRate,
+                // Иностранец: цена продления по правилу; если она другая —
+                // продление новым проживанием по этой цене (useGuestActions)
+                foreign: !!foreignExt,
             });
             setIsPaymentSubmitting(false);
         } else {
@@ -1575,7 +1583,19 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                     <div className="flex flex-col overflow-hidden h-full">
                         {hdr(t('extendTitle'), true)}
                         <div className="flex-1 p-5 overflow-y-auto space-y-4">
-                            {(newTariffExt || contTarget) && (
+                            {foreignExt && (
+                                <div className="flex items-start gap-2 px-3 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl">
+                                    <span className="shrink-0">🌍</span>
+                                    <p className="text-xs text-indigo-800 font-semibold leading-snug">
+                                        {t('foreignRateNote')
+                                            .replace('{daily}', foreignExt.daily.toLocaleString())
+                                            .replace('{pkg}', foreignExt.package.toLocaleString())
+                                            .replace('{days}', foreignExt.packageMinDays)}
+                                        {foreignExtRate !== guestRate && <> {t('foreignExtNewStay').replace('{price}', foreignExtRate.toLocaleString())}</>}
+                                    </p>
+                                </div>
+                            )}
+                            {!foreignExt && (newTariffExt || contTarget) && (
                                 <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-300 rounded-xl">
                                     <span className="shrink-0">☕</span>
                                     <p className="text-xs text-amber-800 font-semibold leading-snug">

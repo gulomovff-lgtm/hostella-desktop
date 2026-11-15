@@ -6,7 +6,7 @@ import TRANSLATIONS from '../../constants/translations';
 import { useExchangeRate } from '../../hooks/useExchangeRate';
 import { COUNTRIES, COUNTRY_FLAGS } from '../../constants/countries';
 import { Flag, fmtSum, parseSum } from '../../utils/helpers';
-import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice, hasPlans } from '../../utils/pricing';
+import { minNightPrice, packageNightPrice, packageMinDays, configuredNightPrice, hasPlans, foreignRule, foreignNightFloor } from '../../utils/pricing';
 import { planPrice, isLocal, PLAN_FULL, PLAN_ROOM, nightPromoOffer } from '../../utils/stayPlans';
 import { recentStays } from '../../utils/guestStayHistory';
 import { usePersonStays } from '../../hooks/usePersonStays';
@@ -276,6 +276,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     const nightOn = !!nightOffer && nightPicked;
     const PACKAGE_PRICE    = packageNightPrice(_roomHostel, formData.roomNumber, _priceDate, undefined, { country: formData.country });
     const PACKAGE_MIN_DAYS = packageMinDays(_priceDate, undefined, { hostelId: _roomHostel, country: formData.country });
+    // Иностранец в первом филиале (15.11.2026): цена ставится сама — посуточно
+    // 100 000, от 5 суток снижается до 90 000; отдельного «пакета» нет.
+    const _foreign = _plans ? null : foreignRule(_roomHostel, formData.country, _priceDate);
 
     /** Список «Откуда гость» из настроек; уже записанный источник остаётся, даже если его скрыли. */
     const srcOptions = useMemo(() => sourceOptions(getConfig().guestSources, lang, formData.source), [lang, formData.source]);
@@ -773,6 +776,19 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [_plans, _roomHostel, formData.plan, formData.country, formData.roomId, formData.bedId, _planDay, priceApproved, nightOn]);
+
+    // Иностранец в первом филиале: цена следует за числом суток — меньше 5
+    // суток 100 000, от 5 — 90 000 (понижение само). Одобренное понижение не трогаем.
+    const _foreignPrice = _foreign ? foreignNightFloor(_foreign, parseInt(formData.days) || 0) : 0;
+    useEffect(() => {
+        if (!_foreignPrice || priceApproved || nightOn) return;
+        setFormData(p => {
+            const patch = {};
+            if (p.tariff === 'package') patch.tariff = 'standard';
+            if ((parseInt(p.pricePerNight) || 0) !== _foreignPrice) patch.pricePerNight = String(_foreignPrice);
+            return Object.keys(patch).length ? { ...p, ...patch } : p;
+        });
+    }, [_foreignPrice, formData.roomId, formData.bedId, priceApproved, nightOn]);
 
 
     const handleChange = (field, value) => {
@@ -1531,6 +1547,10 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                             <button type="button" onClick={() => handleChange('plan', PLAN_FULL)}
                                                 className={formData.plan === PLAN_FULL ? 'ci-on' : ''}>☕ {t('planFull')}</button>
                                         </span>
+                                    ) : _foreign && !priceApproved ? (
+                                        <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--ci-ink-2)' }}>
+                                            {(parseInt(formData.days) || 0) >= _foreign.packageMinDays ? t('foreignRatePkg').replace('{days}', _foreign.packageMinDays) : t('foreignRateDaily')}
+                                        </span>
                                     ) : (
                                         <span className="ci-pick">
                                             <button type="button" onClick={() => selectTariff('standard')}
@@ -1612,6 +1632,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                     <div className="ci-note">
                                         <span className={`ci-dot${formData.plan === PLAN_FULL ? '' : ' ci-off'}`}/>
                                         <span>☕ {t('planFull')} — {t('planFullIncludes')}</span>
+                                    </div>
+                                ) : _foreign ? (
+                                    <div className="ci-note">
+                                        <span className="ci-dot"/>
+                                        <span>{t('foreignRateNote')
+                                            .replace('{daily}', _foreign.daily.toLocaleString())
+                                            .replace('{pkg}', _foreign.package.toLocaleString())
+                                            .replace('{days}', _foreign.packageMinDays)}</span>
                                     </div>
                                 ) : (
                                     <div className="ci-note">
