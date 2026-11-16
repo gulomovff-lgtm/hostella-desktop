@@ -1090,7 +1090,7 @@ function App() {
     if (r?.status === 'saved') {
       const msg = r.pay === 'otp' ? 'cadPortalSavedOtp' : 'cadPortalSaved';
       showNotification(tr(msg).replace('{name}', guest.fullName || '').replace('{sum}', Number(r.amount || 0).toLocaleString('ru-RU')), 'success');
-      if (r.pay === 'otp') setKadOtp({ stage: 'code', name, phone: r.payPhone || '', amount: r.payAmount || r.amount || 0 });
+      if (r.pay === 'otp') setKadOtp({ stage: 'code', name, phone: r.payPhone || '', amount: r.payAmount || r.amount || 0, payUrl: r.payUrl || '' });
       else if (r.pay === 'card_error' || r.pay === 'no_pay_form' || r.pay === 'error') {
         // Листок оформлен, оплата не пошла — объясняем в окне, оплатить можно позже
         const why = r.pay === 'card_error' ? tr('cadPayCardError') + (r.payMessage ? ': ' + r.payMessage : '') : tr('cadPortal_' + r.pay);
@@ -1180,11 +1180,68 @@ function App() {
         showNotification(tr('cadPortalShortened').replace('{name}', reg.guestName || '').replace('{date}', fmtD(endDate)), 'warning');
       }
     }
-    if (portal.amount > 0) {
-      const amount = (Number(reg.amount) || 0) + portal.amount;
-      await handleUpdateCadastreReg(reg, { guestName: reg.guestName, startDate: reg.startDate, endDate, days, amount, regLink: reg.regLink });
-      await handleAddRegToExpenses({ ...reg, endDate, days, amount });
-    }
+    // Расход — только когда оплата прошла (решение владельца 16.11.2026):
+    // листок оформлен, а SMS не ввели или карту отклонили — расхода нет.
+    // На сколько суток листок — запоминаем для расхода и уведомления.
+    const wdays = used > 0 ? used : Math.max(1, cadastreDaysFor(localYmd(), endDate));
+    const saved = { ...portal, wdays, endDate, ...payTailOf(r) };
+    await handleCadastrePortal(reg.id, saved);
+    if (r?.pay === 'paid') await kadastrPaidExpense({ ...reg, endDate, days, portal: saved });
+  };
+
+  // Оплата листка одобрена: отметка «оплачено» и расход на сумму сайта —
+  // сегодняшним днём (в смену того, кто оплатил), с числом суток листка.
+  const kadPaidDoneRef = useRef(new Set());
+  // Чем платили: последние 4 цифры карты и телефона (для уведомления о расходе)
+  const payTailOf = (r) => {
+    const o = {};
+    if (/^\d{4}$/.test(String(r?.payCard || ''))) o.payCard = String(r.payCard);
+    const ph = String(r?.payCardPhone || '').replace(/\D/g, '').slice(-4) || String(r?.payPhone || '').replace(/\D/g, '').slice(-4);
+    if (ph.length === 4) o.payPhone = ph;
+    return o;
+  };
+  const kadastrPaidExpense = async (reg) => {
+    const p = reg?.portal || {};
+    const key = reg.id + '|' + (p.listokId || p.payUrl || p.savedAt || '');
+    if (!reg?.id || kadPaidDoneRef.current.has(key) || p.expensedAt) return;
+    kadPaidDoneRef.current.add(key);
+    const nowIso = new Date().toISOString();
+    await handleCadastrePortal(reg.id, { ...p, paidAt: p.paidAt || nowIso, expensedAt: nowIso });
+    const sum = Number(p.amount) || 0;
+    if (sum <= 0) return;
+    const amount = (Number(reg.amount) || 0) + sum;
+    await handleUpdateCadastreReg(reg, { guestName: reg.guestName, startDate: reg.startDate, endDate: reg.endDate, days: reg.days, amount, regLink: reg.regLink });
+    await handleAddRegToExpenses({ ...reg, amount, createdAt: nowIso, listokDays: Number(p.wdays) || 0, listokFrom: localYmd(), listokTo: p.endDate || reg.endDate,
+      payCard: p.payCard || '', payPhone: p.payPhone || '' });
+  };
+
+  // Продление в окне кадастра (16.11.2026: «листок не пересоздался, SMS не
+  // попросил, в расходах нет»): прежде срок менялся только в Hostella, а
+  // листок на сайте оформляла фоновая сверка раз в час и только касса своего
+  // филиала. Теперь, если добавленные дни начинаются сегодня или раньше,
+  // листок на сайте оформляется сразу — с окном хода, кодом из SMS и суммой
+  // сайта в расходах. Дни, что начнутся позже, оформит сверка в свой день.
+  const handleExtendCadastreRegNow = async (reg, extData) => {
+    await handleExtendCadastreReg(reg, extData);
+    const today = localYmd();
+    const newEnd = extData?.newEndDate || '';
+    const from = extData?.startFrom || reg.endDate || '';
+    if (!kadastrPortalAvailable() || !newEnd || newEnd < today || (from && from > today)) return;
+    const guest = guests.find(g => g && g.status === 'active' && g.roomId !== 'DEBT_ONLY' &&
+      ((reg.guestId && g.id === reg.guestId) || (reg.passport && String(g.passport || '').replace(/\s/g, '').toUpperCase() === String(reg.passport).replace(/\s/g, '').toUpperCase())));
+    if (!guest) return;
+    if (kadInFlightRef.current.has(guest.id)) return;
+    const startFrom = extData?.startFrom || reg.endDate;
+    const addDays = startFrom ? Math.max(0, Math.round((new Date(newEnd + 'T12:00:00') - new Date(startFrom + 'T12:00:00')) / 86400000)) : (Number(extData?.days) || 0);
+    const next = { ...reg, endDate: newEnd, days: (Number(reg.days) || 0) + addDays, extendedAt: new Date().toISOString(), status: 'active' };
+    const days = Math.max(1, cadastreDaysFor(today, newEnd));
+    kadInFlightRef.current.add(guest.id);
+    await handleCadastrePortal(reg.id, { ...(reg.portal || {}), status: 'pending', at: new Date().toISOString() });
+    const attempt = () => runKadastrPortal(guest, days, 'default', { progress: true, retry: () => { attempt().then((r) => applyPortalResult(next, r, { siteEnd: reg.endDate })).catch(() => {}); } });
+    attempt()
+      .then((r) => applyPortalResult(next, r, { siteEnd: reg.endDate }))
+      .catch((e) => reportError('emehmon', 'kadastr.portal', e, { guestId: guest.id }, { severity: 'warning' }))
+      .finally(() => kadInFlightRef.current.delete(guest.id));
   };
   // Гость, которого программа оформляет на сайте прямо сейчас (не дважды)
   const kadInFlightRef = useRef(new Set());
@@ -1205,8 +1262,14 @@ function App() {
   const afterKadastrPay = (reg, r, manual = false) => {
     const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
     const name = reg.guestName || '';
+    // Карта и телефон оплаты — в запись, для уведомления о расходе после оплаты
+    if (r?.status === 'opened' && reg?.id && reg.portal) {
+      const tail = payTailOf(r);
+      if (Object.keys(tail).length) handleCadastrePortal(reg.id, { ...reg.portal, ...tail });
+    }
+    if (r?.status === 'opened' && r.pay === 'paid' && reg?.id) { kadastrPaidExpense({ ...reg, portal: { ...reg.portal, ...payTailOf(r) } }).catch(() => {}); setKadOtp(null); return; }
     if (r?.status === 'opened' && r.pay === 'otp') {
-      setKadOtp({ stage: 'code', name, phone: r.payPhone || '', amount: r.payAmount || reg.portal?.amount || 0 });
+      setKadOtp({ stage: 'code', name, phone: r.payPhone || '', amount: r.payAmount || reg.portal?.amount || 0, payUrl: reg.portal?.payUrl || '' });
       return;
     }
     if (r?.status === 'opened' && r.pay === 'manual') { setKadOtp(null); return; }   // карту вводят на сайте — окно сайта открыто
@@ -1223,12 +1286,16 @@ function App() {
   const lastPayCardRef = useRef(null);
   const cadRegsForPayRef = useRef(cadastreRegs);
   cadRegsForPayRef.current = cadastreRegs;
+  // Свежая функция для подписки на «оплачено» (подписка живёт с первого рендера)
+  const kadPaidFnRef = useRef(null);
+  kadPaidFnRef.current = kadastrPaidExpense;
   useEffect(() => {
     if (!window.electronAPI?.onKadastrPaid) return undefined;
     return window.electronAPI.onKadastrPaid(({ payUrl } = {}) => {
       const reg = (cadRegsForPayRef.current || []).find(x => x?.portal?.payUrl && x.portal.payUrl === payUrl);
       if (!reg) return;
-      handleCadastrePortal(reg.id, { ...reg.portal, paidAt: new Date().toISOString() });
+      // Оплата одобрена — теперь и расход (до этого его не было)
+      kadPaidFnRef.current(reg).catch((e) => reportError('emehmon', 'kadastr.paid', e, { regId: reg.id }, { severity: 'warning' }));
       const tr = (k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k;
       showNotification(tr('cadPortalPaid').replace('{name}', reg.guestName || ''), 'success');
     });
@@ -2634,7 +2701,7 @@ return (
                         rooms={rooms}
                         currentUser={currentUser}
                         selectedHostelFilter={selectedHostelFilter}
-                        onExtendReg={canPerformActions ? handleExtendCadastreReg : null}
+                        onExtendReg={canPerformActions ? handleExtendCadastreRegNow : null}
                         onPay={canPerformActions && kadastrPortalAvailable() ? (reg) => handleKadastrPay(reg, 'default') : null}
                         onAddCadastre={handleAddCadastre}
                         onUpdateCadastre={handleUpdateCadastre}
@@ -2933,7 +3000,8 @@ return (
 
         {/* Госбаза не нашла иностранца — исправить данные и проверить снова */}
         {kadOtp && (
-          <KadastrOtpModal t={(k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k} otp={kadOtp} onClose={() => setKadOtp(null)} />
+          <KadastrOtpModal t={(k) => TRANSLATIONS[lang]?.[k] || TRANSLATIONS.ru[k] || k} otp={kadOtp} onClose={() => setKadOtp(null)}
+            onPaid={() => { const u = kadOtp?.payUrl; const reg = u && (cadastreRegs || []).find(x => x?.portal?.payUrl === u); if (reg) kadPaidFnRef.current(reg).catch(() => {}); }} />
         )}
         {kppFixPrompt && !checkInModal.open && (
             <KppFixDataModal

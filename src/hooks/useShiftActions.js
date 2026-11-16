@@ -3,7 +3,7 @@
  */
 import {
   collection, doc, writeBatch, query, where, getDocs,
-  runTransaction, getDoc, deleteField,
+  runTransaction, getDoc, deleteField, getDocsFromServer,
 } from 'firebase/firestore';
 import { addDoc, updateDoc, deleteDoc, commitNow } from '../utils/fsWrite';
 import { httpsCallable } from 'firebase/functions';
@@ -128,12 +128,30 @@ export function useShiftActions({
       );
       return;
     }
+    // Своя открытая смена уже есть на сервере — новую не открываем (14.11.2026:
+    // с 06.11 список смен при входе сначала приходит с диска, без открытых, и
+    // автостарт открывал кассиру новую смену при каждом входе и обновлении —
+    // за неделю ~32 лишних, и каждая шла в зарплату отдельными сутками)
+    try {
+      const col = collection(db, ...PUBLIC_DATA_PATH, 'shifts');
+      const checks = [query(col, where('staffId', '==', currentUser.id), where('endTime', '==', null))];
+      if (currentUser.login) checks.push(query(col, where('staffLogin', '==', currentUser.login), where('endTime', '==', null)));
+      for (const q of checks) {
+        const snap = await getDocsFromServer(q);
+        if (!snap.empty) { console.info('[shift] открытая смена уже есть на сервере — новую не открываем'); return; }
+      }
+    } catch (_) { /* нет связи — ниже транзакция и офлайн-ветка */ }
     try {
       // Транзакция на замке хостела: страхует от одновременного старта с двух устройств,
       // когда локальный список shifts ещё не успел обновиться у обоих.
       await runTransaction(db, async (tx) => {
         const lockSnap = await tx.get(shiftLockRef());
         const lock = lockSnap.exists() ? (lockSnap.data()[hostelId] || null) : null;
+        // Свой замок на открытую смену — смена уже идёт, вторую не создаём
+        if (lock?.shiftId && isSameStaff(lock, me())) {
+          const mineSnap = await tx.get(doc(db, ...PUBLIC_DATA_PATH, 'shifts', lock.shiftId));
+          if (mineSnap.exists() && !mineSnap.data().endTime) throw new Error('SHIFT_ALREADY_OPEN');
+        }
         if (lock?.shiftId && !isSameStaff(lock, me())) {
           const otherSnap = await tx.get(doc(db, ...PUBLIC_DATA_PATH, 'shifts', lock.shiftId));
           if (otherSnap.exists() && !otherSnap.data().endTime) {
@@ -149,6 +167,7 @@ export function useShiftActions({
       });
       showNotification(t('shaShiftStarted'), 'success');
     } catch (e) {
+      if (e?.message === 'SHIFT_ALREADY_OPEN') return;
       if (e?.message === 'SHIFT_OCCUPIED') {
         showNotification(
           t('shaShiftOccupied').replace('{name}', e.occupiedBy),
@@ -157,8 +176,15 @@ export function useShiftActions({
         return;
       }
       // Нет связи — транзакция невозможна, но кассир не должен остаться без смены.
-      // Чужую открытую смену уже отсекла локальная проверка выше.
-      console.warn('[shift] транзакция не прошла, открываем смену напрямую:', e?.message);
+      // Чужую открытую смену уже отсекла локальная проверка выше. Только при
+      // отсутствии связи: раньше любая ошибка открывала смену без проверки.
+      const offline = (typeof navigator !== 'undefined' && navigator.onLine === false) || e?.code === 'unavailable';
+      if (!offline) {
+        console.error('[shift] не удалось открыть смену:', e?.message);
+        showNotification(t('shaStartError'), 'error');
+        return;
+      }
+      console.warn('[shift] нет связи, открываем смену напрямую:', e?.message);
       addDoc(collection(db, ...PUBLIC_DATA_PATH, 'shifts'), {
         ...me(), hostelId, startTime: new Date().toISOString(), endTime: null,
       }).catch(err => console.error('Error starting shift:', err));

@@ -382,17 +382,25 @@ export function useCadastreActions({
       const expensedByMonth = getExpensedByMonthMap(reg, expenseByMonth);
       const nextExpensedByMonth = allocateExpensedByMonth(expenseByMonth, expensedByMonth, toAdd);
 
+      // Листок, оплаченный через программу (16.11.2026): на сколько суток и с
+      // какого по какое, чем платили — последние цифры карты и телефона
+      const fmtD = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('ru-RU') : '');
+      const nDays = Number(reg.listokDays) || 0;
+      const period = nDays > 0
+        ? `${nDays} ${t('daysShort')}, ${fmtD(reg.listokFrom)} – ${fmtD(reg.listokTo)}`
+        : `${reg.startDate} – ${reg.endDate}`;
+      const paidBy = [reg.payCard ? `${t('cdaPayCard')} •${reg.payCard}` : '', reg.payPhone ? `${t('cdaPayPhone')} •${reg.payPhone}` : ''].filter(Boolean).join(', ');
       const expRef = await addDoc(collection(db, ...PUBLIC_DATA_PATH, 'expenses'), {
         category: 'Регистрация',
         amount:   toAdd,
-        comment:  `Кадастр: ${reg.cadastreAddress} — ${reg.guestName} (${reg.startDate} – ${reg.endDate})`,
+        comment:  `Кадастр: ${reg.cadastreAddress} — ${reg.guestName} (${period})${paidBy ? '; ' + paidBy : ''}`,
         hostelId: reg.hostelId,
         staffId:  currentUser.id || currentUser.login,
         source:   'cadastre',
         date:     reg.createdAt || new Date().toISOString(),
       });
       notifyExpense({ currentUser, lang, hostelId: reg.hostelId, category: 'Регистрация', amount: toAdd,
-        comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName}` });
+        comment: `Кадастр: ${reg.cadastreAddress} — ${reg.guestName} (${period})${paidBy ? '; ' + paidBy : ''}` });
       await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', reg.id), {
         expenseAdded:  true,
         expenseId:     expRef.id,

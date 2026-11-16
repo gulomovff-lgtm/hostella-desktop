@@ -1304,6 +1304,8 @@ ipcMain.handle('kadastr-list', (_e, payload) => {
   });
 });
 
+// Хвост карты и телефона для уведомления о расходе (16.11.2026) — только последние цифры
+const cardTail = (c) => (c ? { payCard: String(c.number || '').slice(-4), payCardPhone: String(c.phone || '').slice(-4) } : {});
 // 'default' — карта по умолчанию; { savedId } — сохранённая; иначе — введённая сейчас
 const resolveCard = (req, st) => {
   const cards = kadastrCards(st);
@@ -1330,9 +1332,10 @@ ipcMain.handle('kadastr-register', (_e, payload) => {
       } catch (e) { r = { status: 'error', message: e.message }; }
       if (!r || r.status !== 'saved') { win.show(); return r || { status: 'error' }; }
       const payUrl = kadastrPortal.safePayUrl(r.payUrl);
-      const pay = await kadastrFillPayment(win, resolveCard(data.card, st), payUrl);
+      const card = resolveCard(data.card, st);
+      const pay = await kadastrFillPayment(win, card, payUrl);
       log.info('[kadastr] оплата после листка:', pay && pay.status, (pay && pay.message) || '');
-      return { ...r, payUrl, pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount, payPhone: pay && pay.phoneMask };
+      return { ...r, payUrl, pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount, payPhone: pay && pay.phoneMask, ...cardTail(card) };
     } catch (e) {
       log.error('[kadastr] register failed:', e.message);
       try { win.show(); } catch (_) {}
@@ -1389,9 +1392,10 @@ ipcMain.handle('kadastr-open-pay', (_e, payload) => {
     kadStage('pay_open');
     try { await kadJs(win, 'JPView(' + JSON.stringify(payUrl) + ', "To`lash"); true', true); }
     catch (e) { return { status: 'error', message: e.message }; }
-    const pay = await kadastrFillPayment(win, resolveCard(data.card, st), payUrl);
+    const card = resolveCard(data.card, st);
+    const pay = await kadastrFillPayment(win, card, payUrl);
     log.info('[kadastr] оплата:', pay && pay.status, (pay && pay.message) || '');
-    return { status: 'opened', pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount, payPhone: pay && pay.phoneMask };
+    return { status: 'opened', pay: pay && pay.status, payMessage: pay && pay.message, payAmount: pay && pay.amount, payPhone: pay && pay.phoneMask, ...cardTail(card) };
   });
 });
 
