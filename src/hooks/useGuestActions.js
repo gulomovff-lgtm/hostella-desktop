@@ -39,6 +39,7 @@ import { emehmonStayStartOf } from '../utils/emehmonAmount';
 import { clientStamp } from '../utils/clientsStore';
 import { changeStamp, bumpRev } from '../utils/collectionStore';
 import { isOldGuest, historyCutoffIso } from '../utils/historyWindow';
+import { isContractWorker, workerCheckoutPatch } from '../utils/contractWorkers';
 
 export function useGuestActions(ctx) {
   const {
@@ -399,7 +400,8 @@ export function useGuestActions(ctx) {
         // Заселение в долг → регистрация запустится при первой оплате (handlePayment).
         if (window.electronAPI?.openEmehmon && newGuest.country && !newGuest.emehmonReg) {
           if (newGuest.country === 'Узбекистан') {
-            if ((totalPaid + depTotal) > 0 && onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
+            // Рабочий по договору платит договором — регистрируем сразу
+            if (((totalPaid + depTotal) > 0 || isContractWorker(newGuest)) && onEmehmonAutoArrival && window.electronAPI?.emehmonArrivalAuto) {
               onEmehmonAutoArrival({ id: guestId, ...newGuest });
             }
           } else if (onForeignArrival && window.electronAPI?.emehmonPassportCheck) {
@@ -439,6 +441,8 @@ export function useGuestActions(ctx) {
   };
 
   const handleCheckOut = async (guest, final) => {
+    // Рабочего по договору выселяют только во вкладке договора «Рабочие»
+    if (isContractWorker(guest)) { showNotification(t('cwCheckoutInContract'), 'error'); return; }
     try {
       setGuestDetailsModal({ open: false, guest: null });
       const paidTotal = getTotalPaid(guest);
@@ -550,7 +554,54 @@ export function useGuestActions(ctx) {
     }
   };
 
+  // Выселение рабочих по договору (вкладка «Рабочие» в договоре; кассир и
+  // админ). Денег у записи нет: сутки фиксируются на момент выселения и
+  // остаются в «Начислено» договора. Вывод из e-mehmon — как у всех.
+  const handleCheckOutWorkers = async (list) => {
+    const items = (list || []).filter(g => isContractWorker(g) && g.status === 'active');
+    if (!items.length) return 0;
+    let n = 0;
+    for (const guest of items) {
+      try {
+        const now = new Date();
+        const patch = workerCheckoutPatch(guest, now);
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', guest.id), { ...changeStamp(), ...patch, totalPrice: 0 });
+        const normPass = (v) => String(v || '').replace(/\s/g, '').toUpperCase();
+        const livesAgain = !!guest.passport && guests.some(x =>
+          x.id !== guest.id && x.status === 'active' && x.passport &&
+          normPass(x.passport) === normPass(guest.passport) && (x.hostelId || 'hostel1') === (guest.hostelId || 'hostel1'));
+        if (onEmehmonDepart && guest.emehmonReg && !guest.emehmonOut && !livesAgain && window.electronAPI?.emehmonDeparture) {
+          onEmehmonDepart({ ...guest, ...patch });
+        }
+        await upsertClient({ ...guest, checkOutDate: patch.checkOutDate }, { incrementVisits: false });
+        const r = rooms.find(i => i.id === guest.roomId);
+        if (r) await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'rooms', r.id), { occupied: increment(-1) });
+        try {
+          const toRemove = livesAgain ? [] : (cadastreRegs || []).filter(x => x.status === 'active' && cadastreMatches(x, guest));
+          for (const x of toRemove) {
+            await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'cadastreRegistrations', x.id), {
+              status: 'removed', removedAt: now.toISOString(), removedBy: 'auto_checkout',
+            });
+          }
+        } catch (_) { /* снимется сверкой */ }
+        logAction(currentUser, 'checkout', {
+          guestName: guest.fullName, roomNumber: guest.roomNumber, totalPrice: 0,
+          contractWorker: true, contractGroupId: guest.contractGroupId, days: patch.days,
+        });
+        const hostelLabel = guest.hostelId === 'hostel1' ? t('gaHostel1') : t('gaHostel2');
+        sendTelegramMessage(`🚪 <b>${t('gaTgCheckoutTitle')}</b>\n👤 ${escapeTg(guest.fullName)}${guest.specialty ? ' · ' + escapeTg(guest.specialty) : ''}\n🛏 ${hostelLabel} · ${t('gaRoomShort')} ${guest.roomNumber || '—'}\n📄 ${t('cwContract')}: ${escapeTg(guest.contractGroupName || '')} · ${patch.days} ${t('gaDaysShort')}\n👷 ${t('gaCashier')}: ${escapeTg(currentUser.name || currentUser.login)}`, 'checkout');
+        n++;
+      } catch (e) {
+        console.error('handleCheckOutWorkers error:', e);
+        showNotification(t('gaErrorPrefix') + e.message, 'error');
+      }
+    }
+    if (n) showNotification(t('cwCheckedOut').replace('{n}', n), 'success');
+    return n;
+  };
+
   const handlePayment = async (guestId, amounts) => {
+    if (isContractWorker(guests.find(x => x.id === guestId))) { showNotification(t('cwPayByContract'), 'error'); return; }
     try {
       const safeStaffId = currentUser.id || currentUser.login;
       const { cash = 0, card = 0, qr = 0, transfer = 0, balance: balanceUsed = 0 } = amounts;
@@ -714,6 +765,8 @@ export function useGuestActions(ctx) {
 
   const handleExtendGuest = async (guestId, extData) => {
     const xg = guests.find(x => x.id === guestId);
+    // Рабочий по договору продлевается сам в 00:00
+    if (isContractWorker(xg)) { showNotification(t('cwAutoExtend'), 'info'); return; }
     if (xg?.continuedBy && xg.status === 'active') {
       try { if (await extendContinuationOf(xg, extData) !== false) return; }
       catch (e) { showNotification(t('gaExtendErrorPrefix') + (e?.message || e), 'error'); return; }
@@ -816,6 +869,7 @@ export function useGuestActions(ctx) {
     for (const guestId of guestIds) {
       const guest = guests.find(g => g.id === guestId);
       if (!guest || guest.status !== 'active') continue;
+      if (isContractWorker(guest)) continue; // продлевается сам в 00:00
       // Иностранец первого филиала — продлённые сутки по правилу (100 000 / от 5 суток 90 000)
       const fr = !guest.priceReductionAllowed ? foreignRule(guest.hostelId, guest.country, new Date()) : null;
       const fx = fr ? { rate: foreignNightFloor(fr, days), foreign: true } : {};
@@ -1072,7 +1126,7 @@ export function useGuestActions(ctx) {
     const cfg = getConfig();
     const h = planConfig(hostelId, new Date(), cfg);
     if (!h) { if (!silent) showNotification(t('planNotActive'), 'error'); return 0; }
-    const list = newPriceCandidates(guests, hostelId, cfg);
+    const list = newPriceCandidates(guests.filter(g => !isContractWorker(g)), hostelId, cfg);
     if (!list.length) { if (!silent) showNotification(t('planNobodyToMove'), 'info'); return 0; }
     const at = new Date(h.from + 'T12:00:00');
     let done = 0, failed = 0;
@@ -1110,11 +1164,12 @@ export function useGuestActions(ctx) {
   const autoApplyNewPrices = async () => {
     let n = 0, restored = 0;
     for (const hid of ['hostel1', 'hostel2']) {
-      for (const c of [...oldPriceRevertCandidates(guests, hid), ...repricedPrepaidCandidates(guests, hid)]) {
+      const priced = guests.filter(g => !isContractWorker(g));
+      for (const c of [...oldPriceRevertCandidates(priced, hid), ...repricedPrepaidCandidates(priced, hid)]) {
         try { if (await revertOldPriceTx(c.guest, c.patch)) restored++; } catch (e) { console.error('[oldPrice]', c.guest.id, e); }
       }
     }
-    const due = continuationsDue(guests, new Date());
+    const due = continuationsDue(guests.filter(g => !isContractWorker(g)), new Date());
     for (const g of due.close) {
       try {
         await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), 
@@ -1143,6 +1198,17 @@ export function useGuestActions(ctx) {
       return;
     }
     try {
+      // Рабочий по договору: денег у записи нет, сутки считаются от заезда —
+      // переселение только меняет место (разделение на две записи посчитало
+      // бы день переезда дважды)
+      if (isContractWorker(g)) {
+        await updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), roomId: rid, roomNumber: rnum, bedId: bid });
+        setMoveGuestModal({ open: false, guest: null });
+        setGuestDetailsModal({ open: false, guest: null });
+        logAction(currentUser, 'move', { guestId: g.id, guestName: g.fullName || '', fromRoom: g.roomNumber || '', fromBed: g.bedId || '', toRoom: rnum || '', toBed: bid || '', contractWorker: true });
+        showNotification(t('gaMoved'));
+        return;
+      }
       const now = new Date();
       const todayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
 
@@ -1560,7 +1626,7 @@ export function useGuestActions(ctx) {
   return {
     handleUndo, pushUndo, logTransaction,
     handleCheckInSubmit, handleCheckIn,
-    handleCheckOut, handlePayment, handleExtendGuest,
+    handleCheckOut, handleCheckOutWorkers, handlePayment, handleExtendGuest,
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
     handleSplitGuest, handleMoveGuest, handleDeleteGuest,

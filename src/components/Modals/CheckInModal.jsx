@@ -20,6 +20,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { chargeOf } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
+import { nextTashkentMidnightIso, rateOn, tashkentYmd } from '../../utils/contractWorkers';
 
 // --- Helpers ---
 /**
@@ -182,7 +183,7 @@ const cyrToLat = (str) => str.toUpperCase().split('').map(ch => {
 }).join('');
 
 // --- Main Component ---
-const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, isFromBooking = false, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12 }) => {
+const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClient, isFromBooking = false, allRooms = [], guests = [], clients = [], clientsDb = [], onClose, onSubmit, onCheckinPriceRequest, priceWhitelist = [], notify, lang, currentUser, checkInHour = 14, checkOutHour = 12, contractGroups = [] }) => {
     const t = (k) => TRANSLATIONS[lang][k];
 
     /**
@@ -256,6 +257,19 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
     // ── Динамические тарифы: минимум и пакет по комнате/филиалу/дате заезда ──
     const _curRoom = allRooms.find(r => r.id === formData.roomId) || safeInitialRoom;
     const _roomHostel = _curRoom?.hostelId || currentUser?.hostelId || 'hostel1';
+
+    // ── Рабочий по договору (utils/contractWorkers.js, 20.11.2026) ──
+    // Цены и оплаты нет: сутки идут в договор по его ставке, продлевается сам
+    // в 00:00, выселяют во вкладке договора «Рабочие».
+    const [worker, setWorker] = useState(false);
+    const [workerContractId, setWorkerContractId] = useState('');
+    const [specialty, setSpecialty] = useState('');
+    const workerContracts = useMemo(() => (contractGroups || [])
+        .filter(g => g && !g.closed && !g.completed && (!g.hostelId || g.hostelId === 'all' || g.hostelId === _roomHostel))
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
+    [contractGroups, _roomHostel]);
+    const workerContract = workerContracts.find(g => g.id === workerContractId) || null;
+    const canWorker = !isFromBooking && workerContracts.length > 0;
     const _priceDate = formData.checkInDate ? new Date(formData.checkInDate) : new Date();
     // Второй хостел с 01.10: тарифы «без завтрака / с завтраком», цена — по стране
     // гостя; пакета там нет (решение владельца 2026-09-30, utils/stayPlans.js).
@@ -588,7 +602,10 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                 if (!formData.passportIssueDate) errs.passportIssueDate = t('fieldRequired');
             }
         }
-        if (formData.tariff === 'package') {
+        if (worker) {
+            if (!workerContract) errs.workerContract = t('cwNeedContract');
+            if (!specialty.trim()) errs.specialty = t('cwNeedSpecialty');
+        } else if (formData.tariff === 'package') {
             if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) errs.days = t('minDaysError').replace('{days}', PACKAGE_MIN_DAYS);
         } else if ((parseInt(formData.pricePerNight) || 0) < MIN_NIGHT_PRICE && !priceApproved && !(nightOn && status === 'active')) {
             errs.pricePerNight = t('minSumOrApproval').replace('{min}', MIN_NIGHT_PRICE.toLocaleString());
@@ -931,7 +948,9 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             }
         }
         // Правила тарифов (финальный контроль)
-        if (formData.tariff === 'package') {
+        if (worker) {
+            // цены нет — ставка договора
+        } else if (formData.tariff === 'package') {
             if ((parseInt(formData.days) || 0) < PACKAGE_MIN_DAYS) {
                 notify(t('packageMinDaysError').replace('{days}', PACKAGE_MIN_DAYS), 'error');
                 return;
@@ -965,6 +984,32 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
             return;
         }
         setIsSubmitting(true);
+        if (worker) {
+            try {
+                const now = new Date();
+                await onSubmit({
+                    ...formData,
+                    status: 'active',
+                    checkInDate: now.toISOString(),
+                    checkOutDate: nextTashkentMidnightIso(now),
+                    days: 1, tariff: 'standard', plan: null, nonRefundable: false,
+                    pricePerNight: 0, totalPrice: 0, amountPaid: 0,
+                    paidCash: 0, paidCard: 0, paidQR: 0, paidTransfer: 0, paidBalance: 0,
+                    priceReductionAllowed: false, approvedPrice: 0,
+                    contractWorker: true,
+                    contractGroupId: workerContract.id,
+                    contractGroupName: workerContract.name || '',
+                    contractRate: rateOn(workerContract, tashkentYmd(now)),
+                    specialty: specialty.trim(),
+                });
+            } catch (e) {
+                console.error('[checkin worker]', e);
+                notify(t('checkinError').replace('{msg}', (e?.message || e)), 'error');
+            } finally {
+                setIsSubmitting(false);
+            }
+            return;
+        }
         try {
             const checkIn = new Date(formData.checkInDate);
             checkIn.setHours(checkInHour, 0, 0, 0);
@@ -1283,6 +1328,16 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                         </div>
                     )}
 
+                    {/* ── РАБОЧИЙ ПО ДОГОВОРУ ── */}
+                    {canWorker && (
+                        <div className="mx-6 mt-3 flex flex-wrap items-center gap-2">
+                            <button type="button" onClick={() => setWorker(v => !v)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${worker ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
+                                👷 {t('cwWorker')}
+                            </button>
+                        </div>
+                    )}
+
                     {/* ── ТРИ ГРАФЫ ── */}
                     <div className="ci-sheet3 flex-1">
 
@@ -1519,6 +1574,25 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                             </div>
                         </div>
 
+                        {worker ? (
+                        <div className="ci-col ci-col-b">
+                            <div className="ci-cap">{t('cwWorker')}</div>
+                            <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mt-2 mb-1">{t('cwContract')}</label>
+                            <select value={workerContractId} onChange={e => setWorkerContractId(e.target.value)}
+                                className={`w-full px-3 py-2 rounded-lg border text-sm font-semibold bg-white ${errors.workerContract ? 'border-rose-400' : 'border-slate-200'}`}>
+                                <option value="">{t('cwPickContract')}</option>
+                                {workerContracts.map(g => (
+                                    <option key={g.id} value={g.id}>{g.name || g.id}{(parseInt(g.contractRate) || 0) > 0 ? ` · ${(parseInt(g.contractRate) || 0).toLocaleString('ru-RU')} ${t('sum')}` : ''}</option>
+                                ))}
+                            </select>
+                            <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mt-3 mb-1">{t('cwSpecialty')}</label>
+                            <input value={specialty} onChange={e => setSpecialty(e.target.value)} placeholder={t('cwSpecialtyPh')}
+                                className={`w-full px-3 py-2 rounded-lg border text-sm font-semibold ${errors.specialty ? 'border-rose-400' : 'border-slate-200'}`}/>
+                            <div className="ci-notice ci-info mt-3 text-[12px]">
+                                {t('cwRateNote').replace('{rate}', (workerContract ? rateOn(workerContract, tashkentYmd(new Date())) : 0).toLocaleString('ru-RU'))}
+                            </div>
+                        </div>
+                        ) : (<>
                         {/* ───────────── II. УСЛОВИЯ ───────────── */}
                         <div className="ci-col ci-col-b">
                             <div className="ci-cap">
@@ -1818,6 +1892,7 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                                 </span>
                             </div>
                         </div>
+                        </>)}
                     </div>
 
                 {/* ── Аренда конфликт ── */}
@@ -1915,14 +1990,14 @@ const CheckInModal = ({ initialRoom, preSelectedBedId, initialDate, initialClien
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                        <button onClick={() => handleSubmit('booking')}
+                        {!worker && <button onClick={() => handleSubmit('booking')}
                             disabled={isSubmitting || !!rentalConflict}
                             className="px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold transition-colors">
                             {t('booking')}
-                        </button>
+                        </button>}
                         {/* «В долг» — только когда в кассу не внесено ничего. Внёс
                             часть — это уже не долг целиком, и кнопка ушла бы мимо смысла. */}
-                        {collected === 0 && totalPrice > 0 && (
+                        {!worker && collected === 0 && totalPrice > 0 && (
                             <button type="button" onClick={() => handleSubmit('active')}
                                 disabled={isSubmitting || !!rentalConflict}
                                 className="px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm transition-colors text-xs flex items-center gap-1 whitespace-nowrap">

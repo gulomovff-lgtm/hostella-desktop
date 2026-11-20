@@ -21,11 +21,13 @@ import { uploadDepartureSheet } from '../utils/emehmonSheetStore';
 import { autoRegisterAllowed, cadastreBlocksAuto, cadastreTransferDue, cadastreAutoFinishDue, cadastreGuestLeft, stayStartAfterCadastre } from '../utils/registrationStatus';
 import { emehmonFailure, emehmonSuccess } from '../utils/emehmonErrors';
 import { changeStamp } from '../utils/collectionStore';
+import { isContractWorker } from '../utils/contractWorkers';
 import { watchEmehmonIgnore, isEmehmonHidden } from '../utils/emehmonIgnore';
 
 const LOCAL_COUNTRY = 'Узбекистан';
 const isLocal = (g) => g?.country === LOCAL_COUNTRY;
-const paidOf = (g) => (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0)));
+// Рабочий по договору платит договором — для регистрации он «оплачен»
+const paidOf = (g) => (isContractWorker(g) ? 1 : (typeof g.amountPaid === 'number' ? g.amountPaid : ((g.paidCash || 0) + (g.paidCard || 0) + (g.paidQR || 0))));
 /** Липкий текст ошибки госбазы: тот же, что снимает handleGuestUpdate при правке паспорта. */
 export const REG_ERROR_TEXT = 'Ошибка в паспортных данных — нужно исправить';
 const HOURS = 3600 * 1000;

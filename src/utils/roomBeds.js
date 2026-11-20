@@ -71,7 +71,8 @@ export const buildBedsData = (room, guests, now = new Date()) => {
             const bonusCo = activeGuest.bonusCheckOutDate ? parseDate(activeGuest.bonusCheckOutDate) : null;
             // Use the later of the two dates (bonus may be outdated after an extension)
             const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : (co || bonusCo);
-            const expired = effectiveCo && now > effectiveCo;
+            // Рабочий по договору не «просрочен»: он продлевается сам в 00:00
+            const expired = effectiveCo && now > effectiveCo && !activeGuest.contractWorker;
             isBonus = !!(bonusCo && co && now > co && now <= bonusCo);
             if (expired && (now - effectiveCo) / 3_600_000 > 28) {
                 status = 'free';
@@ -117,7 +118,8 @@ export const buildBedsData = (room, guests, now = new Date()) => {
             const co = parseDate(activeGuest.checkOutDate);
             const bonusCo = activeGuest.bonusCheckOutDate ? parseDate(activeGuest.bonusCheckOutDate) : null;
             const effectiveCo = (bonusCo && co && bonusCo > co) ? bonusCo : (co || bonusCo);
-            const expired = effectiveCo && now > effectiveCo;
+            // Рабочий по договору не «просрочен»: он продлевается сам в 00:00
+            const expired = effectiveCo && now > effectiveCo && !activeGuest.contractWorker;
             isBonus = !!(bonusCo && co && now > co && now <= bonusCo);
             debt = Math.max(0, chargeOf(activeGuest) - getTotalPaid(activeGuest));
             isTimeout = !!expired;

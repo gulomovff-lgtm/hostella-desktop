@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { computeContractFinancials } from '../../utils/contractFinancials';
+import { isContractWorker, workerDays } from '../../utils/contractWorkers';
 import { getKppDayNumber, getRegistrationWindow } from '../../utils/helpers';
 import { buildBedsData } from '../../utils/roomBeds';
 import { stableView } from '../UI/stableView';
@@ -174,8 +175,13 @@ const BedCell = React.memo(({ bed, room, onRoomBedClick, onKppConfirm, nowMs, la
         );
     }
 
+    // Рабочий по договору (utils/contractWorkers.js): серый, своих денег нет,
+    // сутки идут в договор, продлевается сам в 00:00
+    const worker = status === 'occupied' && isContractWorker(guest);
     let cardBg, cardBorder, headerBg, nameCls;
-    if (isTimeout) {
+    if (worker) {
+        cardBg = 'bg-slate-100'; cardBorder = 'border-slate-300'; headerBg = 'bg-slate-200'; nameCls = 'text-slate-700';
+    } else if (isTimeout) {
         cardBg = 'bg-purple-50'; cardBorder = 'border-purple-200'; headerBg = 'bg-purple-100'; nameCls = 'text-purple-900';
     } else if (isBonus) {
         cardBg = 'bg-orange-50'; cardBorder = 'border-orange-300'; headerBg = 'bg-orange-100'; nameCls = 'text-orange-900';
@@ -229,6 +235,12 @@ const BedCell = React.memo(({ bed, room, onRoomBedClick, onKppConfirm, nowMs, la
                 <div className={`text-[13px] font-extrabold leading-snug line-clamp-2 ${nameCls} ${isTimeout ? 'opacity-60 line-through' : ''}`}>
                     {guest?.fullName || t('nameUnknown')}
                 </div>
+                {worker && (
+                    <div className="flex flex-col gap-0.5">
+                        {guest.specialty && <span className="text-[11px] font-bold text-slate-600 leading-tight line-clamp-2">👷 {guest.specialty}</span>}
+                        <span className="text-[10px] font-semibold text-slate-500 truncate" title={guest.contractGroupName || ''}>{t('cwContract')}: {guest.contractGroupName || '—'}</span>
+                    </div>
+                )}
                 {!flagCode && guest?.country && (
                     <div className="text-[10px] text-slate-400 font-semibold truncate">{guest.country}</div>
                 )}
@@ -283,7 +295,11 @@ const BedCell = React.memo(({ bed, room, onRoomBedClick, onKppConfirm, nowMs, la
                 )}
 
                 {(isTimeout || (bed?.isBonus)) && <TimeoutBadge isBonus={bed?.isBonus} lang={lang} />}
-                {debt > 0 ? (
+                {worker ? (
+                    <div className="flex items-center gap-1 mt-auto">
+                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600 tabular-nums">{t('cwDays').replace('{n}', workerDays(guest))}</span>
+                    </div>
+                ) : debt > 0 ? (
                     <div className="flex items-center gap-1.5 mt-auto bg-rose-100/80 border border-rose-200 rounded-lg px-2 py-1">
                         <Wallet size={11} className="text-rose-500 shrink-0" />
                         <span className="text-[11px] font-black text-rose-600">{t('debt')}: {fmt(debt)}</span>
@@ -308,7 +324,7 @@ const BedCell = React.memo(({ bed, room, onRoomBedClick, onKppConfirm, nowMs, la
                     </button>
                 )}
                 {/* Продлить — для активных и просроченных */}
-                {(status === 'occupied' || isTimeout) && (
+                {(status === 'occupied' || isTimeout) && !worker && (
                     <button onClick={e => { e.stopPropagation(); onBedClick(id, guest, 'extend'); }}
                         className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-indigo-500/80 hover:bg-indigo-500 text-white text-[11px] font-bold transition-colors border border-indigo-400/40">
                         <Clock size={12} /> {t('extend')}

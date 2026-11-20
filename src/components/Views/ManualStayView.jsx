@@ -1,10 +1,11 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, X, Check, Users, Shuffle, FileText, ArrowLeftRight } from 'lucide-react';
 import { doc } from 'firebase/firestore';
 // Записи — без ожидания сервера (см. utils/fsWrite.js): окно не висит, пока сеть думает
 import { setDoc, updateDoc, deleteDoc } from '../../utils/fsWrite';
 import { db } from '../../firebase';
 import { sumCharges } from '../../utils/contractFinancials';
+import { isContractWorker, workerDays, workerCharge, rateHistoryWithChange } from '../../utils/contractWorkers';
 import { logAction } from '../../utils/auditLog';
 
 import TRANSLATIONS from '../../constants/translations';
@@ -29,7 +30,7 @@ const groupVersion = (g) => {
     return groupVersions.get(g);
 };
 
-const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], currentUser, payments = [], hostelFilter = 'all', lang = 'ru' }) => {
+const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], currentUser, payments = [], hostelFilter = 'all', lang = 'ru', focusContractId = null, onFocusDone, onCheckOutWorkers, onOpenGuest }) => {
     const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [creating, setCreating] = useState(false);
     const [newGroupName, setNewGroupName] = useState('');
@@ -47,6 +48,16 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
     const [pickerIds, setPickerIds] = useState(() => new Set()); // карточки с открытым выбором участников
 
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super';
+
+    // Пришли из карточки рабочего: договор открыт на разделе «Рабочие»,
+    // через пару секунд фокус снимается (иначе повторный переход не сработает)
+    useEffect(() => {
+        if (!focusContractId) return undefined;
+        const g = groups.find(x => x.id === focusContractId);
+        if (g && (g.closed || g.completed)) setGroupFilter('all');
+        const tm = setTimeout(() => onFocusDone?.(), 2500);
+        return () => clearTimeout(tm);
+    }, [focusContractId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Договоры приходят из общей подписки App (useAppData): своя вторая подписка
     // на ту же коллекцию пересобирала все договоры на каждую запись.
@@ -126,6 +137,10 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
     };
 
     const updateGroup = async (groupId, patch) => {
+        if (patch && Object.prototype.hasOwnProperty.call(patch, 'contractRate')) {
+            const g = contractGroups.find(x => x.id === groupId);
+            if (g) patch = { ...patch, rateHistory: rateHistoryWithChange(g, patch.contractRate) };
+        }
         await updateDoc(doc(db, ...COLLECTION, groupId), patch);
     };
 
@@ -333,6 +348,7 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
         const map = new Map();
         for (const g of guests) {
             if (g.status === 'booking') continue;
+            if (isContractWorker(g)) continue;
             const key = (g.fullName || '—').trim();
             if (keep && !keep.has(key)) continue;
             let row = map.get(key);
@@ -362,8 +378,26 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
         return m;
     }, [payments]);
 
+    // Рабочие по договору — по ссылке на договор (utils/contractWorkers.js)
+    const workersByGroup = useMemo(() => {
+        const m = new Map();
+        for (const g of guests) {
+            if (!isContractWorker(g) || g.status === 'booking') continue;
+            if (!m.has(g.contractGroupId)) m.set(g.contractGroupId, []);
+            m.get(g.contractGroupId).push(g);
+        }
+        return m;
+    }, [guests]);
+
     const detailedGroups = useMemo(() => {
+        const now = new Date();
         return contractGroups.map(group => {
+            const workers = (workersByGroup.get(group.id) || [])
+                .map(g => ({ id: g.id, fullName: g.fullName, specialty: g.specialty || '', roomNumber: g.roomNumber, bedId: g.bedId,
+                    checkInDate: g.checkInDate, status: g.status, days: workerDays(g, now), charge: workerCharge(g, group, now) }))
+                .sort((a, b) => (a.status === b.status ? String(a.fullName || '').localeCompare(String(b.fullName || '')) : a.status === 'active' ? -1 : 1));
+            const workerNights = workers.reduce((s, w) => s + w.days, 0);
+            const workerTotal = workers.reduce((s, w) => s + w.charge, 0);
             const members = (group.memberKeys || []).map(k => guestMap.get(k)).filter(Boolean);
             const rawEntries = Array.isArray(group.manualEntries) ? group.manualEntries : [];
             // _order — порядок добавления: карточка показывает последние добавленные
@@ -372,9 +406,9 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
             const autoPersonNights   = members.reduce((s, m) => s + m.totalNights, 0);
             const manualPersonNights = entries.reduce((s, e) => s + e.personNights, 0);
             const manualRoomNights   = entries.reduce((s, e) => s + e.roomNights, 0);
-            const totalPersonNights  = autoPersonNights + manualPersonNights;
+            const totalPersonNights  = autoPersonNights + manualPersonNights + workerNights;
             const contractRate = parseInt(group.contractRate, 10) || 0;
-            const rateTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
+            const rateTotal = (contractRate > 0 ? contractRate * (autoPersonNights + manualPersonNights) : 0) + workerTotal;
             // Доп. расходы и списания (формула = contractFinancials.js).
             // extraCharges отдаём БЕЗ списаний — отчёты берут именно его.
             const allCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
@@ -392,15 +426,15 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
             const amountPaid = paidFromRecords > 0 ? paidFromRecords : (parseInt(group.amountPaid, 10) || 0);
             const debt = contractTotal > 0 ? contractTotal - amountPaid : 0;
             // Подпись данных карточки: карточка перерисовывается, только когда она поменялась
-            const sig = `${groupVersion(group)}|${amountPaid}|${members.map(m => m.key + ':' + m.totalNights).join(',')}`;
+            const sig = `${groupVersion(group)}|${amountPaid}|${members.map(m => m.key + ':' + m.totalNights).join(',')}|${workers.map(w => w.id + ':' + w.days + ':' + w.status + ':' + w.roomNumber + ':' + w.bedId).join(',')}`;
             return {
-                ...group, sig, members, manualEntries: entries,
+                ...group, sig, members, workers, workerNights, workerTotal, manualEntries: entries,
                 autoPersonNights, manualPersonNights, manualRoomNights, totalPersonNights,
                 contractRate, rateTotal, extraCharges, extraTotal, contractTotal, amountPaid, debt,
                 writeOffs, writeOffTotal,
             };
         });
-    }, [contractGroups, guestMap, paymentsByGroup]);
+    }, [contractGroups, guestMap, paymentsByGroup, workersByGroup]);
 
     // Ранее сохранённые специальности из всех договоров — для выбора при создании периода
     const savedSpecialties = useMemo(() => {
@@ -457,6 +491,12 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
             setPickerIds(prev => { const n = new Set(prev); if (open) n.add(id); else n.delete(id); return n; });
         },
         renameGroup, deleteGroup, updateGroup, toggleGroupClosed, toggleMember,
+        checkOutWorkers: async (ids) => {
+            const set = new Set(ids || []);
+            const list = guests.filter(g => set.has(g.id));
+            if (onCheckOutWorkers) await onCheckOutWorkers(list);
+        },
+        openGuest: (id) => { const g = guests.find(x => x.id === id); if (g && onOpenGuest) onOpenGuest(g); },
         addEntryDates, removeEntry, addExtraCharge, removeExtraCharge, addWriteOff, removeWriteOff,
     };
     const cardActions = useMemo(() => Object.fromEntries(
@@ -716,7 +756,7 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
                     <GroupCard key={group.id} group={group} idx={idx} lang={lang} rooms={rooms} isAdmin={isAdmin}
                         mergeMode={mergeMode} isSelected={selectedGroupIds.has(group.id)}
                         groupedGuests={pickerIds.has(group.id) ? groupedGuests : NO_GUESTS} autoOpenMembers={justCreatedId === group.id}
-                        actions={cardActions} />
+                        actions={cardActions} focusWorkers={focusContractId === group.id} />
                 ))}
             </div>
 

@@ -4,6 +4,7 @@ import TRANSLATIONS from '../../../constants/translations';
 import { INP, GHOST_BTN, fmt, pmcFmtISO } from './shared';
 import LocalNumInput from './LocalNumInput';
 import PeriodMiniCalendar from './PeriodMiniCalendar';
+import WorkersSection from './WorkersSection';
 
 // Сколько последних записей видно в свёрнутом списке периодов и доп. расходов
 const RECENT_COUNT = 3;
@@ -31,7 +32,7 @@ const RecentToggle = ({ total, open, onToggle, t }) => total > RECENT_COUNT && (
  * (group.sig) — ввод в одной карточке или открытие окна не перерисовывает
  * остальные. Действия приходят одним постоянным объектом `actions`.
  */
-const GroupCard = ({ group, idx, lang, rooms, isAdmin, mergeMode, isSelected, groupedGuests, autoOpenMembers, actions }) => {
+const GroupCard = ({ group, idx, lang, rooms, isAdmin, mergeMode, isSelected, groupedGuests, autoOpenMembers, actions, focusWorkers }) => {
     const t = k => TRANSLATIONS[lang]?.[k] || k;
     const [membersOpen, setMembersOpen] = useState(!!autoOpenMembers);
     const [pickerOpen, setPickerOpen] = useState(!!autoOpenMembers);
@@ -175,6 +176,7 @@ const GroupCard = ({ group, idx, lang, rooms, isAdmin, mergeMode, isSelected, gr
                     </div>
                 )}
                 {!isFinished && !group.contractRate && <div className="text-xs text-amber-700">{t('mslRateHint')}</div>}
+                {!isFinished && group.contractRate && group.workers?.length > 0 && <div className="text-[11px] text-slate-400">{t('cwRateFrom')}</div>}
                 {/* Вторичные действия — одинаковой ширины, в одну строку (на узком экране — по две) */}
                 <div className="grid grid-cols-2 sm:flex gap-2">
                     <button onClick={() => actions.report(group.id)} className={ACT_BTN}><FileText size={14} /> {t('msReport')}</button>
@@ -202,6 +204,11 @@ const GroupCard = ({ group, idx, lang, rooms, isAdmin, mergeMode, isSelected, gr
                     )}
                 </div>
             </div>
+
+            {/* ─ Рабочие по договору (заселены через окно заселения) ─ */}
+            {(group.workers?.length > 0 || !group.closed) && (
+                <WorkersSection group={group} lang={lang} actions={actions} focus={focusWorkers} />
+            )}
 
             {/* ─ Участники ─ */}
             <div className="border-t border-slate-100">
@@ -477,6 +484,6 @@ const GroupCard = ({ group, idx, lang, rooms, isAdmin, mergeMode, isSelected, gr
 const same = (a, b) =>
     a.group.sig === b.group.sig && a.idx === b.idx && a.lang === b.lang && a.rooms === b.rooms &&
     a.isAdmin === b.isAdmin && a.mergeMode === b.mergeMode && a.isSelected === b.isSelected &&
-    a.groupedGuests === b.groupedGuests && a.autoOpenMembers === b.autoOpenMembers;
+    a.groupedGuests === b.groupedGuests && a.autoOpenMembers === b.autoOpenMembers && a.focusWorkers === b.focusWorkers;
 
 export default memo(GroupCard, same);

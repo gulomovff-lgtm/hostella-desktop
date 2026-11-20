@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import TRANSLATIONS from '../../constants/translations';
 import { printGroupReceipt } from '../../utils/groupReceipt';
+import { isContractWorker, workerDays } from '../../utils/contractWorkers';
 import GroupReceiptModal from '../Modals/GroupReceiptModal';
 import { chargeOf } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
@@ -319,6 +320,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
         const nowDate = new Date(nowMs);
         return relGuests.filter(g => {
             if (g.status !== 'active') return false;
+            if (isContractWorker(g)) return false; // продлевается сам в 00:00
             const co = parseDate(g.checkOutDate);
             return co && nowDate > co;
         });
@@ -967,19 +969,21 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             <div className="overflow-y-auto" style={{ maxHeight: 350 }}>
                                 {data.activeGuests.map(g => {
                                     const debt = chargeOf(g) - getTotalPaid(g);
-                                    const lbl = g.checkOutDate ? getTimeLeftLabel(g.checkOutDate, nowMs, t) : null;
+                                    const worker = isContractWorker(g);
+                                    const lbl = !worker && g.checkOutDate ? getTimeLeftLabel(g.checkOutDate, nowMs, t) : null;
                                     const isSelected = selectedIds.includes(g.id);
                                     return (
                                         <div key={g.id}
                                             onClick={() => {
                                                 if (selectMode) {
+                                                    if (worker) return; // продлевается сам — в массовое продление не берём
                                                     setSelectedIds(ids => isSelected ? ids.filter(i => i !== g.id) : [...ids, g.id]);
                                                 } else if (onGuestClick) {
                                                     const client = clientByPassport.get(g.passport);
                                                     if (client) onGuestClick(client);
                                                 }
                                             }}
-                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-teal-50' : onGuestClick ? 'cursor-pointer hover:bg-teal-50/50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-teal-50' : ''}`}>
+                                            className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 transition-colors ${selectMode ? 'cursor-pointer hover:bg-teal-50' : onGuestClick ? 'cursor-pointer hover:bg-teal-50/50' : 'hover:bg-slate-50'} ${isSelected ? 'bg-teal-50' : ''} ${worker ? 'bg-slate-50 opacity-70' : ''}`}>
                                             {selectMode && (
                                                 <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-teal-600 border-teal-600' : 'border-slate-300'}`}>
                                                     {isSelected && <CheckCircle2 size={10} className="text-white" strokeWidth={3}/>}
@@ -987,10 +991,11 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                                             )}
                                             {COUNTRY_FLAGS[g.country] ? <Flag code={COUNTRY_FLAGS[g.country]} size={16}/> : <User size={14} className="text-slate-300 shrink-0"/>}
                                             <div className="flex-1 min-w-0">
-                                                <div className="text-xs font-bold text-slate-800 truncate">{g.fullName}</div>
-                                                <div className="text-[10px] text-slate-400">{t('roomAbbr')}{g.roomNumber} {t('bedAbbr')}{g.bedId} · {g.country||'—'}</div>
+                                                <div className={`text-xs font-bold truncate ${worker ? 'text-slate-500' : 'text-slate-800'}`}>{g.fullName}</div>
+                                                <div className="text-[10px] text-slate-400 truncate">{t('roomAbbr')}{g.roomNumber} {t('bedAbbr')}{g.bedId} · {worker ? `👷 ${g.specialty || t('cwWorker')} · ${g.contractGroupName || ''}` : (g.country||'—')}</div>
                                             </div>
                                             {lbl && <span className={`text-[10px] font-semibold ${lbl.color} shrink-0`}>{lbl.text}</span>}
+                                            {worker && <span className="text-[10px] font-black text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded-md shrink-0 tabular-nums">{t('cwDays').replace('{n}', workerDays(g))}</span>}
                                             {debt > 0 && <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md shrink-0">-{formatMoney(debt)}</span>}
                                         </div>
                                     );
@@ -999,7 +1004,7 @@ const DashboardView = ({ rooms, guests, payments, expenses, lang, currentHostelI
                             {selectMode && data.activeGuests.length > 0 && (
                                 <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-wrap">
                                     <button
-                                        onClick={() => setSelectedIds(ids => ids.length === data.activeGuests.length ? [] : data.activeGuests.map(g => g.id))}
+                                        onClick={() => { const pick = data.activeGuests.filter(g => !isContractWorker(g)); setSelectedIds(ids => ids.length === pick.length ? [] : pick.map(g => g.id)); }}
                                         className="text-xs text-slate-500 hover:text-slate-700 font-bold underline">
                                         {selectedIds.length === data.activeGuests.length ? t('deselectAll') : t('selectAll')}
                                     </button>

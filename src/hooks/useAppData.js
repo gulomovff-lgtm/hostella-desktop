@@ -61,6 +61,8 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   const [guestsLive,     setGuestsLive    ] = useState([]);
   const [guestsRecent,   setGuestsRecent  ] = useState([]);
   const [guestsContract, setGuestsContract] = useState([]);
+  // Рабочие открытых договоров (contractGroupId) — любой давности
+  const [guestsWorkers, setGuestsWorkers] = useState([]);
   const [guestsAll,      setGuestsAll     ] = useState(null);
   const [paymentsRecent,   setPaymentsRecent  ] = useState([]);
   const [paymentsContract, setPaymentsContract] = useState([]);
@@ -271,7 +273,8 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
     const col = (name) => collection(db, ...PUBLIC_DATA_PATH, name);
     const u1 = listenChunks(chunk(contractKeys.ids).map(ids => query(col('payments'), where('contractGroupId', 'in', ids))), setPaymentsContract);
     const u2 = listenChunks(chunk(contractKeys.names).map(names => query(col('guests'), where('fullName', 'in', names))), setGuestsContract);
-    return () => { u1(); u2(); };
+    const u3 = listenChunks(chunk(contractKeys.ids).map(ids => query(col('guests'), where('contractGroupId', 'in', ids))), setGuestsWorkers);
+    return () => { u1(); u2(); u3(); };
   }, [firebaseUser, userKey, contractSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Полная история — по запросу (экраны отчётов, долгов, истории…) ───────
@@ -314,8 +317,8 @@ export const useAppData = (firebaseUser, currentUser, { wantAudit = false } = {}
   const paymentsOld = useMemo(() => (historyReady && paymentsAll ? paymentsAll : paymentsWindow).filter(p => isOldByDate(p, cutoffRef.current)), [historyReady, paymentsAll, paymentsWindow]);
   const expensesOld = useMemo(() => (historyReady && expensesAll ? expensesAll : expensesWindow).filter(e => isOldByDate(e, cutoffRef.current)), [historyReady, expensesAll, expensesWindow]);
   const shiftsOld = useMemo(() => (historyReady && shiftsAll ? shiftsAll : shiftsWindow).filter(s => isOldShift(s, cutoffRef.current)), [historyReady, shiftsAll, shiftsWindow]);
-  const guests = useMemo(() => mergeLists([guestsLive, guestsRecent, guestsContract, guestsOld], newestFirst('checkInDate')),
-    [guestsLive, guestsRecent, guestsContract, guestsOld]);
+  const guests = useMemo(() => mergeLists([guestsLive, guestsRecent, guestsContract, guestsWorkers, guestsOld], newestFirst('checkInDate')),
+    [guestsLive, guestsRecent, guestsContract, guestsWorkers, guestsOld]);
   const payments = useMemo(() => mergeLists([paymentsRecent, paymentsContract, paymentsOld]),
     [paymentsRecent, paymentsContract, paymentsOld]);
   const expenses = useMemo(() => mergeLists([expensesRecent, expensesOld], newestFirst('date')),

@@ -20,6 +20,8 @@
  * только карточка договора у админа.
  */
 
+import { workersOf, workerDays, workerCharge, isContractWorker } from './contractWorkers.js';
+
 const entryPersonNights = (entry) => {
   const people = parseInt(entry.people, 10) || 0;
   let nights = 0;
@@ -46,15 +48,21 @@ export const sumCharges = (charges = []) =>
 /** Списание — служебная позиция, скрытая от всех отчётов. */
 export const isWriteOff = (charge) => !!charge?.writeOff;
 
-export const computeContractFinancials = (group, guests = [], payments = []) => {
+export const computeContractFinancials = (group, guests = [], payments = [], now = new Date()) => {
   if (!group) return null;
+
+  // Рабочие по договору (contractWorkers.js): сутки — календарные дни, каждый
+  // день по ставке, действовавшей в тот день. По ФИО они не считаются ещё раз.
+  const workers = workersOf(group, guests);
+  const workerNights = workers.reduce((s, g) => s + workerDays(g, now), 0);
+  const workerTotal = workers.reduce((s, g) => s + workerCharge(g, group, now), 0);
 
   // Авто-участники: группировка проживающих по ФИО, суммируем ночи по memberKeys
   const memberKeys = group.memberKeys || [];
   let autoPersonNights = 0;
   if (memberKeys.length) {
     const byName = new Map();
-    guests.filter(g => g.status !== 'booking').forEach(g => {
+    guests.filter(g => g.status !== 'booking' && !isContractWorker(g)).forEach(g => {
       const key = (g.fullName || '—').trim();
       byName.set(key, (byName.get(key) || 0) + stayNights(g));
     });
@@ -63,10 +71,10 @@ export const computeContractFinancials = (group, guests = [], payments = []) => 
 
   const manualEntries = Array.isArray(group.manualEntries) ? group.manualEntries : [];
   const manualPersonNights = manualEntries.reduce((s, e) => s + entryPersonNights(e), 0);
-  const totalPersonNights = autoPersonNights + manualPersonNights;
+  const totalPersonNights = autoPersonNights + manualPersonNights + workerNights;
 
   const contractRate = parseInt(group.contractRate, 10) || 0;
-  const rateTotal = contractRate > 0 ? contractRate * totalPersonNights : 0;
+  const rateTotal = (contractRate > 0 ? contractRate * (autoPersonNights + manualPersonNights) : 0) + workerTotal;
   // Доп. расходы: произвольные позиции (стирка, транспорт, питание…) с ценами
   const allCharges = Array.isArray(group.extraCharges) ? group.extraCharges : [];
   const extraCharges = allCharges.filter(c => !c.writeOff);
@@ -91,6 +99,8 @@ export const computeContractFinancials = (group, guests = [], payments = []) => 
 
   return {
     autoPersonNights, manualPersonNights, totalPersonNights,
+    workerNights, workerTotal, workerCount: workers.length,
+    workersActive: workers.filter(g => g.status === 'active').length,
     contractRate, rateTotal, extraTotal, extraCharges, contractTotal,
     writeOffs, writeOffTotal,
     amountPaid, paidCash, paidTransfer, paidCard, paidQR,

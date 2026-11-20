@@ -323,6 +323,8 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [hostelPickerPending, setHostelPickerPending] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  // Рабочий по договору: из карточки гостя — в его договор (вкладка «Рабочие»)
+  const [focusContractId, setFocusContractId] = useState(null);
   const [selectedHostelFilter, setSelectedHostelFilter] = useState('hostel1');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [notifications, setNotifications] = useState([]);
@@ -975,7 +977,7 @@ function App() {
   const {
     handleUndo, pushUndo,
     handleCheckInSubmit,
-    handleCheckOut, handlePayment, handleExtendGuest,
+    handleCheckOut, handleCheckOutWorkers, handlePayment, handleExtendGuest,
     handleSuperPayment, handleBulkExtend,
     handleCreateDebt, handleActivateBooking,
     handleSplitGuest, handleMoveGuest, handleDeleteGuest,
@@ -2837,6 +2839,10 @@ return (
                         guests={guests}
                         groups={manualStayGroups}
                         onNeedHistory={askTabHistory}
+                        focusContractId={focusContractId}
+                        onFocusDone={() => setFocusContractId(null)}
+                        onCheckOutWorkers={handleCheckOutWorkers}
+                        onOpenGuest={(g) => setGuestDetailsModal({ open: true, guest: g })}
                         rooms={filteredRooms}
                         currentUser={currentUser}
                         payments={filteredPayments}
@@ -3040,6 +3046,7 @@ return (
                 clientsDb={clients}
                 onClose={() => setCheckInModal({open: false, room: null, bedId: null, date: null, client: null})}
                 onSubmit={handleCheckInSubmit}
+                contractGroups={manualStayGroups}
                 onCheckinPriceRequest={handleCheckinPriceRequest}
                 priceWhitelist={priceWhitelist}
                 notify={showNotification}
@@ -3057,6 +3064,7 @@ return (
             <GuestDetailsModal 
                 guest={liveGuest} 
                 room={filteredRooms.find(r => r.id === guestDetailsModal.guest.roomId)} 
+                onOpenContract={(g) => { setGuestDetailsModal({ open: false, guest: null }); setFocusContractId(g.contractGroupId || null); setActiveTab('manualstay'); }}
                 currentUser={currentUser}
                 clients={clients}
                 guests={filteredGuests}

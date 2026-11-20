@@ -20,6 +20,7 @@ import { Flag, getTotalPaid, fmtSum, parseSum, getKppDayNumber, getKppDeadline, 
 import ConfirmDialog from '../UI/ConfirmDialog';
 import { chargeOf, guestSales, canCancelSale } from '../../utils/shop';
 import { stableView } from '../UI/stableView';
+import { isContractWorker, workerDays } from '../../utils/contractWorkers';
 
 const getStayDetails = (checkInDateTime, days) => {
     const start = new Date(checkInDateTime);
@@ -370,7 +371,7 @@ const EmehmonSheetRow = ({ guest, notify, t, onFetch }) => {
     );
 };
 
-const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onMoveToCadastre, onKadastrPay, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
+const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests = [], cadastreRegs = [], onOpenContract, onClose, onUpdate, onPayment, onSuperPayment, onCheckOut, onEmehmonDepart, onFetchSheet, emehmonDepartingIds, onSplit, onOpenMove, onDelete, notify, onReduceDays, onActivateBooking, onReduceDaysNoRefund, hostelInfo, lang, initialView = 'dashboard', onExtend, onTrimDays, isOnline = true, onOpenHistory, onTopUpBalance, onKppConfirm, onKppReset, onKppRecheck, onRegisterAuto, onMoveToCadastre, onKadastrPay, onPriceRequest, onUpgradeTariff, onSwitchPlan, priceWhitelist = [], sales = [], onOpenSale, onCancelSale }) => {
     const t = (k) => TRANSLATIONS[lang]?.[k] ?? k;
 
     const totalPaid = getTotalPaid(guest);
@@ -453,6 +454,8 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
 
     const isBooking    = guest.status === 'booking';
     const isCheckedOut = guest.status === 'checked_out';
+    // Рабочий по договору: оплата, продление и выселение — только в договоре
+    const isWorker     = isContractWorker(guest);
     const isAdmin      = currentUser.role === 'admin' || currentUser.role === 'super';
     const canMoveDate  = isAdmin || currentUser.login === 'fazliddin';
     const canEditPrice = isAdmin || currentUser.login === 'fazliddin'; // редактировать цену в карточке — только Fazliddin/админ
@@ -1192,6 +1195,18 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                                         <button onClick={handleDelete} className="py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 flex items-center justify-center gap-1"><Trash2 size={14}/> {t('cancel')}</button>
                                     </div>
                                 </div>
+                            ) : (!isCheckedOut && isWorker) ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-[10.5px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">👷 {t('cwWorker')}</span>
+                                        {guest.specialty && <span className="text-[12px] font-bold text-slate-700">{guest.specialty}</span>}
+                                        <span className="ml-auto text-[12px] font-black text-slate-700 tabular-nums">{(t('cwDays') || '').replace('{n}', workerDays(guest))}</span>
+                                    </div>
+                                    <div className="text-[12px] text-slate-500">{(t('cwGuestNote') || '').replace('{name}', guest.contractGroupName || '')}</div>
+                                    {onOpenContract && (
+                                        <button onClick={() => onOpenContract(guest)} className="w-full mt-1 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold text-sm hover:bg-slate-100">{t('cwOpenContract')}</button>
+                                    )}
+                                </div>
                             ) : !isCheckedOut ? (
                                 <div className="space-y-2">
                                     <div className={`grid gap-2 ${canPay ? 'grid-cols-3' : 'grid-cols-2'}`}>
@@ -1538,9 +1553,9 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             {moreOpen && !isCheckedOut && (
                                 <div className="absolute bottom-full right-3 mb-2 w-60 bg-white rounded-xl border border-slate-200 shadow-xl p-1.5 z-10">
                                     {[
-                                        !isBooking && { icon: Split, label: t('pauseBtn'), onClick: () => setCurrentView('split') },
-                                        canMoveDate && { icon: CalendarDays, label: t('moveDatesTitle'), onClick: () => setCurrentView('moveDate') },
-                                        canMoveDate && { icon: Scissors, label: t('trimDaysTitle'), onClick: () => setCurrentView('trimDays') },
+                                        !isBooking && !isWorker && { icon: Split, label: t('pauseBtn'), onClick: () => setCurrentView('split') },
+                                        canMoveDate && !isWorker && { icon: CalendarDays, label: t('moveDatesTitle'), onClick: () => setCurrentView('moveDate') },
+                                        canMoveDate && !isWorker && { icon: Scissors, label: t('trimDaysTitle'), onClick: () => setCurrentView('trimDays') },
                                         { icon: UserX, label: t('replaceGuestTitle'), onClick: () => { setReplaceTab('db'); setReplaceSearch(''); setSelectedClient(null); setCurrentView('replaceGuest'); } },
                                         isAdmin && { icon: Lock, label: t('adminTitle'), onClick: () => setCurrentView('admin') },
                                         isAdmin && { icon: Trash2, label: t('delete'), onClick: handleDelete, danger: true },
@@ -1903,10 +1918,10 @@ const GuestDetailsModalInner = ({ guest, room, currentUser, clients = [], guests
                             </div>
                             <div className="p-4 border-2 border-rose-200 bg-rose-50 rounded-xl space-y-3">
                                 <div className="text-xs font-bold text-rose-700 uppercase">{t('dangerZone')}</div>
-                                {!isCheckedOut && <button onClick={()=>setCurrentView('checkout')} className="w-full py-3 bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2"><LogOut size={15}/> {t('forceEvictUpper')}</button>}
+                                {!isCheckedOut && !isWorker && <button onClick={()=>setCurrentView('checkout')} className="w-full py-3 bg-slate-700 text-white rounded-xl font-bold flex items-center justify-center gap-2"><LogOut size={15}/> {t('forceEvictUpper')}</button>}
                                 <button onClick={handleDelete} className="w-full py-3 bg-rose-600 text-white rounded-xl font-bold flex items-center justify-center gap-2"><Trash2 size={15}/> {t('deleteGuestUpper')}</button>
                             </div>
-                            {currentUser.role === 'super' && !isCheckedOut && (
+                            {currentUser.role === 'super' && !isCheckedOut && !isWorker && (
                                 <button onClick={()=>setCurrentView('superPay')} className="w-full py-3 bg-violet-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors">
                                     <ShieldCheck size={15}/> {t('sumOffset')}
                                 </button>

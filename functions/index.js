@@ -1246,6 +1246,28 @@ exports.scheduledFirestoreBackup = functions
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Рабочие по договору (решение владельца 20.11.2026): не выселили до 00:00 —
+// ещё сутки; сумма прибавляется к договору (ставка договора × сутки). Запуск в
+// 00:01 и для подстраховки в 06:00 — сутки считаются от заезда, повтор безвреден.
+// ─────────────────────────────────────────────────────────────────────────────
+const contractWorkersLib = require('./contractWorkers');
+exports.contractWorkersMidnight = functions
+  .runWith({ memory: '256MB', timeoutSeconds: 300, secrets: ['TELEGRAM_BOT_TOKEN'] })
+  .pubsub.schedule("1 0,6 * * *")
+  .timeZone("Asia/Tashkent")
+  .onRun(async () => {
+    try {
+      const r = await contractWorkersLib.extendActiveWorkers(authDb(), authBase(), new Date());
+      console.log(`contractWorkersMidnight: живущих ${r.total}, продлено ${r.changed}`);
+      return null;
+    } catch (err) {
+      console.error('contractWorkersMidnight failed:', err);
+      await alertOwnerError('Продление рабочих по договору не выполнено', err);
+      throw err;
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Вечерняя сводка ошибок (решение владельца 29.10.2026): сразу в Telegram
 // уходят только важные, остальное — одной сводкой за день в 21:00 по
 // Ташкенту в канал ошибок из настроек. Нет ошибок — сообщения нет.

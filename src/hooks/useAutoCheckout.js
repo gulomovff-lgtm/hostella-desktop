@@ -4,6 +4,7 @@ import { db, PUBLIC_DATA_PATH } from '../firebase';
 import { logAction, logSystemError } from '../utils/auditLog';
 import TRANSLATIONS from '../constants/translations';
 import { changeStamp } from '../utils/collectionStore';
+import { isContractWorker } from '../utils/contractWorkers';
 
 /**
  * useAutoCheckout — автоматическое выселение просроченных гостей.
@@ -115,6 +116,9 @@ useEffect(() => {
       // GATE 1
       if (guest.status !== 'active') continue;
       if (!guest.checkOutDate) continue;
+      // Рабочие по договору сами не выезжают: продлеваются в 00:00, выселяют их
+      // только во вкладке договора (решение владельца 20.11.2026)
+      if (isContractWorker(guest)) continue;
 
       // GATE 1.5 — per-hostel auto-checkout enabled check
       const guestHostelId = guest.hostelId || 'hostel1';
