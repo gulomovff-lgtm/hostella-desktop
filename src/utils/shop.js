@@ -32,8 +32,13 @@ export const CASHIER_CANCEL_MS = 2 * 60 * 60 * 1000;
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
-/** Всё, что гость должен: проживание + услуги «в счёт». */
-export const chargeOf = (g) => num(g?.totalPrice) + num(g?.servicesTotal);
+/**
+ * Всё, что гость должен: проживание + услуги «в счёт».
+ * Рабочий по договору (contractWorker) сам ничего не должен: его сутки — долг
+ * договора (решение владельца 20.11.2026). Даже если старая касса записала ему
+ * цену, долгом гостя она не станет.
+ */
+export const chargeOf = (g) => (g?.contractWorker && g?.contractGroupId ? 0 : num(g?.totalPrice) + num(g?.servicesTotal));
 
 /** Остаток товара на складе филиала. */
 export const stockOf = (item, hostelId) => num(item?.stock?.[hostelId]);

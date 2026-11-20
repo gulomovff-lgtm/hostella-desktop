@@ -3,10 +3,11 @@ import { Plus, X, Check, Users, Shuffle, FileText, ArrowLeftRight } from 'lucide
 import { doc } from 'firebase/firestore';
 // Записи — без ожидания сервера (см. utils/fsWrite.js): окно не висит, пока сеть думает
 import { setDoc, updateDoc, deleteDoc } from '../../utils/fsWrite';
-import { db } from '../../firebase';
+import { db, PUBLIC_DATA_PATH } from '../../firebase';
 import { sumCharges } from '../../utils/contractFinancials';
 import { isContractWorker, workerDays, workerCharge, rateHistoryWithChange } from '../../utils/contractWorkers';
 import { logAction } from '../../utils/auditLog';
+import { changeStamp } from '../../utils/collectionStore';
 
 import TRANSLATIONS from '../../constants/translations';
 import { COLLECTION, INP, LBL, OVERLAY_STYLE, fmt, getStayNights, pluralGroups, computeEntry } from './ManualStay/shared';
@@ -495,6 +496,16 @@ const ManualStayView = ({ guests = [], groups = [], onNeedHistory, rooms = [], c
             const set = new Set(ids || []);
             const list = guests.filter(g => set.has(g.id));
             if (onCheckOutWorkers) await onCheckOutWorkers(list);
+        },
+        // Правка полей рабочих (специальность) — кассир и админ
+        updateWorkers: async (ids, patch) => {
+            const allowed = {};
+            if (patch && typeof patch.specialty === 'string') allowed.specialty = patch.specialty.trim().slice(0, 60);
+            if (!Object.keys(allowed).length) return;
+            const set = new Set(ids || []);
+            const list = guests.filter(g => set.has(g.id) && isContractWorker(g));
+            await Promise.all(list.map(g => updateDoc(doc(db, ...PUBLIC_DATA_PATH, 'guests', g.id), { ...changeStamp(), ...allowed })));
+            logAction(currentUser, 'contract_workers_edit', { ids: list.map(g => g.id), names: list.map(g => g.fullName || ''), ...allowed });
         },
         openGuest: (id) => { const g = guests.find(x => x.id === id); if (g && onOpenGuest) onOpenGuest(g); },
         addEntryDates, removeEntry, addExtraCharge, removeExtraCharge, addWriteOff, removeWriteOff,

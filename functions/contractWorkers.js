@@ -26,12 +26,28 @@ function nextTashkentMidnightIso(now) {
 
 // Поля, которые нужно записать живущему рабочему; null — менять нечего.
 // Считается от заезда, а не «+1»: пропущенный запуск исправится следующим.
+// Денег у рабочего нет: цена и тариф, записанные старой кассой (автоматика
+// тарифов 20.11.2026 поставила 19 рабочим «без завтрака» по 80 000 — все стали
+// должниками), обнуляются. Долг — только в договоре.
+const MONEY_ZERO = { pricePerNight: 0, totalPrice: 0, plan: null, tariff: 'standard', nonRefundable: false };
+function moneyPatch(g) {
+  const p = {};
+  for (const [k, v] of Object.entries(MONEY_ZERO)) {
+    const cur = g[k] === undefined ? (k === 'plan' ? null : v) : g[k];
+    if (typeof v === 'number' ? Number(cur) !== v : cur !== v) p[k] = v;
+  }
+  if (g.priceBefore !== undefined && g.priceBefore !== null) p.priceBefore = null;
+  return p;
+}
+
 function extendPatch(g, now) {
   if (!g || !g.contractWorker || g.status !== 'active' || !g.checkInDate) return null;
   const days = workerDays(g.checkInDate, now);
   const checkOutDate = nextTashkentMidnightIso(now);
-  if (Number(g.days) === days && g.checkOutDate === checkOutDate) return null;
-  return { days, checkOutDate };
+  const p = moneyPatch(g);
+  if (Number(g.days) !== days) p.days = days;
+  if (g.checkOutDate !== checkOutDate) p.checkOutDate = checkOutDate;
+  return Object.keys(p).length ? p : null;
 }
 
 async function extendActiveWorkers(db, base, now = new Date()) {
@@ -42,7 +58,7 @@ async function extendActiveWorkers(db, base, now = new Date()) {
   for (const d of snap.docs) {
     const patch = extendPatch(d.data(), now);
     if (!patch) continue;
-    batch.update(d.ref, { ...patch, autoExtendedAt: now.toISOString() });
+    batch.update(d.ref, { ...patch, autoExtendedAt: now.toISOString(), updatedAt: now });
     changed++; n++;
     if (n >= 400) { await batch.commit(); batch = db.batch(); n = 0; }
   }
@@ -50,4 +66,4 @@ async function extendActiveWorkers(db, base, now = new Date()) {
   return { total: snap.size, changed };
 }
 
-module.exports = { tashkentYmd, workerDays, nextTashkentMidnightIso, extendPatch, extendActiveWorkers };
+module.exports = { tashkentYmd, workerDays, nextTashkentMidnightIso, extendPatch, moneyPatch, extendActiveWorkers };

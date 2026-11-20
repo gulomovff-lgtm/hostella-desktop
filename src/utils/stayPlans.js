@@ -215,7 +215,7 @@ const EMEHMON_OUT_KEYS = ['emehmonOut', 'emehmonOutAt', 'emehmonOutAuto'];
  */
 export function buildPlanSwitch(g, { plan, price, at, servicesPaid = 0 } = {}) {
   const newPrice = Math.round(num(price));
-  if (!g || newPrice <= 0) return { mode: 'none' };
+  if (!g || newPrice <= 0 || g.contractWorker) return { mode: 'none' };
   const base = { plan: plan === PLAN_FULL ? PLAN_FULL : PLAN_ROOM, tariff: 'standard', nonRefundable: false, priceReductionAllowed: false, approvedPrice: 0 };
   const { passed, remaining, total } = stayNightsBefore(g, at);
   if (g.status === 'booking' || passed === 0) {
@@ -264,6 +264,7 @@ export function newPriceCandidates(guests = [], hostelId, cfg) {
   const out = [];
   for (const g of guests || []) {
     if (!g || g.hostelId !== hostelId || g.plan || g.oldPriceKept || g.nightPromo) continue;
+    if (g.contractWorker) continue; // рабочий по договору: цены нет, сутки — в договор
     if (!(g.status === 'active' || g.status === 'booking')) continue;
     if (paidOf(g) > 0) continue; // есть оплата — не трогаем, новый тариф с продления
     if (!g.checkOutDate || ymd(g.checkOutDate) <= h.from) continue;
@@ -390,7 +391,7 @@ export function continuationsDue(guests = [], now = new Date()) {
   const close = [], activate = [];
   const byId = new Map((guests || []).filter(Boolean).map((g) => [g.id, g]));
   for (const g of guests || []) {
-    if (!g) continue;
+    if (!g || g.contractWorker) continue;
     if (g.continuedBy && g.status === 'active' && g.checkOutDate && new Date(g.checkOutDate) <= t) close.push(g);
     if (g.continuedFrom && g.status === 'booking' && g.checkInDate && new Date(g.checkInDate) <= t) {
       // Продолжение открываем, только если прежняя запись дожила до своего
@@ -413,7 +414,7 @@ export function oldPriceRevertCandidates(guests = [], hostelId) {
   const byId = new Map((guests || []).map((g) => [g.id, g]));
   const out = [];
   for (const g of guests || []) {
-    if (!g || g.hostelId !== hostelId || !String(g.id || '').endsWith('_np')) continue;
+    if (!g || g.hostelId !== hostelId || !String(g.id || '').endsWith('_np') || g.contractWorker) continue;
     if (g.oldPriceKept || g.plan !== PLAN_ROOM || !(g.status === 'active' || g.status === 'booking')) continue;
     const from = g.planSwitchedFrom;
     if (!from || from.plan || !(num(from.price) > 0)) continue;
@@ -432,7 +433,7 @@ export function oldPriceRevertCandidates(guests = [], hostelId) {
 export function repricedPrepaidCandidates(guests = [], hostelId) {
   const out = [];
   for (const g of guests || []) {
-    if (!g || g.hostelId !== hostelId || g.oldPriceKept || !(num(g.priceBefore) > 0)) continue;
+    if (!g || g.hostelId !== hostelId || g.oldPriceKept || !(num(g.priceBefore) > 0) || g.contractWorker) continue;
     if (!(g.status === 'active' || g.status === 'booking') || paidOf(g) <= 0) continue;
     const price = Math.round(num(g.priceBefore));
     out.push({ guest: g, patch: { pricePerNight: price, totalPrice: price * Math.round(num(g.days)), plan: null, oldPriceKept: true } });

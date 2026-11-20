@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { HardHat, ChevronDown, ChevronRight, LogOut } from 'lucide-react';
+import { HardHat, ChevronDown, ChevronRight, LogOut, Pencil, Check, X } from 'lucide-react';
 import TRANSLATIONS from '../../../constants/translations';
 import { fmt } from './shared';
 
@@ -9,6 +9,20 @@ import { fmt } from './shared';
  * кассир и админ; в общих окнах у них нет кнопок «Выселить/Продлить/Оплатить».
  * Подтверждение — в самой карточке (confirm() в программе не показывается).
  */
+const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 9999; };
+/** Рабочие по комнатам: [номер комнаты, рабочие по местам], комнаты по возрастанию. */
+const byRoom = (list) => {
+    const m = new Map();
+    for (const w of list) {
+        const k = String(w.roomNumber || '—');
+        if (!m.has(k)) m.set(k, []);
+        m.get(k).push(w);
+    }
+    return [...m.entries()]
+        .sort((a, b) => num(a[0]) - num(b[0]) || a[0].localeCompare(b[0]))
+        .map(([k, l]) => [k, l.sort((a, b) => num(a.bedId) - num(b.bedId))]);
+};
+
 const WorkersSection = ({ group, lang, actions, focus }) => {
     const t = k => TRANSLATIONS[lang]?.[k] || k;
     const workers = group.workers || [];
@@ -18,7 +32,30 @@ const WorkersSection = ({ group, lang, actions, focus }) => {
     const [showLeft, setShowLeft] = useState(false);
     const [confirm, setConfirm] = useState(null); // { ids, label }
     const [busy, setBusy] = useState(false);
+    // Правка специальности (кассир и админ, 20.11.2026): { ids, value, key }
+    const [specEdit, setSpecEdit] = useState(null);
     const ref = useRef(null);
+
+    const saveSpec = async () => {
+        if (!specEdit || busy) return;
+        const value = specEdit.value.trim();
+        if (!value) return;
+        setBusy(true);
+        try { await actions.updateWorkers(specEdit.ids, { specialty: value }); setSpecEdit(null); }
+        finally { setBusy(false); }
+    };
+    const specInput = (key) => specEdit?.key === key && (
+        <span className="inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+            <input autoFocus value={specEdit.value} placeholder={t('cwSpecialtyPh')}
+                onChange={e => setSpecEdit(s => ({ ...s, value: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') saveSpec(); if (e.key === 'Escape') setSpecEdit(null); }}
+                className="w-36 px-2 py-0.5 rounded-md border border-slate-300 text-[12px] font-semibold text-slate-700 bg-white" />
+            <button type="button" disabled={busy || !specEdit.value.trim()} onClick={saveSpec} title={t('save')}
+                className="w-6 h-6 rounded-md flex items-center justify-center bg-teal-600 text-white disabled:opacity-40"><Check size={12} /></button>
+            <button type="button" onClick={() => setSpecEdit(null)} title={t('cwNo')}
+                className="w-6 h-6 rounded-md flex items-center justify-center border border-slate-200 text-slate-500"><X size={12} /></button>
+        </span>
+    );
 
     useEffect(() => {
         if (!focus) return;
@@ -35,15 +72,24 @@ const WorkersSection = ({ group, lang, actions, focus }) => {
 
     const row = (w) => (
         <div key={w.id} className={`flex items-center gap-2 px-3 py-2 ${w.status === 'active' ? '' : 'opacity-60'}`}>
-            <button type="button" onClick={() => actions.openGuest(w.id)} className="flex-1 min-w-0 text-left">
-                <div className="text-[13px] font-bold text-slate-800 truncate">{w.fullName || '—'}</div>
+            <div className="flex-1 min-w-0">
+                <button type="button" onClick={() => actions.openGuest(w.id)} className="block w-full text-left text-[13px] font-bold text-slate-800 truncate">{w.fullName || '—'}</button>
                 <div className="text-[11px] text-slate-500 truncate">
-                    {w.specialty ? <span className="font-semibold text-slate-600">{w.specialty}</span> : null}
+                    {specEdit?.key === w.id ? specInput(w.id) : (
+                        <>
+                            {w.specialty ? <span className="font-semibold text-slate-600">{w.specialty}</span> : null}
+                            {w.status === 'active' && (
+                                <button type="button" title={t('cwEditSpecialty')}
+                                    onClick={() => setSpecEdit({ key: w.id, ids: [w.id], value: w.specialty || '' })}
+                                    className="inline-flex align-middle ml-1 w-5 h-5 items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"><Pencil size={11} /></button>
+                            )}
+                        </>
+                    )}
                     {w.specialty ? ' · ' : ''}
                     {t('room')} {w.roomNumber || '—'}, {t('bed')} {w.bedId || '—'}
                     {' · '}{t('cwSince').replace('{date}', new Date(w.checkInDate).toLocaleDateString('ru-RU'))}
                 </div>
-            </button>
+            </div>
             <div className="text-right shrink-0">
                 <div className="text-[12px] font-black text-slate-700 tabular-nums">{t('cwDays').replace('{n}', w.days)}</div>
                 <div className="text-[11px] text-slate-400 tabular-nums">{fmt(w.charge)} {t('sum')}</div>
@@ -77,11 +123,30 @@ const WorkersSection = ({ group, lang, actions, focus }) => {
                     ) : (
                         <>
                             {living.length > 0 && (
-                                <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
-                                    <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">{t('cwLiving').replace('{n}', living.length)}</div>
-                                    {living.map(row)}
-                                </div>
+                                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('cwLiving').replace('{n}', living.length)}</div>
                             )}
+                            {/* По комнатам (просьба владельца 20.11.2026): комната — блок, внутри по местам */}
+                            {byRoom(living).map(([roomNo, list]) => (
+                                <div key={roomNo} className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+                                    <div className="px-3 py-1.5 flex items-center gap-2 bg-slate-50 rounded-t-xl">
+                                        <span className="text-[12px] font-black text-slate-700">{t('room')} {roomNo}</span>
+                                        <span className="text-[10.5px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 tabular-nums">{list.length}</span>
+                                        {specEdit?.key === 'room:' + roomNo ? specInput('room:' + roomNo) : (
+                                            <>
+                                                {[...new Set(list.map(w => w.specialty).filter(Boolean))].length === 1 && (
+                                                    <span className="text-[11px] font-semibold text-slate-500">👷 {list[0].specialty}</span>
+                                                )}
+                                                <button type="button" title={t('cwEditSpecialtyRoom')}
+                                                    onClick={() => setSpecEdit({ key: 'room:' + roomNo, ids: list.map(w => w.id), value: list[0].specialty || '' })}
+                                                    className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-200">
+                                                    <Pencil size={11} /> {t('cwSpecialty')}
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                    {list.map(row)}
+                                </div>
+                            ))}
                             {left.length > 0 && (
                                 <button type="button" onClick={() => setShowLeft(v => !v)}
                                     className="text-xs font-bold text-slate-500 hover:text-slate-700">

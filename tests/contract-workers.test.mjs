@@ -75,9 +75,34 @@ test('рабочего не выселить, не продлить и не оп
   assert.match(ci, /checkOutDate: nextTashkentMidnightIso\(now\)/);
   assert.match(ci, /if \(!specialty\.trim\(\)\) errs\.specialty/, 'специальность обязательна');
   const fn = src('functions/index.js');
-  assert.match(fn, /exports\.contractWorkersMidnight = functions[\s\S]{0,200}schedule\("1 0,6 \* \* \*"\)\s*\.timeZone\("Asia\/Tashkent"\)/);
+  assert.match(fn, /exports\.contractWorkersMidnight = functions[\s\S]{0,200}schedule\("1 \* \* \* \*"\)\s*\.timeZone\("Asia\/Tashkent"\)/);
+  const ws = src('src/components/Views/ManualStay/WorkersSection.jsx');
+  assert.match(ws, /\{byRoom\(living\)\.map\(\(\[roomNo, list\]\) =>/, 'в договоре живущие — по своим комнатам');
+  assert.match(ws, /actions\.updateWorkers\(specEdit\.ids, \{ specialty: value \}\)/, 'кассир меняет специальность');
+  assert.match(ws, /ids: list\.map\(w => w\.id\)/, 'и сразу у всей комнаты');
+  assert.match(src('src/components/Views/ManualStayView.jsx'), /updateWorkers: async \(ids, patch\) => \{[\s\S]{0,300}allowed\.specialty = patch\.specialty\.trim\(\)/, 'меняется только специальность');
   const app = src('src/hooks/useAppData.js');
   assert.match(app, /where\('contractGroupId', 'in', ids\)\)\), setGuestsWorkers\)/, 'рабочие договора любой давности');
+});
+
+test('долг рабочего — только в договоре: цена от старой кассы не делает его должником', async () => {
+  const { chargeOf } = await import('../src/utils/shop.js');
+  const { newPriceCandidates, buildPlanSwitch, repricedPrepaidCandidates } = await import('../src/utils/stayPlans.js');
+  // Так записала касса на старой версии 20.11.2026
+  const g = { id: 'w', contractWorker: true, contractGroupId: 'c1', hostelId: 'hostel2', status: 'active',
+    checkInDate: IN, checkOutDate: '2026-11-21T19:00:00.000Z', days: 1, pricePerNight: 80000, totalPrice: 80000, plan: 'room', priceBefore: 0 };
+  assert.equal(chargeOf(g), 0, 'гость-рабочий ничего не должен');
+  assert.equal(chargeOf({ ...g, contractWorker: false }), 80000, 'обычный гость — как раньше');
+  const cfg = { stayPlans: { hostel2: { enabled: true, from: '2026-10-01' } } };
+  assert.deepEqual(newPriceCandidates([{ ...g, plan: null, pricePerNight: 0, totalPrice: 0 }], 'hostel2', cfg), []);
+  assert.equal(buildPlanSwitch(g, { plan: 'room', price: 80000, at: new Date() }).mode, 'none');
+  assert.deepEqual(repricedPrepaidCandidates([{ ...g, priceBefore: 50000, amountPaid: 1 }], 'hostel2'), []);
+  // Сервер раз в час обнуляет цену и тариф
+  const p = server.extendPatch(g, at('2026-11-20T18:00:00Z'));
+  assert.equal(p.pricePerNight, 0); assert.equal(p.totalPrice, 0); assert.equal(p.plan, null);
+  assert.equal(server.extendPatch({ ...g, ...p }, at('2026-11-20T18:00:00Z')), null, 'повтор ничего не меняет');
+  const { readFileSync } = await import('node:fs');
+  assert.match(readFileSync(new URL('../functions/index.js', import.meta.url), 'utf8'), /contractWorkersMidnight[\s\S]{0,200}schedule\("1 \* \* \* \*"\)/, 'каждый час');
 });
 
 test('договор: сутки рабочих в «Начислено», без двойного счёта по ФИО', () => {
