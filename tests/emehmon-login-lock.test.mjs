@@ -13,7 +13,7 @@ test('все окна портала проходят через замок вх
 
 test('на странице входа крестик выключен и закрытие отменяется', () => {
   assert.match(src, /win\.setClosable\(false\)/);
-  assert.match(src, /if \(win\.isVisible\(\) && isPortalLogin\(win\)\) \{\s*e\.preventDefault\(\)/);
+  assert.match(src, /if \(win\.isVisible\(\) && isPortalLogin\(win\) && !portalDown\(\)\) \{\s*e\.preventDefault\(\)/);
   assert.match(src, /Введите цифры с картинки/);
 });
 

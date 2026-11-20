@@ -3,7 +3,7 @@
 //
 //  • Вход: reg.emehmon.uz/auth/oneid → OneID (id.egov.uz) → вкладка «ERI» →
 //    ключ ЭЦП по номеру сертификата → «Kirish». Пароль ключа E-IMZO спрашивает
-//    СВОИМ окном (не страница) — его печатает typeEimzoPassword, и только если
+//    СВОИМ окном (не страница) — его печатает помощник startEimzoHelper, и только если
 //    впереди окно процесса E-IMZO.
 //  • Листок: 5 шагов формы /listovka (гость → данные + кадастр + дни →
 //    цель/тип «Other» → дети пусто → «Saqlash»). Сумма — из итога 5-го шага.
@@ -357,34 +357,98 @@ const PAY_DONE_CHECK = "(function(){try{var t=document.querySelector('.swal2-pop
 // процесса из папки E-IMZO, выводим вперёд и печатаем пароль — только если
 // впереди именно оно (проверяем перед вводом). Пароль идёт в PowerShell через
 // stdin: в командной строке процесса его не видно.
+// 20.11.2026 (просьба владельца: «скрыть окно пароля, на одном компьютере очень
+// долго вводит»):
+//  • помощник запускается заранее, пока выбирается ключ, и ждёт команды «go»
+//    (строка в stdin после нажатия «Kirish») — запуск PowerShell и загрузка
+//    помощника больше не съедают время после появления окна;
+//  • окна ищутся одним проходом внутри помощника (C#), а не перебором всех
+//    процессов с их путями раз в 0,7 с — на слабой кассе это были секунды;
+//  • окно пароля на время ввода прозрачное (WS_EX_LAYERED, альфа 0): кассир
+//    его не видит, а клавиши оно получает. Не получилось — окно снова видно,
+//    и пароль можно ввести руками.
 const EIMZO_PS = `
 $ErrorActionPreference = 'Stop'
 $pw = [Console]::In.ReadLine()
 Add-Type -AssemblyName System.Windows.Forms
 $src = @'
 using System; using System.Runtime.InteropServices; using System.Text;
+using System.Collections.Generic; using System.Text.RegularExpressions;
 public class HWin {
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+  [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+  [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint key, byte a, uint f);
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint acc, bool inh, uint pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr h, int f, StringBuilder s, ref int n);
   [StructLayout(LayoutKind.Sequential)] public struct KI { public ushort vk; public ushort scan; public uint flags; public uint time; public IntPtr extra; }
   [StructLayout(LayoutKind.Sequential)] public struct MI { public int dx; public int dy; public uint data; public uint flags; public uint time; public IntPtr extra; }
   [StructLayout(LayoutKind.Explicit)] public struct UN { [FieldOffset(0)] public MI mi; [FieldOffset(0)] public KI ki; }
   [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public UN u; }
   [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint n, INPUT[] i, int cb);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr LoadKeyboardLayout(string id, uint flags);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern short VkKeyScanEx(char c, IntPtr hkl);
   static void Key(ushort vk, ushort scan, uint flags) {
     INPUT x = new INPUT(); x.type = 1; x.u.ki.vk = vk; x.u.ki.scan = scan; x.u.ki.flags = flags;
     SendInput(1, new INPUT[] { x }, Marshal.SizeOf(typeof(INPUT)));
   }
-  static bool Mine(uint[] pids) { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return Array.IndexOf(pids, p) >= 0; }
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr LoadKeyboardLayout(string id, uint flags);
-  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern short VkKeyScanEx(char c, IntPtr hkl);
+  // Окно E-IMZO: процесс из папки E-IMZO (E-IMZO.exe и его javaw) или Java,
+  // чьё окно названо E-IMZO / пароль / kalit (14.11.2026: на кассе хостела №1
+  // E-IMZO работал через установленную Java). Путь процесса — один раз на pid.
+  static readonly Regex PwTitle = new Regex("(?i)e-?imzo|parol|\\u043f\\u0430\\u0440\\u043e\\u043b\\u044c|password|kalit|\\u043a\\u043b\\u044e\\u0447");
+  static readonly Dictionary<uint, string> paths = new Dictionary<uint, string>();
+  static string ExePath(uint pid) {
+    string v; if (paths.TryGetValue(pid, out v)) return v;
+    v = "";
+    IntPtr p = OpenProcess(0x1000, false, pid);
+    if (p != IntPtr.Zero) {
+      try { StringBuilder sb = new StringBuilder(1024); int n = 1024; if (QueryFullProcessImageName(p, 0, sb, ref n)) v = sb.ToString(); }
+      finally { CloseHandle(p); }
+    }
+    paths[pid] = v; return v;
+  }
+  static string Title(IntPtr h) { StringBuilder sb = new StringBuilder(256); GetWindowText(h, sb, 256); return sb.ToString(); }
+  public static bool IsEimzo(IntPtr h) {
+    if (h == IntPtr.Zero) return false;
+    uint pid; GetWindowThreadProcessId(h, out pid);
+    string exe = ExePath(pid).ToLowerInvariant();
+    if (exe.Contains("e-imzo") || exe.Contains("eimzo")) return true;
+    string name = System.IO.Path.GetFileNameWithoutExtension(exe);
+    return (name == "java" || name == "javaw") && PwTitle.IsMatch(Title(h));
+  }
+  public static string Diag = "";
+  // Видимое окно E-IMZO с заголовком; окно пароля — в первую очередь
+  public static IntPtr Find() {
+    List<IntPtr> found = new List<IntPtr>(); List<string> titles = new List<string>();
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h)) return true;
+      string t = Title(h); if (t.Length == 0) return true;
+      if (IsEimzo(h)) { found.Add(h); titles.Add(t); }
+      return true;
+    }, IntPtr.Zero);
+    Diag = "wins:" + string.Join("|", titles.ToArray());
+    for (int i = 0; i < found.Count; i++) if (PwTitle.IsMatch(titles[i]) && !Regex.IsMatch(titles[i], "^(?i)e-?imzo$")) return found[i];
+    return found.Count > 0 ? found[0] : IntPtr.Zero;
+  }
+  public static bool Mine() { return IsEimzo(GetForegroundWindow()); }
+  public static string FgTitle() { return Title(GetForegroundWindow()); }
+  // Прозрачное окно по-прежнему получает клавиши, но на экране его нет
+  public static void Hide(IntPtr h) {
+    try { SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x80000); SetLayeredWindowAttributes(h, 0, 0, 2); } catch { }
+  }
+  public static void Reveal(IntPtr h) {
+    try { if (IsWindow(h)) SetLayeredWindowAttributes(h, 0, 255, 2); } catch { }
+  }
   // Ввод пароля в окно E-IMZO (Java). История (13.11.2026):
   //  • SendKeys — клавиши в текущей раскладке: при русской получалась кириллица;
   //  • Unicode-символы (KEYEVENTF_UNICODE) — Java принимает их через раз,
@@ -393,8 +457,8 @@ public class HWin {
   // и печатаем обычными клавишами по английской раскладке (VkKeyScanEx), с Shift
   // где нужно, без спешки. Символ, которого на английской клавиатуре нет, —
   // Unicode. Перед каждой клавишей — проверка, что впереди окно E-IMZO.
-  public static string TypeInto(uint[] pids, string s, IntPtr h) {
-    if (!Mine(pids)) return "focus_lost";
+  public static string TypeInto(string s, IntPtr h) {
+    if (!Mine()) return "focus_lost";
     IntPtr us = LoadKeyboardLayout("00000409", 1);
     if (us != IntPtr.Zero && h != IntPtr.Zero) { PostMessage(h, 0x0050, IntPtr.Zero, us); System.Threading.Thread.Sleep(350); }
     Key(0x11, 0, 0); Key(0x41, 0, 0); Key(0x41, 0, 2); Key(0x11, 0, 2);
@@ -402,7 +466,7 @@ public class HWin {
     Key(0x08, 0, 0); Key(0x08, 0, 2);
     System.Threading.Thread.Sleep(80);
     foreach (char c in s) {
-      if (!Mine(pids)) return "focus_lost";
+      if (!Mine()) return "focus_lost";
       short vs = us != IntPtr.Zero ? VkKeyScanEx(c, us) : (short)-1;
       if (vs == -1 || ((vs >> 8) & 6) != 0) {
         Key(0, c, 4); Key(0, c, 4 | 2);
@@ -416,7 +480,7 @@ public class HWin {
       System.Threading.Thread.Sleep(60);
     }
     System.Threading.Thread.Sleep(250);
-    if (!Mine(pids)) return "focus_lost";
+    if (!Mine()) return "focus_lost";
     Key(0x0D, 0, 0); Key(0x0D, 0, 2);
     return "typed";
   }
@@ -427,64 +491,50 @@ public class HWin {
 $dll = Join-Path $env:HOSTELLA_EIMZO_DIR ('hostella-eimzo-' + $env:HOSTELLA_EIMZO_HASH + '.dll')
 if (-not (Test-Path $dll)) { try { Add-Type -TypeDefinition $src -OutputAssembly $dll -OutputType Library } catch { } }
 if (Test-Path $dll) { Add-Type -Path $dll } else { Add-Type -TypeDefinition $src }
-# Процессы E-IMZO: «E-IMZO» в пути или в имени; Java (java/javaw) — если её
-# окно названо E-IMZO / пароль / kalit (14.11.2026: на кассе хостела №1 окно
-# не находилось — E-IMZO там может работать через установленную Java)
-$script:diag = ''
-function EimzoPids {
-  $all = @(Get-Process -ErrorAction SilentlyContinue)
-  $byPath = @($all | Where-Object { try { ($_.Path -like '*E-IMZO*') -or ($_.ProcessName -like '*E-IMZO*') -or ($_.ProcessName -like '*eimzo*') } catch { $false } })
-  $java = @($all | Where-Object { $_.ProcessName -in @('java', 'javaw') -and $_.MainWindowTitle -match '(?i)e-?imzo|parol|пароль|password|kalit|ключ' })
-  $script:diag = 'eimzo:' + $byPath.Count + ' java:' + $java.Count + ' ' + ((@($byPath) + @($java) | Select-Object -First 3 | ForEach-Object { try { $_.ProcessName + '=' + $_.Path } catch { $_.ProcessName } }) -join ';')
-  @(@($byPath) + @($java) | ForEach-Object { [uint32]$_.Id })
-}
-function FindWin($pids) {
-  $found = New-Object System.Collections.ArrayList
-  [HWin]::EnumWindows({ param($h, $l)
-    if ([HWin]::IsWindowVisible($h)) {
-      $p = [uint32]0; [void][HWin]::GetWindowThreadProcessId($h, [ref]$p)
-      if ($pids -contains $p) {
-        $sb = New-Object System.Text.StringBuilder 256; [void][HWin]::GetWindowText($h, $sb, 256)
-        if ($sb.Length -gt 0) { [void]$found.Add(@{ h = $h; t = $sb.ToString() }) }
-      }
-    }
-    return $true }, [IntPtr]::Zero) | Out-Null
-  $script:diag += ' wins:' + (($found | ForEach-Object { $_.t }) -join '|')
-  $pref = $found | Where-Object { $_.t -match '(?i)parol|пароль|password|kalit|ключ' } | Select-Object -First 1
-  if ($pref) { return $pref.h }
-  if ($found.Count -gt 0) { return $found[0].h }
-  return [IntPtr]::Zero
+# Готов; ждём, пока программа нажмёт «Kirish» (строка «go»). Иное — отбой.
+Write-Output 'ready'
+$go = [Console]::In.ReadLine()
+if ($go -ne 'go') { Write-Output 'cancelled'; exit 0 }
+$hide = $env:HOSTELLA_EIMZO_HIDE -eq '1'
+# Процессы E-IMZO для подробностей — только когда окно так и не нашлось
+function ProcDiag {
+  $all = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '(?i)e-?imzo|^javaw?$' })
+  'procs:' + (($all | Select-Object -First 4 | ForEach-Object { try { $_.ProcessName + '=' + $_.Path } catch { $_.ProcessName } }) -join ';')
 }
 $deadline = (Get-Date).AddSeconds([int]$env:HOSTELLA_EIMZO_WAIT)
 $seen = $false
+$h = [IntPtr]::Zero
 while ((Get-Date) -lt $deadline) {
-  $pids = EimzoPids
-  $h = [IntPtr]::Zero
-  if ($pids.Count -gt 0) { $h = FindWin $pids }
+  $h = [HWin]::Find()
   # Окно пароля было и пропало до ввода — кассир нажал «Отмена» или крестик
-  if ($seen -and $h -eq [IntPtr]::Zero) { Write-Output ('diag: ' + $script:diag); Write-Output 'closed'; exit 0 }
-  if ($pids.Count -gt 0) {
-    if ($h -ne [IntPtr]::Zero) {
-      $seen = $true
-      [void][HWin]::ShowWindow($h, 9)
-      [System.Windows.Forms.SendKeys]::SendWait('%')
-      [void][HWin]::SetForegroundWindow($h)
-      Start-Sleep -Milliseconds 400
-      $fg = [HWin]::GetForegroundWindow(); $fp = [uint32]0; [void][HWin]::GetWindowThreadProcessId($fg, [ref]$fp)
-      if ($pids -contains $fp) {
-        Start-Sleep -Milliseconds 500   # окно Java успевает поставить курсор в поле
-        $res = [HWin]::TypeInto([uint32[]]$pids, $pw, $h)
-        Write-Output ('diag: ' + $script:diag)
-        Write-Output $res; exit 0
-      } else {
-        $sb = New-Object System.Text.StringBuilder 256; [void][HWin]::GetWindowText($fg, $sb, 256)
-        $script:diag += ' fg:' + $sb.ToString()
+  if ($seen -and $h -eq [IntPtr]::Zero) { Write-Output ('diag: ' + [HWin]::Diag); Write-Output 'closed'; exit 0 }
+  if ($h -ne [IntPtr]::Zero) {
+    $seen = $true
+    if ($hide) { [HWin]::Hide($h) }
+    [void][HWin]::ShowWindow($h, 9)
+    [System.Windows.Forms.SendKeys]::SendWait('%')
+    [void][HWin]::SetForegroundWindow($h)
+    Start-Sleep -Milliseconds 300
+    if ([HWin]::Mine()) {
+      Start-Sleep -Milliseconds 400   # окно Java успевает поставить курсор в поле
+      $res = [HWin]::TypeInto($pw, $h)
+      if ($res -eq 'typed') {
+        # Пароль принят — окно закрывается само. Осталось — показываем кассиру
+        for ($i = 0; $i -lt 10; $i++) { Start-Sleep -Milliseconds 400; if (-not [HWin]::IsWindow($h) -or -not [HWin]::IsWindowVisible($h)) { break } }
       }
+      [HWin]::Reveal($h)
+      Write-Output ('diag: ' + [HWin]::Diag + $(if ($hide) { ' hidden' } else { '' }))
+      Write-Output $res; exit 0
+    } else {
+      # Вперёд не вышло — окно видно, кассир может ввести пароль сам
+      [HWin]::Reveal($h)
+      [HWin]::Diag += ' fg:' + [HWin]::FgTitle()
     }
   }
-  Start-Sleep -Milliseconds 700
+  Start-Sleep -Milliseconds 100
 }
-Write-Output ('diag: ' + $script:diag)
+if ($h -ne [IntPtr]::Zero) { [HWin]::Reveal($h) }
+Write-Output ('diag: ' + [HWin]::Diag + ' ' + (ProcDiag))
 Write-Output 'no_window'
 `;
 
@@ -494,11 +544,16 @@ Write-Output 'no_window'
 // что было впереди) — в журнал и в причину неудачного входа
 let lastEimzoDiag = '';
 const eimzoDiag = () => lastEimzoDiag;
-function typeEimzoPassword(password, { waitSec = 60, log, scriptDir } = {}) {
+// Помощник запускается заранее: go() — «Kirish» нажат, искать окно и печатать;
+// cancel() — входа не будет. result — итог: typed / closed / no_window / ...
+function startEimzoHelper(password, { waitSec = 60, log, scriptDir, hide = true } = {}) {
   const { spawn } = require('child_process');
   const fs = require('fs');
   const path = require('path');
-  return new Promise((resolve) => {
+  let ps = null;
+  let sent = false;
+  let rearm = null;
+  const result = new Promise((resolve) => {
     if (!password) { resolve('no_password'); return; }
     let file;
     try {
@@ -506,36 +561,50 @@ function typeEimzoPassword(password, { waitSec = 60, log, scriptDir } = {}) {
       fs.writeFileSync(file, '﻿' + EIMZO_PS, 'utf8');
     } catch (e) { resolve('script_failed'); return; }
     let out = '';
-    let ps;
     try {
       ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], {
         windowsHide: true,
-        env: { ...process.env, HOSTELLA_EIMZO_WAIT: String(waitSec),
+        env: { ...process.env, HOSTELLA_EIMZO_WAIT: String(waitSec), HOSTELLA_EIMZO_HIDE: hide ? '1' : '0',
           HOSTELLA_EIMZO_DIR: scriptDir || require('os').tmpdir(),
           HOSTELLA_EIMZO_HASH: require('crypto').createHash('sha1').update(EIMZO_PS).digest('hex').slice(0, 10) },
       });
     } catch (e) { resolve('spawn_failed'); return; }
     lastEimzoDiag = '';
-    // Запас на запуск PowerShell и первую сборку помощника на слабом компьютере
-    const timer = setTimeout(() => { try { ps.kill(); } catch (_) {} lastEimzoDiag = 'killed'; resolve('timeout'); }, (waitSec + 60) * 1000);
+    // Запас на запуск PowerShell и первую сборку помощника на слабом компьютере;
+    // после go отсчёт начинается заново
+    const kill = () => { try { ps.kill(); } catch (_) {} lastEimzoDiag = 'killed'; resolve('timeout'); };
+    let timer = setTimeout(kill, (waitSec + 180) * 1000);
+    rearm = () => { clearTimeout(timer); timer = setTimeout(kill, (waitSec + 60) * 1000); };
     ps.on('error', () => { clearTimeout(timer); resolve('spawn_failed'); });
     ps.stdout.on('data', (d) => { out += String(d); });
     ps.stderr.on('data', (d) => { if (log) log.warn('[kadastr] eimzo ps:', String(d).slice(0, 200)); });
     ps.on('close', () => {
       clearTimeout(timer);
-      const lines = out.trim().split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+      const lines = out.trim().split(/\r?\n/).map(x => x.trim()).filter(Boolean).filter(x => x !== 'ready');
       const d = lines.filter(x => x.startsWith('diag:')).pop();
       if (d) lastEimzoDiag = d.slice(5).trim().slice(0, 400);
       if (log && lastEimzoDiag) log.info('[kadastr] eimzo:', lastEimzoDiag);
       resolve((lines.filter(x => !x.startsWith('diag:')).pop() || 'no_output').trim());
     });
+    ps.stdin.on('error', () => {});
     ps.stdin.write(String(password) + '\n');
-    ps.stdin.end();
   });
+  const go = () => {
+    if (!ps || sent) return result;
+    sent = true;
+    try { if (rearm) rearm(); ps.stdin.write('go\n'); ps.stdin.end(); } catch (_) {}
+    return result;
+  };
+  const cancel = () => {
+    if (!ps || sent) return;
+    sent = true;
+    try { ps.stdin.write('stop\n'); ps.stdin.end(); } catch (_) {}
+  };
+  return { go, cancel, result };
 }
 
 module.exports = {
   KADASTR_ORIGIN, isKadastrUrl, safePayUrl,
   buildOneIdLoginScript, buildListovkaScript, buildPayFillScript, buildOtpSubmitScript, buildListFetchScript, PAY_DONE_CHECK,
-  typeEimzoPassword, eimzoDiag, EIMZO_PS,
+  startEimzoHelper, eimzoDiag, EIMZO_PS,
 };

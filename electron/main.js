@@ -470,10 +470,62 @@ const isPortalLogin = (win) => {
   try { return /^\/login\b/i.test(new URL(win.webContents.getURL()).pathname); } catch (_) { return false; }
 };
 const LOGIN_BANNER = "(function(){try{if(document.getElementById('__hostellaLoginLock'))return;var d=document.createElement('div');d.id='__hostellaLoginLock';d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#e88c40;color:#fff;font:600 15px/1.35 Segoe UI,Arial,sans-serif;padding:10px 16px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25)';d.textContent='Введите цифры с картинки и нажмите «Kirish». Окно закроется само после входа  •  Rasmdagi raqamlarni kiriting va «Kirish» tugmasini bosing. Kirgandan so‘ng oyna o‘zi yopiladi';document.documentElement.appendChild(d);}catch(e){}})()";
+// Сайт e-mehmon не ответил (502/503/504 или страница не загрузилась). Решение
+// владельца 20.11.2026: окно с ошибкой не должно мешать работать — замок
+// снимается (не поверх программы, можно закрыть и свернуть), фоновое окно
+// прячется само, а программа тихо повторяет попытку. Раньше страница ошибки
+// («не /login») считалась входом, а окно входа держалось поверх всего.
+const PORTAL_DOWN_BANNER = (code) => "(function(){try{var o=document.getElementById('__hostellaLoginLock');if(o)o.remove();var d=document.createElement('div');d.id='__hostellaLoginLock';d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#e11d48;color:#fff;font:600 15px/1.35 Segoe UI,Arial,sans-serif;padding:10px 16px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25)';d.textContent='Сайт e-mehmon сейчас не отвечает (" + code + "). Окно можно закрыть и работать дальше  •  e-mehmon sayti hozir javob bermayapti (" + code + "). Oynani yopib, ishni davom ettirishingiz mumkin';document.documentElement.appendChild(d);}catch(e){}})()";
 const lockUntilLogin = (win) => {
   let locked = false;
+  // Ответ сайта на последний переход: код HTTP, -1 — страница не загрузилась
+  let lastCode = 0;
+  let retryTimer = null;
+  const portalDown = () => lastCode >= 500 || lastCode === -1;
+  win.webContents.on('did-navigate', (_e, _url, code) => { lastCode = Number(code) || 0; });
+  win.webContents.on('did-start-navigation', (e, _url, inPage, isMain) => {
+    const main = e && typeof e.isMainFrame === 'boolean' ? e.isMainFrame : isMain;
+    const same = e && typeof e.isSameDocument === 'boolean' ? e.isSameDocument : inPage;
+    if (main && !same) lastCode = 0;
+  });
+  win.webContents.on('did-fail-load', (_e, errCode, _desc, _url, isMain) => {
+    // -3 — переход отменён (свой редирект), это не сбой
+    if (isMain && errCode !== -3) { lastCode = -1; sync(); }
+  });
+  // Фоновые проверки (убытие, авто-регистрация, сверка) на странице ошибки
+  // решают «нужен человек» и показывают окно — раз в минуту поверх работы.
+  // Пока сайт не отвечает, окно на экран не выходит, где бы его ни показывали.
+  const nativeShow = win.show.bind(win);
+  const nativeFocus = win.focus.bind(win);
+  win.show = () => { if (portalDown()) { log.info('[emehmon] сайт не отвечает (' + lastCode + ') — окно не показываю'); return; } nativeShow(); };
+  win.focus = () => { if (portalDown() && !win.isVisible()) return; nativeFocus(); };
   const sync = () => {
     if (win.isDestroyed()) return;
+    if (portalDown()) {
+      // Ничего не держим: не поверх программы, крестик и «свернуть» работают
+      try { win.setAlwaysOnTop(false); win.setClosable(true); win.setMinimizable(true); } catch (_) {}
+      if (win.isVisible()) {
+        const after = typeof win.__afterLogin === 'function' ? win.__afterLogin() : 'hide';
+        // Фоновое окно (убытие, авто-регистрация) кассиру не нужно — прячем
+        if (after === 'hide') { try { win.hide(); } catch (_) {} }
+        else {
+          const code = lastCode > 0 ? String(lastCode) : 'нет связи';
+          win.webContents.executeJavaScript(PORTAL_DOWN_BANNER(code), true).catch(() => {});
+        }
+      }
+      // Тихий повтор: открытое окно — через 15 с, спрятанное — через минуту.
+      // Вход «не состоялся»: после ответа сайта замок решит заново.
+      if (!retryTimer) {
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          if (win.isDestroyed() || !portalDown()) return;
+          let url = ''; try { url = win.webContents.getURL(); } catch (_) {}
+          if (!url || !isEmehmonUrl(url)) url = buildEmehmonUrl('/login');
+          win.loadURL(url).catch(() => {});
+        }, win.isVisible() ? 15000 : 60000);
+      }
+      return;
+    }
     const onLogin = isPortalLogin(win);
     if (onLogin) {
       locked = true;
@@ -502,12 +554,12 @@ const lockUntilLogin = (win) => {
   win.on('show', sync);
   // Свернули (Win+D, панель задач) на странице входа — разворачиваем обратно
   win.on('minimize', () => {
-    if (appQuitting || win.isDestroyed() || !isPortalLogin(win)) return;
+    if (appQuitting || win.isDestroyed() || !isPortalLogin(win) || portalDown()) return;
     setTimeout(() => { try { if (!win.isDestroyed()) { win.restore(); win.focus(); } } catch (_) {} }, 50);
   });
   win.on('close', (e) => {
     if (appQuitting || !mainWindow || mainWindow.isDestroyed()) return;
-    if (win.isVisible() && isPortalLogin(win)) {
+    if (win.isVisible() && isPortalLogin(win) && !portalDown()) {
       e.preventDefault();
       win.webContents.executeJavaScript(LOGIN_BANNER, true).catch(() => {});
       try { win.flashFrame(true); win.focus(); } catch (_) {}
@@ -1213,8 +1265,13 @@ async function kadastrLoginRun(win, st) {
   if (!/id\.egov\.uz$/.test(hostNow())) return 'oneid_not_opened:' + hostNow() + pathNow();
   let r;
   kadStage('key');
+  // Помощник ввода пароля запускается заранее, пока выбирается ключ, — на
+  // слабой кассе запуск PowerShell отнимал время уже при открытом окне пароля
+  // (20.11.2026); окно пароля на время ввода прозрачное
+  const helper = kadastrPortal.startEimzoHelper(st.eimzoPassword, { waitSec: 45, log, scriptDir: app.getPath('userData') });
   try { r = await kadJs(win, kadastrPortal.buildOneIdLoginScript({ cert: st.cert }), true); }
   catch (e) { r = { status: 'error', message: e.message }; }
+  if (!r || r.status !== 'clicked') helper.cancel();
   // OneID помнил вход и сам вернул на сайт кадастра, пока выбирали ключ
   if ((!r || r.status !== 'clicked') && await waitUntil(() => hostNow() === 'reg.emehmon.uz', 8000)) {
     if (!onListovka(win)) await kadLoad(win, kadastrPortal.KADASTR_ORIGIN + '/listovka').catch(() => {});
@@ -1222,7 +1279,7 @@ async function kadastrLoginRun(win, st) {
   }
   if (!r || r.status !== 'clicked') return ((r && r.status) || 'oneid_error') + (r && r.page ? ' | ' + String(r.page).slice(0, 160) : '');
   kadStage('password');
-  const typed = await kadastrPortal.typeEimzoPassword(st.eimzoPassword, { waitSec: 45, log, scriptDir: app.getPath('userData') });
+  const typed = await helper.go();
   // Подробности ввода (процессы и окна E-IMZO) — в причину: она уходит в общий
   // журнал ошибок, и сбой на чужой кассе видно без её журнала (14.11.2026)
   const diag = kadastrPortal.eimzoDiag();

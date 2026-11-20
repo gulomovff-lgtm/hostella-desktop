@@ -52,15 +52,44 @@ test('скрипты страницы собираются и не тащат д
 });
 
 test('пароль ЭЦП печатается только в окно E-IMZO и не идёт в командную строку', () => {
-  assert.ok(kp.EIMZO_PS.includes("$_.Path -like '*E-IMZO*'"), 'процесс E-IMZO — по пути или имени');
-  assert.match(kp.EIMZO_PS, /\$_\.ProcessName -in @\('java', 'javaw'\) -and \$_\.MainWindowTitle -match/, 'Java — только с окном E-IMZO/пароля');
-  assert.doesNotMatch(kp.EIMZO_PS, /diag[^\n]*\$pw/, 'пароль не попадает в подробности');
+  assert.match(kp.EIMZO_PS, /exe\.Contains\("e-imzo"\)/, 'процесс E-IMZO — по пути');
+  assert.match(kp.EIMZO_PS, /\(name == "java" \|\| name == "javaw"\) && PwTitle\.IsMatch/, 'Java — только с окном E-IMZO/пароля');
+  assert.doesNotMatch(kp.EIMZO_PS, /diag[^\n]*\$pw/i, 'пароль не попадает в подробности');
   assert.match(kp.EIMZO_PS, /-OutputAssembly \$dll/, 'помощник собирается один раз и кэшируется');
   assert.match(kp.EIMZO_PS, /\[Console\]::In\.ReadLine\(\)/);
-  assert.match(kp.EIMZO_PS, /if \(\$pids -contains \$fp\)/, 'перед вводом впереди окно E-IMZO');
-  const fn = kp.typeEimzoPassword.toString();
+  assert.match(kp.EIMZO_PS, /if \(\[HWin\]::Mine\(\)\)/, 'перед вводом впереди окно E-IMZO');
+  assert.match(kp.EIMZO_PS, /if \(!Mine\(\)\) return "focus_lost"/, 'перед каждой клавишей — окно E-IMZO');
+  const fn = kp.startEimzoHelper.toString();
   assert.match(fn, /ps\.stdin\.write\(String\(password\)/);
   assert.doesNotMatch(fn, /'-Command'/);
+});
+
+test('окно пароля E-IMZO прозрачное на время ввода, помощник готов заранее (20.11.2026)', () => {
+  assert.match(kp.EIMZO_PS, /if \(\$hide\) \{ \[HWin\]::Hide\(\$h\) \}/);
+  assert.match(kp.EIMZO_PS, /SetLayeredWindowAttributes\(h, 0, 0, 2\)/, 'альфа 0');
+  // Не вышло вперёд / не напечатали / окно осталось — снова видно, ввести руками
+  const loop = kp.EIMZO_PS.slice(kp.EIMZO_PS.indexOf('while ((Get-Date)'));
+  assert.equal((loop.match(/\[HWin\]::Reveal\(\$h\)/g) || []).length, 3);
+  assert.match(kp.EIMZO_PS, /\$go = \[Console\]::In\.ReadLine\(\)\s+if \(\$go -ne 'go'\)/, 'ищет окно только после «Kirish»');
+  const run = mainSrc.slice(mainSrc.indexOf('async function kadastrLoginRun'), mainSrc.indexOf('async function kadastrLoginRun') + 4000);
+  assert.ok(run.indexOf('startEimzoHelper(') < run.indexOf('buildOneIdLoginScript('), 'помощник запущен до выбора ключа');
+  assert.match(run, /if \(!r \|\| r\.status !== 'clicked'\) helper\.cancel\(\)/);
+  assert.match(run, /const typed = await helper\.go\(\)/);
+});
+
+test('e-mehmon ответил 502/503 — окно не мешает работать (20.11.2026)', () => {
+  const lock = mainSrc.slice(mainSrc.indexOf('const lockUntilLogin'), mainSrc.indexOf('const hardenEmehmonWindow'));
+  assert.match(lock, /const portalDown = \(\) => lastCode >= 500 \|\| lastCode === -1/);
+  assert.match(lock, /'did-navigate', \(_e, _url, code\) => \{ lastCode = Number\(code\) \|\| 0/);
+  // Сбой проверяется раньше, чем «не страница входа — значит вошли»
+  assert.ok(lock.indexOf('if (portalDown())') < lock.indexOf('const onLogin = isPortalLogin(win)'));
+  const down = lock.slice(lock.indexOf('if (portalDown())'), lock.indexOf('const onLogin = isPortalLogin(win)'));
+  assert.match(down, /win\.setAlwaysOnTop\(false\); win\.setClosable\(true\); win\.setMinimizable\(true\)/, 'замок снят');
+  assert.match(down, /if \(after === 'hide'\) \{ try \{ win\.hide\(\)/, 'фоновое окно прячется');
+  assert.match(down, /win\.loadURL\(url\)/, 'тихий повтор');
+  // Автоматика не вытаскивает окно на экран, пока сайт не отвечает
+  assert.match(lock, /win\.show = \(\) => \{ if \(portalDown\(\)\) \{/);
+  assert.match(lock, /isPortalLogin\(win\) && !portalDown\(\)\) \{\s*e\.preventDefault\(\)/, 'крестик на странице ошибки закрывает');
 });
 
 test('секреты кадастра — на сервере по филиалам; рендереру только маски', () => {
